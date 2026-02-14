@@ -1122,3 +1122,33 @@ def test_list_command_format_template_with_agent(
         assert agent_name in result.output
         # The output should contain a tab-separated line with agent name and state
         assert f"{agent_name}\t" in result.output
+
+
+def test_list_command_format_template_mutually_exclusive_with_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --format-template and --format cannot be used together."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--format-template", "{name}", "--format", "json"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_list_command_format_template_invalid_syntax(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that an invalid format template produces a clear error."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--format-template", "{"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid format template" in result.output
