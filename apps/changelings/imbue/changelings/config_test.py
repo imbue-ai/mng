@@ -9,6 +9,7 @@ from imbue.changelings.config import get_changeling
 from imbue.changelings.config import load_config
 from imbue.changelings.config import remove_changeling
 from imbue.changelings.config import save_config
+from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingConfig
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingAlreadyExistsError
@@ -16,17 +17,6 @@ from imbue.changelings.errors import ChangelingConfigError
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CronSchedule
-
-
-def _make_test_definition(
-    name: str = "test-guardian",
-    agent_type: str = "code-guardian",
-) -> ChangelingDefinition:
-    """Create a ChangelingDefinition for testing."""
-    return ChangelingDefinition(
-        name=ChangelingName(name),
-        agent_type=agent_type,
-    )
 
 
 def test_load_config_returns_empty_when_no_file_exists() -> None:
@@ -37,7 +27,7 @@ def test_load_config_returns_empty_when_no_file_exists() -> None:
 
 def test_save_and_load_config_roundtrips_single_changeling() -> None:
     """Saving and loading a config with one changeling should roundtrip correctly."""
-    definition = _make_test_definition()
+    definition = make_test_changeling(name="test-guardian")
     config = ChangelingConfig(
         changeling_by_name={definition.name: definition},
     )
@@ -55,8 +45,8 @@ def test_save_and_load_config_roundtrips_single_changeling() -> None:
 
 def test_save_and_load_config_roundtrips_multiple_changelings() -> None:
     """Saving and loading a config with multiple changelings should roundtrip correctly."""
-    guardian = _make_test_definition(name="my-guardian", agent_type="code-guardian")
-    fairy = _make_test_definition(name="my-fairy", agent_type="claude")
+    guardian = make_test_changeling(name="my-guardian")
+    fairy = make_test_changeling(name="my-fairy", agent_type="claude")
 
     config = ChangelingConfig(
         changeling_by_name={guardian.name: guardian, fairy.name: fairy},
@@ -102,7 +92,7 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
 
 def test_add_changeling_adds_to_config() -> None:
     """add_changeling should persist a new changeling to the config file."""
-    definition = _make_test_definition()
+    definition = make_test_changeling(name="test-guardian")
 
     result = add_changeling(definition)
 
@@ -114,7 +104,7 @@ def test_add_changeling_adds_to_config() -> None:
 
 def test_add_changeling_raises_on_duplicate_name() -> None:
     """add_changeling should raise ChangelingAlreadyExistsError for duplicates."""
-    definition = _make_test_definition()
+    definition = make_test_changeling(name="test-guardian")
     add_changeling(definition)
 
     with pytest.raises(ChangelingAlreadyExistsError, match="test-guardian"):
@@ -123,7 +113,7 @@ def test_add_changeling_raises_on_duplicate_name() -> None:
 
 def test_remove_changeling_removes_from_config() -> None:
     """remove_changeling should remove the changeling from the config file."""
-    definition = _make_test_definition()
+    definition = make_test_changeling(name="test-guardian")
     add_changeling(definition)
 
     result = remove_changeling(ChangelingName("test-guardian"))
@@ -141,7 +131,7 @@ def test_remove_changeling_raises_when_not_found() -> None:
 
 def test_get_changeling_returns_definition() -> None:
     """get_changeling should return the matching ChangelingDefinition."""
-    definition = _make_test_definition()
+    definition = make_test_changeling(name="test-guardian")
     add_changeling(definition)
 
     result = get_changeling(ChangelingName("test-guardian"))
