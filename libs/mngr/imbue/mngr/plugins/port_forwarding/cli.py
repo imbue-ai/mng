@@ -1,3 +1,4 @@
+import atexit
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -50,6 +51,10 @@ def auth_command(show_token: bool, config_dir: Path) -> None:
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w") as temp_file:
         temp_file.write(html_content)
         temp_path = temp_file.name
+
+    # Clean up the temp file (which contains the auth token) when the process exits.
+    # The browser will have had time to read it by then.
+    atexit.register(lambda: Path(temp_path).unlink(missing_ok=True))
 
     logger.info("Opening auth page in browser")
     webbrowser.open(f"file://{temp_path}")
