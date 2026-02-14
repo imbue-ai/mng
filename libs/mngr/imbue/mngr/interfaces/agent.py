@@ -162,7 +162,7 @@ class AgentInterface(MutableModel, ABC):
 
     @abstractmethod
     def get_reported_url(self) -> str | None:
-        """Return the agent's self-reported default URL, or None if not set."""
+        """Return the default URL, or the only URL if exactly one exists."""
         ...
 
     @abstractmethod

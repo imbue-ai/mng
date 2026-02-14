@@ -571,7 +571,13 @@ class BaseAgent(AgentInterface):
 
     def get_reported_url(self) -> str | None:
         urls = self.get_reported_urls()
-        return urls.get("default")
+        default_url = urls.get("default")
+        if default_url is not None:
+            return default_url
+        # Fall back to the only URL if there is exactly one
+        if len(urls) == 1:
+            return next(iter(urls.values()))
+        return None
 
     def get_reported_urls(self) -> dict[str, str]:
         """Return all self-reported URLs from status/urls/.

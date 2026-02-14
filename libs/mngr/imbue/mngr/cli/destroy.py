@@ -89,6 +89,20 @@ def get_agent_name_from_session(session_name: str, prefix: str) -> str | None:
     return agent_name
 
 
+# FIXME: Add --include FILTER option for CEL expression filtering
+# This would allow filtering agents to destroy using CEL expressions like:
+# --include 'name.startsWith("test-")' or --include 'host_provider == "docker"'
+# See mngr list --include for the pattern to follow
+
+# FIXME: Add --exclude FILTER option for CEL expression filtering
+# This would exclude agents matching CEL expressions from destruction:
+# --exclude 'state == "running"' to skip running agents
+# See mngr list --exclude for the pattern to follow
+
+# FIXME: Add --stdin option to read agent names/IDs from stdin
+# This would allow piping agent lists: mngr list --format jsonl | jq -r .name | mngr destroy --stdin
+
+
 class DestroyCliOptions(CommonCliOptions):
     """Options passed from the CLI to the destroy command.
 
