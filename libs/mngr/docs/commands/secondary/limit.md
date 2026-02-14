@@ -30,9 +30,9 @@ mngr limit --agent my-agent --agent another-agent --idle-timeout 1800
 - `--agent AGENT`: Agent(s) to configure. Positional arguments are also accepted as a shorthand. [repeatable]
 - `--host HOST`: Host(s) to configure. [repeatable]
 - `-a, --all, --all-agents`: Apply limits to all agents
-- `--include FILTER`: Filter agents to configure by tags, names, types, hosts, etc.
-- `--exclude FILTER`: Exclude agents matching filter from configuration
-- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line)
+- `--include FILTER`: Filter agents to configure by tags, names, types, hosts, etc. [future]
+- `--exclude FILTER`: Exclude agents matching filter from configuration [future]
+- `--stdin`: Read agents and hosts (ids or names) from stdin (one per line) [future]
 - `--dry-run`: Show what limits would be changed without actually changing them
 
 ## Lifecycle
@@ -62,6 +62,6 @@ mngr limit --agent my-agent --agent another-agent --idle-timeout 1800
 
 ## SSH Keys
 
-- `--refresh-ssh-keys`: Refresh the SSH keys for the host
-- `--add-ssh-key FILE`: Add an SSH public key to the host for access [repeatable]
-- `--remove-ssh-key FILE`: Remove an SSH public key from the host [repeatable]
+- `--refresh-ssh-keys`: Refresh the SSH keys for the host [future]
+- `--add-ssh-key FILE`: Add an SSH public key to the host for access [repeatable] [future]
+- `--remove-ssh-key FILE`: Remove an SSH public key from the host [repeatable] [future]
