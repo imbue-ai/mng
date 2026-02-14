@@ -586,6 +586,9 @@ class ClaudeAgent(BaseAgent):
         to ~/.claude/projects/<encoded-dest-path>/ so that session transcripts,
         subagent data, and auto-memory are preserved. Also writes the latest
         session ID to the new agent's state dir so --resume picks it up.
+
+        For remote hosts, rewrites sessions-index.json so that fullPath and
+        projectPath entries point to the correct remote paths.
         """
         source_dir_name = encode_claude_project_dir_name(source_work_dir)
         dest_dir_name = encode_claude_project_dir_name(self.work_dir)
@@ -605,13 +608,38 @@ class ClaudeAgent(BaseAgent):
                     f"cp -a {shlex.quote(str(source_project_dir))} {shlex.quote(str(dest_project_dir))}",
                     timeout_seconds=60.0,
                 )
+                # Rewrite sessions-index.json paths if source and dest dirs differ
+                if source_dir_name != dest_dir_name:
+                    self._rewrite_sessions_index(
+                        host,
+                        dest_project_dir,
+                        str(source_project_dir),
+                        str(dest_project_dir),
+                        source_work_dir,
+                    )
             else:
                 dest_project_dir = Path(".claude/projects") / dest_dir_name
+                # Resolve the remote home directory for rewriting absolute paths
+                home_result = host.execute_command("echo $HOME", timeout_seconds=5.0)
+                remote_home = home_result.stdout.strip() if home_result.success else "/root"
+                remote_project_dir_abs = Path(remote_home) / ".claude" / "projects" / dest_dir_name
+
                 for file_path in source_project_dir.rglob("*"):
                     if file_path.is_file():
                         relative_path = file_path.relative_to(source_project_dir)
                         remote_path = dest_project_dir / relative_path
-                        host.write_text_file(remote_path, file_path.read_text())
+                        content = file_path.read_text()
+
+                        # Rewrite sessions-index.json paths for the remote host
+                        if file_path.name == "sessions-index.json":
+                            content = self._rewrite_sessions_index_content(
+                                content,
+                                str(source_project_dir),
+                                str(remote_project_dir_abs),
+                                source_work_dir,
+                            )
+
+                        host.write_text_file(remote_path, content)
 
             # Find the latest session ID from the most recently modified .jsonl file
             jsonl_files = sorted(source_project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
@@ -622,6 +650,52 @@ class ClaudeAgent(BaseAgent):
                 logger.debug("Wrote session ID {} to agent state dir", latest_session_id)
             else:
                 logger.debug("No .jsonl session files found in source project dir")
+
+    def _rewrite_sessions_index_content(
+        self,
+        content: str,
+        source_project_dir: str,
+        dest_project_dir: str,
+        source_work_dir: Path,
+    ) -> str:
+        """Rewrite fullPath and projectPath in sessions-index.json content.
+
+        Replaces the source project directory prefix with the dest prefix in
+        fullPath entries, and replaces projectPath with the new work_dir.
+        """
+        try:
+            index = json.loads(content)
+        except json.JSONDecodeError:
+            logger.debug("Failed to parse sessions-index.json, transferring as-is")
+            return content
+
+        for entry in index.get("entries", []):
+            if "fullPath" in entry:
+                entry["fullPath"] = entry["fullPath"].replace(source_project_dir, dest_project_dir)
+            if "projectPath" in entry:
+                entry["projectPath"] = str(self.work_dir)
+
+        return json.dumps(index, indent=2) + "\n"
+
+    def _rewrite_sessions_index(
+        self,
+        host: OnlineHostInterface,
+        dest_project_dir: Path,
+        source_project_dir_str: str,
+        dest_project_dir_str: str,
+        source_work_dir: Path,
+    ) -> None:
+        """Rewrite sessions-index.json in the dest project directory after a local copy."""
+        index_path = dest_project_dir / "sessions-index.json"
+        try:
+            content = host.read_text_file(index_path)
+        except FileNotFoundError:
+            return
+
+        rewritten = self._rewrite_sessions_index_content(
+            content, source_project_dir_str, dest_project_dir_str, source_work_dir
+        )
+        host.write_text_file(index_path, rewritten)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""
