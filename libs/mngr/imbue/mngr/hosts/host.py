@@ -252,6 +252,7 @@ class Host(BaseHost, OnlineHostInterface):
                                 filename_or_io,
                                 remote_temp_filename=remote_temp_filename,
                             )
+                        # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                         except Exception as retry_exception:
                             raise HostConnectionError(
                                 "Connection was closed while reading file (and our retry failed)"
@@ -296,6 +297,7 @@ class Host(BaseHost, OnlineHostInterface):
                             remote_filename,
                             remote_temp_filename=remote_temp_filename,
                         )
+                    # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                     except Exception as retry_exception:
                         raise HostConnectionError(
                             "Connection was closed while writing file (and our retry failed)"

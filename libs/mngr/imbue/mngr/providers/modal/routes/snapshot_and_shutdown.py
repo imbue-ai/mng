@@ -189,6 +189,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
                 "snapshot_name": snapshot_name,
             }
 
+        # note: do NOT change this--this is just here temporarily while we are debugging intermittent failures during snapshotting
         except BaseException as e:
             logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
             raise
