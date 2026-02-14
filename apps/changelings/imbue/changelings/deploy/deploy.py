@@ -42,8 +42,9 @@ def build_deploy_env(
     app_name: str,
     config_json: str,
     cron_schedule: str,
-    repo_root: str,
     secret_name: str,
+    repo_clone_url: str,
+    commit_hash: str,
 ) -> dict[str, str]:
     """Build the environment variables needed for deploying the cron runner.
 
@@ -54,8 +55,9 @@ def build_deploy_env(
         "CHANGELING_MODAL_APP_NAME": app_name,
         "CHANGELING_CONFIG_JSON": config_json,
         "CHANGELING_CRON_SCHEDULE": cron_schedule,
-        "CHANGELING_REPO_ROOT": repo_root,
         "CHANGELING_SECRET_NAME": secret_name,
+        "CHANGELING_REPO_CLONE_URL": repo_clone_url,
+        "CHANGELING_COMMIT_HASH": commit_hash,
     }
 
 
@@ -180,6 +182,45 @@ def find_repo_root() -> Path:
     return Path(result.stdout.strip())
 
 
+def get_current_commit_hash() -> str:
+    """Get the current HEAD commit hash.
+
+    Raises ChangelingDeployError if not inside a git repository.
+    """
+    with ConcurrencyGroup(name="get-commit-hash") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "HEAD"],
+            is_checked_after=False,
+        )
+
+    if result.returncode != 0:
+        raise ChangelingDeployError("Could not get current commit hash") from None
+    return result.stdout.strip()
+
+
+def get_repo_clone_url() -> str:
+    """Get the HTTPS clone URL for the current git repository.
+
+    Converts SSH URLs to HTTPS format since gh auth setup-git works with HTTPS.
+    Raises ChangelingDeployError if the remote URL cannot be determined.
+    """
+    with ConcurrencyGroup(name="get-repo-url") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "remote", "get-url", "origin"],
+            is_checked_after=False,
+        )
+
+    if result.returncode != 0:
+        raise ChangelingDeployError(
+            "Could not get repository clone URL. Make sure the 'origin' remote is configured."
+        ) from None
+    url = result.stdout.strip()
+    # Convert SSH URL to HTTPS (gh auth setup-git works with HTTPS)
+    if url.startswith("git@github.com:"):
+        url = "https://github.com/" + url[len("git@github.com:") :]
+    return url
+
+
 def create_modal_secret(
     changeling: ChangelingDefinition,
     environment_name: str | None = None,
@@ -237,7 +278,8 @@ def deploy_changeling(
     from imbue.changelings.deploy.verification import verify_deployment
 
     app_name = get_modal_app_name(str(changeling.name))
-    repo_root = find_repo_root()
+    repo_clone_url = get_repo_clone_url()
+    commit_hash = get_current_commit_hash()
 
     with log_span("Creating Modal secret for changeling '{}'", changeling.name):
         secret_name = create_modal_secret(changeling, environment_name)
@@ -249,8 +291,9 @@ def deploy_changeling(
         app_name=app_name,
         config_json=config_json,
         cron_schedule=str(changeling.schedule),
-        repo_root=str(repo_root),
         secret_name=secret_name,
+        repo_clone_url=repo_clone_url,
+        commit_hash=commit_hash,
     )
 
     env = {**os.environ, **deploy_env_vars}

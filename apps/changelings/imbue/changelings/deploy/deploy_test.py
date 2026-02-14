@@ -16,8 +16,10 @@ from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
 from imbue.changelings.deploy.deploy import find_repo_root
+from imbue.changelings.deploy.deploy import get_current_commit_hash
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
+from imbue.changelings.deploy.deploy import get_repo_clone_url
 from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
@@ -54,27 +56,30 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
         app_name="changeling-test",
         config_json='{"name": "test"}',
         cron_schedule="0 3 * * *",
-        repo_root="/path/to/repo",
         secret_name="changeling-test-secrets",
+        repo_clone_url="https://github.com/org/repo.git",
+        commit_hash="abc123",
     )
 
     assert env["CHANGELING_MODAL_APP_NAME"] == "changeling-test"
     assert env["CHANGELING_CONFIG_JSON"] == '{"name": "test"}'
     assert env["CHANGELING_CRON_SCHEDULE"] == "0 3 * * *"
-    assert env["CHANGELING_REPO_ROOT"] == "/path/to/repo"
     assert env["CHANGELING_SECRET_NAME"] == "changeling-test-secrets"
+    assert env["CHANGELING_REPO_CLONE_URL"] == "https://github.com/org/repo.git"
+    assert env["CHANGELING_COMMIT_HASH"] == "abc123"
 
 
-def test_build_deploy_env_returns_exactly_five_keys() -> None:
+def test_build_deploy_env_returns_exactly_six_keys() -> None:
     env = build_deploy_env(
         app_name="a",
         config_json="{}",
         cron_schedule="* * * * *",
-        repo_root="/r",
         secret_name="s",
+        repo_clone_url="https://github.com/org/repo.git",
+        commit_hash="abc",
     )
 
-    assert len(env) == 5
+    assert len(env) == 6
 
 
 # -- build_modal_deploy_command tests --
@@ -406,6 +411,54 @@ def test_find_repo_root_raises_outside_git_repo(
 
     with pytest.raises(ChangelingDeployError, match="Could not find git repository root"):
         find_repo_root()
+
+
+# -- get_current_commit_hash tests --
+
+
+def test_get_current_commit_hash_returns_hex_string() -> None:
+    """The commit hash should be a 40-character hex string."""
+    result = get_current_commit_hash()
+
+    assert len(result) == 40
+    assert all(c in "0123456789abcdef" for c in result)
+
+
+def test_get_current_commit_hash_raises_outside_git_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ChangelingDeployError, match="Could not get current commit hash"):
+        get_current_commit_hash()
+
+
+# -- get_repo_clone_url tests --
+
+
+def test_get_repo_clone_url_returns_non_empty_string() -> None:
+    """The clone URL should be a non-empty string."""
+    result = get_repo_clone_url()
+
+    assert len(result) > 0
+
+
+def test_get_repo_clone_url_returns_https_url() -> None:
+    """The clone URL should be an HTTPS URL (SSH URLs are converted)."""
+    result = get_repo_clone_url()
+
+    assert result.startswith("https://")
+
+
+def test_get_repo_clone_url_raises_outside_git_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ChangelingDeployError, match="Could not get repository clone URL"):
+        get_repo_clone_url()
 
 
 # -- parse_agent_name_from_list_json tests --
