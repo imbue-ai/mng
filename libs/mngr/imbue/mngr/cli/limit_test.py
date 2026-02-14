@@ -199,7 +199,6 @@ def test_build_updated_permissions_grant_and_revoke() -> None:
 def test_build_updated_activity_config_idle_timeout() -> None:
     """Test changing just the idle timeout."""
     current = ActivityConfig(
-        idle_mode=IdleMode.IO,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.CREATE, ActivitySource.BOOT),
     )
@@ -212,14 +211,12 @@ def test_build_updated_activity_config_idle_timeout() -> None:
         remove_activity_source=(),
     )
     assert result.idle_timeout_seconds == 300
-    assert result.idle_mode == IdleMode.IO
     assert set(result.activity_sources) == {ActivitySource.CREATE, ActivitySource.BOOT}
 
 
 def test_build_updated_activity_config_idle_mode() -> None:
-    """Test changing the idle mode."""
+    """Test changing the idle mode replaces activity sources with the mode's canonical set."""
     current = ActivityConfig(
-        idle_mode=IdleMode.IO,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.CREATE,),
     )
@@ -232,13 +229,36 @@ def test_build_updated_activity_config_idle_mode() -> None:
         remove_activity_source=(),
     )
     assert result.idle_mode == IdleMode.DISABLED
+    assert result.activity_sources == ()
     assert result.idle_timeout_seconds == 3600
+
+
+def test_build_updated_activity_config_idle_mode_ssh() -> None:
+    """Test that --idle-mode ssh sets the correct activity sources."""
+    current = ActivityConfig(
+        idle_timeout_seconds=3600,
+        activity_sources=(ActivitySource.CREATE,),
+    )
+    result = _build_updated_activity_config(
+        current=current,
+        idle_timeout=None,
+        idle_mode_str="ssh",
+        activity_sources_str=None,
+        add_activity_source=(),
+        remove_activity_source=(),
+    )
+    assert result.idle_mode == IdleMode.SSH
+    assert set(result.activity_sources) == {
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    }
 
 
 def test_build_updated_activity_config_replace_sources() -> None:
     """Test replacing activity sources entirely."""
     current = ActivityConfig(
-        idle_mode=IdleMode.IO,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.CREATE, ActivitySource.BOOT),
     )
@@ -256,7 +276,6 @@ def test_build_updated_activity_config_replace_sources() -> None:
 def test_build_updated_activity_config_add_remove_source() -> None:
     """Test adding and removing activity sources."""
     current = ActivityConfig(
-        idle_mode=IdleMode.IO,
         idle_timeout_seconds=3600,
         activity_sources=(ActivitySource.CREATE, ActivitySource.BOOT),
     )

@@ -25,6 +25,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostOfflineError
+from imbue.mngr.hosts.common import get_activity_sources_for_idle_mode
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -66,8 +67,8 @@ class LimitCliOptions(CommonCliOptions):
 
 
 def _make_idle_mode_choices() -> list[str]:
-    """Get lowercase idle mode choices."""
-    return [m.value.lower() for m in IdleMode]
+    """Get lowercase idle mode choices (excluding CUSTOM, which is derived, not user-settable)."""
+    return [m.value.lower() for m in IdleMode if m != IdleMode.CUSTOM]
 
 
 def _make_activity_source_choices() -> list[str]:
@@ -108,13 +109,22 @@ def _build_updated_activity_config(
     add_activity_source: tuple[str, ...],
     remove_activity_source: tuple[str, ...],
 ) -> ActivityConfig:
-    """Build an updated ActivityConfig by merging current config with requested changes."""
+    """Build an updated ActivityConfig by merging current config with requested changes.
+
+    idle_mode is a computed property on ActivityConfig (derived from activity_sources),
+    so when --idle-mode is specified we convert it to the corresponding activity sources
+    via get_activity_sources_for_idle_mode.
+    """
     new_idle_timeout = idle_timeout if idle_timeout is not None else current.idle_timeout_seconds
-    new_idle_mode = IdleMode(idle_mode_str.upper()) if idle_mode_str else current.idle_mode
 
     if activity_sources_str is not None:
+        # Explicit --activity-sources replaces everything
         new_activity_sources = tuple(ActivitySource(s.strip().upper()) for s in activity_sources_str.split(","))
+    elif idle_mode_str is not None:
+        # --idle-mode sets the canonical activity sources for that mode
+        new_activity_sources = get_activity_sources_for_idle_mode(IdleMode(idle_mode_str.upper()))
     else:
+        # Incremental changes via --add/--remove-activity-source
         current_sources = set(current.activity_sources)
         for source_str in add_activity_source:
             current_sources.add(ActivitySource(source_str.upper()))
@@ -123,7 +133,6 @@ def _build_updated_activity_config(
         new_activity_sources = tuple(current_sources)
 
     return ActivityConfig(
-        idle_mode=new_idle_mode,
         idle_timeout_seconds=new_idle_timeout,
         activity_sources=new_activity_sources,
     )
