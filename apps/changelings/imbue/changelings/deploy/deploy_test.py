@@ -21,6 +21,7 @@ from imbue.changelings.deploy.deploy import get_imbue_repo_url
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_environment_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
+from imbue.changelings.deploy.deploy import get_modal_volume_name
 from imbue.changelings.deploy.deploy import list_mngr_profiles
 from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
 from imbue.changelings.deploy.deploy import read_profile_user_id
@@ -51,6 +52,13 @@ def test_get_modal_secret_name_uses_secrets_suffix() -> None:
     assert result.endswith("-secrets")
 
 
+# -- get_modal_volume_name tests --
+
+
+def test_get_modal_volume_name_includes_changeling_name() -> None:
+    assert get_modal_volume_name("code-guardian") == "changeling-code-guardian-vol"
+
+
 # -- build_deploy_env tests --
 
 
@@ -62,6 +70,7 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
         secret_name="changeling-test-secrets",
         imbue_repo_url="https://github.com/org/imbue.git",
         imbue_commit_hash="abc123",
+        volume_name="changeling-test-vol",
     )
 
     assert env["CHANGELING_MODAL_APP_NAME"] == "changeling-test"
@@ -70,9 +79,10 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
     assert env["CHANGELING_SECRET_NAME"] == "changeling-test-secrets"
     assert env["CHANGELING_IMBUE_REPO_URL"] == "https://github.com/org/imbue.git"
     assert env["CHANGELING_IMBUE_COMMIT_HASH"] == "abc123"
+    assert env["CHANGELING_VOLUME_NAME"] == "changeling-test-vol"
 
 
-def test_build_deploy_env_returns_exactly_six_keys() -> None:
+def test_build_deploy_env_returns_exactly_seven_keys() -> None:
     env = build_deploy_env(
         app_name="a",
         config_json="{}",
@@ -80,9 +90,10 @@ def test_build_deploy_env_returns_exactly_six_keys() -> None:
         secret_name="s",
         imbue_repo_url="https://github.com/org/imbue.git",
         imbue_commit_hash="abc",
+        volume_name="v",
     )
 
-    assert len(env) == 6
+    assert len(env) == 7
 
 
 # -- build_modal_deploy_command tests --

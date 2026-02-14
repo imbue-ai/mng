@@ -31,9 +31,11 @@
 # - CHANGELING_IMBUE_REPO_URL: HTTPS clone URL for the imbue monorepo (tooling)
 # - CHANGELING_IMBUE_COMMIT_HASH: Git commit hash to checkout in the imbue repo
 # - CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
+# - CHANGELING_VOLUME_NAME: Name of the Modal Volume for persistent target repo storage
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -62,16 +64,52 @@ if modal.is_local():
     _IMBUE_REPO_URL: str = _require_env("CHANGELING_IMBUE_REPO_URL")
     _IMBUE_COMMIT_HASH: str = _require_env("CHANGELING_IMBUE_COMMIT_HASH")
     _SECRET_NAME: str = _require_env("CHANGELING_SECRET_NAME")
+    _VOLUME_NAME: str = _require_env("CHANGELING_VOLUME_NAME")
 
-    # Write config to build directory so it can be baked into the image
-    _build_dir = Path(".changelings/build")
-    _build_dir.mkdir(parents=True, exist_ok=True)
-    (_build_dir / "app_name").write_text(_APP_NAME)
-    (_build_dir / "config.json").write_text(_CONFIG_JSON)
-    (_build_dir / "cron_schedule").write_text(_CRON_SCHEDULE)
-    (_build_dir / "imbue_repo_url").write_text(_IMBUE_REPO_URL)
-    (_build_dir / "imbue_commit_hash").write_text(_IMBUE_COMMIT_HASH)
-    (_build_dir / "secret_name").write_text(_SECRET_NAME)
+    # Assemble all deployment data + user config into a single staging directory.
+    # This produces one mount instead of many separate file/dir mounts.
+    _staging_dir = Path(".changelings/staging")
+    if _staging_dir.exists():
+        shutil.rmtree(_staging_dir)
+    _staging_dir.mkdir(parents=True)
+
+    # Deployment config files
+    deploy_dir = _staging_dir / "deployment"
+    deploy_dir.mkdir()
+    (deploy_dir / "app_name").write_text(_APP_NAME)
+    (deploy_dir / "config.json").write_text(_CONFIG_JSON)
+    (deploy_dir / "cron_schedule").write_text(_CRON_SCHEDULE)
+    (deploy_dir / "imbue_repo_url").write_text(_IMBUE_REPO_URL)
+    (deploy_dir / "imbue_commit_hash").write_text(_IMBUE_COMMIT_HASH)
+    (deploy_dir / "secret_name").write_text(_SECRET_NAME)
+    (deploy_dir / "volume_name").write_text(_VOLUME_NAME)
+
+    # User config files needed by mngr at runtime
+    _user_home = Path.home()
+    user_cfg_dir = _staging_dir / "user_config"
+    user_cfg_dir.mkdir()
+
+    # ~/.claude.json
+    _claude_json = _user_home / ".claude.json"
+    if _claude_json.exists():
+        shutil.copy2(_claude_json, user_cfg_dir / "claude.json")
+
+    # ~/.claude/settings.json
+    _claude_settings = _user_home / ".claude" / "settings.json"
+    if _claude_settings.exists():
+        (user_cfg_dir / "claude_dir").mkdir()
+        shutil.copy2(_claude_settings, user_cfg_dir / "claude_dir" / "settings.json")
+
+    # ~/.mngr/config.toml
+    _mngr_config = _user_home / ".mngr" / "config.toml"
+    if _mngr_config.exists():
+        (user_cfg_dir / "mngr").mkdir()
+        shutil.copy2(_mngr_config, user_cfg_dir / "mngr" / "config.toml")
+
+    # ~/.mngr/profiles/
+    _mngr_profiles = _user_home / ".mngr" / "profiles"
+    if _mngr_profiles.is_dir():
+        shutil.copytree(_mngr_profiles, user_cfg_dir / "mngr" / "profiles", dirs_exist_ok=True)
 else:
     _APP_NAME = Path("/deployment/app_name").read_text().strip()
     _CONFIG_JSON = Path("/deployment/config.json").read_text().strip()
@@ -79,6 +117,7 @@ else:
     _IMBUE_REPO_URL = Path("/deployment/imbue_repo_url").read_text().strip()
     _IMBUE_COMMIT_HASH = Path("/deployment/imbue_commit_hash").read_text().strip()
     _SECRET_NAME = Path("/deployment/secret_name").read_text().strip()
+    _VOLUME_NAME = Path("/deployment/volume_name").read_text().strip()
 
 # --- Image definition ---
 # The image includes system dependencies, GitHub CLI, uv, and Claude Code.
@@ -123,32 +162,22 @@ _image = (
     )
 )
 
-# Copy user config files needed by mngr at runtime (claude config, mngr config
-# and profiles). These are baked into the image so mngr can find them when
-# it runs inside the Modal container.
+# Add the single staging directory containing all deployment + user config data
 if modal.is_local():
-    _user_home = str(Path.home())
-    _image = (
-        _image.add_local_file(f"{_user_home}/.claude.json", "/root/.claude.json", copy=True)
-        .add_local_file(f"{_user_home}/.claude/settings.json", "/root/.claude/settings.json", copy=True)
-        .add_local_file(f"{_user_home}/.mngr/config.toml", "/root/.mngr/config.toml", copy=True)
-        .add_local_dir(f"{_user_home}/.mngr/profiles", "/root/.mngr/profiles", copy=True)
+    _image = _image.add_local_dir(str(_staging_dir / "deployment"), "/deployment", copy=True).add_local_dir(
+        str(_staging_dir / "user_config"), "/staged_user_config", copy=True
     )
-
-# Add deployment config files (these are the only layers that change per deployment)
-_image = (
-    _image.add_local_file(".changelings/build/app_name", "/deployment/app_name", copy=True)
-    .add_local_file(".changelings/build/config.json", "/deployment/config.json", copy=True)
-    .add_local_file(".changelings/build/cron_schedule", "/deployment/cron_schedule", copy=True)
-    .add_local_file(".changelings/build/imbue_repo_url", "/deployment/imbue_repo_url", copy=True)
-    .add_local_file(".changelings/build/imbue_commit_hash", "/deployment/imbue_commit_hash", copy=True)
-    .add_local_file(".changelings/build/secret_name", "/deployment/secret_name", copy=True)
-)
 
 app = modal.App(name=_APP_NAME, image=_image)
 
+# Persistent volume for target repo storage (reused across runs of the same changeling)
+_volume = modal.Volume.from_name(_VOLUME_NAME, create_if_missing=True)
+
 # Where the imbue monorepo (tooling) is cloned at runtime
 _IMBUE_REPO_DIR = "/workspace/imbue"
+
+# Where the persistent volume is mounted (for target repo)
+_VOLUME_MOUNT_DIR = "/workspace/volume"
 
 
 def _run_and_stream(
@@ -182,20 +211,45 @@ def _run_and_stream(
     return process.returncode
 
 
+def _install_user_config() -> None:
+    """Copy staged user config files to their expected locations in the container."""
+    staged = Path("/staged_user_config")
+
+    claude_json = staged / "claude.json"
+    if claude_json.exists():
+        shutil.copy2(claude_json, Path.home() / ".claude.json")
+
+    claude_settings = staged / "claude_dir" / "settings.json"
+    if claude_settings.exists():
+        (Path.home() / ".claude").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(claude_settings, Path.home() / ".claude" / "settings.json")
+
+    mngr_config = staged / "mngr" / "config.toml"
+    if mngr_config.exists():
+        (Path.home() / ".mngr").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(mngr_config, Path.home() / ".mngr" / "config.toml")
+
+    mngr_profiles = staged / "mngr" / "profiles"
+    if mngr_profiles.is_dir():
+        shutil.copytree(mngr_profiles, Path.home() / ".mngr" / "profiles", dirs_exist_ok=True)
+
+
 @app.function(
     secrets=[modal.Secret.from_name(_SECRET_NAME)],
     schedule=modal.Cron(_CRON_SCHEDULE),
     timeout=3600,
+    volumes={_VOLUME_MOUNT_DIR: _volume},
 )
 def run_changeling() -> None:
     """Run the changeling by cloning the imbue repo and invoking the remote runner.
 
     This function executes on the cron schedule and:
     1. Checks if the changeling is enabled
-    2. Sets up GitHub authentication via gh CLI
-    3. Clones the imbue monorepo (tooling) and checks out the pinned commit
-    4. Installs all dependencies via uv sync
-    5. Invokes remote_runner.py which handles the mngr create command
+    2. Installs user config files (claude, mngr) to their expected locations
+    3. Sets up GitHub authentication via gh CLI
+    4. Clones the imbue monorepo (tooling) and checks out the pinned commit
+    5. Installs all dependencies via uv sync
+    6. Invokes remote_runner.py which handles the mngr create command
        (mngr is responsible for cloning and operating on the target repo)
     """
     # Check if enabled without importing imbue
@@ -203,6 +257,9 @@ def run_changeling() -> None:
     if not config.get("is_enabled", True):
         print("Changeling is disabled, skipping")
         return
+
+    # Install user config files to their expected locations
+    _install_user_config()
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")

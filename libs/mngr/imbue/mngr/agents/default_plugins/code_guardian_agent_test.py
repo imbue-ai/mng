@@ -10,6 +10,7 @@ from imbue.mngr.agents.agent_registry import get_agent_config_class
 from imbue.mngr.agents.agent_registry import list_registered_agent_types
 from imbue.mngr.agents.agent_registry import resolve_agent_type
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
+from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.code_guardian_agent import CodeGuardianAgent
 from imbue.mngr.agents.default_plugins.code_guardian_agent import CodeGuardianAgentConfig
 from imbue.mngr.agents.default_plugins.code_guardian_agent import _CODE_GUARDIAN_SKILL_CONTENT
@@ -48,20 +49,10 @@ def test_code_guardian_config_inherits_claude_defaults() -> None:
     assert config.check_installation is True
 
 
-def test_code_guardian_config_includes_agents_and_agent_flags() -> None:
-    """CodeGuardianAgentConfig cli_args should include --agents and --agent flags."""
+def test_code_guardian_config_inherits_claude_cli_args() -> None:
+    """CodeGuardianAgentConfig should inherit ClaudeAgentConfig's default cli_args."""
     config = CodeGuardianAgentConfig()
-    assert "--agents" in config.cli_args
-    assert "--agent" in config.cli_args
-    assert "code-guardian" in config.cli_args
-
-
-def test_code_guardian_config_agents_json_contains_skill_name() -> None:
-    """The --agents JSON should reference the code-guardian skill."""
-    config = CodeGuardianAgentConfig()
-    cli_args_str = " ".join(config.cli_args)
-    assert '"code-guardian"' in cli_args_str
-    assert "primary skill" in cli_args_str
+    assert config.cli_args == ClaudeAgentConfig().cli_args
 
 
 def test_resolve_code_guardian_type_returns_code_guardian_agent_and_config() -> None:

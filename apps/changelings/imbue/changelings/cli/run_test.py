@@ -12,7 +12,6 @@ from imbue.changelings.cli.run import _execute_mngr_command
 from imbue.changelings.config import get_changeling
 from imbue.changelings.conftest import make_test_changeling
 from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.changelings.mngr_commands import get_agent_name_from_command
@@ -127,13 +126,14 @@ def test_build_command_includes_new_branch_with_changeling_name() -> None:
 
 
 def test_build_command_always_includes_message() -> None:
-    """The command should always include --message with the initial_message."""
+    """The command should always include --message with the formatted initial_message."""
     changeling = make_test_changeling()
     cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
 
     assert "--message" in cmd
     message_idx = cmd.index("--message")
-    assert cmd[message_idx + 1] == DEFAULT_INITIAL_MESSAGE
+    # DEFAULT_INITIAL_MESSAGE is "/{AGENT_TYPE}" which gets formatted with the agent type
+    assert cmd[message_idx + 1] == f"/{changeling.agent_type}"
 
 
 def test_build_command_uses_custom_initial_message() -> None:

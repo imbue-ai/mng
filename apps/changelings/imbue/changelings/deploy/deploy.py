@@ -38,6 +38,15 @@ def get_modal_secret_name(changeling_name: str) -> str:
 
 
 @pure
+def get_modal_volume_name(changeling_name: str) -> str:
+    """Generate the Modal volume name for a changeling.
+
+    The volume persists the target repo across runs of the same changeling.
+    """
+    return f"changeling-{changeling_name}-vol"
+
+
+@pure
 def build_deploy_env(
     app_name: str,
     config_json: str,
@@ -45,6 +54,7 @@ def build_deploy_env(
     secret_name: str,
     imbue_repo_url: str,
     imbue_commit_hash: str,
+    volume_name: str,
 ) -> dict[str, str]:
     """Build the environment variables needed for deploying the cron runner.
 
@@ -62,6 +72,7 @@ def build_deploy_env(
         "CHANGELING_SECRET_NAME": secret_name,
         "CHANGELING_IMBUE_REPO_URL": imbue_repo_url,
         "CHANGELING_IMBUE_COMMIT_HASH": imbue_commit_hash,
+        "CHANGELING_VOLUME_NAME": volume_name,
     }
 
 
@@ -298,10 +309,29 @@ def create_modal_secret(
         result = cg.run_process_to_completion(cmd, is_checked_after=False, on_output=_forward_output)
 
     if result.returncode != 0:
-        raise ChangelingDeployError(f"Failed to create Modal secret '{secret_name}': {result.stderr}") from None
+        raise ChangelingDeployError(
+            f"Failed to create Modal secret '{secret_name}' "
+            f"(exit code {result.returncode}). See streamed output above for details."
+        ) from None
 
     logger.info("Created Modal secret '{}'", secret_name)
     return secret_name
+
+
+def _create_modal_volume(volume_name: str, environment_name: str | None) -> None:
+    """Create a Modal volume if it doesn't already exist."""
+    cmd = ["uv", "run", "modal", "volume", "create", volume_name]
+    if environment_name:
+        cmd.extend(["--env", environment_name])
+    with ConcurrencyGroup(name=f"modal-volume-{volume_name}") as cg:
+        result = cg.run_process_to_completion(cmd, is_checked_after=False, on_output=_forward_output)
+
+    # Exit code 1 with "already exists" is fine
+    if result.returncode != 0 and "already exists" not in result.stderr:
+        raise ChangelingDeployError(
+            f"Failed to create Modal volume '{volume_name}' "
+            f"(exit code {result.returncode}). See streamed output above for details."
+        )
 
 
 def deploy_changeling(
@@ -336,6 +366,7 @@ def deploy_changeling(
     logger.info("Using Modal environment '{}' (profile: {})", environment_name, changeling.mngr_profile)
 
     app_name = get_modal_app_name(str(changeling.name))
+    volume_name = get_modal_volume_name(str(changeling.name))
 
     # The imbue repo URL and commit hash identify where the changeling/mngr
     # tooling lives. This is cloned on Modal at runtime so the tooling is
@@ -347,6 +378,11 @@ def deploy_changeling(
     with log_span("Creating Modal secret for changeling '{}'", changeling.name):
         secret_name = create_modal_secret(changeling, environment_name)
 
+    # Create the persistent volume for target repo storage (before deploy so
+    # it exists when the deployed function references it)
+    with log_span("Creating Modal volume '{}' for changeling '{}'", volume_name, changeling.name):
+        _create_modal_volume(volume_name, environment_name)
+
     cron_runner_path = Path(__file__).parent / "cron_runner.py"
     config_json = serialize_changeling_config(changeling)
 
@@ -357,6 +393,7 @@ def deploy_changeling(
         secret_name=secret_name,
         imbue_repo_url=imbue_repo_url,
         imbue_commit_hash=imbue_commit_hash,
+        volume_name=volume_name,
     )
 
     env = {**os.environ, **deploy_env_vars}
@@ -370,9 +407,9 @@ def deploy_changeling(
             )
 
         if result.returncode != 0:
-            output = (result.stdout + "\n" + result.stderr).strip()
             raise ChangelingDeployError(
-                f"Failed to deploy changeling '{changeling.name}' to Modal: {output}"
+                f"Failed to deploy changeling '{changeling.name}' to Modal "
+                f"(exit code {result.returncode}). See streamed output above for details."
             ) from None
 
     logger.info("Changeling '{}' deployed to Modal app '{}'", changeling.name, app_name)
