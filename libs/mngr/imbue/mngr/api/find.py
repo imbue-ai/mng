@@ -1,3 +1,5 @@
+from collections.abc import Mapping
+from collections.abc import Sequence
 from pathlib import Path
 from typing import assert_never
 
@@ -118,7 +120,7 @@ def determine_resolved_path(
 @pure
 def resolve_host_reference(
     host_identifier: str | None,
-    all_hosts: list[HostReference],
+    all_hosts: Sequence[HostReference],
 ) -> HostReference | None:
     """Resolve a host identifier (ID or name) to a HostReference.
 
@@ -145,7 +147,7 @@ def resolve_host_reference(
 def resolve_agent_reference(
     agent_identifier: str | None,
     resolved_host: HostReference | None,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
 ) -> tuple[HostReference, AgentReference] | None:
     """Resolve an agent identifier (ID or name) to host and agent references.
 
@@ -185,7 +187,7 @@ def resolve_source_location(
     source_agent: str | None,
     source_host: str | None,
     source_path: str | None,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     mngr_ctx: MngrContext,
     *,
     is_start_desired: bool = True,
@@ -258,7 +260,7 @@ def resolve_source_location(
 
 
 @pure
-def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) -> HostReference | None:
+def get_host_from_list_by_id(host_id: HostId, all_hosts: Sequence[HostReference]) -> HostReference | None:
     for host in all_hosts:
         if host.host_id == host_id:
             return host
@@ -266,7 +268,7 @@ def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) ->
 
 
 @pure
-def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostReference]) -> HostReference | None:
+def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: Sequence[HostReference]) -> HostReference | None:
     matching_hosts = [host for host in all_hosts if host.host_name == host_name]
     if len(matching_hosts) == 1:
         return matching_hosts[0]
@@ -330,7 +332,7 @@ def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_st
 @log_call
 def find_and_maybe_start_agent_by_name_or_id(
     agent_str: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
@@ -411,7 +413,7 @@ class AgentMatch(FrozenModel):
 
 @pure
 def find_agents_by_identifiers_or_state(
-    agent_identifiers: list[str],
+    agent_identifiers: Sequence[str],
     filter_all: bool,
     target_state: AgentLifecycleState,
     mngr_ctx: MngrContext,
@@ -465,7 +467,7 @@ def find_agents_by_identifiers_or_state(
 
 
 @pure
-def group_agents_by_host(agents: list[AgentMatch]) -> dict[str, list[AgentMatch]]:
+def group_agents_by_host(agents: Sequence[AgentMatch]) -> dict[str, list[AgentMatch]]:
     """Group a list of AgentMatch objects by their host.
 
     Returns a dictionary where keys are "{host_id}:{provider_name}" and
