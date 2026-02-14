@@ -6,6 +6,8 @@ import pytest
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import get_subprocess_test_env
 
+pytestmark = pytest.mark.docker
+
 
 @pytest.fixture
 def docker_subprocess_env(tmp_path: Path) -> dict[str, str]:

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 import docker.errors
 import pytest
@@ -9,12 +10,15 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.testing import make_docker_provider
+
+pytestmark = pytest.mark.docker
 
 
 @pytest.fixture
@@ -228,3 +232,236 @@ def test_on_connection_error_clears_caches(docker_provider: DockerProviderInstan
     docker_provider.get_host(host.id)
     # Should not raise
     docker_provider.on_connection_error(host.id)
+
+
+# =========================================================================
+# SSH Setup Verification
+# =========================================================================
+
+
+@pytest.mark.acceptance
+def test_ssh_service_running_after_create(docker_provider: DockerProviderInstance) -> None:
+    """Verify that sshd is running inside the container after create_host."""
+    host = docker_provider.create_host(HostName("test-sshd"))
+    result = host.execute_command("pgrep -x sshd")
+    assert result.success, f"sshd not running: {result.stderr}"
+
+
+@pytest.mark.acceptance
+def test_ssh_packages_installed_after_create(docker_provider: DockerProviderInstance) -> None:
+    """Verify required packages are installed in the container after create_host."""
+    host = docker_provider.create_host(HostName("test-pkgs"))
+    result = host.execute_command("dpkg -l openssh-server")
+    assert result.success, f"openssh-server not installed: {result.stderr}"
+
+
+# =========================================================================
+# Snapshot Restore
+# =========================================================================
+
+
+@pytest.mark.acceptance
+def test_stop_with_snapshot_then_start_preserves_data(docker_provider: DockerProviderInstance) -> None:
+    """Core snapshot workflow: write data, stop with snapshot, start, verify data."""
+    host = docker_provider.create_host(HostName("test-snap-restore"))
+    host.execute_command("echo 'snapshot-payload-xyz' > /tmp/snapshot-data.txt")
+
+    docker_provider.stop_host(host, create_snapshot=True)
+
+    restarted = docker_provider.start_host(host.id)
+    assert isinstance(restarted, Host)
+    result = restarted.execute_command("cat /tmp/snapshot-data.txt")
+    assert result.success
+    assert "snapshot-payload-xyz" in result.stdout
+
+
+# =========================================================================
+# Dockerfile-based Host Creation
+# =========================================================================
+
+
+@pytest.mark.acceptance
+def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tmp_path: Path) -> None:
+    """Verify create_host works with a custom Dockerfile at the API level."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "FROM debian:bookworm-slim\n"
+        "RUN apt-get update && apt-get install -y --no-install-recommends "
+        "openssh-server tmux python3 rsync && rm -rf /var/lib/apt/lists/*\n"
+        "RUN echo 'dockerfile-marker-content' > /dockerfile-marker.txt\n"
+    )
+    host = docker_provider.create_host(
+        HostName("test-dockerfile"),
+        build_args=[f"--dockerfile={dockerfile}"],
+    )
+    assert isinstance(host, Host)
+    result = host.execute_command("cat /dockerfile-marker.txt")
+    assert result.success
+    assert "dockerfile-marker-content" in result.stdout
+
+
+# =========================================================================
+# Agent Data Persistence
+# =========================================================================
+
+
+@pytest.mark.acceptance
+def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) -> None:
+    """Verify agent data can be persisted and listed for a host."""
+    host = docker_provider.create_host(HostName("test-agent-data"))
+    agent_data = {"id": "agent-001", "name": "test-agent", "status": "running"}
+
+    docker_provider.persist_agent_data(host.id, agent_data)
+    records = docker_provider.list_persisted_agent_data_for_host(host.id)
+
+    assert len(records) == 1
+    assert records[0]["id"] == "agent-001"
+    assert records[0]["name"] == "test-agent"
+
+
+@pytest.mark.acceptance
+def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) -> None:
+    """Verify agent data can be removed after persisting."""
+    host = docker_provider.create_host(HostName("test-rm-agent"))
+    agent_data = {"id": "agent-to-remove", "name": "ephemeral"}
+
+    docker_provider.persist_agent_data(host.id, agent_data)
+    docker_provider.remove_persisted_agent_data(host.id, AgentId("agent-to-remove"))
+
+    records = docker_provider.list_persisted_agent_data_for_host(host.id)
+    assert len(records) == 0
+
+
+# =========================================================================
+# Stopped Host Behavior
+# =========================================================================
+
+
+@pytest.mark.acceptance
+def test_get_host_returns_offline_host_when_stopped(docker_provider: DockerProviderInstance) -> None:
+    """Verify that get_host returns an OfflineHost for a stopped container."""
+    host = docker_provider.create_host(HostName("test-offline"))
+    docker_provider.stop_host(host, create_snapshot=False)
+
+    found = docker_provider.get_host(host.id)
+    assert isinstance(found, OfflineHost)
+
+
+@pytest.mark.acceptance
+def test_start_failed_host_raises_error(docker_provider: DockerProviderInstance) -> None:
+    """Verify that start_host on a failed host raises MngrError."""
+    host_id = HostId.generate()
+    docker_provider._save_failed_host_record(
+        host_id=host_id,
+        host_name=HostName("failed-host"),
+        tags={},
+        failure_reason="Intentional test failure",
+        build_log="",
+    )
+
+    with pytest.raises(MngrError, match="failed during creation"):
+        docker_provider.start_host(host_id)
+
+
+# =========================================================================
+# Release Tests (comprehensive / slower)
+# =========================================================================
+
+
+@pytest.mark.release
+def test_multiple_snapshots_ordering(docker_provider: DockerProviderInstance) -> None:
+    """Verify multiple snapshots are tracked and listed in recency order."""
+    host = docker_provider.create_host(HostName("test-multi-snap"))
+
+    docker_provider.create_snapshot(host, SnapshotName("snap-a"))
+    docker_provider.create_snapshot(host, SnapshotName("snap-b"))
+    docker_provider.create_snapshot(host, SnapshotName("snap-c"))
+
+    snapshots = docker_provider.list_snapshots(host)
+    assert len(snapshots) == 3
+    # Most recent first (recency_idx 0 = most recent)
+    assert snapshots[0].name == SnapshotName("snap-c")
+    assert snapshots[0].recency_idx == 0
+    assert snapshots[2].name == SnapshotName("snap-a")
+    assert snapshots[2].recency_idx == 2
+
+
+@pytest.mark.release
+def test_destroy_with_snapshots_cleans_up_images(docker_provider: DockerProviderInstance) -> None:
+    """Verify destroy_host with delete_snapshots removes snapshot images."""
+    host = docker_provider.create_host(HostName("test-destroy-snap"))
+    docker_provider.create_snapshot(host, SnapshotName("to-cleanup"))
+
+    host_id = host.id
+    docker_provider.destroy_host(host, delete_snapshots=True)
+
+    # Host record should be gone
+    with pytest.raises(HostNotFoundError):
+        docker_provider.get_host(host_id)
+
+    # Snapshot image should be removed (or at least not trackable)
+    snapshots = docker_provider.list_snapshots(host_id)
+    assert len(snapshots) == 0
+
+
+@pytest.mark.release
+def test_list_hosts_excludes_destroyed_by_default(
+    docker_provider: DockerProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Verify destroyed hosts are excluded from list_hosts by default."""
+    host = docker_provider.create_host(HostName("test-destroyed-list"))
+    host_id = host.id
+    docker_provider.destroy_host(host, delete_snapshots=True)
+
+    hosts = docker_provider.list_hosts(temp_mngr_ctx.concurrency_group)
+    host_ids = {h.id for h in hosts}
+    assert host_id not in host_ids
+
+
+@pytest.mark.release
+def test_create_host_with_bad_image_fails(docker_provider: DockerProviderInstance) -> None:
+    """Verify create_host with a nonexistent image raises MngrError and saves a failed record."""
+    with pytest.raises(MngrError):
+        docker_provider.create_host(
+            HostName("test-bad-image"),
+            build_args=["--image=nonexistent-image-does-not-exist:99999"],
+        )
+
+
+@pytest.mark.release
+def test_multiple_hosts_isolated(
+    docker_provider: DockerProviderInstance,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Verify multiple hosts are independently addressable and isolated."""
+    host_a = docker_provider.create_host(HostName("test-iso-a"))
+    host_b = docker_provider.create_host(HostName("test-iso-b"))
+
+    host_a.execute_command("echo 'from-a' > /tmp/identity.txt")
+    host_b.execute_command("echo 'from-b' > /tmp/identity.txt")
+
+    result_a = host_a.execute_command("cat /tmp/identity.txt")
+    result_b = host_b.execute_command("cat /tmp/identity.txt")
+
+    assert "from-a" in result_a.stdout
+    assert "from-b" in result_b.stdout
+
+    hosts = docker_provider.list_hosts(temp_mngr_ctx.concurrency_group)
+    host_ids = {h.id for h in hosts}
+    assert host_a.id in host_ids
+    assert host_b.id in host_ids
+
+
+@pytest.mark.release
+def test_persist_multiple_agents_for_same_host(docker_provider: DockerProviderInstance) -> None:
+    """Verify multiple agent data records can be persisted for one host."""
+    host = docker_provider.create_host(HostName("test-multi-agent"))
+
+    docker_provider.persist_agent_data(host.id, {"id": "agent-1", "type": "claude"})
+    docker_provider.persist_agent_data(host.id, {"id": "agent-2", "type": "codex"})
+
+    records = docker_provider.list_persisted_agent_data_for_host(host.id)
+    assert len(records) == 2
+    agent_ids = {r["id"] for r in records}
+    assert agent_ids == {"agent-1", "agent-2"}
