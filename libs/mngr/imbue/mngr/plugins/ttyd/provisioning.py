@@ -66,7 +66,7 @@ def start_ttyd_for_agent(
     with log_span("Registering terminal URL for agent {}", agent.name):
         if host.is_local:
             # For local hosts, write the URL directly (no port forwarding needed)
-            _write_local_terminal_url(host, agent_state_dir, ttyd_port)
+            _write_local_terminal_url(host, agent_state_dir, ttyd_port, token)
         else:
             # For remote hosts, use forward-service to register via FRP
             forward_cmd = f"forward-service add --name terminal --port {ttyd_port}"
@@ -84,13 +84,17 @@ def start_ttyd_for_agent(
                 )
 
 
-def _write_local_terminal_url(host: OnlineHostInterface, agent_state_dir: Path, ttyd_port: int) -> None:
-    """Write the terminal URL directly for local hosts (no port forwarding needed)."""
+def _write_local_terminal_url(host: OnlineHostInterface, agent_state_dir: Path, ttyd_port: int, token: str) -> None:
+    """Write the terminal URL directly for local hosts (no port forwarding needed).
+
+    Embeds the credential in the URL so the browser auto-authenticates
+    (ttyd uses HTTP Basic Auth with empty username and token as password).
+    """
     urls_dir = agent_state_dir / "status" / "urls"
     urls_dir_str = str(urls_dir)
     host.execute_command(f"mkdir -p '{urls_dir_str}'", timeout_seconds=5.0)
 
-    url = f"http://localhost:{ttyd_port}"
+    url = f"http://:{token}@localhost:{ttyd_port}"
     host.execute_command(f"printf '%s' '{url}' > '{urls_dir_str}/terminal'", timeout_seconds=5.0)
     logger.debug("Wrote local terminal URL: {}", url)
 
