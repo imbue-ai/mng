@@ -7,7 +7,10 @@ token generation, server startup, and HTTP request handling.
 
 import signal
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Generator
+from typing import NamedTuple
 
 import httpx
 import pytest
@@ -19,168 +22,114 @@ from imbue.mngr.utils.testing import get_subprocess_test_env
 from imbue.mngr.utils.testing import is_port_open
 
 
-def _start_serve_subprocess(
-    port: int,
-    env: dict[str, str],
-    config_dir: Path,
-) -> subprocess.Popen[str]:
-    """Start mngr serve as a subprocess on the given port.
+class _RunningServeProcess(NamedTuple):
+    """State for a running mngr serve subprocess."""
 
-    The serve command is a plugin-registered command and does not support
-    --disable-plugin. Test isolation via MNGR_ROOT_NAME and MNGR_HOST_DIR
-    prevents providers from loading real configs.
-    """
-    return subprocess.Popen(
+    port: int
+    config_dir: Path
+    base_url: str
+
+
+@contextmanager
+def _serve_subprocess(
+    tmp_path: Path,
+    root_name: str = "mngr-serve-acceptance",
+    startup_timeout: float = 15.0,
+) -> Generator[_RunningServeProcess, None, None]:
+    """Start mngr serve, wait for it to accept connections, and tear it down on exit."""
+    port = find_free_port()
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    host_dir = tmp_path / ".mngr"
+    host_dir.mkdir(exist_ok=True)
+
+    env = get_subprocess_test_env(root_name=root_name, host_dir=host_dir)
+
+    proc = subprocess.Popen(
         [
-            "uv", "run", "mngr",
+            "uv",
+            "run",
+            "mngr",
             "serve",
-            "--port", str(port),
-            "--host", "127.0.0.1",
-            "--config-dir", str(config_dir),
+            "--port",
+            str(port),
+            "--host",
+            "127.0.0.1",
+            "--config-dir",
+            str(config_dir),
         ],
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+    try:
+        wait_for(
+            lambda: is_port_open(port),
+            timeout=startup_timeout,
+            error_message=f"mngr serve did not start within timeout on port {port}",
+        )
+        yield _RunningServeProcess(port=port, config_dir=config_dir, base_url=f"http://127.0.0.1:{port}")
+    finally:
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_serve_starts_and_responds(tmp_path: Path) -> None:
     """mngr serve starts a server that responds to HTTP requests."""
-    port = find_free_port()
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    host_dir = tmp_path / ".mngr"
-    host_dir.mkdir(exist_ok=True)
-
-    env = get_subprocess_test_env(
-        root_name="mngr-serve-acceptance",
-        host_dir=host_dir,
-    )
-
-    proc = _start_serve_subprocess(port, env, config_dir)
-    try:
-        wait_for(
-            lambda: is_port_open(port),
-            timeout=15.0,
-            error_message=f"mngr serve did not start within timeout on port {port}",
-        )
-
-        # The server is up -- the root endpoint should return the web UI
-        response = httpx.get(f"http://127.0.0.1:{port}/", timeout=5.0)
+    with _serve_subprocess(tmp_path) as server:
+        response = httpx.get(f"{server.base_url}/", timeout=5.0)
         assert response.status_code == 200
         assert "<!DOCTYPE html>" in response.text
         assert "mngr" in response.text.lower()
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_serve_authenticates_with_generated_token(tmp_path: Path) -> None:
     """mngr serve generates a token that can be used to authenticate API requests."""
-    port = find_free_port()
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    host_dir = tmp_path / ".mngr"
-    host_dir.mkdir(exist_ok=True)
-
-    env = get_subprocess_test_env(
-        root_name="mngr-serve-acceptance",
-        host_dir=host_dir,
-    )
-
-    proc = _start_serve_subprocess(port, env, config_dir)
-    try:
-        wait_for(
-            lambda: is_port_open(port),
-            timeout=15.0,
-            error_message=f"mngr serve did not start within timeout on port {port}",
-        )
-
-        # Read the token that the server generated
-        token = read_or_create_api_token(config_dir)
+    with _serve_subprocess(tmp_path) as server:
+        token = read_or_create_api_token(server.config_dir)
         headers = {"Authorization": f"Bearer {token.get_secret_value()}"}
 
         # Authenticated request should succeed
-        response = httpx.get(
-            f"http://127.0.0.1:{port}/api/agents",
-            headers=headers,
-            timeout=5.0,
-        )
+        response = httpx.get(f"{server.base_url}/api/agents", headers=headers, timeout=5.0)
         assert response.status_code == 200
         data = response.json()
         assert "agents" in data
         assert isinstance(data["agents"], list)
 
         # Unauthenticated request should fail
-        response = httpx.get(
-            f"http://127.0.0.1:{port}/api/agents",
-            timeout=5.0,
-        )
+        response = httpx.get(f"{server.base_url}/api/agents", timeout=5.0)
         assert response.status_code == 401
 
         # Wrong token should fail
         response = httpx.get(
-            f"http://127.0.0.1:{port}/api/agents",
+            f"{server.base_url}/api/agents",
             headers={"Authorization": "Bearer wrong-token"},
             timeout=5.0,
         )
         assert response.status_code == 401
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
 
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_serve_no_sse_endpoint(tmp_path: Path) -> None:
     """The SSE streaming endpoint should not exist (replaced by polling)."""
-    port = find_free_port()
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    host_dir = tmp_path / ".mngr"
-    host_dir.mkdir(exist_ok=True)
-
-    env = get_subprocess_test_env(
-        root_name="mngr-serve-acceptance",
-        host_dir=host_dir,
-    )
-
-    proc = _start_serve_subprocess(port, env, config_dir)
-    try:
-        wait_for(
-            lambda: is_port_open(port),
-            timeout=15.0,
-            error_message=f"mngr serve did not start within timeout on port {port}",
-        )
-
-        token = read_or_create_api_token(config_dir)
+    with _serve_subprocess(tmp_path) as server:
+        token = read_or_create_api_token(server.config_dir)
         headers = {"Authorization": f"Bearer {token.get_secret_value()}"}
 
-        # The SSE endpoint should not exist (404 or 405)
         response = httpx.get(
-            f"http://127.0.0.1:{port}/api/agents/stream",
+            f"{server.base_url}/api/agents/stream",
             headers=headers,
             params={"token": token.get_secret_value()},
             timeout=5.0,
         )
         assert response.status_code in (404, 405, 422)
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
