@@ -79,21 +79,23 @@ def test_allocate_port_returns_deterministic_port(
     assert port1 < int(config.base_port) + 1000
 
 
-def test_allocate_port_differs_for_different_agents(
+def test_allocate_port_varies_across_agents(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that different agents get different ports (with high probability)."""
-    agent1 = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent2 = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+    """Test that port allocation produces distinct ports across several agents.
+
+    Uses 5 agents to avoid flakiness: two random UUIDs have a 1/1000 chance of
+    colliding mod 1000, but five agents all colliding has probability ~10^-12.
+    """
     config = TtydConfig()
+    ports = set()
+    for _ in range(5):
+        agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+        ports.add(_allocate_port(agent, config))
 
-    port1 = _allocate_port(agent1, config)
-    port2 = _allocate_port(agent2, config)
-
-    # Different agent IDs should produce different ports (extremely unlikely to collide)
-    assert port1 != port2
+    assert len(ports) >= 2, f"Expected at least 2 distinct ports from 5 agents, got {ports}"
 
 
 def test_on_agent_created_stores_plugin_data(
