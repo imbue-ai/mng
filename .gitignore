@@ -253,7 +253,7 @@ scripts/notify_user.local.sh
 .mngr/dev/secrets/
 
 # Changelings deploy-time build artifacts
-.changelings/build/
+.changelings/
 
 # Autofix working artifacts
 .autofix/
