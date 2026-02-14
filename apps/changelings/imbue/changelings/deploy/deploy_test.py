@@ -12,11 +12,13 @@ from imbue.changelings.data_types import DEFAULT_SECRETS
 from imbue.changelings.deploy.deploy import build_cron_mngr_command
 from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
+from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
 from imbue.changelings.deploy.deploy import find_repo_root
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
+from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.changelings.primitives import ChangelingName
@@ -99,6 +101,39 @@ def test_build_modal_deploy_command_with_environment() -> None:
 def test_build_modal_deploy_command_environment_comes_before_path() -> None:
     """The --env flag must come before the script path (Modal CLI requirement)."""
     cmd = build_modal_deploy_command(
+        cron_runner_path=Path("/script.py"),
+        environment_name="my-env",
+    )
+
+    env_idx = cmd.index("--env")
+    path_idx = cmd.index("/script.py")
+    assert env_idx < path_idx
+
+
+# -- build_modal_run_command tests --
+
+
+def test_build_modal_run_command_basic() -> None:
+    cmd = build_modal_run_command(
+        cron_runner_path=Path("/deploy/cron_runner.py"),
+        environment_name=None,
+    )
+
+    assert cmd == ["uv", "run", "modal", "run", "/deploy/cron_runner.py"]
+
+
+def test_build_modal_run_command_with_environment() -> None:
+    cmd = build_modal_run_command(
+        cron_runner_path=Path("/deploy/cron_runner.py"),
+        environment_name="test-env",
+    )
+
+    assert cmd == ["uv", "run", "modal", "run", "--env", "test-env", "/deploy/cron_runner.py"]
+
+
+def test_build_modal_run_command_environment_comes_before_path() -> None:
+    """The --env flag must come before the script path (Modal CLI requirement)."""
+    cmd = build_modal_run_command(
         cron_runner_path=Path("/script.py"),
         environment_name="my-env",
     )
@@ -331,6 +366,15 @@ def test_build_cron_mngr_command_uses_agent_type() -> None:
     assert cmd[5] == "code-guardian"
 
 
+def test_build_cron_mngr_command_includes_verbose_flag() -> None:
+    """The mngr create command should include -vv for verbose output."""
+    changeling = make_test_changeling()
+    env_file = Path("/tmp/test.env")
+    cmd = build_cron_mngr_command(changeling, env_file)
+
+    assert "-vv" in cmd
+
+
 def test_build_cron_mngr_command_includes_extra_mngr_args() -> None:
     """Extra mngr args should be appended to the cron command."""
     changeling = make_test_changeling(extra_mngr_args="--verbose --timeout 300")
@@ -362,3 +406,54 @@ def test_find_repo_root_raises_outside_git_repo(
 
     with pytest.raises(ChangelingDeployError, match="Could not find git repository root"):
         find_repo_root()
+
+
+# -- parse_agent_name_from_list_json tests --
+
+
+def test_parse_agent_name_from_list_json_finds_matching_agent() -> None:
+    json_output = json.dumps({"agents": [{"name": "my-fairy-2026-02-14-03-00-00", "state": "RUNNING"}]})
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result == "my-fairy-2026-02-14-03-00-00"
+
+
+def test_parse_agent_name_from_list_json_returns_none_when_no_match() -> None:
+    json_output = json.dumps({"agents": [{"name": "other-agent-123", "state": "RUNNING"}]})
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result is None
+
+
+def test_parse_agent_name_from_list_json_returns_none_on_empty_agents() -> None:
+    json_output = json.dumps({"agents": []})
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result is None
+
+
+def test_parse_agent_name_from_list_json_returns_none_on_invalid_json() -> None:
+    result = parse_agent_name_from_list_json("not valid json{{{", "my-fairy")
+    assert result is None
+
+
+def test_parse_agent_name_from_list_json_returns_first_match() -> None:
+    json_output = json.dumps(
+        {
+            "agents": [
+                {"name": "my-fairy-2026-02-14-01-00-00", "state": "STOPPED"},
+                {"name": "my-fairy-2026-02-14-03-00-00", "state": "RUNNING"},
+            ]
+        }
+    )
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result == "my-fairy-2026-02-14-01-00-00"
+
+
+def test_parse_agent_name_from_list_json_handles_missing_agents_key() -> None:
+    json_output = json.dumps({"errors": []})
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result is None
+
+
+def test_parse_agent_name_from_list_json_handles_agent_without_name() -> None:
+    json_output = json.dumps({"agents": [{"id": "abc-123", "state": "RUNNING"}]})
+    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+    assert result is None

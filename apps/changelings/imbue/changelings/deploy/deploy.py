@@ -1,3 +1,4 @@
+import json
 import os
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -11,6 +12,9 @@ from imbue.changelings.mngr_commands import build_mngr_create_command
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
+
+AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
+AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
 
 @pure
@@ -68,6 +72,19 @@ def build_modal_deploy_command(
 
 
 @pure
+def build_modal_run_command(
+    cron_runner_path: Path,
+    environment_name: str | None,
+) -> list[str]:
+    """Build the modal run CLI command for invoking the deployed function once."""
+    cmd = ["uv", "run", "modal", "run"]
+    if environment_name:
+        cmd.extend(["--env", environment_name])
+    cmd.append(str(cron_runner_path))
+    return cmd
+
+
+@pure
 def build_modal_secret_command(
     secret_name: str,
     secret_values: Mapping[str, str],
@@ -103,6 +120,27 @@ def collect_secret_values(
 def serialize_changeling_config(changeling: ChangelingDefinition) -> str:
     """Serialize a changeling definition to JSON for embedding in the Modal image."""
     return changeling.model_dump_json()
+
+
+@pure
+def parse_agent_name_from_list_json(
+    json_output: str,
+    changeling_name: str,
+) -> str | None:
+    """Parse mngr list JSON output to find an agent created by the given changeling.
+
+    Returns the agent name if found, None otherwise.
+    """
+    try:
+        data = json.loads(json_output)
+        for agent in data.get("agents", []):
+            name = agent.get("name", "")
+            if name.startswith(f"{changeling_name}-"):
+                return name
+    except json.JSONDecodeError:
+        pass
+
+    return None
 
 
 def build_cron_mngr_command(
@@ -174,38 +212,42 @@ def create_modal_secret(
 def deploy_changeling(
     changeling: ChangelingDefinition,
     environment_name: str | None = None,
+    is_finish_initial_run: bool = False,
 ) -> str:
     """Deploy a changeling to Modal as a cron-scheduled function.
 
-    This performs the full deployment:
+    This performs the full deployment and verification:
     1. Creates/updates a Modal secret with the changeling's API keys
     2. Deploys the cron runner function with the changeling's configuration
-
-    The deployed function runs on the changeling's cron schedule and invokes
-    mngr create to run the agent on Modal.
+    3. Invokes the function once via `modal run` to verify it works
+    4. Polls `mngr list` to confirm an agent is created
+    5. Destroys the test agent (or waits for it to finish if is_finish_initial_run)
 
     Returns the Modal app name.
-    Raises ChangelingDeployError if deployment fails.
+    Raises ChangelingDeployError if deployment or verification fails.
     """
+    from imbue.changelings.deploy.verification import verify_deployment
+
     app_name = get_modal_app_name(str(changeling.name))
     repo_root = find_repo_root()
 
     with log_span("Creating Modal secret for changeling '{}'", changeling.name):
         secret_name = create_modal_secret(changeling, environment_name)
 
+    cron_runner_path = Path(__file__).parent / "cron_runner.py"
+    config_json = serialize_changeling_config(changeling)
+
+    deploy_env_vars = build_deploy_env(
+        app_name=app_name,
+        config_json=config_json,
+        cron_schedule=str(changeling.schedule),
+        repo_root=str(repo_root),
+        secret_name=secret_name,
+    )
+
+    env = {**os.environ, **deploy_env_vars}
+
     with log_span("Deploying changeling '{}' to Modal app '{}'", changeling.name, app_name):
-        cron_runner_path = Path(__file__).parent / "cron_runner.py"
-        config_json = serialize_changeling_config(changeling)
-
-        deploy_env_vars = build_deploy_env(
-            app_name=app_name,
-            config_json=config_json,
-            cron_schedule=str(changeling.schedule),
-            repo_root=str(repo_root),
-            secret_name=secret_name,
-        )
-
-        env = {**os.environ, **deploy_env_vars}
         cmd = build_modal_deploy_command(cron_runner_path, environment_name)
 
         with ConcurrencyGroup(name=f"modal-deploy-{changeling.name}") as cg:
@@ -218,4 +260,14 @@ def deploy_changeling(
             ) from None
 
     logger.info("Changeling '{}' deployed to Modal app '{}'", changeling.name, app_name)
+
+    with log_span("Verifying deployment of changeling '{}'", changeling.name):
+        verify_deployment(
+            changeling=changeling,
+            environment_name=environment_name,
+            is_finish_initial_run=is_finish_initial_run,
+            env=env,
+            cron_runner_path=cron_runner_path,
+        )
+
     return app_name

@@ -62,6 +62,7 @@ omit = [
   "*/conftest.py",
   "*/utils/testing.py",
   "*/deploy/cron_runner.py",
+  "*/deploy/verification.py",
 ]
 
 [tool.inline-snapshot]
