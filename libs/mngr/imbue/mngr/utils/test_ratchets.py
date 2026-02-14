@@ -382,7 +382,7 @@ def test_prevent_import_datetime() -> None:
 def test_prevent_inline_functions_in_non_test_code() -> None:
     chunks = find_inline_functions(_get_mngr_source_dir())
 
-    assert len(chunks) <= snapshot(1), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
         rule_name="inline functions in non-test code",
         rule_description="Functions should not be defined inside other functions in non-test code. Extract them as top-level functions or methods",
         chunks=chunks,
