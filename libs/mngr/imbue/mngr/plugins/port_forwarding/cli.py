@@ -1,3 +1,4 @@
+import sys
 import tempfile
 import webbrowser
 from pathlib import Path
@@ -37,7 +38,8 @@ def auth_command(show_token: bool, config_dir: Path) -> None:
     token = read_or_create_auth_token(expanded_config_dir)
 
     if show_token:
-        click.echo(token.get_secret_value())
+        # Write directly to stdout for programmatic consumption (e.g. piping)
+        sys.stdout.write(token.get_secret_value() + "\n")
         return
 
     # Generate the auth page and open it in the browser
@@ -53,4 +55,4 @@ def auth_command(show_token: bool, config_dir: Path) -> None:
 
     logger.info("Opening auth page in browser")
     webbrowser.open(f"file://{temp_path}")
-    click.echo(f"Auth cookie set for *.{DEFAULT_DOMAIN_SUFFIX}:{DEFAULT_VHOST_HTTP_PORT}")
+    logger.info("Auth cookie set for *.{}:{}", DEFAULT_DOMAIN_SUFFIX, DEFAULT_VHOST_HTTP_PORT)
