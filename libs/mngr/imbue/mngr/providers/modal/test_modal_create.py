@@ -488,23 +488,43 @@ def test_mngr_clone_transfers_claude_session_to_modal(
     companion_dir.mkdir()
     (companion_dir / "subagent.jsonl").write_text('{"type":"subagent"}\n')
 
+    # Sessions index with LOCAL paths (these must be rewritten for the remote)
+    local_home = str(Path.home())
+    index_content = json.dumps(
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "sessionId": session_id,
+                    "fullPath": str(session_file),
+                    "projectPath": str(source_work_dir),
+                    "firstPrompt": "hello",
+                    "messageCount": 1,
+                },
+            ],
+        }
+    )
+    (project_dir / "sessions-index.json").write_text(index_content)
+
     # Step 4: Clone to Modal with a verification command.
-    # The command checks that:
-    # a) The memory file exists at ~/.claude/projects/<encoded-remote-work-dir>/memory/MEMORY.md
-    #    and contains the expected marker
-    # b) The session ID file exists at $MNGR_AGENT_STATE_DIR/claude_session_id
-    #    and contains the expected session ID
-    # c) The session .jsonl file was transferred
-    # If any check fails, the command exits non-zero, which causes the test to fail.
+    # Checks: memory file, session ID, .jsonl file, and sessions-index.json rewriting.
+    # The sessions-index.json check verifies that fullPath was rewritten from the local
+    # home directory to the remote home, which is the key regression test for the path
+    # rewriting logic.
     verify_cmd = (
-        f'MARKER=$(grep -r "{memory_marker}" ~/.claude/projects/*/memory/MEMORY.md 2>/dev/null) '
-        f'&& [ -n "$MARKER" ] '
+        f'grep -r "{memory_marker}" ~/.claude/projects/*/memory/MEMORY.md >/dev/null 2>&1 '
         f'&& echo "MEMORY_OK" '
         f'&& SID=$(cat "$MNGR_AGENT_STATE_DIR/claude_session_id" 2>/dev/null) '
         f'&& [ "$SID" = "{session_id}" ] '
         f'&& echo "SESSION_ID_OK" '
         f"&& ls ~/.claude/projects/*/{session_id}.jsonl >/dev/null 2>&1 "
-        f'&& echo "JSONL_OK"'
+        f'&& echo "JSONL_OK" '
+        # sessions-index.json: fullPath must NOT contain the local home prefix
+        f'&& ! grep -q "{local_home}" ~/.claude/projects/*/sessions-index.json '
+        f'&& echo "INDEX_PATHS_REWRITTEN" '
+        # sessions-index.json: fullPath must contain the session ID (sanity check)
+        f'&& grep -q "{session_id}" ~/.claude/projects/*/sessions-index.json '
+        f'&& echo "INDEX_HAS_SESSION"'
     )
 
     clone_result = subprocess.run(
