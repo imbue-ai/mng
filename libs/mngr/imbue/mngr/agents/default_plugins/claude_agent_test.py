@@ -1282,7 +1282,6 @@ def test_find_most_recent_session_from_index(tmp_path: Path) -> None:
         "entries": [
             {"sessionId": "old-session", "fullPath": str(project_dir / "old-session.jsonl"), "fileMtime": 100},
             {"sessionId": "new-session", "fullPath": str(project_dir / "new-session.jsonl"), "fileMtime": 200},
-            {"sessionId": "agent-session", "fullPath": str(project_dir / "agent-session.jsonl"), "fileMtime": 300},
         ]
     }
     (project_dir / "sessions-index.json").write_text(json.dumps(index))
@@ -1316,45 +1315,6 @@ def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
 
     with pytest.raises(UserInputError, match="No sessions found"):
         _find_most_recent_session(project_dir)
-
-
-def test_find_most_recent_session_filters_agent_sessions_from_index(tmp_path: Path) -> None:
-    """_find_most_recent_session should exclude agent-* sessions from the index."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-
-    # Only agent sessions in index -- should fall back to files
-    index = {
-        "entries": [
-            {"sessionId": "agent-123", "fullPath": str(project_dir / "agent-123.jsonl"), "fileMtime": 300},
-        ]
-    }
-    (project_dir / "sessions-index.json").write_text(json.dumps(index))
-
-    # Create a non-agent .jsonl file for the fallback
-    user_file = project_dir / "user-session.jsonl"
-    user_file.write_text("")
-
-    result = _find_most_recent_session(project_dir)
-    assert result == "user-session"
-
-
-def test_find_most_recent_session_filters_agent_sessions_from_files(tmp_path: Path) -> None:
-    """_find_most_recent_session should exclude agent-* .jsonl files from fallback."""
-    project_dir = tmp_path / "project"
-    project_dir.mkdir()
-
-    # Create an agent file and a user file with explicit mtimes
-    agent_file = project_dir / "agent-abc.jsonl"
-    agent_file.write_text("")
-    os.utime(agent_file, (2000.0, 2000.0))
-
-    user_file = project_dir / "user-session.jsonl"
-    user_file.write_text("")
-    os.utime(user_file, (1000.0, 1000.0))
-
-    result = _find_most_recent_session(project_dir)
-    assert result == "user-session"
 
 
 def test_adopt_claude_session_copies_file_and_writes_state(tmp_path: Path) -> None:

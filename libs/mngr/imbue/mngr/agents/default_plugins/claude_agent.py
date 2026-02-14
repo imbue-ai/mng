@@ -188,15 +188,13 @@ def _find_most_recent_session(project_dir: Path) -> str:
     if index_path.exists():
         index_data = json.loads(index_path.read_text())
         entries = index_data.get("entries", [])
-        # Filter out agent sessions
-        user_entries = [e for e in entries if not Path(e.get("fullPath", "")).name.startswith("agent-")]
-        if user_entries:
+        if entries:
             # Sort by modified time (descending), then return the most recent
-            user_entries.sort(key=lambda e: e.get("fileMtime", 0), reverse=True)
-            return user_entries[0]["sessionId"]
+            entries.sort(key=lambda e: e.get("fileMtime", 0), reverse=True)
+            return entries[0]["sessionId"]
 
     # Fallback: find most recently modified .jsonl file
-    jsonl_files = [f for f in project_dir.glob("*.jsonl") if not f.name.startswith("agent-")]
+    jsonl_files = list(project_dir.glob("*.jsonl"))
     if not jsonl_files:
         raise UserInputError(f"No sessions found in {project_dir}")
     jsonl_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
