@@ -4,11 +4,11 @@ import click
 import uvicorn
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.loader import load_config
 from imbue.mngr.plugins.api_server.app import app
 from imbue.mngr.plugins.api_server.app import configure_app
 from imbue.mngr.plugins.api_server.auth import read_or_create_api_token
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
 @click.command(name="serve")
@@ -51,7 +51,7 @@ def serve_command(ctx: click.Context, port: int, host: str, config_dir: Path) ->
     configure_app(mngr_ctx=mngr_ctx, api_token=api_token)
 
     logger.info("Starting mngr API server on {}:{}", host, port)
-    logger.info("API token: {}", api_token.get_secret_value()[:8] + "...")
+    logger.info("API token configured (use 'mngr token' to view)")
     logger.info("Web UI: http://{}:{}", host, port)
 
     uvicorn.run(app, host=host, port=port, log_level="warning")
