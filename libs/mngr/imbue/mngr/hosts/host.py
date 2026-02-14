@@ -252,6 +252,18 @@ class Host(BaseHost, OnlineHostInterface):
                                 filename_or_io,
                                 remote_temp_filename=remote_temp_filename,
                             )
+                        # these get handled specially by the caller, must properly re-raise on exception
+                        except OSError as retry_exception:
+                            retry_error_msg = str(retry_exception)
+                            if "No such file or directory" in retry_error_msg or "cannot stat" in retry_error_msg:
+                                raise HostConnectionError(
+                                    "Connection was closed while reading file (but the retry worked! it was trying to read a file that does not exist)"
+                                ) from retry_exception
+                                # raise FileNotFoundError(f"File not found: {remote_filename}") from retry_exception
+                            else:
+                                raise HostConnectionError(
+                                    "Connection was closed while reading file (and our retry failed with an OSError)"
+                                ) from retry_exception
                         # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                         except Exception as retry_exception:
                             raise HostConnectionError(
@@ -297,6 +309,11 @@ class Host(BaseHost, OnlineHostInterface):
                             remote_filename,
                             remote_temp_filename=remote_temp_filename,
                         )
+                    # these are handled specially by the caller
+                    except IOError as retry_exception:
+                        raise HostConnectionError(
+                            "Connection was closed while writing file (but the retry worked! it would need to make a new dir)"
+                        ) from retry_exception
                     # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
                     except Exception as retry_exception:
                         raise HostConnectionError(
