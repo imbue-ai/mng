@@ -16,27 +16,17 @@ _ACTIVITY_INTERVAL_SECONDS: Final[float] = 30.0
 def _resolve_agent_url(agent: AgentInterface, url_type: str | None) -> str:
     """Resolve the URL to open for an agent, optionally filtered by type.
 
-    When url_type is None, returns the default URL (from get_reported_url).
-    When url_type is specified, looks it up in get_reported_urls().
+    When url_type is None, returns the first available URL.
+    When url_type is specified, looks it up by name.
     """
-    if url_type is None:
-        # Try the legacy single-URL first, then fall back to the first typed URL
-        url = agent.get_reported_url()
-        if url is not None:
-            return url
-        reported_urls = agent.get_reported_urls()
-        if reported_urls:
-            return next(iter(reported_urls.values()))
+    reported_urls = agent.get_reported_urls()
+    if not reported_urls:
         raise UserInputError(
             f"Agent '{agent.name}' has no URL. The agent may not have reported a URL yet, or it may not support URLs."
         )
 
-    reported_urls = agent.get_reported_urls()
-    if not reported_urls:
-        raise UserInputError(
-            f"Agent '{agent.name}' has no URLs. "
-            "The agent may not have reported any URLs yet, or it may not support URLs."
-        )
+    if url_type is None:
+        return next(iter(reported_urls.values()))
 
     if url_type not in reported_urls:
         available_types = ", ".join(sorted(reported_urls.keys()))

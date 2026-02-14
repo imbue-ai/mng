@@ -161,13 +161,8 @@ class AgentInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_reported_url(self) -> str | None:
-        """Return the agent's self-reported default URL, or None if not set."""
-        ...
-
-    @abstractmethod
     def get_reported_urls(self) -> dict[str, str]:
-        """Return all self-reported URLs keyed by type (e.g. 'default', 'terminal')."""
+        """Return all self-reported URLs keyed by type (e.g. 'terminal', 'chat')."""
         ...
 
     @abstractmethod

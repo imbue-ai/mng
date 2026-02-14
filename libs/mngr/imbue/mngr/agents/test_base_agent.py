@@ -175,17 +175,17 @@ def test_base_agent_get_lifecycle_state_stopped(
     assert state == AgentLifecycleState.STOPPED
 
 
-def test_base_agent_get_reported_url_none(
+def test_base_agent_get_reported_urls_empty(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test get_reported_url returns None when no URL file exists."""
+    """Test get_reported_urls returns empty dict when no URL files exist."""
     agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-url", temp_work_dir)
 
-    url = agent.get_reported_url()
+    urls = agent.get_reported_urls()
 
-    assert url is None
+    assert urls == {}
 
 
 def test_base_agent_get_reported_start_time_none(

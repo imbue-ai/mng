@@ -480,7 +480,7 @@ def _assemble_host_info(
                     start_on_boot=agent.get_is_start_on_boot(),
                     state=agent.get_lifecycle_state(),
                     status=agent_status,
-                    url=agent.get_reported_url(),
+                    url=next(iter(reported_urls.values()), None),
                     urls=reported_urls,
                     start_time=agent.get_reported_start_time(),
                     runtime_seconds=agent.runtime_seconds,
