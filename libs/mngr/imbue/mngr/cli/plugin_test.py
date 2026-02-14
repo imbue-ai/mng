@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pluggy
+import pytest
 from loguru import logger
 
 from imbue.mngr.cli.config import ConfigScope
@@ -168,7 +169,7 @@ def _make_test_plugins() -> list[PluginInfo]:
     ]
 
 
-def test_emit_plugin_list_human_format_renders_table(capsys) -> None:
+def test_emit_plugin_list_human_format_renders_table(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_list with HUMAN format should render a table via logger."""
     plugins = _make_test_plugins()
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
@@ -176,13 +177,13 @@ def test_emit_plugin_list_human_format_renders_table(capsys) -> None:
     _emit_plugin_list(plugins, output_opts, ("name", "version", "description", "enabled"))
 
 
-def test_emit_plugin_list_human_format_empty(capsys) -> None:
+def test_emit_plugin_list_human_format_empty(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_list with HUMAN format should handle empty list."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
     _emit_plugin_list([], output_opts, ("name", "version", "description", "enabled"))
 
 
-def test_emit_plugin_list_json_format(capsys) -> None:
+def test_emit_plugin_list_json_format(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_list with JSON format should output valid JSON."""
     plugins = _make_test_plugins()
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
@@ -198,7 +199,7 @@ def test_emit_plugin_list_json_format(capsys) -> None:
     assert data["plugins"][1]["enabled"] == "false"
 
 
-def test_emit_plugin_list_jsonl_format(capsys) -> None:
+def test_emit_plugin_list_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_list with JSONL format should output one line per plugin."""
     plugins = _make_test_plugins()
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
@@ -217,7 +218,7 @@ def test_emit_plugin_list_jsonl_format(capsys) -> None:
     assert second["enabled"] == "false"
 
 
-def test_emit_plugin_list_with_field_selection(capsys) -> None:
+def test_emit_plugin_list_with_field_selection(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_list should respect field selection."""
     plugins = _make_test_plugins()
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
@@ -374,7 +375,7 @@ def test_validate_plugin_name_is_known_warns_for_unknown() -> None:
 # =============================================================================
 
 
-def test_emit_plugin_toggle_result_json_enable(capsys) -> None:
+def test_emit_plugin_toggle_result_json_enable(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_toggle_result should output valid JSON for enable."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
     config_path = Path("/tmp/test/.mngr/settings.toml")
@@ -389,7 +390,7 @@ def test_emit_plugin_toggle_result_json_enable(capsys) -> None:
     assert data["path"] == str(config_path)
 
 
-def test_emit_plugin_toggle_result_json_disable(capsys) -> None:
+def test_emit_plugin_toggle_result_json_disable(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_toggle_result should output valid JSON for disable."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
     config_path = Path("/tmp/test/.mngr/settings.toml")
@@ -402,7 +403,7 @@ def test_emit_plugin_toggle_result_json_disable(capsys) -> None:
     assert data["enabled"] is False
 
 
-def test_emit_plugin_toggle_result_jsonl_has_event_type(capsys) -> None:
+def test_emit_plugin_toggle_result_jsonl_has_event_type(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_plugin_toggle_result with JSONL should include event type."""
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
     config_path = Path("/tmp/test/.mngr/settings.toml")
