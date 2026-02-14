@@ -424,12 +424,6 @@ Supported build arguments for the modal provider:
                 get_output_callback=lambda: context_handle.output_buffer.getvalue(),
             )
         except modal.exception.AuthError as e:
-            # FIXME: Dead code -- `if True: raise` makes the helpful MngrError message below
-            # unreachable. The intent was to give users actionable guidance on how to fix auth
-            # failures, but the bare re-raise bypasses it entirely. Remove the `if True: raise`
-            # so the MngrError with instructions is actually raised.
-            if True:
-                raise
             raise MngrError(
                 "Modal is not authorized: run 'modal token set' to authenticate, or disable this provider with "
                 f"'mngr config set --scope local providers.{name}.is_enabled false'. (original error: {e})",
