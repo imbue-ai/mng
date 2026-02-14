@@ -117,20 +117,21 @@ def test_create_agent_writes_terminal_url_for_local_host(
         url_file = temp_host_dir / "agents" / str(result.agent.id) / "status" / "urls" / "terminal"
         assert url_file.exists(), f"URL file not found at {url_file}"
         url_content = url_file.read_text()
-        assert url_content.startswith("http://localhost:"), f"Unexpected URL content: {url_content}"
+        assert "localhost:" in url_content, f"Unexpected URL content: {url_content}"
 
-        # The ttyd hook should have written a terminal URL
+        # The ttyd hook should have written a terminal URL with embedded credentials
         urls = result.agent.get_reported_urls()
         assert "terminal" in urls, f"Expected 'terminal' URL but got: {urls}"
-        assert urls["terminal"].startswith("http://localhost:")
+        assert "localhost:" in urls["terminal"]
+        assert "@localhost:" in urls["terminal"], "Expected credentials embedded in URL"
 
         # Verify _resolve_agent_url can find it
         resolved = _resolve_agent_url(result.agent, url_type="terminal")
-        assert resolved.startswith("http://localhost:")
+        assert "localhost:" in resolved
 
-        # Verify the default URL resolution also works (falls back to first available)
+        # Verify the default URL resolution also works (returns first available)
         default_url = _resolve_agent_url(result.agent, url_type=None)
-        assert default_url.startswith("http://localhost:")
+        assert "localhost:" in default_url
 
 
 @pytest.mark.skipif(shutil.which("ttyd") is None, reason="ttyd not installed")

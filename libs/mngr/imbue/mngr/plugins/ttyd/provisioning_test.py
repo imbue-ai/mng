@@ -32,11 +32,11 @@ def test_write_local_terminal_url_creates_url_file(
     host = agent.get_host()
     agent_state_dir = _compute_agent_state_dir(host, agent.id)
 
-    _write_local_terminal_url(host, agent_state_dir, ttyd_port=7681)
+    _write_local_terminal_url(host, agent_state_dir, ttyd_port=7681, token="test-token-abc")
 
     url_file = agent_state_dir / "status" / "urls" / "terminal"
     assert url_file.exists()
-    assert url_file.read_text() == "http://localhost:7681"
+    assert url_file.read_text() == "http://:test-token-abc@localhost:7681"
 
 
 def test_write_local_terminal_url_is_picked_up_by_get_reported_urls(
@@ -49,8 +49,8 @@ def test_write_local_terminal_url_is_picked_up_by_get_reported_urls(
     host = agent.get_host()
     agent_state_dir = _compute_agent_state_dir(host, agent.id)
 
-    _write_local_terminal_url(host, agent_state_dir, ttyd_port=7700)
+    _write_local_terminal_url(host, agent_state_dir, ttyd_port=7700, token="test-token-xyz")
 
     urls = agent.get_reported_urls()
     assert "terminal" in urls
-    assert urls["terminal"] == "http://localhost:7700"
+    assert urls["terminal"] == "http://:test-token-xyz@localhost:7700"
