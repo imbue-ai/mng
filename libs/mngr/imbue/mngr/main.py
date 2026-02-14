@@ -2,6 +2,7 @@ from typing import Any
 
 import click
 import pluggy
+from click.shell_completion import CompletionItem
 from click_option_group import OptionGroup
 
 from imbue.mngr.cli.ask import ask
@@ -91,6 +92,15 @@ class AliasAwareGroup(click.Group):
         if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
+
+    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
+        completions = super().shell_complete(ctx, incomplete)
+        completed_names = {item.value for item in completions}
+        return [
+            item
+            for item in completions
+            if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
+        ]
 
 
 @click.command(cls=AliasAwareGroup)
