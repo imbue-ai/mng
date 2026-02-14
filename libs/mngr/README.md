@@ -151,7 +151,7 @@ mngr <command> [options]
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
 - [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
-- [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
+- [`limit`](docs/commands/secondary/limit.md): Configure limits for agents and hosts
 
 ### For moving data in and out:
 
