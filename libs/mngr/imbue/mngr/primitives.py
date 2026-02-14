@@ -295,9 +295,9 @@ class SnapshotName(str):
 class HostReference(FrozenModel):
     """Lightweight reference to a host for display and identification purposes."""
 
-    host_id: HostId
-    host_name: HostName
-    provider_name: ProviderInstanceName
+    host_id: HostId = Field(description="Unique identifier for the host")
+    host_name: HostName = Field(description="Human-readable name of the host")
+    provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
 class AgentReference(FrozenModel):

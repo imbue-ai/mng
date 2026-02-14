@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pluggy
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -26,7 +27,7 @@ _agent_config_registry: dict[AgentTypeName, type[AgentTypeConfig]] = {}
 _registry_state: dict[str, bool] = {"agents_loaded": False}
 
 
-def load_agents_from_plugins(pm) -> None:
+def load_agents_from_plugins(pm: pluggy.PluginManager) -> None:
     """Load agent types from plugins via the register_agent_type hook."""
     if _registry_state["agents_loaded"]:
         return
