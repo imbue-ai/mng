@@ -243,10 +243,29 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
     )
+    cidr_allowlist: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="CIDR ranges to restrict network access to",
+    )
+    offline: bool = False
     volumes: tuple[tuple[str, str], ...] = Field(
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
     )
+
+    @property
+    def effective_cidr_allowlist(self) -> list[str] | None:
+        """Compute the cidr_allowlist to pass to Modal.
+
+        Returns None (allow all) when neither --offline nor --cidr-allowlist is set.
+        Returns [] (block all) when --offline is set without explicit CIDRs.
+        Returns the explicit list when --cidr-allowlist is provided.
+        """
+        if self.cidr_allowlist:
+            return list(self.cidr_allowlist)
+        if self.offline:
+            return []
+        return None
 
 
 class HostRecord(FrozenModel):
@@ -997,11 +1016,18 @@ log "=== Shutdown script completed ==="
         Both formats can be mixed. Unknown arguments raise an error.
         """
 
-        # Normalize arguments: convert "key=value" to "--key=value"
+        # Boolean flags that can be passed as bare words (e.g. -b offline)
+        boolean_flags = {"offline"}
+
+        # Normalize arguments: convert "key=value" to "--key=value" and
+        # bare boolean flag names like "offline" to "--offline"
         normalized_args: list[str] = []
         for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
-                # Simple key=value format, convert to --key=value
+                # Key-value format: gpu=h100 -> --gpu=h100
+                normalized_args.append(f"--{arg}")
+            elif not arg.startswith("-") and arg in boolean_flags:
+                # Bare boolean flag: offline -> --offline
                 normalized_args.append(f"--{arg}")
             else:
                 normalized_args.append(arg)
@@ -1021,6 +1047,8 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
+        parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
+        parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
 
         try:
@@ -1041,6 +1069,8 @@ log "=== Shutdown script completed ==="
             region=parsed.region,
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
+            cidr_allowlist=tuple(parsed.cidr_allowlist),
+            offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
         )
 
@@ -1352,6 +1382,7 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
+                    cidr_allowlist=config.effective_cidr_allowlist,
                     volumes=sandbox_volumes,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
@@ -1610,6 +1641,7 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
+                cidr_allowlist=config.effective_cidr_allowlist,
                 volumes=sandbox_volumes,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
