@@ -1863,7 +1863,7 @@ class Host(BaseHost, OnlineHostInterface):
                         unset_vars=self.mngr_ctx.config.unset_vars,
                         host_dir=self.host_dir,
                     )
-                    result = self.execute_command(combined_command)
+                    result = self.execute_command(combined_command, cwd=agent.work_dir)
                     if not result.success:
                         raise AgentStartError(str(agent.name), result.stderr)
 
