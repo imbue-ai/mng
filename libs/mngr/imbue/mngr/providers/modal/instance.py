@@ -111,7 +111,7 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
 
 # Prefix for host volume names on Modal. Combined with host_id to form
-# the full volume name (e.g., "mngr-host-host_abc123").
+# the full volume name (e.g., "mngr-host-host-abc123def...").
 HOST_VOLUME_NAME_PREFIX: Final[str] = "mngr-host-"
 
 P = ParamSpec("P")
@@ -1729,8 +1729,10 @@ log "=== Shutdown script completed ==="
         try:
             modal.Volume.delete(host_volume_name, environment_name=self.environment_name)
             logger.debug("Deleted host volume: {}", host_volume_name)
-        except (NotFoundError, modal.exception.InvalidError, modal.exception.InternalError) as e:
-            logger.trace("Could not delete host volume {}: {}", host_volume_name, e)
+        except NotFoundError:
+            logger.trace("Host volume {} already deleted", host_volume_name)
+        except (modal.exception.InvalidError, modal.exception.InternalError) as e:
+            logger.warning("Failed to delete host volume {}: {}", host_volume_name, e)
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
@@ -2116,7 +2118,6 @@ log "=== Shutdown script completed ==="
 
         Returns volumes whose names start with the host volume prefix.
         """
-        now = datetime.now(timezone.utc)
         results: list[VolumeInfo] = []
         for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
             vol_name = modal_vol.name
@@ -2127,7 +2128,6 @@ log "=== Shutdown script completed ==="
                         volume_id=VolumeId(vol_name),
                         name=vol_name,
                         size_bytes=0,
-                        created_at=now,
                         host_id=HostId(host_id_str) if host_id_str.startswith("host-") else None,
                     )
                 )

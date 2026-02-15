@@ -3,6 +3,7 @@ from typing import Mapping
 
 from pydantic import Field
 
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import VolumeFile
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.volume import BaseVolume
@@ -17,8 +18,16 @@ class LocalVolume(BaseVolume):
     root_path: Path = Field(frozen=True, description="Root directory on the local filesystem")
 
     def _resolve(self, path: str) -> Path:
-        """Resolve a volume path to a local filesystem path."""
-        return self.root_path / path.lstrip("/")
+        """Resolve a volume path to a local filesystem path.
+
+        Raises ValueError if the resolved path escapes the root directory
+        (e.g., via '..' components).
+        """
+        resolved = (self.root_path / path.lstrip("/")).resolve()
+        root_resolved = self.root_path.resolve()
+        if not resolved.is_relative_to(root_resolved):
+            raise MngrError(f"Path '{path}' escapes volume root")
+        return resolved
 
     def listdir(self, path: str) -> list[VolumeFile]:
         resolved = self._resolve(path)

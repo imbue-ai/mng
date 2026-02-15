@@ -21,6 +21,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -358,13 +359,13 @@ class LocalProviderInstance(BaseProviderInstance):
         """Delete a local volume directory."""
         volumes_dir = self._volumes_dir
         if not volumes_dir.is_dir():
-            raise FileNotFoundError(f"Volume {volume_id} not found (no volumes directory)")
+            raise MngrError(f"Volume {volume_id} not found (no volumes directory)")
         for subdir in volumes_dir.iterdir():
             if subdir.is_dir() and self._volume_id_for_dir(subdir.name) == volume_id:
                 shutil.rmtree(subdir)
                 logger.debug("Deleted local volume: {}", subdir)
                 return
-        raise FileNotFoundError(f"Volume {volume_id} not found in {volumes_dir}")
+        raise MngrError(f"Volume {volume_id} not found")
 
     def get_volume_for_host(self, host: HostInterface | HostId) -> Volume | None:
         """Get the local volume for a host.

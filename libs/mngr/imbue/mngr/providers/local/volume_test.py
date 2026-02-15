@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.providers.local.volume import LocalVolume
 
@@ -85,3 +86,14 @@ def test_listdir_includes_size(volume: LocalVolume) -> None:
     entries = [e for e in volume.listdir("") if e.file_type == VolumeFileType.FILE]
     assert len(entries) == 1
     assert entries[0].size == 5
+
+
+def test_path_traversal_blocked(volume: LocalVolume) -> None:
+    """Paths with '..' that escape the volume root should be rejected."""
+    with pytest.raises(MngrError, match="escapes volume root"):
+        volume.read_file("../../etc/passwd")
+
+
+def test_path_traversal_blocked_on_write(volume: LocalVolume) -> None:
+    with pytest.raises(MngrError, match="escapes volume root"):
+        volume.write_files({"../../evil.txt": b"bad"})

@@ -12,6 +12,7 @@ from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -324,8 +325,8 @@ def test_delete_volume_removes_directory(local_provider: LocalProviderInstance) 
 
 
 def test_delete_volume_raises_when_not_found(local_provider: LocalProviderInstance) -> None:
-    """delete_volume raises FileNotFoundError for nonexistent volume."""
-    with pytest.raises(FileNotFoundError):
+    """delete_volume raises MngrError for nonexistent volume."""
+    with pytest.raises(MngrError):
         local_provider.delete_volume(VolumeId.generate())
 
 

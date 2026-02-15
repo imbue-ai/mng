@@ -362,7 +362,9 @@ class VolumeInfo(FrozenModel):
     volume_id: VolumeId = Field(description="Unique identifier")
     name: str = Field(description="Human-readable name")
     size_bytes: int = Field(description="Size in bytes")
-    created_at: datetime = Field(description="Creation timestamp")
+    created_at: datetime | None = Field(
+        default=None, description="Creation timestamp (None if provider doesn't report it)"
+    )
     host_id: HostId | None = Field(default=None, description="Associated host, if any")
     tags: dict[str, str] = Field(default_factory=dict, description="Provider tags")
 

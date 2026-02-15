@@ -202,7 +202,8 @@ class ProviderInstanceInterface(MutableModel, ABC):
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a volume.
 
-        Raises MngrError if volume doesn't exist or can't be deleted.
+        Raises MngrError if the volume can't be deleted. Implementations may
+        silently succeed if the volume has already been deleted (idempotent).
         """
         ...
 
