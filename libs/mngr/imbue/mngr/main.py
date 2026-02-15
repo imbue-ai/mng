@@ -5,6 +5,7 @@ import pluggy
 from click_option_group import OptionGroup
 
 from imbue.mngr.cli.ask import ask
+from imbue.mngr.cli.cleanup import cleanup
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
@@ -37,6 +38,7 @@ _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
 # This is used by the help formatter to display aliases
 COMMAND_ALIASES: dict[str, list[str]] = {
     "create": ["c"],
+    "cleanup": ["clean"],
     "config": ["cfg"],
     "destroy": ["rm"],
     "exec": ["x"],
@@ -232,6 +234,7 @@ def reset_plugin_manager() -> None:
 BUILTIN_COMMANDS: list[click.Command] = [
     ask,
     create,
+    cleanup,
     destroy,
     exec_command,
     list_command,
@@ -252,6 +255,7 @@ for cmd in BUILTIN_COMMANDS:
 
 # Add command aliases
 cli.add_command(create, name="c")
+cli.add_command(cleanup, name="clean")
 cli.add_command(config, name="cfg")
 cli.add_command(destroy, name="rm")
 cli.add_command(exec_command, name="x")

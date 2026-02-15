@@ -261,6 +261,23 @@ class GcResult(MutableModel):
     )
 
 
+class CleanupResult(MutableModel):
+    """Result of a cleanup operation."""
+
+    destroyed_agents: list[AgentName] = Field(
+        default_factory=list,
+        description="Names of agents that were destroyed",
+    )
+    stopped_agents: list[AgentName] = Field(
+        default_factory=list,
+        description="Names of agents that were stopped",
+    )
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Errors encountered during cleanup",
+    )
+
+
 class OnBeforeCreateArgs(FrozenModel):
     """Arguments passed to and returned from the on_before_create hook.
 
