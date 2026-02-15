@@ -24,6 +24,11 @@ from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
+from tenacity import retry
+from tenacity import retry_if_exception
+from tenacity import stop_after_attempt
+from tenacity import wait_chain
+from tenacity import wait_fixed
 
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.errors import SwitchError
@@ -76,6 +81,27 @@ def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
         return True
     except BlockingIOError:
         return False
+
+
+@pure
+def _is_socket_closed_os_error(exception: BaseException) -> bool:
+    return isinstance(exception, OSError) and "Socket is closed" in str(exception)
+
+
+# Shared retry decorator for file operations that encounter intermittent
+# "Socket is closed" errors.  Retries after (0, 1, 3, 6) seconds for a
+# total backoff window of ~10 seconds.
+_retry_on_socket_closed = retry(
+    retry=retry_if_exception(_is_socket_closed_os_error),
+    stop=stop_after_attempt(5),
+    wait=wait_chain(
+        wait_fixed(0),
+        wait_fixed(1),
+        wait_fixed(3),
+        wait_fixed(6),
+    ),
+    reraise=True,
+)
 
 
 class HostLocation(FrozenModel):
@@ -230,53 +256,43 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with self._notify_on_connection_error():
             try:
-                self._ensure_connected()
-                try:
-                    return self.connector.host.get_file(
-                        remote_filename,
-                        filename_or_io,
-                        remote_temp_filename=remote_temp_filename,
-                    )
-                except OSError as e:
-                    # pyinfra raises OSError for missing files - convert to FileNotFoundError
-                    error_msg = str(e)
-                    if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                        raise FileNotFoundError(f"File not found: {remote_filename}") from e
-                    elif "Socket is closed" in str(e):
-                        # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                        try:
-                            self.connector.host.disconnect()
-                            self._ensure_connected()
-                            _result = self.connector.host.get_file(
-                                remote_filename,
-                                filename_or_io,
-                                remote_temp_filename=remote_temp_filename,
-                            )
-                        # these get handled specially by the caller, must properly re-raise on exception
-                        except OSError as retry_exception:
-                            retry_error_msg = str(retry_exception)
-                            if "No such file or directory" in retry_error_msg or "cannot stat" in retry_error_msg:
-                                raise HostConnectionError(
-                                    "Connection was closed while reading file (but the retry worked! it was trying to read a file that does not exist)"
-                                ) from retry_exception
-                                # raise FileNotFoundError(f"File not found: {remote_filename}") from retry_exception
-                            else:
-                                raise HostConnectionError(
-                                    "Connection was closed while reading file (and our retry failed with an OSError)"
-                                ) from retry_exception
-                        # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
-                        except Exception as retry_exception:
-                            raise HostConnectionError(
-                                "Connection was closed while reading file (and our retry failed)"
-                            ) from retry_exception
-                        else:
-                            raise HostConnectionError(
-                                "Connection was closed while reading file (but the retry worked!)"
-                            ) from e
-                    else:
-                        raise
+                return self._get_file_with_socket_retry(remote_filename, filename_or_io, remote_temp_filename)
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while reading file") from e
+                raise
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not read file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _get_file_with_socket_retry(
+        self,
+        remote_filename: str,
+        filename_or_io: str | IO[bytes],
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset output IO for retry attempts (clear any partial data from a failed attempt)
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
+            filename_or_io.truncate(0)
+        try:
+            return self.connector.host.get_file(
+                remote_filename,
+                filename_or_io,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            # pyinfra raises OSError for missing files - convert to FileNotFoundError
+            error_msg = str(e)
+            if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                raise FileNotFoundError(f"File not found: {remote_filename}") from e
+            elif "Socket is closed" in error_msg:
+                logger.debug("Socket closed while reading {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
+            else:
+                raise
 
     def _put_file(
         self,
@@ -292,41 +308,38 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with self._notify_on_connection_error():
             try:
-                self._ensure_connected()
-                return self.connector.host.put_file(
-                    filename_or_io,
-                    remote_filename,
-                    remote_temp_filename=remote_temp_filename,
-                )
+                return self._put_file_with_socket_retry(filename_or_io, remote_filename, remote_temp_filename)
             except OSError as e:
                 if "Socket is closed" in str(e):
-                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                    try:
-                        self.connector.host.disconnect()
-                        self._ensure_connected()
-                        _result = self.connector.host.put_file(
-                            filename_or_io,
-                            remote_filename,
-                            remote_temp_filename=remote_temp_filename,
-                        )
-                    # these are handled specially by the caller
-                    except IOError as retry_exception:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (but the retry worked! it would need to make a new dir)"
-                        ) from retry_exception
-                    # note: do NOT change this--this is just here temporarily while we are debugging the intermittent "Socket is closed" errors in tests. We want to catch all exceptions here to see if the retry works
-                    except Exception as retry_exception:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (and our retry failed)"
-                        ) from retry_exception
-                    else:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (but the retry worked!)"
-                        ) from e
-                else:
-                    raise
+                    raise HostConnectionError("Connection was closed while writing file") from e
+                raise
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not write file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _put_file_with_socket_retry(
+        self,
+        filename_or_io: str | IO[str] | IO[bytes],
+        remote_filename: str,
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset input IO position for retry attempts
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
+        try:
+            return self.connector.host.put_file(
+                filename_or_io,
+                remote_filename,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                logger.debug("Socket closed while writing {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
+            else:
+                raise
 
     # =========================================================================
     # Convenience methods (built on core primitives)
