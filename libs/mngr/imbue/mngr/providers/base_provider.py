@@ -58,7 +58,10 @@ class BaseProviderInstance(ProviderInstanceInterface):
     ) -> HostInterface:
         raise NotImplementedError()
 
-    # FIXME: make this configurable at the provider level, eg, give them all settings for this
     def get_max_destroyed_host_persisted_seconds(self) -> float:
-        # currently default: 7 days, can be overridden by providers that persist destroyed hosts longer
-        return 60.0 * 60.0 * 24.0 * 7.0
+        # Check for a provider-level override first
+        provider_config = self.mngr_ctx.config.providers.get(self.name)
+        if provider_config is not None and provider_config.destroyed_host_persisted_seconds is not None:
+            return provider_config.destroyed_host_persisted_seconds
+        # Fall back to the global default
+        return self.mngr_ctx.config.default_destroyed_host_persisted_seconds

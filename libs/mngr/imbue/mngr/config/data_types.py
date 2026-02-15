@@ -4,6 +4,7 @@ import os
 import shlex
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Self
 from typing import TypeVar
 from uuid import uuid4
@@ -34,6 +35,9 @@ from imbue.mngr.primitives import UserId
 USER_ID_FILENAME = "user_id"
 PROFILES_DIRNAME = "profiles"
 ROOT_CONFIG_FILENAME = "config.toml"
+
+# 7 days in seconds
+_DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS: Final[float] = 60.0 * 60.0 * 24.0 * 7.0
 
 # === Helper Functions ===
 
@@ -198,6 +202,11 @@ class ProviderInstanceConfig(FrozenModel):
     is_enabled: bool | None = Field(
         default=None,
         description="Whether this provider instance is enabled. Set to false to disable without removing configuration.",
+    )
+    destroyed_host_persisted_seconds: float | None = Field(
+        default=None,
+        description="How long (in seconds) a destroyed host's records are kept before permanent deletion. "
+        "Overrides the global default_destroyed_host_persisted_seconds when set.",
     )
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
@@ -460,6 +469,11 @@ class MngrConfig(FrozenModel):
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
     )
+    default_destroyed_host_persisted_seconds: float = Field(
+        default=_DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS,
+        description="Default number of seconds a destroyed host's records are kept before permanent deletion. "
+        "Can be overridden per provider via destroyed_host_persisted_seconds in the provider config.",
+    )
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
@@ -578,6 +592,11 @@ class MngrConfig(FrozenModel):
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
 
+        # Merge default_destroyed_host_persisted_seconds (scalar - override wins if not None)
+        default_destroyed_host_persisted_seconds = self.default_destroyed_host_persisted_seconds
+        if override.default_destroyed_host_persisted_seconds is not None:
+            default_destroyed_host_persisted_seconds = override.default_destroyed_host_persisted_seconds
+
         # Merge logging (nested config - use merge_with if override.logging is not None)
         merged_logging = self.logging
         if override.logging is not None:
@@ -600,6 +619,7 @@ class MngrConfig(FrozenModel):
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
             is_allowed_in_pytest=is_allowed_in_pytest,
+            default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,
         )
 
 
