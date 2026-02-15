@@ -681,3 +681,81 @@ def test_offline_blocks_all_network_access(real_modal_provider: ModalProviderIns
     finally:
         if host:
             real_modal_provider.destroy_host(host)
+
+
+# =============================================================================
+# Host Volume Tests
+# =============================================================================
+
+
+@pytest.mark.acceptance
+@pytest.mark.timeout(180)
+def test_host_volume_is_symlinked_and_persists_data(real_modal_provider: ModalProviderInstance) -> None:
+    """Host dir should be symlinked to the host volume, and data should persist on the volume."""
+    host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-host-vol"))
+
+        # Verify /mngr is a symlink to /host_volume
+        result = host.execute_command("readlink /mngr")
+        assert result.success
+        assert "/host_volume" in result.stdout.strip()
+
+        # Verify data written to /mngr lands on the volume
+        result = host.execute_command("echo 'test data' > /mngr/test_file.txt && cat /host_volume/test_file.txt")
+        assert result.success
+        assert "test data" in result.stdout
+
+        # Verify the volume sync script is running
+        result = host.execute_command("test -f /mngr/commands/volume_sync.sh && echo 'exists'")
+        assert result.success
+        assert "exists" in result.stdout
+
+        # Verify get_volume_for_host returns a volume
+        volume = real_modal_provider.get_volume_for_host(host)
+        assert volume is not None
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(300)
+def test_host_volume_data_readable_via_volume_interface(real_modal_provider: ModalProviderInstance) -> None:
+    """Data written inside the sandbox should be readable via the Volume interface from outside."""
+    host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-vol-read"))
+
+        # Write a known file and explicitly sync the volume
+        host.execute_command("echo 'volume test content' > /mngr/volume_test.txt && sync /host_volume")
+
+        # Read the file via the Volume interface (from outside the sandbox)
+        volume = real_modal_provider.get_volume_for_host(host)
+        assert volume is not None
+        content = volume.read_file("/volume_test.txt")
+        assert b"volume test content" in content
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(180)
+def test_host_volume_cleanup_on_destroy(real_modal_provider: ModalProviderInstance) -> None:
+    """Destroying a host should delete its persistent volume."""
+    host = real_modal_provider.create_host(HostName("test-vol-cleanup"))
+    host_id = host.id
+
+    # Verify the volume exists
+    volume = real_modal_provider.get_volume_for_host(host_id)
+    assert volume is not None
+
+    # Destroy the host (should delete the volume)
+    real_modal_provider.destroy_host(host)
+
+    # Verify the volume is gone
+    volume_after = real_modal_provider.get_volume_for_host(host_id)
+    assert volume_after is None

@@ -20,6 +20,7 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.volume import LocalVolume
 from imbue.mngr.utils.testing import make_local_provider
 
 
@@ -257,10 +258,35 @@ def test_host_has_local_connector(local_provider: LocalProviderInstance) -> None
     assert host.connector.connector_cls_name == "LocalConnector"
 
 
-def test_list_volumes_returns_empty_list(local_provider: LocalProviderInstance) -> None:
-    """Local provider does not support volumes, should return empty list."""
+def test_list_volumes_returns_empty_list_when_no_volumes(local_provider: LocalProviderInstance) -> None:
+    """Local provider returns empty list when no volumes directory exists."""
     volumes = local_provider.list_volumes()
     assert volumes == []
+
+
+def test_supports_volumes(local_provider: LocalProviderInstance) -> None:
+    assert local_provider.supports_volumes is True
+
+
+def test_get_volume_for_host_returns_local_volume(local_provider: LocalProviderInstance) -> None:
+    """get_volume_for_host returns a LocalVolume for the local host."""
+    host = local_provider.create_host(HostName("test"))
+    volume = local_provider.get_volume_for_host(host)
+    assert volume is not None
+    assert isinstance(volume, LocalVolume)
+
+
+def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance) -> None:
+    """Data written to a local volume persists across get_volume_for_host calls."""
+    host = local_provider.create_host(HostName("test"))
+    volume = local_provider.get_volume_for_host(host)
+    assert volume is not None
+    volume.write_files({"test.txt": b"hello"})
+
+    # Get volume again and verify data persists
+    volume2 = local_provider.get_volume_for_host(host)
+    assert volume2 is not None
+    assert volume2.read_file("test.txt") == b"hello"
 
 
 def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Path, temp_config: MngrConfig) -> None:

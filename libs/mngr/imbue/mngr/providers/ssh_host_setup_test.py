@@ -15,6 +15,7 @@ from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
+from imbue.mngr.providers.ssh_host_setup import build_start_volume_sync_command
 from imbue.mngr.providers.ssh_host_setup import get_user_ssh_dir
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
@@ -138,6 +139,30 @@ def test_build_start_activity_watcher_command_escapes_quotes() -> None:
     # Since the script contains single quotes in strings like 'MNGR_HOST_DIR'
     # they should be properly escaped
     assert cmd.count("printf") >= 1
+
+
+def test_build_check_command_creates_symlink_when_volume_provided() -> None:
+    """When host_volume_mount_path is provided, should create symlink instead of mkdir."""
+    cmd = build_check_and_install_packages_command("/mngr", host_volume_mount_path="/host_volume")
+    assert "ln -sfn /host_volume /mngr" in cmd
+    assert "mkdir -p /mngr" not in cmd
+
+
+def test_build_check_command_creates_mkdir_when_no_volume() -> None:
+    """When no host_volume_mount_path, should create directory with mkdir."""
+    cmd = build_check_and_install_packages_command("/mngr")
+    assert "mkdir -p /mngr" in cmd
+    assert "ln -sfn" not in cmd
+
+
+def test_build_start_volume_sync_command() -> None:
+    """Should build a command that starts a background volume sync loop."""
+    cmd = build_start_volume_sync_command("/host_volume", "/mngr")
+    assert "sync /host_volume" in cmd
+    assert "nohup" in cmd
+    assert "/mngr/commands/volume_sync.sh" in cmd
+    assert "/mngr/logs/volume_sync.log" in cmd
+    assert "sleep 60" in cmd
 
 
 def test_build_add_known_hosts_command_empty() -> None:

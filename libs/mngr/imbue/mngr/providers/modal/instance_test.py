@@ -25,6 +25,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.instance import HOST_VOLUME_NAME_PREFIX
 from imbue.mngr.providers.modal.instance import HostRecord
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
@@ -242,9 +243,9 @@ def test_modal_provider_supports_snapshots(modal_provider: ModalProviderInstance
     assert modal_provider.supports_snapshots is True
 
 
-def test_modal_provider_does_not_support_volumes(modal_provider: ModalProviderInstance) -> None:
-    """Modal provider should not support volumes."""
-    assert modal_provider.supports_volumes is False
+def test_modal_provider_supports_volumes(modal_provider: ModalProviderInstance) -> None:
+    """Modal provider should support host volumes."""
+    assert modal_provider.supports_volumes is True
 
 
 def test_modal_provider_supports_mutable_tags(modal_provider: ModalProviderInstance) -> None:
@@ -256,6 +257,14 @@ def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) 
     """Modal provider should return empty list for volumes."""
     volumes = modal_provider.list_volumes()
     assert volumes == []
+
+
+def test_get_host_volume_name(modal_provider: ModalProviderInstance) -> None:
+    """Host volume name should be derived deterministically from host_id."""
+    host_id = HostId.generate()
+    name = modal_provider._get_host_volume_name(host_id)
+    assert name == f"{HOST_VOLUME_NAME_PREFIX}{host_id}"
+    assert name.startswith("mngr-host-host-")
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")

@@ -1,4 +1,5 @@
 import json
+import shutil
 from functools import cached_property
 from pathlib import Path
 from typing import Final
@@ -25,6 +26,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.volume import Volume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -33,8 +35,10 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.local.volume import LocalVolume
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
+VOLUMES_SUBDIR: Final[str] = "volumes"
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
 
@@ -57,11 +61,16 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
         return True
+
+    @property
+    def _volumes_dir(self) -> Path:
+        """Get the directory for local volumes."""
+        return self.mngr_ctx.config.default_host_dir.expanduser() / VOLUMES_SUBDIR
 
     @property
     def _provider_data_dir(self) -> Path:
@@ -311,18 +320,33 @@ class LocalProviderInstance(BaseProviderInstance):
     # =========================================================================
 
     def list_volumes(self) -> list[VolumeInfo]:
-        """List all volumes managed by this provider.
-
-        Always returns empty list because the local provider does not support volumes.
-        """
+        """List all local volumes (subdirectories of ~/.mngr/volumes/)."""
+        volumes_dir = self._volumes_dir
+        if not volumes_dir.is_dir():
+            return []
         return []
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        """Delete a volume.
+        """Delete a local volume directory."""
+        volumes_dir = self._volumes_dir
+        # Volume directories are named by host_id
+        for subdir in volumes_dir.iterdir():
+            if subdir.is_dir() and subdir.name == str(volume_id):
+                shutil.rmtree(subdir)
+                logger.debug("Deleted local volume: {}", subdir)
+                return
+        raise FileNotFoundError(f"Volume {volume_id} not found in {volumes_dir}")
 
-        Always raises NotImplementedError because the local provider does not support volumes.
+    def get_volume_for_host(self, host: HostInterface | HostId) -> Volume | None:
+        """Get the local volume for a host.
+
+        Returns a LocalVolume backed by ~/.mngr/volumes/{host_id}/.
+        The directory is created if it doesn't exist.
         """
-        raise NotImplementedError("Local provider does not support volumes")
+        host_id = host.id if isinstance(host, HostInterface) else host
+        volume_dir = self._volumes_dir / str(host_id)
+        volume_dir.mkdir(parents=True, exist_ok=True)
+        return LocalVolume(root_path=volume_dir)
 
     # =========================================================================
     # Host Mutation Methods

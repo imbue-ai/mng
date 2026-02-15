@@ -66,6 +66,7 @@ from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.interfaces.volume import Volume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -87,6 +88,7 @@ from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
+from imbue.mngr.providers.ssh_host_setup import build_start_volume_sync_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
@@ -102,6 +104,15 @@ SSH_CONNECT_TIMEOUT = 60
 TAG_HOST_ID: Final[str] = "mngr_host_id"
 TAG_HOST_NAME: Final[str] = "mngr_host_name"
 TAG_USER_PREFIX: Final[str] = "mngr_user_"
+
+# Mount path for the persistent host volume inside the sandbox.
+# The host_dir (e.g., /mngr) is symlinked to this path so all data
+# written to host_dir persists on the volume.
+HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
+
+# Prefix for host volume names on Modal. Combined with host_id to form
+# the full volume name (e.g., "mngr-host-host_abc123").
+HOST_VOLUME_NAME_PREFIX: Final[str] = "mngr-host-"
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -322,7 +333,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
@@ -359,6 +370,48 @@ class ModalProviderInstance(BaseProviderInstance):
     def _known_hosts_path(self) -> Path:
         """Get the path to the known_hosts file for this provider instance."""
         return self._keys_dir / "known_hosts"
+
+    # =========================================================================
+    # Host Volume Methods
+    # =========================================================================
+
+    def _get_host_volume_name(self, host_id: HostId) -> str:
+        """Derive the Modal volume name for a host's persistent volume.
+
+        The name is deterministic from the host_id so it can be reconstructed
+        without storing it.
+        """
+        return f"{HOST_VOLUME_NAME_PREFIX}{host_id}"
+
+    def _build_host_volume(self, host_id: HostId) -> modal.Volume:
+        """Get or create the persistent host volume for a sandbox."""
+        volume_name = self._get_host_volume_name(host_id)
+        return modal.Volume.from_name(
+            volume_name,
+            create_if_missing=True,
+            environment_name=self.environment_name,
+        )
+
+    @handle_modal_auth_error
+    def get_volume_for_host(self, host: HostInterface | HostId) -> Volume | None:
+        """Get the host volume for reading data written by the sandbox.
+
+        Returns a ModalVolume wrapping the persistent volume mounted inside
+        the sandbox. Returns None if the volume does not exist.
+
+        Probes the volume with a listdir to verify it actually exists, since
+        modal.Volume.from_name returns a lazy reference that doesn't fail
+        for deleted volumes.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+        volume_name = self._get_host_volume_name(host_id)
+        try:
+            modal_vol = modal.Volume.from_name(volume_name, environment_name=self.environment_name)
+            # Probe the volume to verify it exists (from_name returns lazy references)
+            modal_vol.listdir("/")
+            return ModalVolume.model_construct(modal_volume=modal_vol)
+        except (NotFoundError, modal.exception.Error):
+            return None
 
     # =========================================================================
     # Volume-based Host Record Methods
@@ -667,8 +720,12 @@ class ModalProviderInstance(BaseProviderInstance):
         and installs via apt. This allows users to pre-configure their base images
         for faster startup while supporting images without these tools.
         """
-        # Build and execute the combined check-and-install command
-        check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
+        # Build and execute the combined check-and-install command.
+        # Pass the host volume mount path so host_dir is symlinked to the volume.
+        check_install_cmd = build_check_and_install_packages_command(
+            str(self.host_dir),
+            host_volume_mount_path=HOST_VOLUME_MOUNT_PATH,
+        )
         process = sandbox.exec("sh", "-c", check_install_cmd)
 
         # Read output (implicitly waits for completion)
@@ -875,6 +932,11 @@ class ModalProviderInstance(BaseProviderInstance):
             start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
             sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
+        # Start periodic volume sync to flush writes to the host volume
+        with log_span("Starting volume sync in sandbox"):
+            volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
+            sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+
         return host, ssh_host, ssh_port, host_public_key
 
     def _create_shutdown_script(
@@ -953,6 +1015,10 @@ gather_agents() {{
 log "Gathering agents..."
 AGENTS=$(gather_agents)
 log "Agents: $AGENTS"
+
+# Sync the host volume to ensure all data is flushed before snapshot
+log "Syncing host volume before shutdown..."
+sync /host_volume 2>/dev/null || log "Warning: host volume sync failed"
 
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
@@ -1337,6 +1403,10 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from build args
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
+            # Add the persistent host volume so all host_dir data is preserved
+            with log_span("Ensuring host volume for {}", host_id):
+                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+
             with log_span(
                 "Creating Modal sandbox",
                 timeout=config.timeout,
@@ -1606,6 +1676,9 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from the stored config
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
+            # Re-attach the persistent host volume
+            sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1648,8 +1721,14 @@ log "=== Shutdown script completed ==="
         self.stop_host(host)
         host_id = host.id if isinstance(host, HostInterface) else host
         self._destroy_agents_on_host(host_id)
-        # FIXME: we should also delete the snapshots here (from the host record)
-        # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
+
+        # Delete the persistent host volume
+        host_volume_name = self._get_host_volume_name(host_id)
+        try:
+            modal.Volume.delete(host_volume_name, environment_name=self.environment_name)
+            logger.debug("Deleted host volume: {}", host_volume_name)
+        except (NotFoundError, modal.exception.Error) as e:
+            logger.trace("Could not delete host volume {}: {}", host_volume_name, e)
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
