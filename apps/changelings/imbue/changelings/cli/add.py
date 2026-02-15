@@ -53,7 +53,7 @@ def _resolve_mngr_profile(explicit_profile: str | None) -> str:
     "--finish-initial-run",
     is_flag=True,
     default=False,
-    help="Wait for the verification agent to complete its initial run before returning (uses mngr stop instead of mngr destroy)",
+    help="Keep the verification agent running after deployment succeeds instead of destroying it",
 )
 def add(
     name: str,

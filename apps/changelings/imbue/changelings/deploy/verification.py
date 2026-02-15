@@ -5,9 +5,9 @@
 #
 # The verification flow is:
 # 1. Run `modal run` to invoke the deployed cron function once.
-# 2. Wait for the process to finish (the cron function creates an agent via
-#    mngr create, which runs to completion inside the Modal function).
-# 3. If is_finish_initial_run is True, just check the exit code.
+# 2. Wait for the process to finish (the cron function creates an agent
+#    via mngr create, then exits once the agent is created).
+# 3. If is_finish_initial_run is True, leave the agent running.
 # 4. If is_finish_initial_run is False, destroy the agent after the process exits.
 # 5. On timeout or failure, try to destroy any created agent and raise.
 #
@@ -90,15 +90,16 @@ def verify_deployment(
     cron_runner_path: Path,
     process_timeout_seconds: float = VERIFICATION_TIMEOUT_SECONDS,
 ) -> None:
-    """Verify deployment by invoking the deployed function and waiting for completion.
+    """Verify deployment by invoking the deployed function and waiting for it to exit.
 
     After modal deploy, this function:
     1. Runs `modal run` to invoke the deployed cron function once
     2. Streams output and monitors for errors
-    3. Waits for the process to finish (the cron function creates an agent
-       via mngr create, which runs to completion inside the Modal function)
+    3. Waits for the process to exit (the cron function creates an agent
+       via mngr create, then exits once the agent is created)
     4. If is_finish_initial_run is False, destroys the agent after the process exits
-    5. Raises ChangelingDeployError on timeout, non-zero exit, or detected errors
+    5. If is_finish_initial_run is True, leaves the agent running
+    6. Raises ChangelingDeployError on timeout, non-zero exit, or detected errors
     """
     changeling_name = str(changeling.name)
     cmd = build_modal_run_command(cron_runner_path, environment_name)
@@ -125,9 +126,14 @@ def verify_deployment(
     log_thread.start()
 
     try:
-        # Wait for the modal run process to finish. The process runs the full
-        # lifecycle: clone repos -> mngr create -> agent runs -> agent stops -> exit.
+        # Wait for the modal run process to exit. The process creates an agent
+        # via mngr create (which exits after agent creation) and then returns.
         exit_code = process.wait(timeout=process_timeout_seconds)
+
+        # Wait for the log thread to finish processing any remaining buffered
+        # output so that agent_name_holder is fully populated before we read it.
+        log_thread.join(timeout=5.0)
+
         extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
 
         # Check for errors
@@ -165,6 +171,7 @@ def verify_deployment(
     except subprocess.TimeoutExpired:
         process.kill()
         process.wait()
+        log_thread.join(timeout=5.0)
         extracted_agent_name = agent_name_holder[0] if agent_name_holder else None
         if extracted_agent_name is not None:
             _destroy_agent(extracted_agent_name)
