@@ -372,7 +372,7 @@ class ModalProviderInstance(BaseProviderInstance):
         mounted inside sandboxes and writable by untrusted code). The state
         volume is only accessed by mngr itself and contains trusted data.
         """
-        return ModalVolume(self.modal_app.volume)
+        return ModalVolume.model_construct(modal_volume=self.modal_app.volume)
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""

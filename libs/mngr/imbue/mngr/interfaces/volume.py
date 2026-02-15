@@ -2,10 +2,14 @@ from abc import ABC
 from abc import abstractmethod
 from typing import Mapping
 
+from pydantic import ConfigDict
+from pydantic import Field
+
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.interfaces.data_types import VolumeFile
 
 
-class Volume(ABC):
+class Volume(MutableModel, ABC):
     """Interface for accessing a volume's files.
 
     A volume is a persistent, file-system-like store that can be read from
@@ -16,6 +20,8 @@ class Volume(ABC):
     may map to a single provider-level volume (e.g., a root host volume can
     provide scoped-down volumes for individual agents or subfolders).
     """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @abstractmethod
     def listdir(self, path: str) -> list[VolumeFile]:
@@ -58,6 +64,13 @@ class BaseVolume(Volume):
         return ScopedVolume(delegate=self, prefix=prefix)
 
 
+def _scoped_path(base_prefix: str, path: str) -> str:
+    """Prepend a base prefix to the given path."""
+    base_prefix = base_prefix.rstrip("/")
+    path = path.lstrip("/")
+    return f"{base_prefix}/{path}" if path else base_prefix
+
+
 class ScopedVolume(BaseVolume):
     """A volume that prepends a path prefix to all operations.
 
@@ -66,28 +79,22 @@ class ScopedVolume(BaseVolume):
     subdirectory).
     """
 
-    def __init__(self, delegate: Volume, prefix: str) -> None:
-        self._delegate = delegate
-        self._prefix = prefix.rstrip("/")
-
-    def _scoped_path(self, path: str) -> str:
-        """Prepend the prefix to the given path."""
-        path = path.lstrip("/")
-        return f"{self._prefix}/{path}" if path else self._prefix
+    delegate: Volume = Field(frozen=True, description="The underlying volume to delegate to")
+    prefix: str = Field(frozen=True, description="Path prefix prepended to all operations")
 
     def listdir(self, path: str) -> list[VolumeFile]:
-        return self._delegate.listdir(self._scoped_path(path))
+        return self.delegate.listdir(_scoped_path(self.prefix, path))
 
     def read_file(self, path: str) -> bytes:
-        return self._delegate.read_file(self._scoped_path(path))
+        return self.delegate.read_file(_scoped_path(self.prefix, path))
 
     def remove_file(self, path: str) -> None:
-        self._delegate.remove_file(self._scoped_path(path))
+        self.delegate.remove_file(_scoped_path(self.prefix, path))
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
-        scoped = {self._scoped_path(p): data for p, data in file_contents_by_path.items()}
-        self._delegate.write_files(scoped)
+        scoped = {_scoped_path(self.prefix, p): data for p, data in file_contents_by_path.items()}
+        self.delegate.write_files(scoped)
 
     def scoped(self, prefix: str) -> "Volume":
-        combined = f"{self._prefix}/{prefix.lstrip('/')}"
-        return ScopedVolume(delegate=self._delegate, prefix=combined)
+        combined = f"{self.prefix}/{prefix.lstrip('/')}"
+        return ScopedVolume(delegate=self.delegate, prefix=combined)

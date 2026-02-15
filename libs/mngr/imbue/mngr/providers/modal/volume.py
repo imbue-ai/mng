@@ -1,11 +1,10 @@
-"""Modal volume implementation of the mngr Volume interface."""
-
 import io
 from typing import Mapping
 
 import modal
 import modal.exception
 from modal.volume import FileEntry
+from pydantic import Field
 from tenacity import retry
 from tenacity import retry_if_exception_type
 from tenacity import stop_after_attempt
@@ -60,23 +59,17 @@ class ModalVolume(BaseVolume):
     All operations include retry logic for transient Modal errors.
     """
 
-    def __init__(self, modal_volume: modal.Volume) -> None:
-        self._modal_volume = modal_volume
-
-    @property
-    def modal_volume(self) -> modal.Volume:
-        """Access the underlying modal.Volume instance."""
-        return self._modal_volume
+    modal_volume: modal.Volume = Field(frozen=True, description="The underlying Modal volume")
 
     def listdir(self, path: str) -> list[VolumeFile]:
-        entries = _modal_volume_listdir(self._modal_volume, path)
+        entries = _modal_volume_listdir(self.modal_volume, path)
         return [_file_entry_to_volume_file(e) for e in entries]
 
     def read_file(self, path: str) -> bytes:
-        return _modal_volume_read_file(self._modal_volume, path)
+        return _modal_volume_read_file(self.modal_volume, path)
 
     def remove_file(self, path: str) -> None:
-        _modal_volume_remove_file(self._modal_volume, path)
+        _modal_volume_remove_file(self.modal_volume, path)
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
-        _modal_volume_write_files(self._modal_volume, file_contents_by_path)
+        _modal_volume_write_files(self.modal_volume, file_contents_by_path)
