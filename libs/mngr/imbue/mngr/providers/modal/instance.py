@@ -111,7 +111,7 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 # written to host_dir persists on the volume.
 HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
 
-# Suffix appended to the mngr config prefix to form host volume names.
+# Infix between the mngr config prefix and the host hex in volume names.
 # The full volume name is {config.prefix}vol-{host_id_hex} (e.g., "mngr-vol-abc123def...").
 HOST_VOLUME_INFIX: Final[str] = "vol-"
 
@@ -1754,6 +1754,15 @@ log "=== Shutdown script completed ==="
         self._destroy_agents_on_host(host.id)
         # then delete the main host record
         self._delete_host_record(host.id)
+        # also clean up the host volume
+        host_volume_name = self._get_host_volume_name(host.id)
+        try:
+            modal.Volume.objects.delete(host_volume_name, environment_name=self.environment_name)
+            logger.debug("Deleted host volume: {}", host_volume_name)
+        except NotFoundError:
+            logger.trace("Host volume {} already deleted", host_volume_name)
+        except (modal.exception.InvalidError, modal.exception.InternalError) as e:
+            logger.warning("Failed to delete host volume {}: {}", host_volume_name, e)
 
     def on_connection_error(self, host_id: HostId) -> None:
         """Remove all caches if we notice a connection to the host fail"""
