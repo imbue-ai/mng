@@ -709,19 +709,18 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # create work_dir immediately (if necessary)
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
-    final_source_location: HostLocation
     is_work_dir_created: bool
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
-        final_source_location = HostLocation(
-            host=source_location.host,
-            path=work_dir_path,
+        # Record the actual work_dir path in agent_opts so the API uses it
+        # (the path may have been auto-generated, e.g. for worktrees)
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().target_path, work_dir_path),
         )
         is_work_dir_created = True
     else:
-        final_source_location = source_location
         if snapshot is None:
             is_work_dir_created = False
         else:
@@ -742,7 +741,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
         _create_agent_in_background(
-            final_source_location,
+            source_location,
             resolved_target_host,
             agent_opts,
             mngr_ctx,
@@ -755,7 +754,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # Wrap in try/finally to ensure editor cleanup on failure
     try:
         create_result = api_create(
-            source_location=final_source_location,
+            source_location=source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mngr_ctx=mngr_ctx,
