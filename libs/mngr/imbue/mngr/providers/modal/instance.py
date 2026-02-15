@@ -111,9 +111,9 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 # written to host_dir persists on the volume.
 HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
 
-# Prefix for host volume names on Modal. Combined with host_id to form
-# the full volume name (e.g., "mngr-host-host-abc123def...").
-HOST_VOLUME_NAME_PREFIX: Final[str] = "mngr-host-"
+# Suffix appended to the mngr config prefix to form host volume names.
+# The full volume name is {config.prefix}vol-{host_id_hex} (e.g., "mngr-vol-abc123def...").
+HOST_VOLUME_INFIX: Final[str] = "vol-"
 
 # Fixed namespace for deterministic VolumeId derivation from Modal volume names.
 _MODAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
@@ -379,13 +379,19 @@ class ModalProviderInstance(BaseProviderInstance):
     # Host Volume Methods
     # =========================================================================
 
+    @property
+    def _host_volume_prefix(self) -> str:
+        """The prefix used for host volume names on Modal."""
+        return f"{self.mngr_ctx.config.prefix}{HOST_VOLUME_INFIX}"
+
     def _get_host_volume_name(self, host_id: HostId) -> str:
         """Derive the Modal volume name for a host's persistent volume.
 
-        The name is deterministic from the host_id so it can be reconstructed
-        without storing it.
+        Uses the mngr config prefix and the HostId hex part to produce a name
+        like "mngr-vol-abc123def..." (no redundant "host-host-" stuttering).
         """
-        return f"{HOST_VOLUME_NAME_PREFIX}{host_id}"
+        host_hex = str(host_id)[len("host-") :]
+        return f"{self._host_volume_prefix}{host_hex}"
 
     def _build_host_volume(self, host_id: HostId) -> modal.Volume:
         """Get or create the persistent host volume for a sandbox."""
@@ -1731,7 +1737,7 @@ log "=== Shutdown script completed ==="
         # Delete the persistent host volume
         host_volume_name = self._get_host_volume_name(host_id)
         try:
-            modal.Volume.delete(host_volume_name, environment_name=self.environment_name)
+            modal.Volume.objects.delete(host_volume_name, environment_name=self.environment_name)
             logger.debug("Deleted host volume: {}", host_volume_name)
         except NotFoundError:
             logger.trace("Host volume {} already deleted", host_volume_name)
@@ -2130,16 +2136,17 @@ log "=== Shutdown script completed ==="
     def list_volumes(self) -> list[VolumeInfo]:
         """List all mngr-managed host volumes on Modal.
 
-        Returns volumes whose names start with the host volume prefix.
+        Returns volumes whose names start with this instance's host volume prefix.
         """
+        prefix = self._host_volume_prefix
         results: list[VolumeInfo] = []
         for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
             vol_name = modal_vol.name
-            if vol_name is not None and vol_name.startswith(HOST_VOLUME_NAME_PREFIX):
-                host_id_str = vol_name[len(HOST_VOLUME_NAME_PREFIX) :]
+            if vol_name is not None and vol_name.startswith(prefix):
+                host_hex = vol_name[len(prefix) :]
                 host_id = None
                 try:
-                    host_id = HostId(host_id_str) if host_id_str.startswith("host-") else None
+                    host_id = HostId(f"host-{host_hex}")
                 except ValueError:
                     pass
                 results.append(
@@ -2163,7 +2170,7 @@ log "=== Shutdown script completed ==="
             vol_name = modal_vol.name
             if vol_name is not None and self._volume_id_for_name(vol_name) == volume_id:
                 try:
-                    modal.Volume.delete(vol_name, environment_name=self.environment_name)
+                    modal.Volume.objects.delete(vol_name, environment_name=self.environment_name)
                     logger.debug("Deleted Modal volume: {}", vol_name)
                 except NotFoundError:
                     pass

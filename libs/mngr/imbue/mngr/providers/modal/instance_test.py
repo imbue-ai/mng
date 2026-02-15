@@ -25,7 +25,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
-from imbue.mngr.providers.modal.instance import HOST_VOLUME_NAME_PREFIX
+from imbue.mngr.providers.modal.instance import HOST_VOLUME_INFIX
 from imbue.mngr.providers.modal.instance import HostRecord
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
@@ -253,17 +253,19 @@ def test_modal_provider_supports_mutable_tags(modal_provider: ModalProviderInsta
     assert modal_provider.supports_mutable_tags is True
 
 
-def test_get_host_volume_name(modal_provider: ModalProviderInstance) -> None:
-    """Host volume name should be derived deterministically from host_id."""
+def test_get_host_volume_name_uses_config_prefix(modal_provider: ModalProviderInstance) -> None:
+    """Host volume name should use the mngr config prefix and host_id hex."""
     host_id = HostId.generate()
     name = modal_provider._get_host_volume_name(host_id)
-    assert name == f"{HOST_VOLUME_NAME_PREFIX}{host_id}"
-    assert name.startswith("mngr-host-host-")
+    host_hex = str(host_id)[len("host-") :]
+    expected_prefix = f"{modal_provider.mngr_ctx.config.prefix}{HOST_VOLUME_INFIX}"
+    assert name == f"{expected_prefix}{host_hex}"
+    assert "host-host-" not in name
 
 
 def test_volume_id_for_name_produces_valid_volume_id(modal_provider: ModalProviderInstance) -> None:
     """_volume_id_for_name should produce a valid VolumeId from a Modal volume name."""
-    vol_name = "mngr-host-host-abc123def456789012345678abcdef01"
+    vol_name = "mngr-vol-abc123def456789012345678abcdef01"
     vol_id = modal_provider._volume_id_for_name(vol_name)
     assert str(vol_id).startswith("vol-")
     assert len(str(vol_id)) == 36
@@ -271,7 +273,7 @@ def test_volume_id_for_name_produces_valid_volume_id(modal_provider: ModalProvid
 
 def test_volume_id_for_name_is_deterministic(modal_provider: ModalProviderInstance) -> None:
     """Same volume name should always produce the same VolumeId."""
-    vol_name = "mngr-host-host-abc123"
+    vol_name = "test-vol-abc123"
     id1 = modal_provider._volume_id_for_name(vol_name)
     id2 = modal_provider._volume_id_for_name(vol_name)
     assert id1 == id2
@@ -281,8 +283,8 @@ def test_volume_id_for_name_different_names_produce_different_ids(
     modal_provider: ModalProviderInstance,
 ) -> None:
     """Different volume names should produce different VolumeIds."""
-    id1 = modal_provider._volume_id_for_name("mngr-host-host-aaa")
-    id2 = modal_provider._volume_id_for_name("mngr-host-host-bbb")
+    id1 = modal_provider._volume_id_for_name("test-vol-aaa")
+    id2 = modal_provider._volume_id_for_name("test-vol-bbb")
     assert id1 != id2
 
 
