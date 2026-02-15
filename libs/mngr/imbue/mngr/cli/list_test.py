@@ -875,10 +875,10 @@ def test_render_format_template_nested_field() -> None:
     assert result == "test-host"
 
 
-def test_render_format_template_field_alias() -> None:
-    """_render_format_template should resolve field aliases."""
+def test_render_format_template_nested_host_field() -> None:
+    """_render_format_template should resolve nested host fields."""
     agent = make_test_agent_info()
-    result = _render_format_template("{provider}", agent)
+    result = _render_format_template("{host.provider_name}", agent)
     assert result == "local"
 
 
