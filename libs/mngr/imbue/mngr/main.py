@@ -14,6 +14,7 @@ from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
+from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.list import list_command
@@ -38,6 +39,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "create": ["c"],
     "config": ["cfg"],
     "destroy": ["rm"],
+    "exec": ["x"],
     "message": ["msg"],
     "list": ["ls"],
     "connect": ["conn"],
@@ -231,6 +233,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     ask,
     create,
     destroy,
+    exec_command,
     list_command,
     connect,
     message,
@@ -251,6 +254,7 @@ for cmd in BUILTIN_COMMANDS:
 cli.add_command(create, name="c")
 cli.add_command(config, name="cfg")
 cli.add_command(destroy, name="rm")
+cli.add_command(exec_command, name="x")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")

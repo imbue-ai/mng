@@ -127,7 +127,10 @@ else
     # Confidence may be numeric (0.0-1.0) or a string ("HIGH", "MEDIUM", "LOW")
     log_info "Sorting review results..."
 
-    jq -s 'sort_by(
+    # Use flatten to normalize: if the reviewer outputs a JSON array instead of
+    # JSONL, jq -s wraps it into [[...]], and sort_by(.severity) would fail with
+    # "Cannot index array with string". flatten unwraps the nested array.
+    jq -s 'flatten | sort_by(
       (if .severity == "CRITICAL" then 0
        elif .severity == "MAJOR" then 1
        elif .severity == "MINOR" then 2

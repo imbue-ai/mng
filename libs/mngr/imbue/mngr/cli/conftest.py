@@ -147,6 +147,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         prepend_to_file=(),
         create_directory=(),
         ready_timeout=10.0,
+        yes=False,
     )
 
 

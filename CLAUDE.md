@@ -49,13 +49,13 @@ Only after doing all of the above should you begin writing code.
 - Do NOT write code in `__init__.py`--leave them completely blank (the only exception is for a line like "hookimpl = pluggy.HookimplMarker("mngr")", which should go at the very root __init__.py of a library).
 - Do NOT make constructs like module-level usage of `__all__`
 - Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
-- Use this command **from the root of the git checkout** to run all tests: "uv run pytest". Never change directories to run tests! Just run the command from the root of the git checkout.
-- Running pytest in this way will produce files in .claude/tests_outputs/ (and tell you about their paths) for things like slow tests and coverage failure.
+- To run all tests in the monorepo: "uv run pytest" from the root of the git checkout.
+- To run tests for a single project: "cd libs/mngr && uv run pytest" or "cd apps/changelings && uv run pytest". Each project has its own pytest and coverage configuration in its pyproject.toml.
+- Running pytest will produce files in .test_output/ (relative to the directory you ran from) for things like slow tests and coverage reports.
 - Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" tests also run in CI. Do *not* run the acceptance tests locally--always allow CI to run them (it's faster than running them locally)
 - If you need to run a specific acceptance test to fix it, iterate on that specific test locally by calling "just test <full_path>::<test_name>" from the root of the git checkout. Do this rather than re-running all tests in CI.
 - Note that tasks are *not* be allowed to finish without A) all tests passing in CI, and B) fixing all MAJOR and CRITICAL issues (flagged by a separate reviewer agent).
 - A PR will be made automatically for you when you finish your reply--do NOT create one yourself.
-- **Never change directory**. It's just a good way to get yourself confused.
 - To help verify that you ran the tests, report the exact command you used to run the tests, as well as the total number of tests that passed and failed (and the number that failed had better be 0).
 - If tests fail because of a lack of coverage, you should add tests for the new code that you wrote.
 - When adding tests, consider whether it should be a unit test (in a _test.py file) or an integration/acceptance/release test (in a test_*.py file, and marked with @pytest.mark.acceptance or @pytest.mark.release, no marks needed for integration).  See the style_guide.md for exact details on the types of tests. In general, most slow tests of all functionality should be release tests, and only important / core functionality should be acceptance tests.
@@ -81,5 +81,7 @@ If instructed not to commit:
 # Silly error workarounds
 
 If you get a failure in `test_no_type_errors` that seems spurious, try running `uv sync --all-packages` and then re-running the tests. If that doesn't work, the error is probably real, and should be fixed.
+
+If you get a "ModuleNotFoundError" error for a 3rd-party dependency when running a command that is defined in this repo (like `mngr`), then run "uv tool uninstall mngr && uv tool install -e libs/mngr" (for the relevant tool) to refresh the dependencies for that tool, and then try running the command again.
 
 If you get a failure when trying to commit the first time, just try committing again (the pre-commit hook returns a non-zero exit code when ruff reformats files).

@@ -623,6 +623,10 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
+    is_auto_approve: bool = Field(
+        default=False,
+        description="Whether to auto-approve prompts (e.g., skill installation) without asking",
+    )
     profile_dir: Path = Field(
         description="Profile-specific directory for user data (user_id, providers, settings)",
     )

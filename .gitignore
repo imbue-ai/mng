@@ -242,8 +242,8 @@ frontend-dist/
 # so the user can make their own notification script
 scripts/notify_user.local.sh
 
-# Test output files (slow tests, coverage summaries) for agent consumption
-.claude/tests_outputs/
+# Test output files (slow tests, coverage summaries)
+.test_output/
 
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
@@ -251,3 +251,9 @@ scripts/notify_user.local.sh
 # we stick the image build artifacts here
 .mngr/dev/build/
 .mngr/dev/secrets/
+
+# Changelings deploy-time build artifacts
+.changelings/
+
+# Autofix working artifacts
+.autofix/

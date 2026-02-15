@@ -97,7 +97,7 @@ def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
     volume.commit()
 
 
-@app.function(volumes={"/vol": volume}, enable_memory_snapshot=True)
+@app.function(volumes={"/vol": volume})
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
