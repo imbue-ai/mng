@@ -1,3 +1,6 @@
+from enum import auto
+
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.primitives import NonEmptyStr
 
 
@@ -17,3 +20,23 @@ class GitRepoUrl(NonEmptyStr):
     """A git repository URL (HTTPS or SSH) that a changeling targets."""
 
     ...
+
+
+class LogLevel(UpperCaseStrEnum):
+    """Log verbosity level."""
+
+    TRACE = auto()
+    DEBUG = auto()
+    BUILD = auto()
+    INFO = auto()
+    WARN = auto()
+    ERROR = auto()
+    NONE = auto()
+
+
+class OutputFormat(UpperCaseStrEnum):
+    """Output format mode."""
+
+    HUMAN = auto()
+    JSON = auto()
+    JSONL = auto()

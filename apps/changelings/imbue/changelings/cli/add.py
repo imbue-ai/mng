@@ -1,6 +1,10 @@
+from typing import Any
+
 import click
 from loguru import logger
 
+from imbue.changelings.cli.common_opts import add_common_options
+from imbue.changelings.cli.common_opts import setup_command_context
 from imbue.changelings.cli.options import build_definition_from_cli
 from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import add_changeling
@@ -55,7 +59,10 @@ def _resolve_mngr_profile(explicit_profile: str | None) -> str:
     default=False,
     help="Keep the verification agent running after deployment succeeds instead of destroying it",
 )
+@add_common_options
+@click.pass_context
 def add(
+    ctx: click.Context,
     name: str,
     schedule: str | None,
     repo: str | None,
@@ -70,6 +77,7 @@ def add(
     mngr_profile: str | None,
     update: bool,
     finish_initial_run: bool,
+    **_common: Any,
 ) -> None:
     """Register a new changeling and deploy it to Modal.
 
@@ -89,6 +97,8 @@ def add(
 
       changeling add --update my-fairy --agent-type fixme-fairy --schedule "0 3 * * *"
     """
+    setup_command_context(ctx, "add")
+
     definition = build_definition_from_cli(
         name=name,
         schedule=schedule,

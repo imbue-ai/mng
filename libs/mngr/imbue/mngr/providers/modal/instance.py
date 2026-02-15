@@ -138,10 +138,11 @@ def _volume_remove_file(volume: modal.Volume, path: str) -> None:
 
 
 @retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str) -> None:
+def _volume_write_files(volume: modal.Volume, file_contents_by_path: Mapping[str, bytes]) -> None:
     """Upload a single file to a Modal volume with retry on transient errors."""
     with volume.batch_upload(force=True) as batch:
-        batch.put_file(io.BytesIO(file_data), path)
+        for path, file_data in file_contents_by_path.items():
+            batch.put_file(io.BytesIO(file_data), path)
 
 
 def _parse_volume_spec(spec: str) -> tuple[str, str]:
@@ -420,7 +421,7 @@ class ModalProviderInstance(BaseProviderInstance):
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
-        _volume_batch_upload_file(volume, data.encode("utf-8"), path)
+        _volume_write_files(volume, {path: data.encode("utf-8")})
         logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
@@ -605,7 +606,7 @@ class ModalProviderInstance(BaseProviderInstance):
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
-        _volume_batch_upload_file(volume, data.encode("utf-8"), agent_path)
+        _volume_write_files(volume, {agent_path: data.encode("utf-8")})
         logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:

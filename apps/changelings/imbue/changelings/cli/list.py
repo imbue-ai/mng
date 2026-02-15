@@ -1,4 +1,9 @@
+from typing import Any
+
 import click
+
+from imbue.changelings.cli.common_opts import add_common_options
+from imbue.changelings.cli.common_opts import setup_command_context
 
 
 @click.command(name="list")
@@ -8,14 +13,9 @@ import click
     is_flag=True,
     help="Show disabled changelings as well",
 )
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(["human", "json"], case_sensitive=False),
-    default="human",
-    help="Output format [default: human]",
-)
-def list_command(show_all: bool, output_format: str) -> None:
+@add_common_options
+@click.pass_context
+def list_command(ctx: click.Context, show_all: bool, **_common: Any) -> None:
     """List all registered changelings.
 
     Shows each changeling's name, agent type, schedule, target repo, and status.
@@ -28,4 +28,5 @@ def list_command(show_all: bool, output_format: str) -> None:
 
       changeling list --format json
     """
+    setup_command_context(ctx, "list")
     raise NotImplementedError("changeling list is not yet implemented")

@@ -1,4 +1,9 @@
+from typing import Any
+
 import click
+
+from imbue.changelings.cli.common_opts import add_common_options
+from imbue.changelings.cli.common_opts import setup_command_context
 
 
 @click.command(name="status")
@@ -9,7 +14,9 @@ import click
     is_flag=True,
     help="Show status for all deployed changelings",
 )
-def status(name: str | None, show_all: bool) -> None:
+@add_common_options
+@click.pass_context
+def status(ctx: click.Context, name: str | None, show_all: bool, **_common: Any) -> None:
     """Check the deployment status and recent run history of changeling(s).
 
     Shows whether the changeling is deployed, when it last ran, and the
@@ -21,4 +28,5 @@ def status(name: str | None, show_all: bool) -> None:
 
       changeling status --all
     """
+    setup_command_context(ctx, "status")
     raise NotImplementedError("changeling status is not yet implemented")
