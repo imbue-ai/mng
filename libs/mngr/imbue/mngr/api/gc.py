@@ -16,7 +16,6 @@ from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
@@ -216,8 +215,11 @@ def gc_machines(
                     # and that they're sufficiently old
                     # if so, then we permanently delete the associated data (to prevent data from accumulating)
                     if not isinstance(host, OnlineHostInterface):
-                        assert isinstance(host, OfflineHost)
-                        if host.get_seconds_since_stopped() > provider.get_max_destroyed_host_persisted_seconds():
+                        seconds_since_stopped = host.get_seconds_since_stopped()
+                        if (
+                            seconds_since_stopped is not None
+                            and seconds_since_stopped > provider.get_max_destroyed_host_persisted_seconds()
+                        ):
                             if len(host.get_agent_references()) == 0 or host.get_state() in (
                                 HostState.FAILED,
                                 HostState.CRASHED,

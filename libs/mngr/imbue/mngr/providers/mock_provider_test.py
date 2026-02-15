@@ -5,6 +5,7 @@ from typing import Sequence
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -31,6 +32,8 @@ class MockProviderInstance(BaseProviderInstance):
     mock_snapshots: list[SnapshotInfo] = Field(default_factory=list)
     mock_tags: dict[str, str] = Field(default_factory=dict)
     mock_agent_data: list[dict[str, Any]] = Field(default_factory=list)
+    mock_hosts: list[HostInterface] = Field(default_factory=list)
+    deleted_hosts: list[HostId] = Field(default_factory=list)
 
     @property
     def supports_snapshots(self) -> bool:
@@ -62,11 +65,18 @@ class MockProviderInstance(BaseProviderInstance):
     ) -> None:
         raise NotImplementedError()
 
+    def list_hosts(
+        self,
+        cg: ConcurrencyGroup,
+        include_destroyed: bool = False,
+    ) -> list[HostInterface]:
+        return list(self.mock_hosts)
+
     def destroy_host(self, host: HostInterface | HostId) -> None:
         raise NotImplementedError()
 
     def delete_host(self, host: HostInterface) -> None:
-        raise NotImplementedError()
+        self.deleted_hosts.append(host.id)
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass

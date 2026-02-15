@@ -384,7 +384,7 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
         total_count += len(result.machines_destroyed)
 
     if result.machines_deleted:
-        logger.info("\nMachines: {}", len(result.machines_deleted))
+        logger.info("\nMachine records deleted: {}", len(result.machines_deleted))
         total_count += len(result.machines_deleted)
 
     if result.snapshots_destroyed:
