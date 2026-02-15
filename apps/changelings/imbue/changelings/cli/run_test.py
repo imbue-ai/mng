@@ -195,6 +195,14 @@ def test_build_command_local_does_not_include_host_env_file() -> None:
     assert "--host-env-file" not in cmd
 
 
+def test_build_command_local_does_not_include_target_path() -> None:
+    """Local execution should not include --target-path (it is only for Modal volume mounts)."""
+    changeling = make_test_changeling()
+    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
+
+    assert "--target-path" not in cmd
+
+
 # -- Modal execution tests (is_modal=True) --
 
 
@@ -240,6 +248,15 @@ def test_build_command_modal_still_includes_env_vars() -> None:
 
     assert "--host-env" in cmd
     assert "DEBUG=true" in cmd
+
+
+def test_build_command_modal_includes_target_path() -> None:
+    """Modal execution should include --target-path pointing to the volume mount."""
+    changeling = make_test_changeling()
+    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
+
+    target_idx = cmd.index("--target-path")
+    assert cmd[target_idx + 1] == "/code/mngr"
 
 
 def test_build_command_modal_still_includes_core_flags() -> None:
