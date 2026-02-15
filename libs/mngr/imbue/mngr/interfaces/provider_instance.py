@@ -107,17 +107,26 @@ class ProviderInstanceInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
-        """Permanently destroy a host and optionally delete its snapshots."""
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        """Permanently destroy a host and delete its snapshots."""
+        ...
+
+    @abstractmethod
+    def delete_host(self, host: HostInterface) -> None:
+        """Permanently delete all records associated with a (destroyed) host."""
         ...
 
     @abstractmethod
     def on_connection_error(self, host_id: HostId) -> None:
         """Handle actions to take when a connection error occurs with a host."""
+        ...
+
+    @abstractmethod
+    def get_max_destroyed_host_persisted_seconds(self) -> float:
+        """
+        Returns the number of seconds that a host is allowed to be in DESTROYED state.
+        After this all associated data will be permanently deleted.
+        """
         ...
 
     # =========================================================================

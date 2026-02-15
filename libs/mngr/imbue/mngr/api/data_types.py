@@ -235,6 +235,10 @@ class GcResult(MutableModel):
         default_factory=list,
         description="Work directories that were destroyed",
     )
+    machines_deleted: list[HostInfo] = Field(
+        default_factory=list,
+        description="Machines that were deleted (removing records of old destroyed hosts)",
+    )
     machines_destroyed: list[HostInfo] = Field(
         default_factory=list,
         description="Machines that were destroyed",

@@ -1635,20 +1635,13 @@ log "=== Shutdown script completed ==="
         return restored_host
 
     @handle_modal_auth_error
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
-        """Destroy a Modal sandbox permanently.
-
-        If delete_snapshots is True, also deletes the host record from the volume.
-        """
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        """Destroy a Modal sandbox permanently."""
         host_id = host.id if isinstance(host, HostInterface) else host
         self.stop_host(host)
 
-        if delete_snapshots:
-            self._delete_host_record(host_id)
+    def delete_host(self, host: HostInterface) -> None:
+        self._delete_host_record(host.id)
 
     def on_connection_error(self, host_id: HostId) -> None:
         """Remove all caches if we notice a connection to the host fail"""

@@ -107,6 +107,8 @@ class GcCliOptions(CommonCliOptions):
 # docs/commands/secondary/cleanup.md
 # Not actionable yet: "mngr cleanup" is still marked as [future] and has no implementation.
 @optgroup.group("Filtering")
+# FIXME: --include and --exclude make no sense for gc--garbage collection just has to happen, there cannot be any filters applied
+#  the only effective control is which providers/resource types to target, but more complex filters don't make sense
 @optgroup.option(
     "--include",
     multiple=True,
@@ -276,6 +278,8 @@ def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: Ou
         _emit_destroyed("work_dir", work_dir, output_opts.output_format, opts.dry_run)
     for machine in result.machines_destroyed:
         _emit_destroyed("machine", machine, output_opts.output_format, opts.dry_run)
+    for machine in result.machines_deleted:
+        _emit_destroyed("machine_record", machine, output_opts.output_format, opts.dry_run)
     for snapshot in result.snapshots_destroyed:
         _emit_destroyed("snapshot", snapshot, output_opts.output_format, opts.dry_run)
     for volume in result.volumes_destroyed:
@@ -343,6 +347,7 @@ def _emit_json_summary(result: GcResult, dry_run: bool) -> None:
     output_data = {
         "work_dirs_destroyed": [wd.model_dump(mode="json") for wd in result.work_dirs_destroyed],
         "machines_destroyed": [m.model_dump(mode="json") for m in result.machines_destroyed],
+        "machines_deleted": [m.model_dump(mode="json") for m in result.machines_deleted],
         "snapshots_destroyed": [s.model_dump(mode="json") for s in result.snapshots_destroyed],
         "volumes_destroyed": [v.model_dump(mode="json") for v in result.volumes_destroyed],
         "logs_destroyed": [log.model_dump(mode="json") for log in result.logs_destroyed],
@@ -377,6 +382,10 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
     if result.machines_destroyed:
         logger.info("\nMachines: {}", len(result.machines_destroyed))
         total_count += len(result.machines_destroyed)
+
+    if result.machines_deleted:
+        logger.info("\nMachines: {}", len(result.machines_deleted))
+        total_count += len(result.machines_deleted)
 
     if result.snapshots_destroyed:
         logger.info("\nSnapshots: {}", len(result.snapshots_destroyed))
@@ -423,6 +432,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
     total_count = (
         len(result.work_dirs_destroyed)
         + len(result.machines_destroyed)
+        + len(result.machines_deleted)
         + len(result.snapshots_destroyed)
         + len(result.volumes_destroyed)
         + len(result.logs_destroyed)
@@ -435,6 +445,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
         "total_size_bytes": total_size_bytes,
         "work_dirs_count": len(result.work_dirs_destroyed),
         "machines_count": len(result.machines_destroyed),
+        "machine_record_count": len(result.machines_deleted),
         "snapshots_count": len(result.snapshots_destroyed),
         "volumes_count": len(result.volumes_destroyed),
         "logs_count": len(result.logs_destroyed),

@@ -60,28 +60,31 @@ class MockProviderInstance(BaseProviderInstance):
     def stop_host(
         self, host: HostInterface | HostId, create_snapshot: bool = True, timeout_seconds: float = 60.0
     ) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
-    def destroy_host(self, host: HostInterface | HostId, delete_snapshots: bool = True) -> None:
-        raise NotImplementedError
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        raise NotImplementedError()
+
+    def delete_host(self, host: HostInterface) -> None:
+        raise NotImplementedError()
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def create_snapshot(self, host: HostInterface | HostId, name: SnapshotName | None = None) -> SnapshotId:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def delete_snapshot(self, host: HostInterface | HostId, snapshot_id: SnapshotId) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def list_volumes(self) -> list[VolumeInfo]:
         return []
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def set_host_tags(self, host: HostInterface | HostId, tags: Mapping[str, str]) -> None:
         self.mock_tags = dict(tags)
@@ -94,7 +97,7 @@ class MockProviderInstance(BaseProviderInstance):
             self.mock_tags.pop(k, None)
 
     def get_connector(self, host: HostInterface | HostId) -> PyinfraHost:
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 def make_offline_host(

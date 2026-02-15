@@ -16,6 +16,7 @@ from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostOfflineError
 from imbue.mngr.errors import MngrError
+from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import BuildCacheInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import LogFileInfo
@@ -24,6 +25,7 @@ from imbue.mngr.interfaces.data_types import WorkDirInfo
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
@@ -185,24 +187,10 @@ def gc_machines(
 
     for provider in providers:
         try:
-            hosts = provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group)
+            hosts = provider.list_hosts(include_destroyed=True, cg=provider.mngr_ctx.concurrency_group)
 
             for host in hosts:
                 try:
-                    # Skip offline hosts - can't query them
-                    if not isinstance(host, OnlineHostInterface):
-                        continue
-
-                    # Skip local hosts - they cannot be destroyed
-                    if host.is_local:
-                        continue
-
-                    agent_refs = host.get_agent_references()
-
-                    # Only consider hosts with no agents
-                    if len(agent_refs) > 0:
-                        continue
-
                     host_info = HostInfo(
                         id=host.id,
                         name=str(host.id),
@@ -223,8 +211,41 @@ def gc_machines(
                         ):
                             continue
 
+                    # Handle offline hosts
+                    # all we care about is that they have no agents (or is failed/crashed/destroyed),
+                    # and that they're sufficiently old
+                    # if so, then we permanently delete the associated data (to prevent data from accumulating)
+                    if not isinstance(host, OnlineHostInterface):
+                        assert isinstance(host, OfflineHost)
+                        if host.get_seconds_since_stopped() > provider.get_max_destroyed_host_persisted_seconds():
+                            if len(host.get_agent_references()) == 0 or host.get_state() in (
+                                HostState.FAILED,
+                                HostState.CRASHED,
+                                HostState.DESTROYED,
+                            ):
+                                # permanently delete the host's data
+                                if not dry_run:
+                                    # FOLLOWUP: when there are multiple instance of gc running concurrently on different hosts
+                                    #  there's a risk of getting into a screwy situation here--if we delete this right as
+                                    #  someone else starts it, you might have a host that is running but is untracked
+                                    #  This can be easily fixed by adding some host-id-keyed locking at the provider level (which both create/start/delete would acquire)
+                                    provider.delete_host(host)
+                                result.machines_deleted.append(host_info)
+                        # no matter what we're done--the rest of the logic only applies to online hosts
+                        continue
+
+                    # Skip local hosts - they cannot be destroyed
+                    if host.is_local:
+                        continue
+
+                    agent_refs = host.get_agent_references()
+
+                    # Only consider hosts with no agents
+                    if len(agent_refs) > 0:
+                        continue
+
                     if not dry_run:
-                        provider.destroy_host(host, delete_snapshots=False)
+                        provider.destroy_host(host)
 
                     result.machines_destroyed.append(host_info)
 

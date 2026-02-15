@@ -216,17 +216,16 @@ class LocalProviderInstance(BaseProviderInstance):
 
         return local_host
 
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
+    def destroy_host(self, host: HostInterface | HostId) -> None:
         """Destroy the host.
 
         Always raises LocalHostNotDestroyableError because the local computer
         cannot be destroyed by mngr.
         """
         raise LocalHostNotDestroyableError()
+
+    def delete_host(self, host: HostInterface) -> None:
+        raise Exception("delete_host should not be called for LocalProviderInstance since hosts are never offline")
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass
