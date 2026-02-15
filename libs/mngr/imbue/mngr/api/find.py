@@ -427,12 +427,13 @@ class AgentMatch(FrozenModel):
 def find_agents_by_identifiers_or_state(
     agent_identifiers: Sequence[str],
     filter_all: bool,
-    target_state: AgentLifecycleState,
+    target_state: AgentLifecycleState | None,
     mngr_ctx: MngrContext,
 ) -> list[AgentMatch]:
     """Find agents matching identifiers or a target lifecycle state.
 
-    When filter_all is True, returns all agents in the target_state.
+    When filter_all is True, returns all agents in the target_state
+    (or all agents if target_state is None).
     When filter_all is False, returns agents matching the given identifiers
     (by name or ID).
 
@@ -445,7 +446,7 @@ def find_agents_by_identifiers_or_state(
     for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
         should_include: bool
         if filter_all:
-            should_include = agent_ref.state == target_state
+            should_include = target_state is None or agent_ref.state == target_state
         elif agent_identifiers:
             agent_name_str = str(agent_ref.name)
             agent_id_str = str(agent_ref.id)
