@@ -9,7 +9,6 @@ Only host_id and host_name are stored as sandbox tags for discovery purposes.
 """
 
 import argparse
-import io
 import json
 import os
 import socket
@@ -35,7 +34,6 @@ from dockerfile_parse import DockerfileParser
 from loguru import logger
 from modal.exception import NotFoundError
 from modal.stream_type import StreamType
-from modal.volume import FileEntry
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
@@ -43,10 +41,6 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
-from tenacity import retry
-from tenacity import retry_if_exception_type
-from tenacity import stop_after_attempt
-from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -88,6 +82,7 @@ from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.modal.volume import ModalVolume
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
@@ -110,39 +105,6 @@ TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
 P = ParamSpec("P")
 T = TypeVar("T")
-
-# Retry parameters for Modal volume operations.
-# modal.exception.InternalError (e.g. "could not start volume metadata engine")
-# is transient and typically resolves on retry.
-_VOLUME_RETRY_PARAMS = retry_if_exception_type(modal.exception.InternalError)
-_VOLUME_STOP_PARAMS = stop_after_attempt(3)
-_VOLUME_WAIT_PARAMS = wait_exponential(multiplier=1, min=1, max=3)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_listdir(volume: modal.Volume, path: str) -> list[FileEntry]:
-    """List directory contents on a Modal volume with retry on transient errors."""
-    return volume.listdir(path)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_read_file(volume: modal.Volume, path: str) -> bytes:
-    """Read a file from a Modal volume with retry on transient errors."""
-    return b"".join(volume.read_file(path))
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_remove_file(volume: modal.Volume, path: str) -> None:
-    """Remove a file from a Modal volume with retry on transient errors."""
-    volume.remove_file(path)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_write_files(volume: modal.Volume, file_contents_by_path: Mapping[str, bytes]) -> None:
-    """Upload a single file to a Modal volume with retry on transient errors."""
-    with volume.batch_upload(force=True) as batch:
-        for path, file_data in file_contents_by_path.items():
-            batch.put_file(io.BytesIO(file_data), path)
 
 
 def _parse_volume_spec(spec: str) -> tuple[str, str]:
@@ -402,26 +364,28 @@ class ModalProviderInstance(BaseProviderInstance):
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def _get_volume(self) -> modal.Volume:
-        """Get the Modal volume for state storage.
+    def _get_state_volume(self) -> ModalVolume:
+        """Get the state volume for persisting host records and agent data.
 
-        The volume is used to persist host records (including snapshots) across
-        sandbox termination. This allows multiple mngr instances to share state.
+        This volume is used to persist host records (including snapshots) across
+        sandbox termination. It is NOT the same as the host volume (which is
+        mounted inside sandboxes and writable by untrusted code). The state
+        volume is only accessed by mngr itself and contains trusted data.
         """
-        return self.modal_app.volume
+        return ModalVolume(self.modal_app.volume)
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
         return f"/{host_id}.json"
 
     def _write_host_record(self, host_record: HostRecord) -> None:
-        """Write a host record to the volume."""
-        volume = self._get_volume()
+        """Write a host record to the state volume."""
+        volume = self._get_state_volume()
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
-        _volume_write_files(volume, {path: data.encode("utf-8")})
+        volume.write_files({path: data.encode("utf-8")})
         logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
@@ -471,11 +435,11 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         path = self._get_host_record_path(host_id)
 
         try:
-            data = _volume_read_file(volume, path)
+            data = volume.read_file(path)
             host_record = HostRecord.model_validate_json(data)
             logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
@@ -485,24 +449,24 @@ class ModalProviderInstance(BaseProviderInstance):
             return None
 
     def _destroy_agents_on_host(self, host_id: HostId) -> None:
-        """Remove the agents for this host from the volume."""
-        volume = self._get_volume()
+        """Remove the agents for this host from the state volume."""
+        volume = self._get_state_volume()
 
         # FIXME: this would actually probably be faster if we called "modal volume rm -r -e env_name volume_name /host_id"
         #  because that would automatically be able to handle the recursion and parallelism
         # delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
-            entries = _volume_listdir(volume, host_dir)
+            entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
                 filename = entry.path
                 agent_path = filename.lstrip("/")
-                _volume_remove_file(volume, agent_path)
+                volume.remove_file(agent_path)
             # then finally remove the empty host directory
-            _volume_remove_file(volume, host_dir)
+            volume.remove_file(host_dir)
         logger.trace("Deleted agent records from host volume dir: {}", host_dir)
 
         # Clear cache entries for this host
@@ -510,13 +474,13 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_record_cache_by_id.pop(host_id, None)
 
     def _delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record from the volume and clear caches."""
-        volume = self._get_volume()
+        """Delete a host record from the state volume and clear caches."""
+        volume = self._get_state_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         try:
-            _volume_remove_file(volume, path)
+            volume.remove_file(path)
         except (NotFoundError, FileNotFoundError):
             pass
         logger.trace("Deleted host record from volume: {}", path)
@@ -526,17 +490,17 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_record_cache_by_id.pop(host_id, None)
 
     def _list_all_host_records(self, cg: ConcurrencyGroup) -> list[HostRecord]:
-        """List all host records stored on the volume.
+        """List all host records stored on the state volume.
 
         Returns a list of all HostRecord objects found on the volume.
         Host records are stored at /<host_id>.json.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
 
         futures: list[Future[HostRecord | None]] = []
         with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
-            for entry in _volume_listdir(volume, "/"):
+            for entry in volume.listdir("/"):
                 filename = entry.path
                 # Host records are stored as <host_id>.json
                 if filename.endswith(".json"):
@@ -552,16 +516,16 @@ class ModalProviderInstance(BaseProviderInstance):
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
-        Agent records are stored at /{host_id}/{agent_id}.json on the volume.
+        Agent records are stored at /{host_id}/{agent_id}.json on the state volume.
         These are persisted when a host shuts down so that mngr list can
         show agents on stopped hosts.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            entries = _volume_listdir(volume, host_dir)
+            entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
             # Host directory doesn't exist yet (no agents persisted for this host)
             return agent_records
@@ -572,7 +536,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 # Read the agent record
                 agent_path = filename.lstrip("/")
                 try:
-                    content = _volume_read_file(volume, agent_path)
+                    content = volume.read_file(agent_path)
                 except (NotFoundError, FileNotFoundError):
                     # File was deleted between listdir and read (TOCTOU race on distributed volume)
                     continue
@@ -589,37 +553,37 @@ class ModalProviderInstance(BaseProviderInstance):
         return agent_records
 
     def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
-        """Persist agent data to the Modal volume.
+        """Persist agent data to the state volume.
 
         Called when an agent is created or its data.json is updated. Writes
-        the agent data to /{host_id}/{agent_id}.json on the volume.
+        the agent data to /{host_id}/{agent_id}.json on the state volume.
         """
         agent_id = agent_data.get("id")
         if not agent_id:
             logger.warning("Cannot persist agent data without id field")
             return
 
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         host_dir = f"/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
-        _volume_write_files(volume, {agent_path: data.encode("utf-8")})
+        volume.write_files({agent_path: data.encode("utf-8")})
         logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
-        """Remove persisted agent data from the Modal volume.
+        """Remove persisted agent data from the state volume.
 
         Called when an agent is destroyed. Removes the agent data file from
-        /{host_id}/{agent_id}.json on the volume.
+        /{host_id}/{agent_id}.json on the state volume.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         agent_path = f"/{host_id}/{agent_id}.json"
 
         try:
-            _volume_remove_file(volume, agent_path)
+            volume.remove_file(agent_path)
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass

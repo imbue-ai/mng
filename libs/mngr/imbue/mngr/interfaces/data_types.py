@@ -338,6 +338,18 @@ class SnapshotInfo(FrozenModel):
     )
 
 
+class VolumeFile(FrozenModel):
+    """A file entry listed from a volume.
+
+    Mirrors Modal's FileEntry but without the 'type' field, since we only
+    track files (not directories) at the mngr volume abstraction level.
+    """
+
+    path: str = Field(description="Path of the file within the volume")
+    mtime: int = Field(description="Last modification time as Unix timestamp")
+    size: int = Field(description="Size in bytes")
+
+
 class VolumeInfo(FrozenModel):
     """Information about a volume."""
 
