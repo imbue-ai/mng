@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
+from enum import auto
 from functools import cached_property
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -16,6 +17,7 @@ from pydantic import model_validator
 from pydantic_core import core_schema
 from pyinfra.api import Host as PyinfraHost
 
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.mngr.errors import InvalidRelativePathError
@@ -338,14 +340,18 @@ class SnapshotInfo(FrozenModel):
     )
 
 
+class VolumeFileType(UpperCaseStrEnum):
+    """Type of entry in a volume listing."""
+
+    FILE = auto()
+    DIRECTORY = auto()
+
+
 class VolumeFile(FrozenModel):
-    """A file entry listed from a volume.
+    """An entry listed from a volume directory."""
 
-    Mirrors Modal's FileEntry but without the 'type' field, since we only
-    track files (not directories) at the mngr volume abstraction level.
-    """
-
-    path: str = Field(description="Path of the file within the volume")
+    path: str = Field(description="Path of the entry within the volume")
+    file_type: VolumeFileType = Field(description="Whether this entry is a file or directory")
     mtime: int = Field(description="Last modification time as Unix timestamp")
     size: int = Field(description="Size in bytes")
 

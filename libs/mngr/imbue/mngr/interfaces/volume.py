@@ -92,7 +92,10 @@ class ScopedVolume(BaseVolume):
 
     def listdir(self, path: str) -> list[VolumeFile]:
         entries = self.delegate.listdir(_scoped_path(self.prefix, path))
-        return [VolumeFile(path=self._strip_prefix(e.path), mtime=e.mtime, size=e.size) for e in entries]
+        return [
+            VolumeFile(path=self._strip_prefix(e.path), file_type=e.file_type, mtime=e.mtime, size=e.size)
+            for e in entries
+        ]
 
     def read_file(self, path: str) -> bytes:
         return self.delegate.read_file(_scoped_path(self.prefix, path))

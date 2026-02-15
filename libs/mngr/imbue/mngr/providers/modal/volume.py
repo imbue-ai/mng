@@ -4,6 +4,7 @@ from typing import Mapping
 import modal
 import modal.exception
 from modal.volume import FileEntry
+from modal.volume import FileEntryType
 from pydantic import Field
 from tenacity import retry
 from tenacity import retry_if_exception_type
@@ -11,6 +12,7 @@ from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
 from imbue.mngr.interfaces.data_types import VolumeFile
+from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.volume import BaseVolume
 
 # Retry parameters for Modal volume operations.
@@ -47,9 +49,21 @@ def _modal_volume_write_files(volume: modal.Volume, file_contents_by_path: Mappi
             batch.put_file(io.BytesIO(file_data), path)
 
 
+def _modal_file_type_to_volume_file_type(modal_type: FileEntryType) -> VolumeFileType:
+    """Convert a Modal FileEntryType to our VolumeFileType."""
+    if modal_type == FileEntryType.DIRECTORY:
+        return VolumeFileType.DIRECTORY
+    return VolumeFileType.FILE
+
+
 def _file_entry_to_volume_file(entry: FileEntry) -> VolumeFile:
     """Convert a Modal FileEntry to a mngr VolumeFile."""
-    return VolumeFile(path=entry.path, mtime=entry.mtime, size=entry.size)
+    return VolumeFile(
+        path=entry.path,
+        file_type=_modal_file_type_to_volume_file_type(entry.type),
+        mtime=entry.mtime,
+        size=entry.size,
+    )
 
 
 class ModalVolume(BaseVolume):

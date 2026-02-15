@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.providers.local.volume import LocalVolume
 
 
@@ -27,12 +28,14 @@ def test_read_nonexistent_raises(volume: LocalVolume) -> None:
         volume.read_file("nonexistent.txt")
 
 
-def test_listdir(volume: LocalVolume) -> None:
-    volume.write_files({"a.txt": b"aaa", "b.txt": b"bb"})
+def test_listdir_returns_files_and_directories(volume: LocalVolume) -> None:
+    volume.write_files({"a.txt": b"aaa", "sub/b.txt": b"bb"})
     entries = volume.listdir("")
     paths = [e.path for e in entries]
     assert "a.txt" in paths
-    assert "b.txt" in paths
+    file_types = {e.path: e.file_type for e in entries}
+    assert file_types["a.txt"] == VolumeFileType.FILE
+    assert file_types["sub"] == VolumeFileType.DIRECTORY
 
 
 def test_listdir_empty_dir(volume: LocalVolume) -> None:
@@ -79,6 +82,6 @@ def test_write_multiple_files(volume: LocalVolume) -> None:
 
 def test_listdir_includes_size(volume: LocalVolume) -> None:
     volume.write_files({"sized.txt": b"hello"})
-    entries = volume.listdir("")
+    entries = [e for e in volume.listdir("") if e.file_type == VolumeFileType.FILE]
     assert len(entries) == 1
     assert entries[0].size == 5
