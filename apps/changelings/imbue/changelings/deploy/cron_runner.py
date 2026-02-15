@@ -29,6 +29,7 @@
 # - CHANGELING_MODAL_APP_NAME: The Modal app name (e.g., "changeling-code-guardian")
 # - CHANGELING_CONFIG_JSON: JSON-encoded changeling definition
 # - CHANGELING_CRON_SCHEDULE: Cron schedule expression (e.g., "0 3 * * *")
+# - CHANGELING_CRON_TIMEZONE: IANA timezone for the cron schedule (e.g., "America/Los_Angeles")
 # - CHANGELING_IMBUE_REPO_URL: HTTPS clone URL for the imbue monorepo (tooling)
 # - CHANGELING_IMBUE_COMMIT_HASH: Git commit hash to checkout in the imbue repo
 # - CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
@@ -62,6 +63,7 @@ if modal.is_local():
     _APP_NAME: str = _require_env("CHANGELING_MODAL_APP_NAME")
     _CONFIG_JSON: str = _require_env("CHANGELING_CONFIG_JSON")
     _CRON_SCHEDULE: str = _require_env("CHANGELING_CRON_SCHEDULE")
+    _CRON_TIMEZONE: str = _require_env("CHANGELING_CRON_TIMEZONE")
     _IMBUE_REPO_URL: str = _require_env("CHANGELING_IMBUE_REPO_URL")
     _IMBUE_COMMIT_HASH: str = _require_env("CHANGELING_IMBUE_COMMIT_HASH")
     _SECRET_NAME: str = _require_env("CHANGELING_SECRET_NAME")
@@ -80,6 +82,7 @@ if modal.is_local():
     (deploy_dir / "app_name").write_text(_APP_NAME)
     (deploy_dir / "config.json").write_text(_CONFIG_JSON)
     (deploy_dir / "cron_schedule").write_text(_CRON_SCHEDULE)
+    (deploy_dir / "cron_timezone").write_text(_CRON_TIMEZONE)
     (deploy_dir / "imbue_repo_url").write_text(_IMBUE_REPO_URL)
     (deploy_dir / "imbue_commit_hash").write_text(_IMBUE_COMMIT_HASH)
     (deploy_dir / "secret_name").write_text(_SECRET_NAME)
@@ -115,6 +118,7 @@ else:
     _APP_NAME = Path("/deployment/app_name").read_text().strip()
     _CONFIG_JSON = Path("/deployment/config.json").read_text().strip()
     _CRON_SCHEDULE = Path("/deployment/cron_schedule").read_text().strip()
+    _CRON_TIMEZONE = Path("/deployment/cron_timezone").read_text().strip()
     _IMBUE_REPO_URL = Path("/deployment/imbue_repo_url").read_text().strip()
     _IMBUE_COMMIT_HASH = Path("/deployment/imbue_commit_hash").read_text().strip()
     _SECRET_NAME = Path("/deployment/secret_name").read_text().strip()
@@ -174,8 +178,10 @@ app = modal.App(name=_APP_NAME, image=_image)
 # Persistent volume for target repo storage (reused across runs of the same changeling)
 _volume = modal.Volume.from_name(_VOLUME_NAME, create_if_missing=True)
 
-# Where the imbue monorepo (tooling) is cloned at runtime (ephemeral)
-_IMBUE_REPO_DIR = "/workspace/imbue"
+# Where the imbue monorepo (tooling) is stored on the persistent volume.
+# By living on the volume, the imbue repo is cached between runs and only
+# needs to be fetched (not fully cloned) on subsequent invocations.
+_IMBUE_REPO_DIR = "/volume/imbue"
 
 # Where the persistent volume is mounted
 _VOLUME_DIR = "/volume"
@@ -249,6 +255,30 @@ def _repo_name_from_url(url: str) -> str:
     return name
 
 
+def _clone_or_fetch_repo(repo_url: str, branch_or_commit: str, target_dir: str) -> str:
+    """Clone a repo onto the volume, or fetch and checkout if it already exists.
+
+    Returns the path to the repo directory.
+    """
+    git_dir = f"{target_dir}/.git"
+    parent_dir = str(Path(target_dir).parent)
+    os.makedirs(parent_dir, exist_ok=True)
+
+    if os.path.isdir(git_dir):
+        # Repo already exists on the volume -- just fetch and checkout
+        print(f"Repo already on volume at {target_dir}, fetching updates...")
+        _run_and_stream(["git", "fetch", "--all"], cwd=target_dir)
+        _run_and_stream(["git", "checkout", branch_or_commit], cwd=target_dir)
+        _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
+    else:
+        # Fresh clone
+        print(f"Cloning repo {repo_url} to {target_dir}...")
+        _run_and_stream(["git", "clone", repo_url, target_dir])
+        _run_and_stream(["git", "checkout", branch_or_commit], cwd=target_dir)
+
+    return target_dir
+
+
 def _clone_or_fetch_target_repo(repo_url: str, branch: str) -> str:
     """Clone the target repo onto the volume, or fetch if it already exists.
 
@@ -256,27 +286,12 @@ def _clone_or_fetch_target_repo(repo_url: str, branch: str) -> str:
     """
     repo_name = _repo_name_from_url(repo_url)
     target_dir = f"{_VOLUME_CODE_DIR}/{repo_name}"
-    git_dir = f"{target_dir}/.git"
-
-    os.makedirs(_VOLUME_CODE_DIR, exist_ok=True)
-
-    if os.path.isdir(git_dir):
-        # Repo already exists on the volume -- just fetch and checkout
-        print(f"Target repo already on volume at {target_dir}, fetching updates...")
-        _run_and_stream(["git", "fetch", "--all"], cwd=target_dir)
-        _run_and_stream(["git", "checkout", branch], cwd=target_dir)
-        _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
-    else:
-        # Fresh clone
-        print(f"Cloning target repo {repo_url} (branch: {branch}) to {target_dir}...")
-        _run_and_stream(["git", "clone", "--branch", branch, repo_url, target_dir])
-
-    return target_dir
+    return _clone_or_fetch_repo(repo_url, branch, target_dir)
 
 
 @app.function(
     secrets=[modal.Secret.from_name(_SECRET_NAME)],
-    schedule=modal.Cron(_CRON_SCHEDULE),
+    schedule=modal.Cron(_CRON_SCHEDULE, timezone=_CRON_TIMEZONE),
     timeout=3600,
     volumes={_VOLUME_DIR: _volume},
 )
@@ -320,10 +335,11 @@ def run_changeling() -> None:
         _volume.commit()
         print(f"Target repo persisted to volume at {target_repo_path}")
 
-    # Clone the imbue monorepo (contains changeling/mngr tooling) at the pinned commit
-    print(f"Cloning imbue repo from {_IMBUE_REPO_URL} at commit {_IMBUE_COMMIT_HASH}...")
-    _run_and_stream(["git", "clone", _IMBUE_REPO_URL, _IMBUE_REPO_DIR])
-    _run_and_stream(["git", "checkout", _IMBUE_COMMIT_HASH], cwd=_IMBUE_REPO_DIR)
+    # Clone or fetch the imbue monorepo (contains changeling/mngr tooling) at the pinned commit.
+    # The imbue repo lives on the persistent volume so it is cached between runs.
+    print(f"Fetching imbue repo from {_IMBUE_REPO_URL} at commit {_IMBUE_COMMIT_HASH}...")
+    _clone_or_fetch_repo(_IMBUE_REPO_URL, _IMBUE_COMMIT_HASH, _IMBUE_REPO_DIR)
+    _volume.commit()
 
     # Install all dependencies so changeling/mngr packages are available
     print("Installing dependencies via uv sync...")

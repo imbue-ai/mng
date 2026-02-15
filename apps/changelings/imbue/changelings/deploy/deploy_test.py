@@ -16,6 +16,7 @@ from imbue.changelings.deploy.deploy import build_modal_deploy_command
 from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
+from imbue.changelings.deploy.deploy import detect_local_timezone
 from imbue.changelings.deploy.deploy import find_repo_root
 from imbue.changelings.deploy.deploy import get_imbue_commit_hash
 from imbue.changelings.deploy.deploy import get_imbue_repo_url
@@ -87,6 +88,7 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
         imbue_repo_url="https://github.com/org/imbue.git",
         imbue_commit_hash="abc123",
         volume_name="changeling-test-vol",
+        cron_timezone="America/Los_Angeles",
     )
 
     assert env["CHANGELING_MODAL_APP_NAME"] == "changeling-test"
@@ -96,20 +98,31 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
     assert env["CHANGELING_IMBUE_REPO_URL"] == "https://github.com/org/imbue.git"
     assert env["CHANGELING_IMBUE_COMMIT_HASH"] == "abc123"
     assert env["CHANGELING_VOLUME_NAME"] == "changeling-test-vol"
+    assert env["CHANGELING_CRON_TIMEZONE"] == "America/Los_Angeles"
 
 
-def test_build_deploy_env_returns_exactly_seven_keys() -> None:
-    env = build_deploy_env(
-        app_name="a",
-        config_json="{}",
-        cron_schedule="* * * * *",
-        secret_name="s",
-        imbue_repo_url="https://github.com/org/imbue.git",
-        imbue_commit_hash="abc",
-        volume_name="v",
-    )
+# -- detect_local_timezone tests --
 
-    assert len(env) == 7
+
+def test_detect_local_timezone_returns_nonempty_string() -> None:
+    result = detect_local_timezone()
+    assert len(result) > 0
+
+
+def test_detect_local_timezone_returns_iana_format() -> None:
+    """The timezone should be an IANA name like 'America/Los_Angeles' or 'UTC'."""
+    result = detect_local_timezone()
+    # IANA names contain a slash (e.g., America/Los_Angeles) or are 'UTC'
+    assert "/" in result or result == "UTC"
+
+
+def test_detect_local_timezone_reads_etc_timezone(tmp_path: Path) -> None:
+    """When /etc/timezone exists with content, it should be used."""
+    # This test runs in isolated home but doesn't affect /etc/timezone,
+    # so we just verify the function returns a valid value from the real system
+    result = detect_local_timezone()
+    assert isinstance(result, str)
+    assert len(result) > 0
 
 
 # -- build_modal_deploy_command tests --

@@ -14,6 +14,8 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 
+_FALLBACK_TIMEZONE: str = "UTC"
+
 AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
 AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
@@ -46,6 +48,30 @@ def get_modal_volume_name(changeling_name: str) -> str:
     return f"changeling-{changeling_name}-vol"
 
 
+def detect_local_timezone() -> str:
+    """Detect the user's local IANA timezone name (e.g. 'America/Los_Angeles').
+
+    Checks /etc/timezone first (Debian/Ubuntu), then falls back to reading the
+    /etc/localtime symlink target (most Linux distros and macOS). Returns 'UTC'
+    if the timezone cannot be determined.
+    """
+    # Try /etc/timezone (Debian/Ubuntu)
+    etc_timezone = Path("/etc/timezone")
+    if etc_timezone.exists():
+        name = etc_timezone.read_text().strip()
+        if name:
+            return name
+
+    # Try /etc/localtime symlink (most Linux distros, macOS)
+    localtime = Path("/etc/localtime")
+    if localtime.is_symlink():
+        target = str(localtime.resolve())
+        if "zoneinfo/" in target:
+            return target.split("zoneinfo/")[-1]
+
+    return _FALLBACK_TIMEZONE
+
+
 @pure
 def build_deploy_env(
     app_name: str,
@@ -55,6 +81,7 @@ def build_deploy_env(
     imbue_repo_url: str,
     imbue_commit_hash: str,
     volume_name: str,
+    cron_timezone: str,
 ) -> dict[str, str]:
     """Build the environment variables needed for deploying the cron runner.
 
@@ -73,6 +100,7 @@ def build_deploy_env(
         "CHANGELING_IMBUE_REPO_URL": imbue_repo_url,
         "CHANGELING_IMBUE_COMMIT_HASH": imbue_commit_hash,
         "CHANGELING_VOLUME_NAME": volume_name,
+        "CHANGELING_CRON_TIMEZONE": cron_timezone,
     }
 
 
@@ -386,6 +414,10 @@ def deploy_changeling(
     cron_runner_path = Path(__file__).parent / "cron_runner.py"
     config_json = serialize_changeling_config(changeling)
 
+    # Detect the user's local timezone so the cron schedule runs in their timezone
+    cron_timezone = detect_local_timezone()
+    logger.info("Detected local timezone '{}' for cron schedule", cron_timezone)
+
     deploy_env_vars = build_deploy_env(
         app_name=app_name,
         config_json=config_json,
@@ -394,6 +426,7 @@ def deploy_changeling(
         imbue_repo_url=imbue_repo_url,
         imbue_commit_hash=imbue_commit_hash,
         volume_name=volume_name,
+        cron_timezone=cron_timezone,
     )
 
     env = {**os.environ, **deploy_env_vars}
