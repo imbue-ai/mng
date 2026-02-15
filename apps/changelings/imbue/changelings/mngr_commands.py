@@ -59,6 +59,8 @@ def build_mngr_create_command(
         branch_name,
         "--message",
         initial_message,
+        "--target-path",
+        "/code/mngr",
     ]
 
     # When running on Modal, specify the provider and pass secrets via env file
