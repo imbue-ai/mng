@@ -1729,7 +1729,7 @@ log "=== Shutdown script completed ==="
         try:
             modal.Volume.delete(host_volume_name, environment_name=self.environment_name)
             logger.debug("Deleted host volume: {}", host_volume_name)
-        except (NotFoundError, modal.exception.Error) as e:
+        except (NotFoundError, modal.exception.InvalidError, modal.exception.InternalError) as e:
             logger.trace("Could not delete host volume {}: {}", host_volume_name, e)
 
     @handle_modal_auth_error
