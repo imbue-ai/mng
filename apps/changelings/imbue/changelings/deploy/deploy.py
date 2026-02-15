@@ -268,6 +268,51 @@ def get_imbue_repo_url() -> str:
     return url
 
 
+def ensure_working_tree_is_clean() -> None:
+    """Verify the git working tree has no uncommitted changes.
+
+    Raises ChangelingDeployError if there are uncommitted or staged changes,
+    since the deployment pulls from the remote and would miss local changes.
+    """
+    with ConcurrencyGroup(name="git-status-check") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "status", "--porcelain"],
+            is_checked_after=False,
+        )
+
+    if result.returncode != 0:
+        raise ChangelingDeployError("Could not check git status. Make sure you are inside a git repository.") from None
+
+    if result.stdout.strip():
+        raise ChangelingDeployError(
+            "Working tree has uncommitted changes. Commit and push before deploying, "
+            "since the deployment pulls from the remote.\n"
+            f"Uncommitted changes:\n{result.stdout.strip()}"
+        )
+
+
+def push_current_branch() -> None:
+    """Push the current branch to the remote origin.
+
+    Succeeds if the push completes or there is nothing to push.
+    Raises ChangelingDeployError if the push fails.
+    """
+    with ConcurrencyGroup(name="git-push") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "push"],
+            is_checked_after=False,
+            on_output=_forward_output,
+        )
+
+    if result.returncode != 0:
+        raise ChangelingDeployError(
+            f"Failed to push to remote (exit code {result.returncode}). "
+            "Ensure your changes are pushed before deploying, since the deployment "
+            "pulls from the remote.\n"
+            f"Output:\n{(result.stdout + result.stderr).strip()}"
+        ) from None
+
+
 def get_git_config_value(key: str) -> str | None:
     """Read a git config value, returning None if not set."""
     with ConcurrencyGroup(name=f"git-config-{key}") as cg:
@@ -391,6 +436,15 @@ def deploy_changeling(
         raise ChangelingDeployError(
             "mngr_profile must be set before deploying. Use 'changeling add' to auto-detect it."
         )
+
+    # Ensure the repo is clean and pushed before deploying. The deployment
+    # clones from the remote at a specific commit hash, so any local-only
+    # changes would be lost.
+    with log_span("Ensuring repository is clean"):
+        ensure_working_tree_is_clean()
+
+    with log_span("Pushing current branch to remote"):
+        push_current_branch()
 
     # Derive Modal environment name from the profile's user_id
     user_id = read_profile_user_id(changeling.mngr_profile)
