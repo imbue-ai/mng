@@ -15,6 +15,9 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
 @pytest.mark.release
+@pytest.mark.skip(
+    reason="Requires claude locally, not installed in CI, and even if installed, has annoying dialogs to click through"
+)
 @pytest.mark.timeout(120)
 def test_run_local_with_cli_args_without_config(tmp_path: Path) -> None:
     """Running locally should create and run a changeling end-to-end.
