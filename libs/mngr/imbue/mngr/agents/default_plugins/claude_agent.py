@@ -557,7 +557,10 @@ class ClaudeAgent(BaseAgent):
                 claude_json_path = Path.home() / ".claude.json"
                 if claude_json_path.exists():
                     logger.info("Transferring ~/.claude.json to remote host...")
-                    host.write_text_file(Path(".claude.json"), claude_json_path.read_text())
+                    # hack--add an extra key in there because otherwise we get prompted about skipping permissions:
+                    claude_json_data = json.loads(claude_json_path.read_text())
+                    claude_json_data["bypassPermissionsModeAccepted"] = True
+                    host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
                 else:
                     logger.debug("Skipped ~/.claude.json (file does not exist)")
 
