@@ -47,7 +47,6 @@ def build_mngr_create_command(
         "-vv",
         "--no-connect",
         "--yes",
-        "--await-agent-stopped",
         "--no-ensure-clean",
         "--tag",
         "CREATOR=changeling",
