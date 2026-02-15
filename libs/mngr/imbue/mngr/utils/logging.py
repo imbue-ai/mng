@@ -67,6 +67,27 @@ CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 _console_handler_ids: dict[str, int] = {}
 
 
+def _dynamic_stdout_sink(message: Any) -> None:
+    """Loguru sink that always writes to the current sys.stdout.
+
+    When loguru receives a stream via logger.add(sys.stdout), it captures the object
+    reference at that moment. If the stream is later replaced (e.g., by pytest's capture
+    mechanism) or closed, the handler writes to a stale/closed object, causing
+    ValueError("I/O operation on closed file").
+
+    This callable sink solves the problem by resolving sys.stdout at write time, so it
+    always writes to whatever sys.stdout currently points to.
+    """
+    sys.stdout.write(str(message))
+    sys.stdout.flush()
+
+
+def _dynamic_stderr_sink(message: Any) -> None:
+    """Loguru sink that always writes to the current sys.stderr."""
+    sys.stderr.write(str(message))
+    sys.stderr.flush()
+
+
 def _format_user_message(record: Any) -> str:
     """Format user-facing log messages, adding colored prefixes for warnings and errors.
 
@@ -131,9 +152,11 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
 
     # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
     # We set colorize=False because we handle colors manually in _format_user_message.
+    # Use callable sinks so the handler always writes to the current sys.stdout/stderr,
+    # even if they get replaced (e.g., by pytest's capture mechanism).
     if output_opts.console_level != LogLevel.NONE:
         handler_id = logger.add(
-            sys.stdout,
+            _dynamic_stdout_sink,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
@@ -146,7 +169,7 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     if output_opts.log_level != LogLevel.NONE:
         console_level = level_map[output_opts.log_level]
         handler_id = logger.add(
-            sys.stderr,
+            _dynamic_stderr_sink,
             level=console_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
@@ -454,11 +477,12 @@ class LoggingSuppressor:
         # Clear the buffer
         cls._buffer.clear()
 
-        # Re-add the normal console handlers and store their IDs
+        # Re-add the normal console handlers and store their IDs.
+        # Use callable sinks so the handler always writes to the current stream.
         if output_opts is not None:
             if output_opts.console_level != LogLevel.NONE:
                 handler_id = logger.add(
-                    sys.stdout,
+                    _dynamic_stdout_sink,
                     level=output_opts.console_level,
                     format=_format_user_message,
                     colorize=False,
@@ -477,7 +501,7 @@ class LoggingSuppressor:
                     LogLevel.NONE: "CRITICAL",
                 }
                 handler_id = logger.add(
-                    sys.stderr,
+                    _dynamic_stderr_sink,
                     level=level_map[output_opts.log_level],
                     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
                     colorize=True,
