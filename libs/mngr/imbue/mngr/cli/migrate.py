@@ -1,11 +1,127 @@
+import sys
+
 import click
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.pure import pure
+from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.providers import get_provider_instance
+from imbue.mngr.cli.clone import args_before_dd_count
+from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.cli.clone import parse_source_and_invoke_create
-from imbue.mngr.cli.destroy import destroy as destroy_cmd
+from imbue.mngr.cli.connect import connect as connect_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.config.loader import load_config
+from imbue.mngr.errors import AgentNotFoundError
+from imbue.mngr.errors import UserInputError
+from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentId
+
+
+@pure
+def _user_specified_no_connect(args: tuple[str, ...]) -> bool:
+    """Check if the user explicitly passed --no-connect in their args."""
+    return "--no-connect" in args
+
+
+@pure
+def _user_specified_quiet(args: tuple[str, ...]) -> bool:
+    """Check if the user explicitly passed --quiet or -q in their args."""
+    return "--quiet" in args or "-q" in args
+
+
+def _resolve_and_stop_source_agent(ctx: click.Context, source_agent: str) -> AgentId:
+    """Resolve the source agent name or ID to a unique AgentId, then stop it.
+
+    Loads config, lists all agents to find a match, and stops the source
+    agent's tmux session before returning. Stopping the source is necessary
+    because tmux session names are derived from agent names (not IDs). If
+    the clone inherits the same name, it needs the session name to be free
+    so it can create its own session.
+
+    The source's data/config remains intact for the clone to copy from.
+    """
+    pm = ctx.obj
+    with ConcurrencyGroup(name="mngr-migrate-resolve") as cg:
+        mngr_ctx = load_config(pm, cg)
+        result = list_agents(mngr_ctx, is_streaming=False)
+
+        for agent_info in result.agents:
+            if str(agent_info.name) == source_agent or str(agent_info.id) == source_agent:
+                # Stop the source agent so the clone can create its own
+                # tmux session with the same name
+                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
+                host = provider.get_host(agent_info.host.id)
+                if isinstance(host, OnlineHostInterface):
+                    host.stop_agents([agent_info.id])
+                return agent_info.id
+
+    raise UserInputError(f"Source agent '{source_agent}' not found")
+
+
+def _destroy_source_agent_data(ctx: click.Context, source_agent_id: AgentId) -> None:
+    """Destroy the source agent's data without killing its tmux session.
+
+    Uses skip_stop=True on destroy_agent because the source was already stopped
+    before cloning, and the clone may now own a tmux session with the same name.
+    Calling stop_agents would kill the clone's session due to name-based lookup.
+    """
+    pm = ctx.obj
+    with ConcurrencyGroup(name="mngr-migrate-destroy") as cg:
+        mngr_ctx = load_config(pm, cg)
+        result = list_agents(mngr_ctx, is_streaming=False)
+
+        for agent_info in result.agents:
+            if agent_info.id == source_agent_id:
+                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
+                host = provider.get_host(agent_info.host.id)
+                if isinstance(host, OnlineHostInterface):
+                    for agent in host.get_agents():
+                        if agent.id == source_agent_id:
+                            host.destroy_agent(agent, skip_stop=True)
+                            return
+                raise AgentNotFoundError(str(source_agent_id))
+
+    raise AgentNotFoundError(str(source_agent_id))
+
+
+@pure
+def _determine_new_agent_name(
+    source_agent: str,
+    remaining: list[str],
+    original_argv: list[str],
+) -> str:
+    """Determine the new agent's name from the args.
+
+    Uses the same logic as _build_create_args: if a name is present in
+    remaining args (positional or --name), the create command will use it.
+    Otherwise, the source agent name is forwarded.
+    """
+    before_dd_count = args_before_dd_count(remaining, original_argv)
+    has_name = has_name_in_remaining_args(remaining, before_dd_count)
+
+    if not has_name:
+        return source_agent
+
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    # Check for --name or -n flag
+    for i, arg in enumerate(check):
+        if arg in ("--name", "-n") and i + 1 < len(check):
+            return check[i + 1]
+        if arg.startswith("--name="):
+            return arg.split("=", 1)[1]
+        if arg.startswith("-n="):
+            return arg.split("=", 1)[1]
+
+    # First positional arg (not starting with -)
+    if check and not check[0].startswith("-"):
+        return check[0]
+
+    return source_agent
 
 
 @click.command(
@@ -20,16 +136,48 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     This is equivalent to running `mngr clone` followed by `mngr destroy --force`.
     All create options are supported. The source agent is force-destroyed after
     a successful clone (including running agents).
-    """
-    source_agent = parse_source_and_invoke_create(ctx, args, command_name="migrate")
 
-    # Destroy the source agent with --force
-    destroy_args = [source_agent, "--force"]
+    When connecting (the default), the source agent is destroyed as soon as
+    the clone is ready, before attaching to the new agent's session.
+    """
+    if len(args) == 0:
+        raise click.UsageError("Missing required argument: SOURCE_AGENT", ctx=ctx)
+
+    source_agent = args[0]
+    remaining = list(args[1:])
+    original_argv = sys.argv
+
+    # Determine if the user wants to connect (the default).
+    # If they do, we inject --no-connect so that create returns after the
+    # agent is ready, then we destroy the source, then connect manually.
+    wants_connect = not _user_specified_no_connect(args)
+    is_quiet = _user_specified_quiet(args)
+
+    # Resolve the source agent's unique ID and stop its tmux session before
+    # cloning. This ensures: (1) destroy targets only this specific agent,
+    # not a newly cloned agent with the same name, and (2) the clone can
+    # create its own tmux session (session names are name-based, not ID-based).
+    if not is_quiet:
+        logger.info("Stopping source agent...")
+    source_agent_id = _resolve_and_stop_source_agent(ctx, source_agent)
+
+    if wants_connect:
+        create_args = args + ("--no-connect", "--await-ready")
+    else:
+        create_args = args
+
+    parse_source_and_invoke_create(ctx, create_args, command_name="migrate")
+
+    # Destroy the source agent's data. We use skip_stop=True because:
+    # (1) the source was already stopped before cloning, and
+    # (2) the clone may now own a tmux session with the same name
+    #     (session names are name-based), so stop_agents would kill it.
+    if not is_quiet:
+        logger.info("Cleaning up source agent...")
+
     try:
-        destroy_ctx = destroy_cmd.make_context("migrate-destroy", destroy_args, parent=ctx)
-        with destroy_ctx:
-            destroy_cmd.invoke(destroy_ctx)
-    except (click.Abort, click.ClickException):
+        _destroy_source_agent_data(ctx, source_agent_id)
+    except click.ClickException:
         logger.error(
             "Clone succeeded but destroy of '{}' failed. "
             "Please manually destroy the source agent:\n"
@@ -38,6 +186,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
             source_agent,
         )
         raise
+
+    # Connect to the new agent if the user wanted to connect
+    if wants_connect:
+        new_agent_name = _determine_new_agent_name(source_agent, remaining, original_argv)
+        connect_ctx = connect_cmd.make_context("migrate-connect", [new_agent_name], parent=ctx)
+        with connect_ctx:
+            connect_cmd.invoke(connect_ctx)
 
 
 _MIGRATE_HELP_METADATA = CommandHelpMetadata(
