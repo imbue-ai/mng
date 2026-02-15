@@ -46,6 +46,7 @@ def build_mngr_create_command(
         changeling.agent_type,
         "-vv",
         "--no-connect",
+        "--await-ready",
         "--yes",
         "--no-ensure-clean",
         "--tag",
