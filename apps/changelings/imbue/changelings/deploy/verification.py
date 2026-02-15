@@ -30,10 +30,9 @@ from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
-# Regex to extract agent name from mngr create command output.
-# The mngr create command logs at -vv level and includes the agent name
-# in lines like: "mngr create <agent-name> <agent-type> ..."
-_AGENT_NAME_PATTERN = re.compile(r"mngr\s+create\s+(\S+)")
+# Regex to extract agent name from mngr output.
+# The mngr create command logs a line like: "Starting agent <agent-name> ..."
+_AGENT_NAME_PATTERN = re.compile(r"Starting agent\s+(\S+)")
 
 
 def _destroy_agent(agent_name: str) -> None:
