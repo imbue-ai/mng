@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Final
 
 from pydantic import Field
@@ -5,6 +6,8 @@ from pydantic import Field
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CronSchedule
 from imbue.changelings.primitives import GitRepoUrl
+from imbue.changelings.primitives import LogLevel
+from imbue.changelings.primitives import OutputFormat
 from imbue.imbue_common.frozen_model import FrozenModel
 
 DEFAULT_SCHEDULE: Final[str] = "0 3 * * *"
@@ -53,4 +56,21 @@ class ChangelingConfig(FrozenModel):
     changeling_by_name: dict[ChangelingName, ChangelingDefinition] = Field(
         default_factory=dict,
         description="All registered changelings indexed by name",
+    )
+
+
+class OutputOptions(FrozenModel):
+    """Options for command output formatting and logging."""
+
+    output_format: OutputFormat = Field(
+        default=OutputFormat.HUMAN,
+        description="Output format for command results",
+    )
+    console_level: LogLevel = Field(
+        default=LogLevel.BUILD,
+        description="Log level for console output",
+    )
+    log_file_path: Path | None = Field(
+        default=None,
+        description="Override path for log file",
     )

@@ -1,8 +1,11 @@
 import sys
+from typing import Any
 
 import click
 from loguru import logger
 
+from imbue.changelings.cli.common_opts import add_common_options
+from imbue.changelings.cli.common_opts import setup_command_context
 from imbue.changelings.cli.options import build_definition_from_cli
 from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import get_changeling
@@ -23,7 +26,10 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
     is_flag=True,
     help="Run locally instead of on Modal (useful for testing)",
 )
+@add_common_options
+@click.pass_context
 def run(
+    ctx: click.Context,
     name: str,
     local: bool,
     schedule: str | None,
@@ -37,6 +43,7 @@ def run(
     mngr_options: tuple[str, ...],
     enabled: bool | None,
     mngr_profile: str | None,
+    **_common: Any,
 ) -> None:
     """Run a changeling immediately (for testing or one-off execution).
 
@@ -51,6 +58,8 @@ def run(
 
       changeling run my-test --local --agent-type code-guardian --message "Review the code"
     """
+    setup_command_context(ctx, "run")
+
     # Try to load from config as a base; if not found, build from scratch
     try:
         base = get_changeling(ChangelingName(name))
