@@ -6,7 +6,7 @@ import pytest
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import get_subprocess_test_env
 
-pytestmark = pytest.mark.docker
+pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
 
 
 @pytest.fixture

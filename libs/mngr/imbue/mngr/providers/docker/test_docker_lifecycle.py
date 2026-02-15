@@ -18,7 +18,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.testing import make_docker_provider
 
-pytestmark = pytest.mark.docker
+pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
 
 
 @pytest.fixture
