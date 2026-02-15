@@ -383,7 +383,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
-        return load_or_create_ssh_keypair(self._keys_dir)
+        return load_or_create_ssh_keypair(self._keys_dir, key_name="modal_ssh_key")
 
     def _get_host_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH host keypair for Modal sandboxes.

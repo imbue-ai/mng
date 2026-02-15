@@ -55,6 +55,7 @@ _registered: bool = False
 _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
+    "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
 ]
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
