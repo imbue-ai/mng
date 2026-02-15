@@ -281,6 +281,10 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
     raise NotImplementedError("'mngr plugin remove' is not yet implemented")
 
 
+# FOLLOWUP: in addition to the above, I also want a sub-command for "mngr plugin search" so that you can easily search across all plugins (once there are a bunch of them)
+# FOLLOWUP: in addition to the above, I also want a sub-command for "mngr plugin generate" so that you can easily create your own plugin for basically any functionality you want (and then publish it for others to use or take inspiration from!)
+
+
 @plugin.command(name="enable")
 @click.argument("name")
 @click.option(
