@@ -9,6 +9,10 @@ _DURATION_SUFFIXES: dict[str, int] = {
 }
 
 
+# FIXME: we probably should just use a library for this. In particular, we should convert *all* places where we accept durations to use this function for converting from strings into a number of seconds
+#  and then we can be sure that we're consistent about how we parse durations across the board.
+#  we probably want to support every sensible format, like "5s", "5 seconds", "5 sec", "5m", "5 minutes", "5 min", etc, so find a nice library, and then convert all of the existing code to use it.
+#  to be clear--all of our *internal* durations should be in seconds (float), but we should be flexible about the durations we accept from users (e.g. in config files, command line arguments, etc) and allow those to be in any sane form.
 @pure
 def parse_duration_seconds(value: str) -> int:
     """Parse a duration string into seconds.
