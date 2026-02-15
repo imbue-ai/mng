@@ -59,6 +59,8 @@ def filter_agents_by_host(
 
 def select_agent_interactively_with_host(
     mngr_ctx: MngrContext,
+    is_start_desired: bool = False,
+    skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Show interactive UI to select an agent.
 
@@ -73,8 +75,15 @@ def select_agent_interactively_with_host(
         return None
 
     # Find the actual agent and host from the selection
-    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-    return find_and_maybe_start_agent_by_name_or_id(str(selected.id), agents_by_host, mngr_ctx, "select")
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
+    return find_and_maybe_start_agent_by_name_or_id(
+        str(selected.id),
+        agents_by_host,
+        mngr_ctx,
+        "select",
+        is_start_desired=is_start_desired,
+        skip_agent_state_check=skip_agent_state_check,
+    )
 
 
 @pure
@@ -121,6 +130,8 @@ def find_agent_for_command(
     agent_identifier: str | None,
     command_usage: str,
     host_filter: str | None,
+    is_start_desired: bool = False,
+    skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Find an agent by identifier, or interactively if no identifier given.
 
@@ -128,15 +139,26 @@ def find_agent_for_command(
     Raises UserInputError if no agent specified and stdin is not a TTY.
     """
     if agent_identifier is not None:
-        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
+        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
         if host_filter is not None:
             agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
-        return find_and_maybe_start_agent_by_name_or_id(agent_identifier, agents_by_host, mngr_ctx, command_usage)
+        return find_and_maybe_start_agent_by_name_or_id(
+            agent_identifier,
+            agents_by_host,
+            mngr_ctx,
+            command_usage,
+            is_start_desired=is_start_desired,
+            skip_agent_state_check=skip_agent_state_check,
+        )
 
     if not sys.stdin.isatty():
         raise UserInputError("No agent specified and not running in interactive mode")
 
-    result = select_agent_interactively_with_host(mngr_ctx)
+    result = select_agent_interactively_with_host(
+        mngr_ctx,
+        is_start_desired=is_start_desired,
+        skip_agent_state_check=skip_agent_state_check,
+    )
     if result is None:
         return None
     return result
