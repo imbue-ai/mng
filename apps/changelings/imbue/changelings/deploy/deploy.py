@@ -4,6 +4,7 @@ import sys
 from collections.abc import Mapping
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Final
 
 from loguru import logger
 
@@ -14,7 +15,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 
-_FALLBACK_TIMEZONE: str = "UTC"
+_FALLBACK_TIMEZONE: Final[str] = "UTC"
 
 AGENT_POLL_TIMEOUT_SECONDS: float = 900.0
 AGENT_POLL_INTERVAL_SECONDS: float = 10.0
@@ -48,28 +49,38 @@ def get_modal_volume_name(changeling_name: str) -> str:
     return f"changeling-{changeling_name}-vol"
 
 
-def detect_local_timezone() -> str:
-    """Detect the user's local IANA timezone name (e.g. 'America/Los_Angeles').
+@pure
+def _resolve_timezone_from_paths(
+    etc_timezone_path: Path,
+    etc_localtime_path: Path,
+) -> str:
+    """Resolve the IANA timezone name from filesystem paths.
 
-    Checks /etc/timezone first (Debian/Ubuntu), then falls back to reading the
-    /etc/localtime symlink target (most Linux distros and macOS). Returns 'UTC'
-    if the timezone cannot be determined.
+    Checks etc_timezone_path first (Debian/Ubuntu convention), then falls back
+    to reading the etc_localtime_path symlink target. Returns 'UTC' if the
+    timezone cannot be determined from either source.
     """
     # Try /etc/timezone (Debian/Ubuntu)
-    etc_timezone = Path("/etc/timezone")
-    if etc_timezone.exists():
-        name = etc_timezone.read_text().strip()
+    if etc_timezone_path.exists():
+        name = etc_timezone_path.read_text().strip()
         if name:
             return name
 
     # Try /etc/localtime symlink (most Linux distros, macOS)
-    localtime = Path("/etc/localtime")
-    if localtime.is_symlink():
-        target = str(localtime.resolve())
+    if etc_localtime_path.is_symlink():
+        target = str(etc_localtime_path.resolve())
         if "zoneinfo/" in target:
             return target.split("zoneinfo/")[-1]
 
     return _FALLBACK_TIMEZONE
+
+
+def detect_local_timezone() -> str:
+    """Detect the user's local IANA timezone name (e.g. 'America/Los_Angeles')."""
+    return _resolve_timezone_from_paths(
+        etc_timezone_path=Path("/etc/timezone"),
+        etc_localtime_path=Path("/etc/localtime"),
+    )
 
 
 @pure
