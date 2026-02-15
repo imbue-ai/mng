@@ -436,7 +436,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
     if opts.agent is not None:
         agent, host = find_and_maybe_start_agent_by_name_or_id(
-            opts.agent, agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
+            opts.agent,
+            agents_by_host,
+            mngr_ctx,
+            "connect",
+            is_start_desired=opts.start,
         )
     elif not sys.stdin.isatty():
         # Default to most recently created agent when running non-interactively
@@ -449,7 +453,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
         most_recent = sorted_agents[0]
         logger.info("No agent specified, connecting to most recently created: {}", most_recent.name)
         agent, host = find_and_maybe_start_agent_by_name_or_id(
-            str(most_recent.id), agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
+            str(most_recent.id),
+            agents_by_host,
+            mngr_ctx,
+            "connect",
+            is_start_desired=opts.start,
         )
     else:
         list_result = list_agents(mngr_ctx, is_streaming=False)
@@ -462,7 +470,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             return
 
         agent, host = find_and_maybe_start_agent_by_name_or_id(
-            str(selected.id), agents_by_host, mngr_ctx, "connect", is_start_desired=opts.start
+            str(selected.id),
+            agents_by_host,
+            mngr_ctx,
+            "connect",
+            is_start_desired=opts.start,
         )
 
     # Build connection options

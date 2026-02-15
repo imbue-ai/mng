@@ -1452,7 +1452,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Get the state directory for an agent."""
         return self.host_dir / "agents" / str(agent.id)
 
-    def _get_agent_env_path(self, agent: AgentInterface) -> Path:
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
         """Get the path to the agent's environment file."""
         return self._get_agent_state_dir(agent) / "env"
 
@@ -1504,7 +1504,7 @@ class Host(BaseHost, OnlineHostInterface):
         if not env_vars:
             return
 
-        env_path = self._get_agent_env_path(agent)
+        env_path = self.get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
         logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
@@ -1521,7 +1521,7 @@ class Host(BaseHost, OnlineHostInterface):
         The caller is responsible for joining these appropriately.
         """
         host_env_path = self.host_dir / "env"
-        agent_env_path = self._get_agent_env_path(agent)
+        agent_env_path = self.get_agent_env_path(agent)
 
         return [
             "set -a",
@@ -1718,7 +1718,7 @@ class Host(BaseHost, OnlineHostInterface):
             logger.debug("Tmux rename result: success={}, stdout={}", result.success, result.stdout.strip())
 
             # Update the MNGR_AGENT_NAME env var in the agent's env file
-            env_path = self._get_agent_env_path(agent)
+            env_path = self.get_agent_env_path(agent)
             try:
                 env_content = self.read_text_file(env_path)
                 updated_lines: list[str] = []
