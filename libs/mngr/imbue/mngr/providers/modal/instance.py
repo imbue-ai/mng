@@ -520,7 +520,7 @@ class ModalProviderInstance(BaseProviderInstance):
                 volume.remove_file(agent_path)
             # then finally remove the empty host directory
             volume.remove_file(host_dir)
-        logger.trace("Deleted agent records from host volume dir: {}", host_dir)
+        logger.trace("Deleted agent records from state volume dir: {}", host_dir)
 
         # Clear cache entries for this host
         self._host_by_id_cache.pop(host_id, None)

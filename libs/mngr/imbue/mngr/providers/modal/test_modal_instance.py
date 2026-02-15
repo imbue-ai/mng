@@ -760,16 +760,23 @@ def test_host_volume_data_readable_via_volume_interface(real_modal_provider: Mod
 @pytest.mark.timeout(180)
 def test_host_volume_cleanup_on_destroy(real_modal_provider: ModalProviderInstance) -> None:
     """Destroying a host should delete its persistent volume."""
-    host = real_modal_provider.create_host(HostName("test-vol-cleanup"))
-    host_id = host.id
+    host = None
+    try:
+        host = real_modal_provider.create_host(HostName("test-vol-cleanup"))
+        host_id = host.id
 
-    # Verify the volume exists
-    volume = real_modal_provider.get_volume_for_host(host_id)
-    assert volume is not None
+        # Verify the volume exists
+        volume = real_modal_provider.get_volume_for_host(host_id)
+        assert volume is not None
 
-    # Destroy the host (should delete the volume)
-    real_modal_provider.destroy_host(host)
+        # Destroy the host (should delete the volume)
+        real_modal_provider.destroy_host(host)
+        host = None
 
-    # Verify the volume is gone
-    volume_after = real_modal_provider.get_volume_for_host(host_id)
-    assert volume_after is None
+        # Verify the volume is gone
+        volume_after = real_modal_provider.get_volume_for_host(host_id)
+        assert volume_after is None
+
+    finally:
+        if host:
+            real_modal_provider.destroy_host(host)
