@@ -10,6 +10,7 @@ from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.data_types import DEFAULT_SECRETS
 from imbue.changelings.deploy.deploy import _forward_output
+from imbue.changelings.deploy.deploy import _resolve_timezone_from_paths
 from imbue.changelings.deploy.deploy import build_cron_mngr_command
 from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
@@ -101,28 +102,66 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
     assert env["CHANGELING_CRON_TIMEZONE"] == "America/Los_Angeles"
 
 
-# -- detect_local_timezone tests --
+# -- detect_local_timezone / _resolve_timezone_from_paths tests --
 
 
-def test_detect_local_timezone_returns_nonempty_string() -> None:
+def test_resolve_timezone_reads_etc_timezone_when_present(tmp_path: Path) -> None:
+    """When /etc/timezone exists with content, its value is returned."""
+    etc_timezone = tmp_path / "timezone"
+    etc_timezone.write_text("Europe/Berlin\n")
+    etc_localtime = tmp_path / "localtime"
+
+    result = _resolve_timezone_from_paths(
+        etc_timezone_path=etc_timezone,
+        etc_localtime_path=etc_localtime,
+    )
+    assert result == "Europe/Berlin"
+
+
+def test_resolve_timezone_falls_back_to_localtime_symlink(tmp_path: Path) -> None:
+    """When /etc/timezone is absent, the /etc/localtime symlink is used."""
+    etc_timezone = tmp_path / "timezone"
+    # Create a fake zoneinfo structure and symlink
+    zoneinfo_dir = tmp_path / "usr" / "share" / "zoneinfo" / "America"
+    zoneinfo_dir.mkdir(parents=True)
+    zone_file = zoneinfo_dir / "New_York"
+    zone_file.write_text("")
+    etc_localtime = tmp_path / "localtime"
+    etc_localtime.symlink_to(zone_file)
+
+    result = _resolve_timezone_from_paths(
+        etc_timezone_path=etc_timezone,
+        etc_localtime_path=etc_localtime,
+    )
+    assert result == "America/New_York"
+
+
+def test_resolve_timezone_returns_utc_when_no_sources(tmp_path: Path) -> None:
+    """When neither /etc/timezone nor /etc/localtime exists, UTC is returned."""
+    result = _resolve_timezone_from_paths(
+        etc_timezone_path=tmp_path / "nonexistent_timezone",
+        etc_localtime_path=tmp_path / "nonexistent_localtime",
+    )
+    assert result == "UTC"
+
+
+def test_resolve_timezone_skips_empty_etc_timezone(tmp_path: Path) -> None:
+    """When /etc/timezone exists but is empty, it falls through to the next source."""
+    etc_timezone = tmp_path / "timezone"
+    etc_timezone.write_text("  \n")
+
+    result = _resolve_timezone_from_paths(
+        etc_timezone_path=etc_timezone,
+        etc_localtime_path=tmp_path / "nonexistent",
+    )
+    assert result == "UTC"
+
+
+def test_detect_local_timezone_returns_nonempty_iana_string() -> None:
+    """The top-level function should return a valid IANA timezone or 'UTC'."""
     result = detect_local_timezone()
     assert len(result) > 0
-
-
-def test_detect_local_timezone_returns_iana_format() -> None:
-    """The timezone should be an IANA name like 'America/Los_Angeles' or 'UTC'."""
-    result = detect_local_timezone()
-    # IANA names contain a slash (e.g., America/Los_Angeles) or are 'UTC'
     assert "/" in result or result == "UTC"
-
-
-def test_detect_local_timezone_reads_etc_timezone(tmp_path: Path) -> None:
-    """When /etc/timezone exists with content, it should be used."""
-    # This test runs in isolated home but doesn't affect /etc/timezone,
-    # so we just verify the function returns a valid value from the real system
-    result = detect_local_timezone()
-    assert isinstance(result, str)
-    assert len(result) > 0
 
 
 # -- build_modal_deploy_command tests --

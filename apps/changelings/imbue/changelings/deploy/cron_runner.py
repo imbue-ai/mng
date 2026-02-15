@@ -255,8 +255,18 @@ def _repo_name_from_url(url: str) -> str:
     return name
 
 
-def _clone_or_fetch_repo(repo_url: str, branch_or_commit: str, target_dir: str) -> str:
+def _clone_or_fetch_repo(
+    repo_url: str,
+    branch_or_commit: str,
+    target_dir: str,
+    *,
+    is_branch: bool,
+) -> str:
     """Clone a repo onto the volume, or fetch and checkout if it already exists.
+
+    When is_branch is True, a fast-forward pull is attempted after checkout
+    (appropriate for branch names). When False, only fetch+checkout is done
+    (appropriate for commit hashes, which result in a detached HEAD).
 
     Returns the path to the repo directory.
     """
@@ -269,7 +279,8 @@ def _clone_or_fetch_repo(repo_url: str, branch_or_commit: str, target_dir: str) 
         print(f"Repo already on volume at {target_dir}, fetching updates...")
         _run_and_stream(["git", "fetch", "--all"], cwd=target_dir)
         _run_and_stream(["git", "checkout", branch_or_commit], cwd=target_dir)
-        _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
+        if is_branch:
+            _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
     else:
         # Fresh clone
         print(f"Cloning repo {repo_url} to {target_dir}...")
@@ -286,7 +297,7 @@ def _clone_or_fetch_target_repo(repo_url: str, branch: str) -> str:
     """
     repo_name = _repo_name_from_url(repo_url)
     target_dir = f"{_VOLUME_CODE_DIR}/{repo_name}"
-    return _clone_or_fetch_repo(repo_url, branch, target_dir)
+    return _clone_or_fetch_repo(repo_url, branch, target_dir, is_branch=True)
 
 
 @app.function(
@@ -296,14 +307,14 @@ def _clone_or_fetch_target_repo(repo_url: str, branch: str) -> str:
     volumes={_VOLUME_DIR: _volume},
 )
 def run_changeling() -> None:
-    """Run the changeling by cloning the imbue repo and invoking the remote runner.
+    """Run the changeling by fetching the imbue repo and invoking the remote runner.
 
     This function executes on the cron schedule and:
     1. Checks if the changeling is enabled
     2. Installs user config files (claude, mngr) to their expected locations
     3. Sets up GitHub authentication via gh CLI
     4. Clones/fetches the target repo onto the persistent volume
-    5. Clones the imbue monorepo (tooling) and checks out the pinned commit
+    5. Clones/fetches the imbue monorepo (tooling) on the volume and checks out the pinned commit
     6. Installs all dependencies via uv sync
     7. Invokes remote_runner.py which handles the mngr create command
     """
@@ -338,7 +349,7 @@ def run_changeling() -> None:
     # Clone or fetch the imbue monorepo (contains changeling/mngr tooling) at the pinned commit.
     # The imbue repo lives on the persistent volume so it is cached between runs.
     print(f"Fetching imbue repo from {_IMBUE_REPO_URL} at commit {_IMBUE_COMMIT_HASH}...")
-    _clone_or_fetch_repo(_IMBUE_REPO_URL, _IMBUE_COMMIT_HASH, _IMBUE_REPO_DIR)
+    _clone_or_fetch_repo(_IMBUE_REPO_URL, _IMBUE_COMMIT_HASH, _IMBUE_REPO_DIR, is_branch=False)
     _volume.commit()
 
     # Install all dependencies so changeling/mngr packages are available
