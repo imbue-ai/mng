@@ -243,12 +243,12 @@ class OfflineHost(BaseHost):
         return HostName(self.certified_host_data.host_name)
 
     def get_stop_time(self) -> datetime | None:
-        """Return the host last stop time as a datetime, or None if unknown."""
-        return None
+        """Return the host last stop time based on when the host data was last updated."""
+        return self.certified_host_data.updated_at
 
     def get_seconds_since_stopped(self) -> float | None:
-        """Return the number of seconds since this host was stopped (or None if it is running)."""
-        return None
+        """Return the number of seconds since this host was stopped, based on updated_at."""
+        return (datetime.now(timezone.utc) - self.certified_host_data.updated_at).total_seconds()
 
     # =========================================================================
     # Certified Data

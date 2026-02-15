@@ -40,6 +40,7 @@ def fake_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> MockProvid
 def offline_host(fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext) -> OfflineHost:
     """Create an OfflineHost instance for testing."""
     host_id = HostId.generate()
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name="test-host",
@@ -47,6 +48,8 @@ def offline_host(fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
         activity_sources=(ActivitySource.SSH, ActivitySource.CREATE, ActivitySource.START, ActivitySource.BOOT),
         image="test-image:latest",
         plugin={"my_plugin": {"key": "value"}},
+        created_at=now,
+        updated_at=now,
     )
     return OfflineHost(
         id=host_id,
@@ -205,11 +208,14 @@ def test_get_state_returns_failed_when_certified_data_has_failure_reason(
     fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that get_state returns FAILED when certified data has a failure_reason."""
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(HostId.generate()),
         host_name="failed-host",
         failure_reason="Docker build failed",
         build_log="Step 1/5: RUN apt-get update\nERROR: apt-get failed",
+        created_at=now,
+        updated_at=now,
     )
     failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
@@ -221,11 +227,14 @@ def test_get_failure_reason_returns_reason_when_present(
     fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that get_failure_reason returns the failure reason from certified data."""
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(HostId.generate()),
         host_name="failed-host",
         failure_reason="Modal sandbox creation failed",
         build_log="Build log contents",
+        created_at=now,
+        updated_at=now,
     )
     failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
@@ -244,11 +253,14 @@ def test_get_build_log_returns_log_when_present(
 ) -> None:
     """Test that get_build_log returns the build log from certified data."""
     build_log_content = "Step 1/5: FROM ubuntu:22.04\nStep 2/5: RUN apt-get update\nERROR: network error"
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(HostId.generate()),
         host_name="failed-host",
         failure_reason="Build failed",
         build_log=build_log_content,
+        created_at=now,
+        updated_at=now,
     )
     failed_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
 
@@ -276,10 +288,13 @@ def test_failure_reason_takes_precedence_over_snapshot_check(
     fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
 ) -> None:
     """Test that FAILED is returned when failure_reason is set, even when snapshots exist."""
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(HostId.generate()),
         host_name="failed-host",
         failure_reason="Build failed",
+        created_at=now,
+        updated_at=now,
     )
     fake_provider.mock_snapshots = [
         SnapshotInfo(
@@ -310,10 +325,13 @@ def test_get_state_based_on_stop_reason(
     expected_state: HostState,
 ) -> None:
     """Test that get_state returns the correct state based on stop_reason."""
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(HostId.generate()),
         host_name="test-host",
         stop_reason=stop_reason,
+        created_at=now,
+        updated_at=now,
     )
     fake_provider.mock_snapshots = [
         SnapshotInfo(

@@ -491,11 +491,14 @@ def _make_host_record(
     snapshots: list[SnapshotRecord] | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id=str(host_id),
         host_name=host_name,
         user_tags={},
         snapshots=snapshots or [],
+        created_at=now,
+        updated_at=now,
     )
     return HostRecord(
         ssh_host="test.host",

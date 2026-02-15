@@ -211,26 +211,33 @@ def test_host_info_serialization_with_extended_fields() -> None:
 
 def test_certified_host_data_tmux_session_prefix_defaults_to_none() -> None:
     """tmux_session_prefix should default to None for backward compatibility."""
-    data = CertifiedHostData(host_id="host-123", host_name="test-host")
+    now = datetime.now(timezone.utc)
+    data = CertifiedHostData(host_id="host-123", host_name="test-host", created_at=now, updated_at=now)
     assert data.tmux_session_prefix is None
 
 
 def test_certified_host_data_tmux_session_prefix_set() -> None:
     """tmux_session_prefix should be settable."""
+    now = datetime.now(timezone.utc)
     data = CertifiedHostData(
         host_id="host-123",
         host_name="test-host",
         tmux_session_prefix="mngr-",
+        created_at=now,
+        updated_at=now,
     )
     assert data.tmux_session_prefix == "mngr-"
 
 
 def test_certified_host_data_tmux_session_prefix_serializes_to_json() -> None:
     """tmux_session_prefix should round-trip through JSON serialization."""
+    now = datetime.now(timezone.utc)
     data = CertifiedHostData(
         host_id="host-123",
         host_name="test-host",
         tmux_session_prefix="custom-prefix-",
+        created_at=now,
+        updated_at=now,
     )
     json_str = json.dumps(data.model_dump(by_alias=True, mode="json"))
     parsed = json.loads(json_str)
@@ -272,11 +279,14 @@ def test_activity_config_idle_mode_matches_hosts_common_mapping(mode: IdleMode) 
 @pytest.mark.parametrize("mode", _IDLE_MODES_WITH_KNOWN_SOURCES)
 def test_certified_host_data_idle_mode_matches_hosts_common_mapping(mode: IdleMode) -> None:
     """CertifiedHostData.idle_mode must agree with get_activity_sources_for_idle_mode."""
+    now = datetime.now(timezone.utc)
     sources = get_activity_sources_for_idle_mode(mode)
     data = CertifiedHostData(
         host_id="host-sync-test",
         host_name="sync-test",
         activity_sources=sources,
+        created_at=now,
+        updated_at=now,
     )
     assert data.idle_mode == mode
 
@@ -310,20 +320,6 @@ def test_certified_host_data_created_at_and_updated_at_explicit() -> None:
     )
     assert data.created_at == now
     assert data.updated_at == now
-
-
-def test_certified_host_data_timestamps_default_when_missing() -> None:
-    """When created_at/updated_at are not provided, defaults should be applied."""
-    before = datetime.now(timezone.utc)
-    data = CertifiedHostData(host_id="host-ts-2", host_name="ts-host")
-
-    # created_at defaults to ~1 week ago
-    assert data.created_at < before - timedelta(days=6)
-    assert data.created_at > before - timedelta(days=8)
-
-    # updated_at defaults to ~1 day ago
-    assert data.updated_at < before
-    assert data.updated_at > before - timedelta(days=2)
 
 
 def test_certified_host_data_timestamps_backward_compat_from_json() -> None:

@@ -258,14 +258,8 @@ class CertifiedHostData(FrozenModel):
         description="Activity sources that count toward keeping host active",
     )
 
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc) - timedelta(weeks=1),
-        description="When this host data was first created (always UTC)",
-    )
-    updated_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc) - timedelta(days=1),
-        description="When this host data was last updated (always UTC)",
-    )
+    created_at: datetime = Field(description="When this host data was first created (always UTC)")
+    updated_at: datetime = Field(description="When this host data was last updated (always UTC)")
 
     @model_validator(mode="before")
     @classmethod
@@ -277,6 +271,11 @@ class CertifiedHostData(FrozenModel):
         """
         if isinstance(data, dict):
             data.pop("idle_mode", None)
+            now = datetime.now(timezone.utc)
+            if "created_at" not in data:
+                data["created_at"] = now - timedelta(weeks=1)
+            if "updated_at" not in data:
+                data["updated_at"] = now - timedelta(days=1)
         return data
 
     @computed_field
