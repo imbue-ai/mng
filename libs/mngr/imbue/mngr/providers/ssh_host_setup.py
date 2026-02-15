@@ -80,8 +80,11 @@ def build_check_and_install_packages_command(
     ]
 
     if host_volume_mount_path is not None:
-        # Symlink host_dir to the volume mount so all writes persist
-        script_lines.append(f"ln -sfn {host_volume_mount_path} {mngr_host_dir}")
+        # Remove any existing directory (e.g., from a pre-volume snapshot) before
+        # creating the symlink. ln -sfn alone won't replace an existing directory.
+        script_lines.append(
+            f"[ -L {mngr_host_dir} ] || rm -rf {mngr_host_dir}; ln -sfn {host_volume_mount_path} {mngr_host_dir}"
+        )
     else:
         script_lines.append(f"mkdir -p {mngr_host_dir}")
 

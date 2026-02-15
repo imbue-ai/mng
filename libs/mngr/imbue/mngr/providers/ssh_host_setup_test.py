@@ -142,9 +142,10 @@ def test_build_start_activity_watcher_command_escapes_quotes() -> None:
 
 
 def test_build_check_command_creates_symlink_when_volume_provided() -> None:
-    """When host_volume_mount_path is provided, should create symlink instead of mkdir."""
+    """When host_volume_mount_path is provided, should remove existing dir and create symlink."""
     cmd = build_check_and_install_packages_command("/mngr", host_volume_mount_path="/host_volume")
     assert "ln -sfn /host_volume /mngr" in cmd
+    assert "rm -rf /mngr" in cmd
     assert "mkdir -p /mngr" not in cmd
 
 

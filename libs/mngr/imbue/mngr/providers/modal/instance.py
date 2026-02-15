@@ -115,6 +115,9 @@ HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
 # the full volume name (e.g., "mngr-host-host-abc123def...").
 HOST_VOLUME_NAME_PREFIX: Final[str] = "mngr-host-"
 
+# Fixed namespace for deterministic VolumeId derivation from Modal volume names.
+_MODAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
+
 P = ParamSpec("P")
 T = TypeVar("T")
 
@@ -2120,8 +2123,7 @@ log "=== Shutdown script completed ==="
         Uses uuid5 with a fixed namespace to produce a valid VolumeId
         (vol-<32hex>) from any Modal volume name string.
         """
-        namespace = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
-        derived = uuid.uuid5(namespace, modal_volume_name)
+        derived = uuid.uuid5(_MODAL_VOLUME_ID_NAMESPACE, modal_volume_name)
         return VolumeId(f"vol-{derived.hex}")
 
     @handle_modal_auth_error
@@ -2138,7 +2140,7 @@ log "=== Shutdown script completed ==="
                 host_id = None
                 try:
                     host_id = HostId(host_id_str) if host_id_str.startswith("host-") else None
-                except Exception:
+                except ValueError:
                     pass
                 results.append(
                     VolumeInfo(
@@ -2161,12 +2163,12 @@ log "=== Shutdown script completed ==="
             vol_name = modal_vol.name
             if vol_name is not None and self._volume_id_for_name(vol_name) == volume_id:
                 try:
-                    modal.Volume.objects.delete(vol_name, environment_name=self.environment_name)
+                    modal.Volume.delete(vol_name, environment_name=self.environment_name)
                     logger.debug("Deleted Modal volume: {}", vol_name)
                 except NotFoundError:
-                    logger.trace("Volume {} not found, already deleted", vol_name)
+                    pass
                 return
-        logger.trace("No Modal volume found matching volume_id {}", volume_id)
+        raise MngrError(f"Volume {volume_id} not found")
 
     # =========================================================================
     # Host Mutation Methods

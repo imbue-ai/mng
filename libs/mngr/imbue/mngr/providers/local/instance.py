@@ -43,6 +43,9 @@ from imbue.mngr.providers.local.volume import LocalVolume
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 VOLUMES_SUBDIR: Final[str] = "volumes"
+
+# Fixed namespace for deterministic VolumeId derivation from volume directory names.
+_LOCAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
 
@@ -330,8 +333,7 @@ class LocalProviderInstance(BaseProviderInstance):
         Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
         from any directory name.
         """
-        namespace = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
-        derived = uuid.uuid5(namespace, dir_name)
+        derived = uuid.uuid5(_LOCAL_VOLUME_ID_NAMESPACE, dir_name)
         return VolumeId(f"vol-{derived.hex}")
 
     def list_volumes(self) -> list[VolumeInfo]:
@@ -347,7 +349,7 @@ class LocalProviderInstance(BaseProviderInstance):
                 if subdir.name.startswith("host-"):
                     try:
                         host_id = HostId(subdir.name)
-                    except Exception:
+                    except ValueError:
                         pass
                 results.append(
                     VolumeInfo(
