@@ -75,8 +75,7 @@ def select_agent_interactively_with_host(
         return None
 
     # Find the actual agent and host from the selection
-    # Include destroyed hosts when we're willing to start them
-    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=start_host_if_needed)
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
     return find_and_maybe_start_agent_by_name_or_id(
         str(selected.id),
         agents_by_host,
@@ -140,8 +139,7 @@ def find_agent_for_command(
     Raises UserInputError if no agent specified and stdin is not a TTY.
     """
     if agent_identifier is not None:
-        # Include destroyed hosts when we're willing to start them
-        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=start_host_if_needed)
+        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
         if host_filter is not None:
             agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
         return find_and_maybe_start_agent_by_name_or_id(
