@@ -1060,3 +1060,95 @@ def test_list_command_with_provider_filter(
         assert result_empty.exit_code == 0
         assert agent_name not in result_empty.output
         assert "No agents found" in result_empty.output
+
+
+def test_list_command_format_template_no_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --format-template when no agents exist produces silent output."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--format-template", "{name}\t{state}"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    # Template mode should produce no output for empty results (scripting-friendly)
+    assert "No agents found" not in result.output
+
+
+def test_list_command_format_template_with_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --format-template shows template-expanded output."""
+    agent_name = f"test-list-template-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        # Create an agent
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 248391",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert create_result.exit_code == 0
+
+        # List with --format-template
+        result = cli_runner.invoke(
+            list_command,
+            ["--format-template", "{name}\t{state}"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert agent_name in result.output
+        # The output should contain a tab-separated line with agent name and state
+        assert f"{agent_name}\t" in result.output
+
+
+def test_list_command_format_template_mutually_exclusive_with_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --format-template and --format cannot be used together."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--format-template", "{name}", "--format", "json"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_list_command_format_template_invalid_syntax(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that an invalid format template produces a clear error."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--format-template", "{"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Invalid format template" in result.output
