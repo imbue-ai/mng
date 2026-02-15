@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import assert_never
 
 import click
@@ -293,7 +294,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     for offline in targets.offline_hosts:
         try:
             _output(f"Destroying offline host with {len(offline.agent_names)} agent(s)...", output_opts)
-            offline.provider.destroy_host(offline.host, delete_snapshots=True)
+            offline.provider.destroy_host(offline.host)
             destroyed_agents.extend(offline.agent_names)
             for name in offline.agent_names:
                 _output(f"Destroyed agent: {name} (via host destruction)", output_opts)
@@ -309,7 +310,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
 
 def _find_agents_to_destroy(
-    agent_identifiers: list[str],
+    agent_identifiers: Sequence[str],
     destroy_all: bool,
     mngr_ctx: MngrContext,
 ) -> _DestroyTargets:
@@ -444,7 +445,7 @@ def _output(message: str, output_opts: OutputOptions) -> None:
         logger.info(message)
 
 
-def _output_result(destroyed_agents: list[AgentName], output_opts: OutputOptions) -> None:
+def _output_result(destroyed_agents: Sequence[AgentName], output_opts: OutputOptions) -> None:
     """Output the final result."""
     result_data = {"destroyed_agents": [str(n) for n in destroyed_agents], "count": len(destroyed_agents)}
     match output_opts.output_format:

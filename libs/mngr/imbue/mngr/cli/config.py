@@ -218,10 +218,13 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 
       mngr config edit --scope user
     """
-    # FIXME: passing None means the user's pager config setting is not respected;
-    # config is not yet loaded at the group level (ctx.obj is the PluginManager).
     if ctx.invoked_subcommand is None:
-        show_help_with_pager(ctx, ctx.command, None)
+        mngr_ctx, _, _ = setup_command_context(
+            ctx=ctx,
+            command_name="config",
+            command_class=ConfigCliOptions,
+        )
+        show_help_with_pager(ctx, ctx.command, mngr_ctx.config)
 
 
 @config.command(name="list")

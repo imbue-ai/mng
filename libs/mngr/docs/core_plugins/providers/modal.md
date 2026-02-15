@@ -35,6 +35,8 @@ mngr create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `region` | Region to run the sandbox in (e.g., `us-east`, `us-west`, `eu-west`) | auto |
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
+| `cidr-allowlist` | Restrict network access to the specified CIDR range (can be specified multiple times) | None |
+| `offline` | Block all outbound network access from the sandbox | off |
 | `volume` | Mount a persistent Modal Volume (format: `name:/path`, can be specified multiple times) | None |
 
 ### Examples
@@ -48,6 +50,35 @@ mngr create my-agent --in modal -b cpu=4 -b memory=16
 
 # Create with custom image and longer timeout
 mngr create my-agent --in modal -b image=python:3.11-slim -b timeout=3600
+
+# Create with network restricted to specific CIDR ranges
+mngr create my-agent --in modal -b cidr-allowlist=203.0.113.0/24 -b cidr-allowlist=10.0.0.0/8
+
+# Create with no outbound network access
+mngr create my-agent --in modal -b offline
+```
+
+### Restricting Network Access
+
+The `--offline` and `--cidr-allowlist` build arguments restrict **outbound** network access from the sandbox. Inbound connections (including the SSH tunnel that mngr uses to communicate with the sandbox) are unaffected.
+
+Note: Modal's SDK also offers a `block_network` parameter that blocks all network access (both inbound and outbound), but it is incompatible with the SSH tunneling that mngr requires. If Modal adds support for combining `block_network` with port tunneling in the future, we can expose that as a stronger isolation option.
+
+When using `--offline` or `--cidr-allowlist`, the sandbox cannot install packages at runtime (e.g., via `apt-get`), so you must provide a pre-configured image that includes all required packages.
+
+At minimum, the image must include `openssh-server`, `tmux`, `curl`, `rsync`, `git`, and `jq`. For example:
+
+```dockerfile
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssh-server tmux curl rsync git jq \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+Then use it with:
+
+```bash
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b offline
 ```
 
 ### Using Secrets During Image Build
@@ -59,7 +90,7 @@ The `secret` build argument allows passing environment variables as secrets to t
 mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
 
 # Pass multiple secrets
-mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GITHUB_TOKEN
+mngr create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
 ```
 
 In your Dockerfile, access the secret using `--mount=type=secret`:
@@ -72,9 +103,9 @@ RUN --mount=type=secret,id=NPM_TOKEN \
     npm config set //registry.npmjs.org/:_authToken=$(cat /run/secrets/NPM_TOKEN) && \
     npm install -g @myorg/private-package
 
-# Install a private pip package using GITHUB_TOKEN
-RUN --mount=type=secret,id=GITHUB_TOKEN \
-    pip install git+https://$(cat /run/secrets/GITHUB_TOKEN)@github.com/myorg/private-repo.git
+# Install a private pip package using GH_TOKEN
+RUN --mount=type=secret,id=GH_TOKEN \
+    pip install git+https://$(cat /run/secrets/GH_TOKEN)@github.com/myorg/private-repo.git
 ```
 
 ### Mounting Persistent Volumes

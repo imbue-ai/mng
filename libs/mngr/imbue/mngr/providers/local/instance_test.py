@@ -8,6 +8,7 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
@@ -15,6 +16,8 @@ from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import make_local_provider
@@ -272,3 +275,81 @@ def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Pa
 
     tags = provider.get_host_tags(host)
     assert tags == {}
+
+
+# =============================================================================
+# Tests for get_max_destroyed_host_persisted_seconds (BaseProviderInstance)
+# =============================================================================
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_global_default(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """When no provider-level override exists, uses the global config default."""
+    result = local_provider.get_max_destroyed_host_persisted_seconds()
+    assert result == local_provider.mngr_ctx.config.default_destroyed_host_persisted_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_provider_override(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """When a provider-level override exists, uses that instead of the global default."""
+    provider_name = ProviderInstanceName("local")
+    provider_seconds = 86400.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            provider_name: ProviderInstanceConfig(
+                backend=ProviderBackendName("local"),
+                destroyed_host_persisted_seconds=provider_seconds,
+            ),
+        },
+    )
+    provider = make_local_provider(temp_host_dir, config, name=str(provider_name))
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == provider_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_custom_global_default(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """When the global default is customized and no provider override exists, uses the global default."""
+    custom_global_seconds = 172800.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        default_destroyed_host_persisted_seconds=custom_global_seconds,
+    )
+    provider = make_local_provider(temp_host_dir, config)
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == custom_global_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_provider_override_takes_precedence(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """Provider-level setting takes precedence over the global default."""
+    provider_name = ProviderInstanceName("local")
+    global_seconds = 604800.0
+    provider_seconds = 3600.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        default_destroyed_host_persisted_seconds=global_seconds,
+        providers={
+            provider_name: ProviderInstanceConfig(
+                backend=ProviderBackendName("local"),
+                destroyed_host_persisted_seconds=provider_seconds,
+            ),
+        },
+    )
+    provider = make_local_provider(temp_host_dir, config, name=str(provider_name))
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == provider_seconds

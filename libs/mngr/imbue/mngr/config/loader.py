@@ -177,6 +177,7 @@ def load_config(
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
+    config_dict["default_destroyed_host_persisted_seconds"] = config.default_destroyed_host_persisted_seconds
 
     # Allow plugins to modify config_dict before validation
     pm.hook.on_load_config(config_dict=config_dict)
@@ -502,6 +503,7 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     )
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
+    kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:
         raise ConfigParseError(f"Unknown configuration fields: {list(raw.keys())}")

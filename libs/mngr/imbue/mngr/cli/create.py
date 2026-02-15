@@ -2,7 +2,6 @@ import os
 import shlex
 import sys
 from collections.abc import Callable
-from functools import lru_cache
 from pathlib import Path
 from typing import assert_never
 from typing import cast
@@ -15,6 +14,8 @@ from pydantic import Field
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -89,6 +90,20 @@ from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
+
+
+class _CachedAgentHostLoader(MutableModel):
+    """Lazy loader that caches agents grouped by host on first access."""
+
+    mngr_ctx: MngrContext = Field(frozen=True, description="Manager context for loading agents")
+    cached_result: dict[HostReference, list[AgentReference]] | None = Field(
+        default=None, description="Cached loading result"
+    )
+
+    def __call__(self) -> dict[HostReference, list[AgentReference]]:
+        if self.cached_result is None:
+            self.cached_result = load_all_agents_grouped_by_host(self.mngr_ctx)[0]
+        return self.cached_result
 
 
 @pure
@@ -211,6 +226,7 @@ class CreateCliOptions(CommonCliOptions):
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
     ready_timeout: float
+    yes: bool
 
 
 @click.command()
@@ -479,6 +495,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.group("Automation")
+@optgroup.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Auto-approve all prompts (e.g., skill installation) without asking",
+)
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
@@ -497,6 +521,12 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
+
+    # Apply --yes flag to auto-approve prompts (e.g., skill installation)
+    if opts.yes:
+        mngr_ctx = mngr_ctx.model_copy_update(
+            to_update(mngr_ctx.field_ref().is_auto_approve, True),
+        )
 
     result = _handle_create(mngr_ctx, output_opts, opts)
     if result is None:
@@ -576,10 +606,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
         initial_message = initial_message_content
 
     # Create a lazy loader for agents grouped by host (only loads if needed)
-    @lru_cache
-    def agent_and_host_loader() -> dict[HostReference, list[AgentReference]]:
-        """Lazily load all agents grouped by host, caching the result."""
-        return load_all_agents_grouped_by_host(mngr_ctx)[0]
+    agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
 
     # figure out where the source data is coming from
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
@@ -682,19 +709,18 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # create work_dir immediately (if necessary)
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
-    final_source_location: HostLocation
     is_work_dir_created: bool
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
-        final_source_location = HostLocation(
-            host=source_location.host,
-            path=work_dir_path,
+        # Record the actual work_dir path in agent_opts so the API uses it
+        # (the path may have been auto-generated, e.g. for worktrees)
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().target_path, work_dir_path),
         )
         is_work_dir_created = True
     else:
-        final_source_location = source_location
         if snapshot is None:
             is_work_dir_created = False
         else:
@@ -715,7 +741,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
         _create_agent_in_background(
-            final_source_location,
+            source_location,
             resolved_target_host,
             agent_opts,
             mngr_ctx,
@@ -728,7 +754,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # Wrap in try/finally to ensure editor cleanup on failure
     try:
         create_result = api_create(
-            source_location=final_source_location,
+            source_location=source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mngr_ctx=mngr_ctx,

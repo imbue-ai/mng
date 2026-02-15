@@ -57,3 +57,11 @@ class BaseProviderInstance(ProviderInstanceInterface):
         name: HostName,
     ) -> HostInterface:
         raise NotImplementedError()
+
+    def get_max_destroyed_host_persisted_seconds(self) -> float:
+        # Check for a provider-level override first
+        provider_config = self.mngr_ctx.config.providers.get(self.name)
+        if provider_config is not None and provider_config.destroyed_host_persisted_seconds is not None:
+            return provider_config.destroyed_host_persisted_seconds
+        # Fall back to the global default
+        return self.mngr_ctx.config.default_destroyed_host_persisted_seconds

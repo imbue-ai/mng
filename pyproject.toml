@@ -28,6 +28,11 @@ dev = [
     "mkdocs-click>=0.9.0",
 ]
 
+# Shared pytest settings (markers, filterwarnings, coverage report config)
+# are centralized in:
+#   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
+# The settings below remain here because they are read from pyproject.toml
+# before any hooks run: addopts, coverage.run, inline-snapshot, timeout_func_only.
 [tool.pytest.ini_options]
 # Only timeout the test function itself, not fixtures. This is required because
 # --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
@@ -42,41 +47,23 @@ testpaths = [
   "libs/*",
   "scripts",
 ]
-filterwarnings = [
-  # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
-  # after the connection's transport has already been cleaned up. This is a known issue in grpclib.
-  "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
-  # Suppress coverage warning about modules being imported before coverage starts measuring.
-  # This happens because pytest collects tests (importing modules) before coverage.py starts.
-  "ignore:Module imbue\\..* was previously imported, but not measured:coverage.exceptions.CoverageWarning",
-]
 addopts = [
   "-n 4",
   "--cov=imbue.mngr",
   "--cov=imbue.imbue_common",
   "--cov=imbue.mngr_opencode",
+  "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
-  # Coverage threshold lowered from 80% to 78% due to SSH-specific file transfer code
-  # in hosts/host.py that can only be tested via Modal acceptance tests (requires SSH).
-  # The acceptance tests cover these paths when run in CI.
   "--cov-fail-under=80",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",
-  # to hopefully see why a worker crashes, rather than just trying to re-run it
   "--max-worker-restart=0",
-  # skip acceptance and release tests by default (they require network access)
   "-m not acceptance and not release",
-  # make the output more expected for claude--these custom flags suppress the terminal output for coverage and slow tests
-  # then it just outputs the path where the output can be found
   "--slow-tests-to-file",
   "--coverage-to-file",
-]
-markers = [
-  "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
-  "release: marks tests as being required for release (but not for merging PRs)",
 ]
 
 [tool.ruff]
@@ -135,29 +122,13 @@ omit = [
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mngr/imbue/mngr/providers/modal/*",
+    # Changeling deploy modules run on Modal and require infrastructure to test
+    "apps/changelings/imbue/changelings/deploy/cron_runner.py",
+    "apps/changelings/imbue/changelings/deploy/remote_runner.py",
+    "apps/changelings/imbue/changelings/deploy/verification.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "case _ as unreachable:",
-    "assert_never(unreachable)",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-    "^\\s*\\.\\.\\.$",  # Matches lines containing only "..."
-]
-skip_empty = true
-precision = 2
-sort = "Cover"
-
-[tool.coverage.html]
-directory = "htmlcov"
 
 [tool.importlinter]
 root_package = "imbue"
@@ -184,4 +155,18 @@ ignore_imports = [
     "imbue.mngr.utils.logging_test -> imbue.mngr.config.data_types",
     "imbue.mngr.utils.testing -> imbue.mngr.providers.local.instance",
     "imbue.mngr.utils.testing -> imbue.mngr.config.data_types",
+]
+
+[[tool.importlinter.contracts]]
+name = "changelings layers contract"
+type = "layers"
+layers = [
+    "imbue.changelings.main",
+    "imbue.changelings.cli",
+    "imbue.changelings.deploy",
+    "imbue.changelings.config",
+    "imbue.changelings.mngr_commands",
+    "imbue.changelings.data_types",
+    "imbue.changelings.errors",
+    "imbue.changelings.primitives",
 ]

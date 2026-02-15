@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -241,13 +242,13 @@ class OfflineHost(BaseHost):
         """Return the human-readable name of this host from persisted data."""
         return HostName(self.certified_host_data.host_name)
 
-    def get_stop_time(self) -> datetime | None:
-        """Return the host last stop time as a datetime, or None if unknown."""
-        return None
+    def get_stop_time(self) -> datetime:
+        """Return the host last stop time based on when the host data was last updated."""
+        return self.certified_host_data.updated_at
 
-    def get_seconds_since_stopped(self) -> float | None:
-        """Return the number of seconds since this host was stopped (or None if it is running)."""
-        return None
+    def get_seconds_since_stopped(self) -> float:
+        """Return the number of seconds since this host was stopped, based on updated_at."""
+        return (datetime.now(timezone.utc) - self.certified_host_data.updated_at).total_seconds()
 
     # =========================================================================
     # Certified Data
@@ -259,4 +260,8 @@ class OfflineHost(BaseHost):
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
         assert self.on_updated_host_data is not None, "on_updated_host_data callback is not set"
-        self.on_updated_host_data(self.id, data)
+        # Always stamp updated_at with the current time when writing
+        stamped_data = data.model_copy_update(
+            to_update(data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
+        self.on_updated_host_data(self.id, stamped_data)

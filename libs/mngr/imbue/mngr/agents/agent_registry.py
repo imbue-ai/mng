@@ -9,6 +9,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins import claude_agent
+from imbue.mngr.agents.default_plugins import code_guardian_agent
 from imbue.mngr.agents.default_plugins import codex_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
@@ -33,6 +34,7 @@ def load_agents_from_plugins(pm) -> None:
 
     # Register built-in agent type classes (each has a hookimpl static method)
     pm.register(claude_agent)
+    pm.register(code_guardian_agent)
     pm.register(codex_agent)
 
     # Call the hook to get all agent type registrations

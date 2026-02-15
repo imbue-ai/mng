@@ -243,10 +243,29 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
     )
+    cidr_allowlist: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="CIDR ranges to restrict network access to",
+    )
+    offline: bool = False
     volumes: tuple[tuple[str, str], ...] = Field(
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
     )
+
+    @property
+    def effective_cidr_allowlist(self) -> list[str] | None:
+        """Compute the cidr_allowlist to pass to Modal.
+
+        Returns None (allow all) when neither --offline nor --cidr-allowlist is set.
+        Returns [] (block all) when --offline is set without explicit CIDRs.
+        Returns the explicit list when --cidr-allowlist is provided.
+        """
+        if self.cidr_allowlist:
+            return list(self.cidr_allowlist)
+        if self.offline:
+            return []
+        return None
 
 
 class HostRecord(FrozenModel):
@@ -420,6 +439,7 @@ class ModalProviderInstance(BaseProviderInstance):
         This allows the failed host to be visible in 'mngr list' so users can see
         what went wrong and debug build failures.
         """
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             host_id=str(host_id),
             host_name=str(host_name),
@@ -427,6 +447,8 @@ class ModalProviderInstance(BaseProviderInstance):
             snapshots=[],
             failure_reason=failure_reason,
             build_log=build_log,
+            created_at=now,
+            updated_at=now,
         )
 
         host_record = HostRecord(
@@ -461,11 +483,13 @@ class ModalProviderInstance(BaseProviderInstance):
         except (NotFoundError, FileNotFoundError):
             return None
 
-    def _delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record from the volume and clear caches."""
+    def _destroy_agents_on_host(self, host_id: HostId) -> None:
+        """Remove the agents for this host from the volume."""
         volume = self._get_volume()
 
-        # first delete all agent records for this host
+        # FIXME: this would actually probably be faster if we called "modal volume rm -r -e env_name volume_name /host_id"
+        #  because that would automatically be able to handle the recursion and parallelism
+        # delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
             entries = _volume_listdir(volume, host_dir)
@@ -478,6 +502,15 @@ class ModalProviderInstance(BaseProviderInstance):
                 _volume_remove_file(volume, agent_path)
             # then finally remove the empty host directory
             _volume_remove_file(volume, host_dir)
+        logger.trace("Deleted agent records from host volume dir: {}", host_dir)
+
+        # Clear cache entries for this host
+        self._host_by_id_cache.pop(host_id, None)
+        self._host_record_cache_by_id.pop(host_id, None)
+
+    def _delete_host_record(self, host_id: HostId) -> None:
+        """Delete a host record from the volume and clear caches."""
+        volume = self._get_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
@@ -527,21 +560,29 @@ class ModalProviderInstance(BaseProviderInstance):
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            for entry in _volume_listdir(volume, host_dir):
-                filename = entry.path
-                if filename.endswith(".json"):
-                    # Read the agent record
-                    agent_path = filename.lstrip("/")
-                    try:
-                        content = _volume_read_file(volume, agent_path).decode("utf-8")
-                        agent_data = json.loads(content)
-                        agent_records.append(agent_data)
-                    except (OSError, IOError, json.JSONDecodeError) as e:
-                        logger.trace("Skipped invalid agent record file {}: {}", agent_path, e)
-                        continue
-        except (OSError, IOError, modal.exception.Error) as e:
-            # Host directory might not exist yet (no agents persisted)
-            logger.trace("Failed to find agent records for host {}: {}", host_id, e)
+            entries = _volume_listdir(volume, host_dir)
+        except (NotFoundError, FileNotFoundError):
+            # Host directory doesn't exist yet (no agents persisted for this host)
+            return agent_records
+
+        for entry in entries:
+            filename = entry.path
+            if filename.endswith(".json"):
+                # Read the agent record
+                agent_path = filename.lstrip("/")
+                try:
+                    content = _volume_read_file(volume, agent_path)
+                except (NotFoundError, FileNotFoundError):
+                    # File was deleted between listdir and read (TOCTOU race on distributed volume)
+                    continue
+                try:
+                    agent_data = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    # Corrupted or partially written file. Log and skip it.
+                    logger.warning("Skipped invalid agent record file {}: {}", agent_path, e)
+                    continue
+                else:
+                    agent_records.append(agent_data)
 
         logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records
@@ -986,11 +1027,18 @@ log "=== Shutdown script completed ==="
         Both formats can be mixed. Unknown arguments raise an error.
         """
 
-        # Normalize arguments: convert "key=value" to "--key=value"
+        # Boolean flags that can be passed as bare words (e.g. -b offline)
+        boolean_flags = {"offline"}
+
+        # Normalize arguments: convert "key=value" to "--key=value" and
+        # bare boolean flag names like "offline" to "--offline"
         normalized_args: list[str] = []
         for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
-                # Simple key=value format, convert to --key=value
+                # Key-value format: gpu=h100 -> --gpu=h100
+                normalized_args.append(f"--{arg}")
+            elif not arg.startswith("-") and arg in boolean_flags:
+                # Bare boolean flag: offline -> --offline
                 normalized_args.append(f"--{arg}")
             else:
                 normalized_args.append(arg)
@@ -1010,6 +1058,8 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
+        parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
+        parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
 
         try:
@@ -1030,6 +1080,8 @@ log "=== Shutdown script completed ==="
             region=parsed.region,
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
+            cidr_allowlist=tuple(parsed.cidr_allowlist),
+            offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
         )
 
@@ -1341,6 +1393,7 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
+                    cidr_allowlist=config.effective_cidr_allowlist,
                     volumes=sandbox_volumes,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
@@ -1374,6 +1427,7 @@ log "=== Shutdown script completed ==="
         # Store full host metadata on the volume for persistence
         # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
@@ -1383,6 +1437,8 @@ log "=== Shutdown script completed ==="
             user_tags=dict(tags) if tags else {},
             snapshots=[],
             tmux_session_prefix=self.mngr_ctx.config.prefix,
+            created_at=now,
+            updated_at=now,
         )
 
         # Set up SSH and create host object using shared helper
@@ -1461,6 +1517,7 @@ log "=== Shutdown script completed ==="
         if host_record is not None:
             updated_certified_data = host_record.certified_host_data.model_copy_update(
                 to_update(host_record.certified_host_data.field_ref().stop_reason, HostState.STOPPED.value),
+                to_update(host_record.certified_host_data.field_ref().updated_at, datetime.now(timezone.utc)),
             )
             self._write_host_record(
                 host_record.model_copy_update(
@@ -1595,6 +1652,7 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
+                cidr_allowlist=config.effective_cidr_allowlist,
                 volumes=sandbox_volumes,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
@@ -1620,20 +1678,20 @@ log "=== Shutdown script completed ==="
         return restored_host
 
     @handle_modal_auth_error
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
-        """Destroy a Modal sandbox permanently.
-
-        If delete_snapshots is True, also deletes the host record from the volume.
-        """
-        host_id = host.id if isinstance(host, HostInterface) else host
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        """Destroy a Modal sandbox permanently."""
         self.stop_host(host)
+        host_id = host.id if isinstance(host, HostInterface) else host
+        self._destroy_agents_on_host(host_id)
+        # FIXME: we should also delete the snapshots here (from the host record)
+        # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
 
-        if delete_snapshots:
-            self._delete_host_record(host_id)
+    @handle_modal_auth_error
+    def delete_host(self, host: HostInterface) -> None:
+        # just make sure all agent records are gone
+        self._destroy_agents_on_host(host.id)
+        # then delete the main host record
+        self._delete_host_record(host.id)
 
     def on_connection_error(self, host_id: HostId) -> None:
         """Remove all caches if we notice a connection to the host fail"""
@@ -1670,7 +1728,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             if host_obj is None:
                 # No sandbox or couldn't connect - try host record (for stopped hosts)
@@ -1684,7 +1742,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:

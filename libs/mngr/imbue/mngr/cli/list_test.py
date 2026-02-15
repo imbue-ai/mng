@@ -165,10 +165,10 @@ def test_get_field_value_nested_field() -> None:
     assert result == "test-host"
 
 
-def test_get_field_value_with_alias() -> None:
-    """_get_field_value should resolve field aliases."""
+def test_get_field_value_provider_name() -> None:
+    """_get_field_value should extract host.provider_name."""
     agent = make_test_agent_info()
-    result = _get_field_value(agent, "provider")
+    result = _get_field_value(agent, "host.provider_name")
     assert result == "local"
 
 
@@ -510,10 +510,10 @@ def test_get_sortable_value_nested_field() -> None:
     assert result == "test-host"
 
 
-def test_get_sortable_value_alias() -> None:
-    """_get_sortable_value should resolve field aliases."""
+def test_get_sortable_value_provider_name() -> None:
+    """_get_sortable_value should extract host.provider_name."""
     agent = make_test_agent_info()
-    result = _get_sortable_value(agent, "provider")
+    result = _get_sortable_value(agent, "host.provider_name")
     assert result == "local"
 
 
@@ -558,18 +558,18 @@ def test_sort_agents_by_name_descending() -> None:
 
 def test_format_streaming_header_row_uses_uppercase_fields() -> None:
     """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
-    fields = ["name", "host", "state"]
+    fields = ["name", "host.name", "state"]
     widths = _compute_column_widths(fields, 120)
     result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
-    assert "HOST" in result
+    assert "HOST_NAME" in result
     assert "STATE" in result
 
 
 def test_format_streaming_agent_row_extracts_field_values() -> None:
     """_format_streaming_agent_row should extract and format agent field values."""
     agent = make_test_agent_info()
-    fields = ["name", "provider"]
+    fields = ["name", "host.provider_name"]
     widths = _compute_column_widths(fields, 120)
     result = _format_streaming_agent_row(agent, fields, widths)
     assert "test-agent" in result

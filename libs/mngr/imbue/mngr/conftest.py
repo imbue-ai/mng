@@ -324,6 +324,7 @@ def make_mngr_ctx(
     profile_dir: Path,
     *,
     is_interactive: bool = False,
+    is_auto_approve: bool = False,
     concurrency_group: ConcurrencyGroup,
 ) -> MngrContext:
     """Create a MngrContext with the given parameters.
@@ -336,6 +337,7 @@ def make_mngr_ctx(
         pm=pm,
         profile_dir=profile_dir,
         is_interactive=is_interactive,
+        is_auto_approve=is_auto_approve,
         concurrency_group=concurrency_group,
     )
 

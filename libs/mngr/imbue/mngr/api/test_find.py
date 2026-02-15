@@ -1,5 +1,7 @@
 """Integration tests for the find module (resolve_source_location and ensure_host_started)."""
 
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -30,7 +32,12 @@ def test_ensure_host_started_starts_offline_host(
         id=host_id,
         provider_instance=local_provider,
         mngr_ctx=temp_mngr_ctx,
-        certified_host_data=CertifiedHostData(host_id=str(host_id), host_name="local"),
+        certified_host_data=CertifiedHostData(
+            host_id=str(host_id),
+            host_name="local",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ),
     )
 
     online_host, was_started = ensure_host_started(offline_host, is_start_desired=True, provider=local_provider)
@@ -94,7 +101,12 @@ def test_ensure_host_started_raises_when_start_not_desired(
         id=host_id,
         provider_instance=local_provider,
         mngr_ctx=temp_mngr_ctx,
-        certified_host_data=CertifiedHostData(host_id=str(host_id), host_name="local"),
+        certified_host_data=CertifiedHostData(
+            host_id=str(host_id),
+            host_name="local",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ),
     )
 
     with pytest.raises(UserInputError):

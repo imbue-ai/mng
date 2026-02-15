@@ -180,6 +180,12 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |
 
+## Automation
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-y`, `--yes` | boolean | Auto-approve all prompts (e.g., skill installation) without asking | `False` |
+
 ## Common
 
 | Name | Type | Description | Default |

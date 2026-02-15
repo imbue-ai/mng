@@ -579,6 +579,87 @@ def test_target_path_same_as_source_sets_is_generated_work_dir_false(
 
 
 # =============================================================================
+# create_work_dir=False Tests
+# =============================================================================
+
+
+def test_create_work_dir_false_uses_target_path(
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    tmp_path: Path,
+) -> None:
+    """Test that when create_work_dir=False, the agent's work_dir is set to target_path, not source_path."""
+    agent_name = AgentName(f"test-no-create-{int(time.time())}")
+    session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
+    target_dir = tmp_path / "target_work_dir"
+    target_dir.mkdir(parents=True)
+
+    with tmux_session_cleanup(session_name):
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+
+        agent_options = CreateAgentOptions(
+            agent_type=AgentTypeName("no-create-test"),
+            name=agent_name,
+            command=CommandString("sleep 60"),
+            target_path=target_dir,
+        )
+
+        result = create(
+            source_location=source_location,
+            target_host=local_host,
+            agent_options=agent_options,
+            mngr_ctx=temp_mngr_ctx,
+            create_work_dir=False,
+        )
+
+        agents_dir = temp_host_dir / "agents"
+        agent_dir = agents_dir / str(result.agent.id)
+        data_file = agent_dir / "data.json"
+        assert data_file.exists(), "agent data.json should exist"
+
+        data = json.loads(data_file.read_text())
+        assert data["work_dir"] == str(target_dir), (
+            f"work_dir should be target_dir ({target_dir}), not source_path ({temp_work_dir})"
+        )
+
+
+def test_create_work_dir_false_without_target_path_uses_source(
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+) -> None:
+    """Test that when create_work_dir=False and target_path is None, the source path is used."""
+    agent_name = AgentName(f"test-no-create-src-{int(time.time())}")
+    session_name = f"{temp_mngr_ctx.config.prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        local_host, source_location = _get_local_host_and_location(temp_mngr_ctx, temp_work_dir)
+
+        agent_options = CreateAgentOptions(
+            agent_type=AgentTypeName("no-create-src-test"),
+            name=agent_name,
+            command=CommandString("sleep 60"),
+        )
+
+        result = create(
+            source_location=source_location,
+            target_host=local_host,
+            agent_options=agent_options,
+            mngr_ctx=temp_mngr_ctx,
+            create_work_dir=False,
+        )
+
+        agents_dir = temp_host_dir / "agents"
+        agent_dir = agents_dir / str(result.agent.id)
+        data_file = agent_dir / "data.json"
+        assert data_file.exists(), "agent data.json should exist"
+
+        data = json.loads(data_file.read_text())
+        assert data["work_dir"] == str(temp_work_dir), "work_dir should be the source path when target_path is None"
+
+
+# =============================================================================
 # on_before_create Hook Tests
 # =============================================================================
 

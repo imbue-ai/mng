@@ -4,6 +4,8 @@ Note: Unit tests for gc API functions (CEL filters, resource conversion) are in 
 """
 
 import json
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 
 import pluggy
@@ -22,13 +24,16 @@ def test_gc_work_dirs_dry_run(
     orphaned_dir = temp_host_dir / "worktrees" / "orphaned-agent-123"
     orphaned_dir.mkdir(parents=True)
 
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id="test-host-id",
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
+        created_at=now,
+        updated_at=now,
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -55,13 +60,16 @@ def test_gc_work_dirs_removes_orphaned_directory(
     test_file = orphaned_dir / "test.txt"
     test_file.write_text("test content")
 
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id="test-host-id",
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
+        created_at=now,
+        updated_at=now,
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -91,13 +99,16 @@ def test_gc_work_dirs_with_cel_filter(
     orphaned_dir2 = temp_host_dir / "worktrees" / "prod-agent-456"
     orphaned_dir2.mkdir(parents=True)
 
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id="test-host-id",
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir1), str(orphaned_dir2)),
+        created_at=now,
+        updated_at=now,
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -126,13 +137,16 @@ def test_gc_work_dirs_with_provider_name_filter(
     orphaned_dir = temp_host_dir / "worktrees" / "orphaned-provider-test"
     orphaned_dir.mkdir(parents=True, exist_ok=True)
 
+    now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
         host_id="test-host-id",
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
+        created_at=now,
+        updated_at=now,
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     # Filter by provider_name - should match local provider
     result = cli_runner.invoke(
