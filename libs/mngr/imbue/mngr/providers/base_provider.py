@@ -57,3 +57,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
         name: HostName,
     ) -> HostInterface:
         raise NotImplementedError()
+
+    # FIXME: make this configurable at the provider level, eg, give them all settings for this
+    def get_max_destroyed_host_persisted_seconds(self) -> float:
+        # currently default: 7 days, can be overridden by providers that persist destroyed hosts longer
+        return 60.0 * 60.0 * 24.0 * 7.0

@@ -5,6 +5,7 @@ from typing import Sequence
 from pydantic import Field
 from pyinfra.api import Host as PyinfraHost
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -31,6 +32,8 @@ class MockProviderInstance(BaseProviderInstance):
     mock_snapshots: list[SnapshotInfo] = Field(default_factory=list)
     mock_tags: dict[str, str] = Field(default_factory=dict)
     mock_agent_data: list[dict[str, Any]] = Field(default_factory=list)
+    mock_hosts: list[HostInterface] = Field(default_factory=list)
+    deleted_hosts: list[HostId] = Field(default_factory=list)
 
     @property
     def supports_snapshots(self) -> bool:
@@ -60,28 +63,38 @@ class MockProviderInstance(BaseProviderInstance):
     def stop_host(
         self, host: HostInterface | HostId, create_snapshot: bool = True, timeout_seconds: float = 60.0
     ) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
-    def destroy_host(self, host: HostInterface | HostId, delete_snapshots: bool = True) -> None:
-        raise NotImplementedError
+    def list_hosts(
+        self,
+        cg: ConcurrencyGroup,
+        include_destroyed: bool = False,
+    ) -> list[HostInterface]:
+        return list(self.mock_hosts)
+
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        raise NotImplementedError()
+
+    def delete_host(self, host: HostInterface) -> None:
+        self.deleted_hosts.append(host.id)
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def create_snapshot(self, host: HostInterface | HostId, name: SnapshotName | None = None) -> SnapshotId:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def delete_snapshot(self, host: HostInterface | HostId, snapshot_id: SnapshotId) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def list_volumes(self) -> list[VolumeInfo]:
         return []
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def set_host_tags(self, host: HostInterface | HostId, tags: Mapping[str, str]) -> None:
         self.mock_tags = dict(tags)
@@ -94,7 +107,7 @@ class MockProviderInstance(BaseProviderInstance):
             self.mock_tags.pop(k, None)
 
     def get_connector(self, host: HostInterface | HostId) -> PyinfraHost:
-        raise NotImplementedError
+        raise NotImplementedError()
 
 
 def make_offline_host(
