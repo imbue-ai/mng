@@ -20,7 +20,7 @@ class LocalVolume(BaseVolume):
     def _resolve(self, path: str) -> Path:
         """Resolve a volume path to a local filesystem path.
 
-        Raises ValueError if the resolved path escapes the root directory
+        Raises MngrError if the resolved path escapes the root directory
         (e.g., via '..' components).
         """
         resolved = (self.root_path / path.lstrip("/")).resolve()

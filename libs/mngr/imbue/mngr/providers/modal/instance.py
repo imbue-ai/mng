@@ -14,6 +14,7 @@ import os
 import socket
 import tempfile
 import time
+import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from datetime import datetime
@@ -2112,6 +2113,17 @@ log "=== Shutdown script completed ==="
     # Volume Methods
     # =========================================================================
 
+    @staticmethod
+    def _volume_id_for_name(modal_volume_name: str) -> VolumeId:
+        """Derive a deterministic VolumeId from a Modal volume name.
+
+        Uses uuid5 with a fixed namespace to produce a valid VolumeId
+        (vol-<32hex>) from any Modal volume name string.
+        """
+        namespace = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
+        derived = uuid.uuid5(namespace, modal_volume_name)
+        return VolumeId(f"vol-{derived.hex}")
+
     @handle_modal_auth_error
     def list_volumes(self) -> list[VolumeInfo]:
         """List all mngr-managed host volumes on Modal.
@@ -2123,24 +2135,38 @@ log "=== Shutdown script completed ==="
             vol_name = modal_vol.name
             if vol_name is not None and vol_name.startswith(HOST_VOLUME_NAME_PREFIX):
                 host_id_str = vol_name[len(HOST_VOLUME_NAME_PREFIX) :]
+                host_id = None
+                try:
+                    host_id = HostId(host_id_str) if host_id_str.startswith("host-") else None
+                except Exception:
+                    pass
                 results.append(
                     VolumeInfo(
-                        volume_id=VolumeId(vol_name),
+                        volume_id=self._volume_id_for_name(vol_name),
                         name=vol_name,
                         size_bytes=0,
-                        host_id=HostId(host_id_str) if host_id_str.startswith("host-") else None,
+                        host_id=host_id,
                     )
                 )
         return results
 
     @handle_modal_auth_error
     def delete_volume(self, volume_id: VolumeId) -> None:
-        """Delete a Modal host volume by its name."""
-        try:
-            modal.Volume.objects.delete(str(volume_id), environment_name=self.environment_name)
-            logger.debug("Deleted Modal volume: {}", volume_id)
-        except NotFoundError:
-            logger.trace("Volume {} not found, already deleted", volume_id)
+        """Delete a Modal host volume.
+
+        Finds the Modal volume whose derived VolumeId matches, then deletes
+        it by its Modal name.
+        """
+        for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
+            vol_name = modal_vol.name
+            if vol_name is not None and self._volume_id_for_name(vol_name) == volume_id:
+                try:
+                    modal.Volume.objects.delete(vol_name, environment_name=self.environment_name)
+                    logger.debug("Deleted Modal volume: {}", vol_name)
+                except NotFoundError:
+                    logger.trace("Volume {} not found, already deleted", vol_name)
+                return
+        logger.trace("No Modal volume found matching volume_id {}", volume_id)
 
     # =========================================================================
     # Host Mutation Methods

@@ -343,7 +343,12 @@ class LocalProviderInstance(BaseProviderInstance):
         for subdir in sorted(volumes_dir.iterdir()):
             if subdir.is_dir():
                 stat = subdir.stat()
-                host_id = HostId(subdir.name) if subdir.name.startswith("host-") else None
+                host_id = None
+                if subdir.name.startswith("host-"):
+                    try:
+                        host_id = HostId(subdir.name)
+                    except Exception:
+                        pass
                 results.append(
                     VolumeInfo(
                         volume_id=self._volume_id_for_dir(subdir.name),

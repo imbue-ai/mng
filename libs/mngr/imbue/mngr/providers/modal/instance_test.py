@@ -261,6 +261,31 @@ def test_get_host_volume_name(modal_provider: ModalProviderInstance) -> None:
     assert name.startswith("mngr-host-host-")
 
 
+def test_volume_id_for_name_produces_valid_volume_id(modal_provider: ModalProviderInstance) -> None:
+    """_volume_id_for_name should produce a valid VolumeId from a Modal volume name."""
+    vol_name = "mngr-host-host-abc123def456789012345678abcdef01"
+    vol_id = modal_provider._volume_id_for_name(vol_name)
+    assert str(vol_id).startswith("vol-")
+    assert len(str(vol_id)) == 36
+
+
+def test_volume_id_for_name_is_deterministic(modal_provider: ModalProviderInstance) -> None:
+    """Same volume name should always produce the same VolumeId."""
+    vol_name = "mngr-host-host-abc123"
+    id1 = modal_provider._volume_id_for_name(vol_name)
+    id2 = modal_provider._volume_id_for_name(vol_name)
+    assert id1 == id2
+
+
+def test_volume_id_for_name_different_names_produce_different_ids(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """Different volume names should produce different VolumeIds."""
+    id1 = modal_provider._volume_id_for_name("mngr-host-host-aaa")
+    id2 = modal_provider._volume_id_for_name("mngr-host-host-bbb")
+    assert id1 != id2
+
+
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_handle_modal_auth_error_decorator_converts_auth_error_to_modal_auth_error(
     expired_credentials_modal_provider: ExpiredCredentialsModalProviderInstance,

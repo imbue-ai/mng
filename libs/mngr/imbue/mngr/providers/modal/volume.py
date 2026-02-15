@@ -51,9 +51,11 @@ def _modal_volume_write_files(volume: modal.Volume, file_contents_by_path: Mappi
 
 def _modal_file_type_to_volume_file_type(modal_type: FileEntryType) -> VolumeFileType:
     """Convert a Modal FileEntryType to our VolumeFileType."""
-    if modal_type == FileEntryType.DIRECTORY:
-        return VolumeFileType.DIRECTORY
-    return VolumeFileType.FILE
+    match modal_type:
+        case FileEntryType.DIRECTORY:
+            return VolumeFileType.DIRECTORY
+        case _:
+            return VolumeFileType.FILE
 
 
 def _file_entry_to_volume_file(entry: FileEntry) -> VolumeFile:
