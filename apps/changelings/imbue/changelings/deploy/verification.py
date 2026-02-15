@@ -42,7 +42,7 @@ def _destroy_agent(agent_name: str) -> None:
         result = cg.run_process_to_completion(
             ["uv", "run", "mngr", "destroy", "--force", agent_name],
             is_checked_after=False,
-            timeout=60.0,
+            timeout=300.0,
         )
     if result.returncode != 0:
         logger.warning("mngr destroy failed (exit {}): {}", result.returncode, result.stderr)
