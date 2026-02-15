@@ -19,6 +19,7 @@ from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
+from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.local.volume import LocalVolume
 from imbue.mngr.utils.testing import make_local_provider
@@ -287,6 +288,45 @@ def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance
     volume2 = local_provider.get_volume_for_host(host)
     assert volume2 is not None
     assert volume2.read_file("test.txt") == b"hello"
+
+
+def test_list_volumes_returns_volumes_after_creation(local_provider: LocalProviderInstance) -> None:
+    """list_volumes returns VolumeInfo for each volume directory."""
+    host = local_provider.create_host(HostName("test"))
+    # Creating a volume for the host creates the directory
+    local_provider.get_volume_for_host(host)
+    volumes = local_provider.list_volumes()
+    assert len(volumes) >= 1
+    host_id_str = str(host.id)
+    volume_names = [v.name for v in volumes]
+    assert host_id_str in volume_names
+
+
+def test_delete_volume_removes_directory(local_provider: LocalProviderInstance) -> None:
+    """delete_volume removes the volume directory."""
+    host = local_provider.create_host(HostName("test"))
+    volume = local_provider.get_volume_for_host(host)
+    assert volume is not None
+    volume.write_files({"test.txt": b"data"})
+
+    # Verify volume directory exists
+    volumes_before = local_provider.list_volumes()
+    assert len(volumes_before) >= 1
+
+    # Delete using the volume_id from list_volumes
+    target_volume = [v for v in volumes_before if v.name == str(host.id)][0]
+    local_provider.delete_volume(target_volume.volume_id)
+
+    # Verify it's gone
+    volumes_after = local_provider.list_volumes()
+    remaining_names = [v.name for v in volumes_after]
+    assert str(host.id) not in remaining_names
+
+
+def test_delete_volume_raises_when_not_found(local_provider: LocalProviderInstance) -> None:
+    """delete_volume raises FileNotFoundError for nonexistent volume."""
+    with pytest.raises(FileNotFoundError):
+        local_provider.delete_volume(VolumeId.generate())
 
 
 def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Path, temp_config: MngrConfig) -> None:

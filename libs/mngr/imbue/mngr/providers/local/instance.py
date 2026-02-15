@@ -1,5 +1,6 @@
 import json
 import shutil
+import uuid
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -321,6 +322,17 @@ class LocalProviderInstance(BaseProviderInstance):
     # Volume Methods
     # =========================================================================
 
+    @staticmethod
+    def _volume_id_for_dir(dir_name: str) -> VolumeId:
+        """Create a deterministic VolumeId from a volume directory name.
+
+        Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
+        from any directory name.
+        """
+        namespace = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
+        derived = uuid.uuid5(namespace, dir_name)
+        return VolumeId(f"vol-{derived.hex}")
+
     def list_volumes(self) -> list[VolumeInfo]:
         """List all local volumes (subdirectories of ~/.mngr/volumes/)."""
         volumes_dir = self._volumes_dir
@@ -330,13 +342,14 @@ class LocalProviderInstance(BaseProviderInstance):
         for subdir in sorted(volumes_dir.iterdir()):
             if subdir.is_dir():
                 stat = subdir.stat()
+                host_id = HostId(subdir.name) if subdir.name.startswith("host-") else None
                 results.append(
                     VolumeInfo(
-                        volume_id=VolumeId(subdir.name),
+                        volume_id=self._volume_id_for_dir(subdir.name),
                         name=subdir.name,
                         size_bytes=0,
                         created_at=datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc),
-                        host_id=HostId(subdir.name) if subdir.name.startswith("host-") else None,
+                        host_id=host_id,
                     )
                 )
         return results
@@ -344,9 +357,10 @@ class LocalProviderInstance(BaseProviderInstance):
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a local volume directory."""
         volumes_dir = self._volumes_dir
-        # Volume directories are named by host_id
+        if not volumes_dir.is_dir():
+            raise FileNotFoundError(f"Volume {volume_id} not found (no volumes directory)")
         for subdir in volumes_dir.iterdir():
-            if subdir.is_dir() and subdir.name == str(volume_id):
+            if subdir.is_dir() and self._volume_id_for_dir(subdir.name) == volume_id:
                 shutil.rmtree(subdir)
                 logger.debug("Deleted local volume: {}", subdir)
                 return

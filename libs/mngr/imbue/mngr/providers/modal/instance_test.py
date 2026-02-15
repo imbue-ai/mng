@@ -253,12 +253,6 @@ def test_modal_provider_supports_mutable_tags(modal_provider: ModalProviderInsta
     assert modal_provider.supports_mutable_tags is True
 
 
-def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) -> None:
-    """Modal provider should return empty list for volumes."""
-    volumes = modal_provider.list_volumes()
-    assert volumes == []
-
-
 def test_get_host_volume_name(modal_provider: ModalProviderInstance) -> None:
     """Host volume name should be derived deterministically from host_id."""
     host_id = HostId.generate()

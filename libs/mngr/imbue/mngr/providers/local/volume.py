@@ -25,14 +25,15 @@ class LocalVolume(BaseVolume):
             return []
         entries: list[VolumeFile] = []
         for child in sorted(resolved.iterdir()):
-            stat = child.stat()
-            entries.append(
-                VolumeFile(
-                    path=str(child.relative_to(self.root_path)),
-                    mtime=int(stat.st_mtime),
-                    size=stat.st_size,
+            if child.is_file():
+                stat = child.stat()
+                entries.append(
+                    VolumeFile(
+                        path=str(child.relative_to(self.root_path)),
+                        mtime=int(stat.st_mtime),
+                        size=stat.st_size,
+                    )
                 )
-            )
         return entries
 
     def read_file(self, path: str) -> bytes:

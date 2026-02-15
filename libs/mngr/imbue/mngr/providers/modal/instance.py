@@ -2107,14 +2107,40 @@ log "=== Shutdown script completed ==="
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
     # =========================================================================
-    # Volume Methods (not supported)
+    # Volume Methods
     # =========================================================================
 
+    @handle_modal_auth_error
     def list_volumes(self) -> list[VolumeInfo]:
-        return []
+        """List all mngr-managed host volumes on Modal.
 
+        Returns volumes whose names start with the host volume prefix.
+        """
+        now = datetime.now(timezone.utc)
+        results: list[VolumeInfo] = []
+        for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
+            vol_name = modal_vol.name
+            if vol_name is not None and vol_name.startswith(HOST_VOLUME_NAME_PREFIX):
+                host_id_str = vol_name[len(HOST_VOLUME_NAME_PREFIX) :]
+                results.append(
+                    VolumeInfo(
+                        volume_id=VolumeId(vol_name),
+                        name=vol_name,
+                        size_bytes=0,
+                        created_at=now,
+                        host_id=HostId(host_id_str) if host_id_str.startswith("host-") else None,
+                    )
+                )
+        return results
+
+    @handle_modal_auth_error
     def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError("Modal provider does not support volumes")
+        """Delete a Modal host volume by its name."""
+        try:
+            modal.Volume.objects.delete(str(volume_id), environment_name=self.environment_name)
+            logger.debug("Deleted Modal volume: {}", volume_id)
+        except NotFoundError:
+            logger.trace("Volume {} not found, already deleted", volume_id)
 
     # =========================================================================
     # Host Mutation Methods
