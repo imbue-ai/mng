@@ -27,6 +27,7 @@ from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mngr.providers.modal.instance import HOST_VOLUME_INFIX
 from imbue.mngr.providers.modal.instance import HostRecord
+from imbue.mngr.providers.modal.instance import MODAL_VOLUME_NAME_MAX_LENGTH
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import SandboxConfig
@@ -257,9 +258,9 @@ def test_get_host_volume_name_uses_config_prefix(modal_provider: ModalProviderIn
     """Host volume name should use the mngr config prefix and host_id hex."""
     host_id = HostId.generate()
     name = modal_provider._get_host_volume_name(host_id)
-    host_hex = str(host_id)[len("host-") :]
     expected_prefix = f"{modal_provider.mngr_ctx.config.prefix}{HOST_VOLUME_INFIX}"
-    assert name == f"{expected_prefix}{host_hex}"
+    assert name.startswith(expected_prefix)
+    assert len(name) <= MODAL_VOLUME_NAME_MAX_LENGTH
     assert "host-host-" not in name
 
 

@@ -115,6 +115,9 @@ HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
 # The full volume name is {config.prefix}vol-{host_id_hex} (e.g., "mngr-vol-abc123def...").
 HOST_VOLUME_INFIX: Final[str] = "vol-"
 
+# Maximum length for Modal volume names.
+MODAL_VOLUME_NAME_MAX_LENGTH: Final[int] = 64
+
 # Fixed namespace for deterministic VolumeId derivation from Modal volume names.
 _MODAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
 
@@ -388,10 +391,11 @@ class ModalProviderInstance(BaseProviderInstance):
         """Derive the Modal volume name for a host's persistent volume.
 
         Uses the mngr config prefix and the HostId hex part to produce a name
-        like "mngr-vol-abc123def..." (no redundant "host-host-" stuttering).
+        like "mngr-vol-abc123def...". Truncates to fit Modal's 64-char limit.
         """
         host_hex = str(host_id)[len("host-") :]
-        return f"{self._host_volume_prefix}{host_hex}"
+        name = f"{self._host_volume_prefix}{host_hex}"
+        return name[:MODAL_VOLUME_NAME_MAX_LENGTH]
 
     def _build_host_volume(self, host_id: HostId) -> modal.Volume:
         """Get or create the persistent host volume for a sandbox."""
