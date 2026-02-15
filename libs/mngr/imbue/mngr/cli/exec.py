@@ -35,6 +35,8 @@ class ExecCliOptions(CommonCliOptions):
 
 
 @click.command(name="exec")
+# FIXME: like our other commands (destroy, message, etc), we should be able to specify multiple agents that we want to run the command against
+#  note that this will require similar "what should happen on error" logic (eg, abort on first failure, continue, or retry until success/timeout)
 @click.argument("agent")
 @click.argument("command_arg", metavar="COMMAND")
 @optgroup.group("Execution")
