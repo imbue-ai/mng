@@ -420,6 +420,7 @@ class ModalProviderInstance(BaseProviderInstance):
         This allows the failed host to be visible in 'mngr list' so users can see
         what went wrong and debug build failures.
         """
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             host_id=str(host_id),
             host_name=str(host_name),
@@ -427,6 +428,8 @@ class ModalProviderInstance(BaseProviderInstance):
             snapshots=[],
             failure_reason=failure_reason,
             build_log=build_log,
+            created_at=now,
+            updated_at=now,
         )
 
         host_record = HostRecord(
@@ -1382,6 +1385,7 @@ log "=== Shutdown script completed ==="
         # Store full host metadata on the volume for persistence
         # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
@@ -1391,6 +1395,8 @@ log "=== Shutdown script completed ==="
             user_tags=dict(tags) if tags else {},
             snapshots=[],
             tmux_session_prefix=self.mngr_ctx.config.prefix,
+            created_at=now,
+            updated_at=now,
         )
 
         # Set up SSH and create host object using shared helper
@@ -1469,6 +1475,7 @@ log "=== Shutdown script completed ==="
         if host_record is not None:
             updated_certified_data = host_record.certified_host_data.model_copy_update(
                 to_update(host_record.certified_host_data.field_ref().stop_reason, HostState.STOPPED.value),
+                to_update(host_record.certified_host_data.field_ref().updated_at, datetime.now(timezone.utc)),
             )
             self._write_host_record(
                 host_record.model_copy_update(

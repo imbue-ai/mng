@@ -28,7 +28,7 @@ def test_gc_work_dirs_dry_run(
         generated_work_dirs=(str(orphaned_dir),),
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -61,7 +61,7 @@ def test_gc_work_dirs_removes_orphaned_directory(
         generated_work_dirs=(str(orphaned_dir),),
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -97,7 +97,7 @@ def test_gc_work_dirs_with_cel_filter(
         generated_work_dirs=(str(orphaned_dir1), str(orphaned_dir2)),
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
         gc,
@@ -132,7 +132,7 @@ def test_gc_work_dirs_with_provider_name_filter(
         generated_work_dirs=(str(orphaned_dir),),
     )
     data_path = temp_host_dir / "data.json"
-    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True), indent=2))
+    data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     # Filter by provider_name - should match local provider
     result = cli_runner.invoke(

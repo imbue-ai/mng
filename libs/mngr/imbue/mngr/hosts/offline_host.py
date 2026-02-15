@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -259,4 +260,8 @@ class OfflineHost(BaseHost):
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
         assert self.on_updated_host_data is not None, "on_updated_host_data callback is not set"
-        self.on_updated_host_data(self.id, data)
+        # Always stamp updated_at with the current time when writing
+        stamped_data = data.model_copy_update(
+            to_update(data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
+        self.on_updated_host_data(self.id, stamped_data)

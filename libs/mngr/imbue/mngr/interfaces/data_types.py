@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
 from functools import cached_property
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -256,10 +258,23 @@ class CertifiedHostData(FrozenModel):
         description="Activity sources that count toward keeping host active",
     )
 
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc) - timedelta(weeks=1),
+        description="When this host data was first created (always UTC)",
+    )
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc) - timedelta(days=1),
+        description="When this host data was last updated (always UTC)",
+    )
+
     @model_validator(mode="before")
     @classmethod
-    def _strip_deprecated_idle_mode(cls, data: Any) -> Any:
-        """Strip idle_mode from input for backward compatibility with old data.json files."""
+    def _handle_backwards_compatibility(cls, data: Any) -> Any:
+        """Handle backward compatibility with old data.json files.
+
+        Strips deprecated idle_mode field and provides defaults for
+        created_at/updated_at when missing from old data.
+        """
         if isinstance(data, dict):
             data.pop("idle_mode", None)
         return data
