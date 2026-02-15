@@ -1719,6 +1719,7 @@ dependencies = [
     { name = "pyinfra" },
     { name = "python-dotenv" },
     { name = "tabulate" },
+    { name = "tenacity" },
     { name = "tomlkit" },
     { name = "urwid" },
 ]
@@ -1740,6 +1741,7 @@ requires-dist = [
     { name = "pyinfra", specifier = ">=3.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "tabulate", specifier = ">=0.9.0" },
+    { name = "tenacity", specifier = ">=8.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
     { name = "urwid", specifier = ">=2.2.0" },
 ]
