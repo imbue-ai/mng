@@ -653,7 +653,7 @@ Public function, class, and variable names should be globally unique (within the
 
 Avoid abbreviations (except for the very most common like "max" or "len")
 
-Always prefix booleans with `is_` (unless they are part of eg a user-facing CLI, or attributes of an object that directly correspond to those args)
+Always prefix *internal boolean variables* with `is_`. Variables that are part of 3rd-party libraries, or which are user-facing configuration (eg, settings or CLI args) do *not* need to follow that convention, but all *internal* variables should (eg, when we convert from the settings to our internal representation, we should convert the names)
 
 ```python
 class TodoFilter(FrozenModel):
