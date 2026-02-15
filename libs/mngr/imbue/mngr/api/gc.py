@@ -568,9 +568,7 @@ def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_pat
         to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
     )
 
-    data_json = updated_data.model_dump_json(by_alias=True, indent=2)
-    data_path = host.host_dir / "data.json"
-    host.write_text_file(data_path, data_json)
+    host.set_certified_data(updated_data)
 
 
 def _remove_directory(host: OnlineHostInterface, path: Path) -> None:

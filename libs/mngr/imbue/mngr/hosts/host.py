@@ -618,20 +618,27 @@ class Host(BaseHost, OnlineHostInterface):
             data = json.loads(content)
             return CertifiedHostData(**data)
         except FileNotFoundError:
+            now = datetime.now(timezone.utc)
             return CertifiedHostData(
                 host_id=str(self.id),
                 host_name=str(self.get_name()),
+                created_at=now,
+                updated_at=now,
             )
         except ValidationError as e:
             raise HostDataSchemaError(str(data_path), str(e)) from e
 
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
+        # Always stamp updated_at with the current time when writing
+        stamped_data = data.model_copy_update(
+            to_update(data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
         data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(data.model_dump(by_alias=True), indent=2))
+        self.write_text_file(data_path, json.dumps(stamped_data.model_dump(by_alias=True, mode="json"), indent=2))
         # Notify the provider so it can update any external storage (e.g., Modal volume)
         if self.on_updated_host_data:
-            self.on_updated_host_data(self.id, data)
+            self.on_updated_host_data(self.id, stamped_data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
