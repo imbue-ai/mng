@@ -11,6 +11,8 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
+from imbue.mngr.providers.modal.volume import ModalVolume
+from imbue.mngr.utils.polling import wait_for
 
 # Placeholder for the agent parameter in on_agent_created calls.
 # The method doesn't use the agent, but the type signature requires AgentInterface.
@@ -723,7 +725,11 @@ def test_host_volume_is_symlinked_and_persists_data(real_modal_provider: ModalPr
 @pytest.mark.release
 @pytest.mark.timeout(300)
 def test_host_volume_data_readable_via_volume_interface(real_modal_provider: ModalProviderInstance) -> None:
-    """Data written inside the sandbox should be readable via the Volume interface from outside."""
+    """Data written inside the sandbox should be readable via the Volume interface from outside.
+
+    Since Modal V2 volumes auto-commit writes, data written inside the sandbox
+    should be visible via the Volume API from outside after a sync.
+    """
     host = None
     try:
         host = real_modal_provider.create_host(HostName("test-vol-read"))
@@ -731,11 +737,19 @@ def test_host_volume_data_readable_via_volume_interface(real_modal_provider: Mod
         # Write a known file and explicitly sync the volume
         host.execute_command("echo 'volume test content' > /mngr/volume_test.txt && sync /host_volume")
 
-        # Read the file via the Volume interface (from outside the sandbox)
         volume = real_modal_provider.get_volume_for_host(host)
         assert volume is not None
-        content = volume.read_file("/volume_test.txt")
-        assert b"volume test content" in content
+        assert isinstance(volume, ModalVolume)
+
+        # Poll until the file is visible (auto-commit may take a moment)
+        def file_is_readable() -> bool:
+            try:
+                content = volume.read_file("/volume_test.txt")
+                return b"volume test content" in content
+            except FileNotFoundError:
+                return False
+
+        wait_for(file_is_readable, timeout=30.0, error_message="Volume file not visible after 30s")
 
     finally:
         if host:
