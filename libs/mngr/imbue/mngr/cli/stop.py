@@ -12,6 +12,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
@@ -67,7 +68,7 @@ def _output_result(stopped_agents: Sequence[str], output_opts: OutputOptions) ->
 
 
 @click.command(name="stop")
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("agents", nargs=-1, required=False, shell_complete=complete_agent_name)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",

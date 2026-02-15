@@ -129,6 +129,27 @@ git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages 
 # curl -fsSL https://imbue.com/mngr/install.sh | bash
 ```
 
+## Shell Completion
+
+`mngr` supports tab completion for commands and agent names in bash, zsh, and fish.
+
+**Zsh** (add to `~/.zshrc`):
+```bash
+eval "$(_MNGR_COMPLETE=zsh_source mngr)"
+```
+
+**Bash** (add to `~/.bashrc`):
+```bash
+eval "$(_MNGR_COMPLETE=bash_source mngr)"
+```
+
+**Fish** (run once):
+```bash
+_MNGR_COMPLETE=fish_source mngr > ~/.config/fish/completions/mngr.fish
+```
+
+Note: `mngr` must be installed on your PATH for completion to work (not invoked via `uv run`).
+
 ## Commands
 
 ```bash

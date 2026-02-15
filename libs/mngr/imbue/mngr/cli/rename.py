@@ -11,6 +11,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -116,7 +117,7 @@ def _output_result(
 
 
 @click.command(name="rename")
-@click.argument("current")
+@click.argument("current", shell_complete=complete_agent_name)
 @click.argument("new_name", metavar="NEW-NAME")
 @optgroup.group("Behavior")
 @optgroup.option(
