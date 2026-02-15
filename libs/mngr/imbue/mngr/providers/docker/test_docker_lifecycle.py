@@ -42,7 +42,6 @@ def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInsta
     provider.close()
 
 
-@pytest.mark.acceptance
 def test_create_host_creates_container_with_ssh(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-ssh"))
     assert isinstance(host, Host)
@@ -51,7 +50,6 @@ def test_create_host_creates_container_with_ssh(docker_provider: DockerProviderI
     assert "hello" in result.stdout
 
 
-@pytest.mark.acceptance
 def test_create_host_with_tags(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-tags"), tags={"env": "test", "team": "infra"})
     assert isinstance(host, Host)
@@ -60,7 +58,6 @@ def test_create_host_with_tags(docker_provider: DockerProviderInstance) -> None:
     assert tags == {"env": "test", "team": "infra"}
 
 
-@pytest.mark.acceptance
 def test_create_host_with_custom_image(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(
         HostName("test-image"),
@@ -72,7 +69,6 @@ def test_create_host_with_custom_image(docker_provider: DockerProviderInstance) 
     assert "Python" in result.stdout
 
 
-@pytest.mark.acceptance
 def test_create_host_with_resource_limits(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(
         HostName("test-resources"),
@@ -83,7 +79,6 @@ def test_create_host_with_resource_limits(docker_provider: DockerProviderInstanc
     assert resources.memory_gb == 2.0
 
 
-@pytest.mark.acceptance
 def test_stop_host_stops_container(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-stop"))
     docker_provider.stop_host(host, create_snapshot=False)
@@ -93,7 +88,6 @@ def test_stop_host_stops_container(docker_provider: DockerProviderInstance) -> N
     assert isinstance(host_obj, OfflineHost)
 
 
-@pytest.mark.acceptance
 def test_stop_host_with_snapshot(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-snap-stop"))
     docker_provider.stop_host(host, create_snapshot=True)
@@ -103,7 +97,6 @@ def test_stop_host_with_snapshot(docker_provider: DockerProviderInstance) -> Non
     assert any(s.name == SnapshotName("stop") for s in snapshots)
 
 
-@pytest.mark.acceptance
 def test_start_host_restarts_stopped_container(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-restart"))
     host.execute_command("touch /mngr/marker.txt")
@@ -115,7 +108,6 @@ def test_start_host_restarts_stopped_container(docker_provider: DockerProviderIn
     assert result.success
 
 
-@pytest.mark.acceptance
 def test_start_host_filesystem_preserved_across_stop_start(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-fs-preserve"))
     host.execute_command("echo 'test content' > /tmp/myfile.txt")
@@ -127,14 +119,12 @@ def test_start_host_filesystem_preserved_across_stop_start(docker_provider: Dock
     assert "test content" in result.stdout
 
 
-@pytest.mark.acceptance
 def test_start_host_on_running_host_returns_same_host(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-already-running"))
     restarted = docker_provider.start_host(host.id)
     assert isinstance(restarted, Host)
 
 
-@pytest.mark.acceptance
 def test_destroy_host_removes_container(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-destroy"))
     host_id = host.id
@@ -144,27 +134,23 @@ def test_destroy_host_removes_container(docker_provider: DockerProviderInstance)
         docker_provider.get_host(host_id)
 
 
-@pytest.mark.acceptance
 def test_get_host_by_id(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-get-id"))
     found = docker_provider.get_host(host.id)
     assert found.id == host.id
 
 
-@pytest.mark.acceptance
 def test_get_host_by_name(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-get-name"))
     found = docker_provider.get_host(HostName("test-get-name"))
     assert found.id == host.id
 
 
-@pytest.mark.acceptance
 def test_get_host_not_found_raises_error(docker_provider: DockerProviderInstance) -> None:
     with pytest.raises(HostNotFoundError):
         docker_provider.get_host(HostId.generate())
 
 
-@pytest.mark.acceptance
 def test_list_hosts_includes_created_host(docker_provider: DockerProviderInstance, temp_mngr_ctx: MngrContext) -> None:
     host = docker_provider.create_host(HostName("test-list"))
     hosts = docker_provider.list_hosts(temp_mngr_ctx.concurrency_group)
@@ -172,7 +158,6 @@ def test_list_hosts_includes_created_host(docker_provider: DockerProviderInstanc
     assert host.id in host_ids
 
 
-@pytest.mark.acceptance
 def test_create_snapshot(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-snapshot"))
     snapshot_id = docker_provider.create_snapshot(host, SnapshotName("test-snap"))
@@ -183,7 +168,6 @@ def test_create_snapshot(docker_provider: DockerProviderInstance) -> None:
     assert snapshots[0].name == SnapshotName("test-snap")
 
 
-@pytest.mark.acceptance
 def test_delete_snapshot(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-del-snap"))
     snapshot_id = docker_provider.create_snapshot(host, SnapshotName("to-delete"))
@@ -194,21 +178,18 @@ def test_delete_snapshot(docker_provider: DockerProviderInstance) -> None:
     assert len(snapshots) == 0
 
 
-@pytest.mark.acceptance
 def test_delete_nonexistent_snapshot_raises_error(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-del-nonexist"))
     with pytest.raises(SnapshotNotFoundError):
         docker_provider.delete_snapshot(host, SnapshotId("sha256:nonexistent0000000000000000000000"))
 
 
-@pytest.mark.acceptance
 def test_set_host_tags_raises_mngr_error(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-tags-immutable"))
     with pytest.raises(MngrError, match="does not support mutable tags"):
         docker_provider.set_host_tags(host, {"new": "tag"})
 
 
-@pytest.mark.acceptance
 def test_rename_host(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-rename"))
     docker_provider.rename_host(host, HostName("renamed-host"))
@@ -217,7 +198,6 @@ def test_rename_host(docker_provider: DockerProviderInstance) -> None:
     assert found.get_certified_data().host_name == "renamed-host"
 
 
-@pytest.mark.acceptance
 def test_close_closes_docker_client(temp_mngr_ctx: MngrContext) -> None:
     provider = make_docker_provider(temp_mngr_ctx, "test-close")
     # Access the client to initialize it
@@ -225,7 +205,6 @@ def test_close_closes_docker_client(temp_mngr_ctx: MngrContext) -> None:
     provider.close()
 
 
-@pytest.mark.acceptance
 def test_on_connection_error_clears_caches(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-conn-err"))
     # Populate caches
@@ -239,7 +218,6 @@ def test_on_connection_error_clears_caches(docker_provider: DockerProviderInstan
 # =========================================================================
 
 
-@pytest.mark.acceptance
 def test_ssh_service_running_after_create(docker_provider: DockerProviderInstance) -> None:
     """Verify that sshd is running inside the container after create_host."""
     host = docker_provider.create_host(HostName("test-sshd"))
@@ -247,7 +225,6 @@ def test_ssh_service_running_after_create(docker_provider: DockerProviderInstanc
     assert result.success, f"sshd not running: {result.stderr}"
 
 
-@pytest.mark.acceptance
 def test_ssh_packages_installed_after_create(docker_provider: DockerProviderInstance) -> None:
     """Verify required packages are installed in the container after create_host."""
     host = docker_provider.create_host(HostName("test-pkgs"))
@@ -260,7 +237,6 @@ def test_ssh_packages_installed_after_create(docker_provider: DockerProviderInst
 # =========================================================================
 
 
-@pytest.mark.acceptance
 def test_stop_with_snapshot_then_start_preserves_data(docker_provider: DockerProviderInstance) -> None:
     """Core snapshot workflow: write data, stop with snapshot, start, verify data."""
     host = docker_provider.create_host(HostName("test-snap-restore"))
@@ -280,7 +256,6 @@ def test_stop_with_snapshot_then_start_preserves_data(docker_provider: DockerPro
 # =========================================================================
 
 
-@pytest.mark.acceptance
 def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tmp_path: Path) -> None:
     """Verify create_host works with a custom Dockerfile at the API level."""
     dockerfile = tmp_path / "Dockerfile"
@@ -341,7 +316,6 @@ def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) ->
 # =========================================================================
 
 
-@pytest.mark.acceptance
 def test_get_host_returns_offline_host_when_stopped(docker_provider: DockerProviderInstance) -> None:
     """Verify that get_host returns an OfflineHost for a stopped container."""
     host = docker_provider.create_host(HostName("test-offline"))
@@ -351,7 +325,6 @@ def test_get_host_returns_offline_host_when_stopped(docker_provider: DockerProvi
     assert isinstance(found, OfflineHost)
 
 
-@pytest.mark.acceptance
 def test_start_failed_host_raises_error(docker_provider: DockerProviderInstance) -> None:
     """Verify that start_host on a failed host raises MngrError."""
     host_id = HostId.generate()

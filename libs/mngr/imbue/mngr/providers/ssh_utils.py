@@ -1,10 +1,18 @@
 import fcntl
 import os
+import socket
+import time
 from pathlib import Path
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives.asymmetric import rsa
+from pyinfra.api import Host as PyinfraHost
+from pyinfra.api import State as PyinfraState
+from pyinfra.api.inventory import Inventory
+from pyinfra.connectors.sshuserclient.client import get_host_keys
+
+from imbue.mngr.errors import MngrError
 
 
 def generate_ssh_keypair() -> tuple[str, str]:
@@ -167,3 +175,53 @@ def add_host_to_known_hosts(
             os.fsync(f.fileno())
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def wait_for_sshd(hostname: str, port: int, timeout_seconds: float = 60.0) -> None:
+    """Wait for sshd to be ready to accept connections.
+
+    Uses socket timeouts to pace connection attempts without explicit sleep calls.
+    """
+    start_time = time.time()
+    while time.time() - start_time < timeout_seconds:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(2.0)
+            sock.connect((hostname, port))
+            banner = sock.recv(256)
+            if banner.startswith(b"SSH-"):
+                return
+        except (socket.error, socket.timeout):
+            pass
+        finally:
+            sock.close()
+    raise MngrError(f"SSH server not ready after {timeout_seconds}s at {hostname}:{port}")
+
+
+def create_pyinfra_host(hostname: str, port: int, private_key_path: Path, known_hosts_path: Path) -> PyinfraHost:
+    """Create a pyinfra host with SSH connector.
+
+    Clears pyinfra's memoized known_hosts cache to ensure fresh reads,
+    since we add new entries dynamically.
+    """
+    known_hosts_path_str = str(known_hosts_path)
+    cache_key = f"('{known_hosts_path_str}',){{}}"
+    if cache_key in get_host_keys.cache:
+        del get_host_keys.cache[cache_key]
+
+    host_data = {
+        "ssh_user": "root",
+        "ssh_port": port,
+        "ssh_key": str(private_key_path),
+        "ssh_known_hosts_file": known_hosts_path_str,
+        "ssh_strict_host_key_checking": "yes",
+    }
+
+    names_data = ([(hostname, host_data)], {})
+    inventory = Inventory(names_data)
+    state = PyinfraState(inventory=inventory)
+
+    pyinfra_host = inventory.get_host(hostname)
+    pyinfra_host.init(state)
+
+    return pyinfra_host

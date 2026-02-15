@@ -1,7 +1,5 @@
 import argparse
 import json
-import socket
-import time
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -22,9 +20,6 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 from pyinfra.api import Host as PyinfraHost
-from pyinfra.api import State as PyinfraState
-from pyinfra.api.inventory import Inventory
-from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
@@ -63,8 +58,10 @@ from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 from imbue.mngr.providers.ssh_utils import add_host_to_known_hosts
+from imbue.mngr.providers.ssh_utils import create_pyinfra_host
 from imbue.mngr.providers.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.ssh_utils import wait_for_sshd
 
 # Container entrypoint that keeps PID 1 alive and responds to SIGTERM
 CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"]
@@ -276,44 +273,11 @@ class DockerProviderInstance(BaseProviderInstance):
 
     def _wait_for_sshd(self, hostname: str, port: int, timeout_seconds: float = SSH_CONNECT_TIMEOUT) -> None:
         """Wait for sshd to be ready to accept connections."""
-        start_time = time.time()
-        while time.time() - start_time < timeout_seconds:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                sock.settimeout(2.0)
-                sock.connect((hostname, port))
-                banner = sock.recv(256)
-                if banner.startswith(b"SSH-"):
-                    return
-            except (socket.error, socket.timeout):
-                pass
-            finally:
-                sock.close()
-        raise MngrError(f"SSH server not ready after {timeout_seconds}s at {hostname}:{port}")
+        wait_for_sshd(hostname, port, timeout_seconds)
 
     def _create_pyinfra_host(self, hostname: str, port: int, private_key_path: Path) -> PyinfraHost:
         """Create a pyinfra host with SSH connector."""
-        known_hosts_path_str = str(self._known_hosts_path)
-        cache_key = f"('{known_hosts_path_str}',){{}}"
-        if cache_key in get_host_keys.cache:
-            del get_host_keys.cache[cache_key]
-
-        host_data = {
-            "ssh_user": "root",
-            "ssh_port": port,
-            "ssh_key": str(private_key_path),
-            "ssh_known_hosts_file": known_hosts_path_str,
-            "ssh_strict_host_key_checking": "yes",
-        }
-
-        names_data = ([(hostname, host_data)], {})
-        inventory = Inventory(names_data)
-        state = PyinfraState(inventory=inventory)
-
-        pyinfra_host = inventory.get_host(hostname)
-        pyinfra_host.init(state)
-
-        return pyinfra_host
+        return create_pyinfra_host(hostname, port, private_key_path, self._known_hosts_path)
 
     # =========================================================================
     # Container Setup and Host Creation Helpers
@@ -1374,6 +1338,7 @@ kill -TERM 1
             try:
                 return json.loads(tags_json)
             except (json.JSONDecodeError, TypeError):
+                logger.warning("Invalid JSON in container tags label: {}", tags_json)
                 return {}
 
         host_record = self._host_store.read_host_record(host_id)

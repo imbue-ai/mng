@@ -4,8 +4,8 @@ These tests require a running Docker daemon but do NOT require networking
 (port publishing). They test container management, exec, labels, discovery,
 snapshots, and host store integration using the Docker API directly.
 
-Marked with @pytest.mark.docker so they can be filtered with -m 'not docker'.
-They run by default in the standard test suite.
+Marked with @pytest.mark.docker and @pytest.mark.acceptance so they only
+run in CI acceptance test shards (not in the default local test suite).
 """
 
 from collections.abc import Generator
