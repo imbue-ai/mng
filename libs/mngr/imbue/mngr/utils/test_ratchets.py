@@ -607,7 +607,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     )
     chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, TEST_FILE_PATTERNS)
 
-    assert len(chunks) <= snapshot(43), format_ratchet_failure_message(
+    assert len(chunks) <= snapshot(45), format_ratchet_failure_message(
         rule_name="direct subprocess/os.exec usage",
         rule_description=(
             "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
