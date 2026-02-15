@@ -622,6 +622,73 @@ kill -TERM 1
         )
 
     # =========================================================================
+    # Container Run Kwargs
+    # =========================================================================
+
+    def _build_container_run_kwargs(
+        self,
+        *,
+        image: str,
+        container_name: str,
+        labels: dict[str, str],
+        config: ContainerConfig,
+    ) -> dict[str, Any]:
+        """Build kwargs for docker client containers.run().
+
+        This is shared between create_host and _start_from_snapshot to ensure
+        both paths produce identical container configurations.
+        """
+        # Build port bindings: always expose SSH, plus any user-specified ports
+        port_bindings: dict[str, int | None] = {"22/tcp": None}
+        for port_spec in config.ports:
+            parts = port_spec.split(":")
+            if len(parts) == 2:
+                port_bindings[f"{parts[1]}/tcp"] = int(parts[0])
+            else:
+                port_bindings[f"{port_spec}/tcp"] = None
+
+        # Build volume bindings
+        volume_bindings: dict[str, dict[str, str]] = {}
+        for volume_spec in config.volumes:
+            parts = volume_spec.split(":")
+            if len(parts) >= 2:
+                host_path = parts[0]
+                container_path = parts[1]
+                mode = parts[2] if len(parts) > 2 else "rw"
+                volume_bindings[host_path] = {"bind": container_path, "mode": mode}
+
+        run_kwargs: dict[str, Any] = {
+            "image": image,
+            "name": container_name,
+            "command": CONTAINER_ENTRYPOINT,
+            "detach": True,
+            "ports": port_bindings,
+            "labels": labels,
+            "nano_cpus": int(config.cpu * 1e9),
+            "mem_limit": f"{int(config.memory * 1024)}m",
+        }
+
+        if volume_bindings:
+            run_kwargs["volumes"] = volume_bindings
+
+        if config.network:
+            run_kwargs["network"] = config.network
+
+        if self.config.extra_hosts:
+            run_kwargs["extra_hosts"] = self.config.extra_hosts
+
+        # GPU support
+        if config.gpu:
+            run_kwargs["device_requests"] = [
+                docker.types.DeviceRequest(
+                    count=-1 if config.gpu == "all" else 1,
+                    capabilities=[["gpu"]],
+                )
+            ]
+
+        return run_kwargs
+
+    # =========================================================================
     # Docker Image Build
     # =========================================================================
 
@@ -705,54 +772,12 @@ kill -TERM 1
             labels = build_container_labels(host_id, name, str(self.name), tags)
             container_name = f"{self.mngr_ctx.config.prefix}{name}"
 
-            # Build port bindings: always expose SSH, plus any user-specified ports
-            port_bindings: dict[str, int | None] = {"22/tcp": None}
-            for port_spec in config.ports:
-                parts = port_spec.split(":")
-                if len(parts) == 2:
-                    port_bindings[f"{parts[1]}/tcp"] = int(parts[0])
-                else:
-                    port_bindings[f"{port_spec}/tcp"] = None
-
-            # Build volume bindings
-            volume_bindings: dict[str, dict[str, str]] = {}
-            for volume_spec in config.volumes:
-                parts = volume_spec.split(":")
-                if len(parts) >= 2:
-                    host_path = parts[0]
-                    container_path = parts[1]
-                    mode = parts[2] if len(parts) > 2 else "rw"
-                    volume_bindings[host_path] = {"bind": container_path, "mode": mode}
-
-            # Build resource kwargs
-            run_kwargs: dict[str, Any] = {
-                "image": image_name,
-                "name": container_name,
-                "command": CONTAINER_ENTRYPOINT,
-                "detach": True,
-                "ports": port_bindings,
-                "labels": labels,
-                "nano_cpus": int(config.cpu * 1e9),
-                "mem_limit": f"{int(config.memory * 1024)}m",
-            }
-
-            if volume_bindings:
-                run_kwargs["volumes"] = volume_bindings
-
-            if config.network:
-                run_kwargs["network"] = config.network
-
-            if self.config.extra_hosts:
-                run_kwargs["extra_hosts"] = self.config.extra_hosts
-
-            # GPU support
-            if config.gpu:
-                run_kwargs["device_requests"] = [
-                    docker.types.DeviceRequest(
-                        count=-1 if config.gpu == "all" else 1,
-                        capabilities=[["gpu"]],
-                    )
-                ]
+            run_kwargs = self._build_container_run_kwargs(
+                image=image_name,
+                container_name=container_name,
+                labels=labels,
+                config=config,
+            )
 
             with log_span(
                 "Creating Docker container",
@@ -994,16 +1019,12 @@ kill -TERM 1
         labels = build_container_labels(host_id, host_name, str(self.name), user_tags)
         container_name = f"{self.mngr_ctx.config.prefix}{host_name}"
 
-        run_kwargs: dict[str, Any] = {
-            "image": image_id,
-            "name": container_name,
-            "command": CONTAINER_ENTRYPOINT,
-            "detach": True,
-            "ports": {"22/tcp": None},
-            "labels": labels,
-            "nano_cpus": int(config.cpu * 1e9),
-            "mem_limit": f"{int(config.memory * 1024)}m",
-        }
+        run_kwargs = self._build_container_run_kwargs(
+            image=image_id,
+            container_name=container_name,
+            labels=labels,
+            config=config,
+        )
 
         try:
             new_container = self._docker_client.containers.run(**run_kwargs)

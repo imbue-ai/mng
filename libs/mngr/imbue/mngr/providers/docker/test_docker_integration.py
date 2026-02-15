@@ -35,7 +35,7 @@ from imbue.mngr.providers.docker.instance import build_container_labels
 from imbue.mngr.providers.docker.testing import make_docker_provider
 from imbue.mngr.utils.testing import get_short_random_string
 
-pytestmark = pytest.mark.docker
+pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
 
 # Use a longer timeout since Docker operations can be slow (image pulls, etc.)
 DOCKER_TEST_TIMEOUT = 120

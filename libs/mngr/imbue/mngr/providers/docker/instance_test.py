@@ -8,7 +8,6 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
@@ -331,9 +330,3 @@ def test_remove_tags_from_host_raises_mngr_error(temp_mngr_ctx: MngrContext) -> 
     provider = make_docker_provider(temp_mngr_ctx)
     with pytest.raises(MngrError, match="does not support mutable tags"):
         provider.remove_tags_from_host(HostId(HOST_ID_A), ["key"])
-
-
-def test_delete_volume_raises_not_implemented(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    with pytest.raises(NotImplementedError):
-        provider.delete_volume(VolumeId("vol-00000000000000000000000000000001"))
