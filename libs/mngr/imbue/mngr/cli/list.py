@@ -144,6 +144,13 @@ class ListCliOptions(CommonCliOptions):
     help="Read agent and host IDs or names from stdin (one per line)",
 )
 @optgroup.group("Output Format")
+# FIXME: --format-template should be replaced with:
+#             --format (json|jsonl|human|FORMAT), where the last one is the format string functionality from --format-template
+#             --json, just an alias for "--format json"
+#             --jsonl, just an alias for "--format jsonl"
+#             note: --human isn't needed because it is the default
+#   and all docs should be updated to take this into consideration / properly describe how our formatting options work across all commands
+#   and all commands should be updated to do this in the same way and to use the nice formatting functionality that we added here to list (which should be factored out into shared methods)
 @optgroup.option(
     "--format-template",
     "format_template",
