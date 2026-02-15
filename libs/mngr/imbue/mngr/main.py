@@ -23,6 +23,7 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
+from imbue.mngr.cli.plugin import plugin as plugin_command
 from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
@@ -49,6 +50,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "connect": ["conn"],
     "provision": ["prov"],
     "stop": ["s"],
+    "plugin": ["plug"],
     "rename": ["mv"],
 }
 
@@ -261,6 +263,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     stop,
     config,
     gc,
+    plugin_command,
 ]
 
 for cmd in BUILTIN_COMMANDS:
@@ -275,6 +278,7 @@ cli.add_command(exec_command, name="x")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(plugin_command, name="plug")
 cli.add_command(provision, name="prov")
 cli.add_command(rename, name="mv")
 

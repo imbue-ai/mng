@@ -21,6 +21,7 @@ from urwid.widget.listbox import SimpleFocusListWalker
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.agents.agent_registry import reset_agent_registry
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
@@ -401,8 +402,9 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset the module-level plugin manager singleton before each test
     imbue.mngr.main.reset_plugin_manager()
 
-    # Clear the backend registry to ensure clean state
+    # Clear the registries to ensure clean state
     reset_backend_registry()
+    reset_agent_registry()
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -421,6 +423,7 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset after the test as well
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
+    reset_agent_registry()
 
     # Clean up Modal app contexts to prevent async cleanup errors
     ModalProviderBackend.reset_app_registry()

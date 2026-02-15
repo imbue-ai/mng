@@ -8,11 +8,11 @@ import tomlkit
 from imbue.mngr.cli.config import _flatten_config
 from imbue.mngr.cli.config import _format_value_for_display
 from imbue.mngr.cli.config import _get_nested_value
-from imbue.mngr.cli.config import _load_config_file_tomlkit
 from imbue.mngr.cli.config import _parse_value
-from imbue.mngr.cli.config import _save_config_file
-from imbue.mngr.cli.config import _set_nested_value
 from imbue.mngr.cli.config import _unset_nested_value
+from imbue.mngr.cli.config import load_config_file_tomlkit
+from imbue.mngr.cli.config import save_config_file
+from imbue.mngr.cli.config import set_nested_value
 from imbue.mngr.errors import ConfigKeyNotFoundError
 
 
@@ -113,13 +113,13 @@ def test_get_nested_value_raises_keyerror_for_missing_nested_key() -> None:
 
 def test_set_nested_value_sets_top_level_key() -> None:
     doc = tomlkit.document()
-    _set_nested_value(doc, "prefix", "my-")
+    set_nested_value(doc, "prefix", "my-")
     assert doc["prefix"] == "my-"
 
 
 def test_set_nested_value_sets_nested_key() -> None:
     doc = tomlkit.document()
-    _set_nested_value(doc, "commands.create.connect", False)
+    set_nested_value(doc, "commands.create.connect", False)
     # Convert to dict for assertions since tomlkit types are opaque to type checker
     data = doc.unwrap()
     assert data["commands"]["create"]["connect"] is False
@@ -127,7 +127,7 @@ def test_set_nested_value_sets_nested_key() -> None:
 
 def test_set_nested_value_creates_intermediate_tables() -> None:
     doc = tomlkit.document()
-    _set_nested_value(doc, "a.b.c.d", "value")
+    set_nested_value(doc, "a.b.c.d", "value")
     data = doc.unwrap()
     assert data["a"]["b"]["c"]["d"] == "value"
 
@@ -135,7 +135,7 @@ def test_set_nested_value_creates_intermediate_tables() -> None:
 def test_set_nested_value_overwrites_existing_value() -> None:
     doc = tomlkit.document()
     doc["prefix"] = "old-"
-    _set_nested_value(doc, "prefix", "new-")
+    set_nested_value(doc, "prefix", "new-")
     assert doc["prefix"] == "new-"
 
 
@@ -196,14 +196,14 @@ def test_flatten_config_returns_empty_list_for_empty_dict() -> None:
 
 def test_load_config_file_tomlkit_returns_empty_document_for_missing_file(tmp_path: Path) -> None:
     missing_path = tmp_path / "nonexistent.toml"
-    doc = _load_config_file_tomlkit(missing_path)
+    doc = load_config_file_tomlkit(missing_path)
     assert len(doc) == 0
 
 
 def test_load_config_file_tomlkit_loads_existing_file(tmp_path: Path) -> None:
     config_path = tmp_path / "test.toml"
     config_path.write_text('prefix = "test-"\n')
-    doc = _load_config_file_tomlkit(config_path)
+    doc = load_config_file_tomlkit(config_path)
     assert doc["prefix"] == "test-"
 
 
@@ -211,7 +211,7 @@ def test_save_config_file_creates_parent_directories(tmp_path: Path) -> None:
     config_path = tmp_path / "nested" / "dir" / "test.toml"
     doc = tomlkit.document()
     doc["prefix"] = "test-"
-    _save_config_file(config_path, doc)
+    save_config_file(config_path, doc)
     assert config_path.exists()
     assert config_path.read_text() == 'prefix = "test-"\n'
 
@@ -221,7 +221,7 @@ def test_save_config_file_preserves_formatting(tmp_path: Path) -> None:
     doc = tomlkit.document()
     doc.add(tomlkit.comment("This is a comment"))
     doc["prefix"] = "test-"
-    _save_config_file(config_path, doc)
+    save_config_file(config_path, doc)
     content = config_path.read_text()
     assert "# This is a comment" in content
     assert 'prefix = "test-"' in content
