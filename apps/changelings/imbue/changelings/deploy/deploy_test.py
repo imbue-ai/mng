@@ -711,17 +711,15 @@ def test_ensure_working_tree_is_clean_raises_outside_git_repo(
 # -- push_current_branch tests --
 
 
-def test_push_current_branch_succeeds_when_nothing_to_push(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When the current branch is up to date with remote, push succeeds."""
-    # Create a bare repo as the remote
+def _init_git_repo_with_remote(tmp_path: Path) -> Path:
+    """Create a bare remote repo, clone it, make an initial commit, and push.
+
+    Returns the path to the working repo (already pushed to the bare remote).
+    """
     bare_repo = tmp_path / "bare.git"
     bare_repo.mkdir()
     subprocess.run(["git", "init", "--bare"], cwd=bare_repo, check=True, capture_output=True)
 
-    # Clone and make an initial commit
     work_repo = tmp_path / "work"
     subprocess.run(["git", "clone", str(bare_repo), str(work_repo)], check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=work_repo, check=True, capture_output=True)
@@ -730,6 +728,15 @@ def test_push_current_branch_succeeds_when_nothing_to_push(
     subprocess.run(["git", "add", "."], cwd=work_repo, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=work_repo, check=True, capture_output=True)
     subprocess.run(["git", "push"], cwd=work_repo, check=True, capture_output=True)
+    return work_repo
+
+
+def test_push_current_branch_succeeds_when_nothing_to_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the current branch is up to date with remote, push succeeds."""
+    work_repo = _init_git_repo_with_remote(tmp_path)
 
     monkeypatch.chdir(work_repo)
     push_current_branch()
@@ -740,20 +747,7 @@ def test_push_current_branch_pushes_unpushed_commits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When there are unpushed commits, push succeeds and pushes them."""
-    # Create a bare repo as the remote
-    bare_repo = tmp_path / "bare.git"
-    bare_repo.mkdir()
-    subprocess.run(["git", "init", "--bare"], cwd=bare_repo, check=True, capture_output=True)
-
-    # Clone, make initial commit and push
-    work_repo = tmp_path / "work"
-    subprocess.run(["git", "clone", str(bare_repo), str(work_repo)], check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=work_repo, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=work_repo, check=True, capture_output=True)
-    (work_repo / "file.txt").write_text("content")
-    subprocess.run(["git", "add", "."], cwd=work_repo, check=True, capture_output=True)
-    subprocess.run(["git", "commit", "-m", "initial"], cwd=work_repo, check=True, capture_output=True)
-    subprocess.run(["git", "push"], cwd=work_repo, check=True, capture_output=True)
+    work_repo = _init_git_repo_with_remote(tmp_path)
 
     # Make another commit without pushing
     (work_repo / "new.txt").write_text("new content")
