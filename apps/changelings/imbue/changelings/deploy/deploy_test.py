@@ -1,6 +1,7 @@
 # Tests for the changeling deployment logic.
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
 from imbue.changelings.deploy.deploy import detect_local_timezone
+from imbue.changelings.deploy.deploy import ensure_working_tree_is_clean
 from imbue.changelings.deploy.deploy import find_repo_root
 from imbue.changelings.deploy.deploy import get_git_config_value
 from imbue.changelings.deploy.deploy import get_imbue_commit_hash
@@ -27,6 +29,7 @@ from imbue.changelings.deploy.deploy import get_modal_environment_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
 from imbue.changelings.deploy.deploy import get_modal_volume_name
 from imbue.changelings.deploy.deploy import list_mngr_profiles
+from imbue.changelings.deploy.deploy import push_current_branch
 from imbue.changelings.deploy.deploy import read_profile_user_id
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
@@ -633,3 +636,137 @@ def test_get_git_config_value_returns_value_when_set(tmp_path: Path) -> None:
 
     assert get_git_config_value("user.name") == "Test Changeling"
     assert get_git_config_value("user.email") == "test@example.com"
+
+
+# -- ensure_working_tree_is_clean tests --
+
+
+def _init_git_repo(repo_dir: Path) -> None:
+    """Initialize a git repo with local user config and an initial commit."""
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True, capture_output=True)
+    (repo_dir / "initial.txt").write_text("initial")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True, capture_output=True)
+
+
+def test_ensure_working_tree_is_clean_succeeds_in_clean_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the working tree is clean, no error is raised."""
+    repo_dir = tmp_path / "clean-repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+
+    monkeypatch.chdir(repo_dir)
+    ensure_working_tree_is_clean()
+
+
+def test_ensure_working_tree_is_clean_raises_with_untracked_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the working tree has an untracked file, ChangelingDeployError is raised."""
+    repo_dir = tmp_path / "dirty-repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    (repo_dir / "untracked.txt").write_text("untracked")
+
+    monkeypatch.chdir(repo_dir)
+    with pytest.raises(ChangelingDeployError, match="uncommitted changes"):
+        ensure_working_tree_is_clean()
+
+
+def test_ensure_working_tree_is_clean_raises_with_staged_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the working tree has staged but uncommitted changes, ChangelingDeployError is raised."""
+    repo_dir = tmp_path / "staged-repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    (repo_dir / "staged.txt").write_text("staged")
+    subprocess.run(["git", "add", "staged.txt"], cwd=repo_dir, check=True, capture_output=True)
+
+    monkeypatch.chdir(repo_dir)
+    with pytest.raises(ChangelingDeployError, match="uncommitted changes"):
+        ensure_working_tree_is_clean()
+
+
+def test_ensure_working_tree_is_clean_raises_outside_git_repo(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When not inside a git repo, ChangelingDeployError is raised."""
+    non_repo_dir = tmp_path / "not-a-repo"
+    non_repo_dir.mkdir()
+    monkeypatch.chdir(non_repo_dir)
+
+    with pytest.raises(ChangelingDeployError, match="Could not check git status"):
+        ensure_working_tree_is_clean()
+
+
+# -- push_current_branch tests --
+
+
+def _init_git_repo_with_remote(tmp_path: Path) -> Path:
+    """Create a bare remote repo, clone it, make an initial commit, and push.
+
+    Returns the path to the working repo (already pushed to the bare remote).
+    """
+    bare_repo = tmp_path / "bare.git"
+    bare_repo.mkdir()
+    subprocess.run(["git", "init", "--bare"], cwd=bare_repo, check=True, capture_output=True)
+
+    work_repo = tmp_path / "work"
+    subprocess.run(["git", "clone", str(bare_repo), str(work_repo)], check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=work_repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=work_repo, check=True, capture_output=True)
+    (work_repo / "file.txt").write_text("content")
+    subprocess.run(["git", "add", "."], cwd=work_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=work_repo, check=True, capture_output=True)
+    subprocess.run(["git", "push"], cwd=work_repo, check=True, capture_output=True)
+    return work_repo
+
+
+def test_push_current_branch_succeeds_when_nothing_to_push(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the current branch is up to date with remote, push succeeds."""
+    work_repo = _init_git_repo_with_remote(tmp_path)
+
+    monkeypatch.chdir(work_repo)
+    push_current_branch()
+
+
+def test_push_current_branch_pushes_unpushed_commits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When there are unpushed commits, push succeeds and pushes them."""
+    work_repo = _init_git_repo_with_remote(tmp_path)
+
+    # Make another commit without pushing
+    (work_repo / "new.txt").write_text("new content")
+    subprocess.run(["git", "add", "."], cwd=work_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "new commit"], cwd=work_repo, check=True, capture_output=True)
+
+    monkeypatch.chdir(work_repo)
+    push_current_branch()
+
+
+def test_push_current_branch_raises_when_no_remote(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When there is no remote configured, push fails and ChangelingDeployError is raised."""
+    repo_dir = tmp_path / "no-remote-repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+
+    monkeypatch.chdir(repo_dir)
+    with pytest.raises(ChangelingDeployError, match="Failed to push"):
+        push_current_branch()
