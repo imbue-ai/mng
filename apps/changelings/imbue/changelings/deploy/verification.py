@@ -26,6 +26,7 @@ from imbue.changelings.errors import ChangelingDeployError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
+# FIXME: we don't need this at all
 def _find_changeling_agent(changeling_name: str) -> str | None:
     """Search mngr list for a running agent created by the given changeling.
 
@@ -83,6 +84,7 @@ def _stream_process_output(
             error_event.set()
 
 
+# FIXME: we don't need this at all
 def _poll_for_agent(
     changeling_name: str,
     timeout_seconds: float,
@@ -164,6 +166,11 @@ def verify_deployment(
     )
     log_thread.start()
 
+    # FIXME: the whole rest of this function is wrong / complicated / kinda pointless
+    #  What is *supposed* to happen is the following:
+    #  1. wait for the above process to finish. That will launch the agent *and then exit*--that's what the deploy function does.
+    #  2. afterwards, *we already know* the name of the agent that will be created (we determine it with the mngr command that we make). *if* is_finish_initial_run is true, we should poll and wait for the agent to no longer be in the "RUNNING" state. Otherwise, we should destroy the agent and return successfully
+    #  3. we should have a timeout for the deploy process, and if it fail (non-zero exit) or times out, *then* we should *also* destroy the agent (and raise).  That timeout needs to be fairly long (eg, ~15 minutes) because builds can take a while.
     try:
         changeling_name = str(changeling.name)
 
