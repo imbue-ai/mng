@@ -5,10 +5,10 @@
 #
 # The verification flow is:
 # 1. Run `modal run` to invoke the deployed cron function once.
-# 2. Wait for the process to finish (it creates an agent via mngr create
-#    with --await-agent-stopped, so it blocks until the agent completes).
+# 2. Wait for the process to finish (the cron function creates an agent via
+#    mngr create, which runs to completion inside the Modal function).
 # 3. If is_finish_initial_run is True, just check the exit code.
-# 4. If is_finish_initial_run is False, destroy the agent after it finishes.
+# 4. If is_finish_initial_run is False, destroy the agent after the process exits.
 # 5. On timeout or failure, try to destroy any created agent and raise.
 #
 # This module is excluded from unit test coverage because it requires real
@@ -25,7 +25,7 @@ from pathlib import Path
 from loguru import logger
 
 from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.deploy.deploy import AGENT_POLL_TIMEOUT_SECONDS
+from imbue.changelings.deploy.deploy import VERIFICATION_TIMEOUT_SECONDS
 from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -88,16 +88,16 @@ def verify_deployment(
     is_finish_initial_run: bool,
     env: Mapping[str, str],
     cron_runner_path: Path,
-    process_timeout_seconds: float = AGENT_POLL_TIMEOUT_SECONDS,
+    process_timeout_seconds: float = VERIFICATION_TIMEOUT_SECONDS,
 ) -> None:
     """Verify deployment by invoking the deployed function and waiting for completion.
 
     After modal deploy, this function:
     1. Runs `modal run` to invoke the deployed cron function once
     2. Streams output and monitors for errors
-    3. Waits for the process to finish (the cron function runs mngr create
-       with --await-agent-stopped, so it blocks until the agent completes)
-    4. If is_finish_initial_run is False, destroys the agent after it finishes
+    3. Waits for the process to finish (the cron function creates an agent
+       via mngr create, which runs to completion inside the Modal function)
+    4. If is_finish_initial_run is False, destroys the agent after the process exits
     5. Raises ChangelingDeployError on timeout, non-zero exit, or detected errors
     """
     changeling_name = str(changeling.name)
@@ -150,9 +150,15 @@ def verify_deployment(
         # Success: the modal run process completed with exit code 0
         logger.info("modal run completed successfully for changeling '{}'", changeling_name)
 
-        if not is_finish_initial_run and extracted_agent_name is not None:
-            # Destroy the verification agent (we've confirmed it started and ran successfully)
-            _destroy_agent(extracted_agent_name)
+        if not is_finish_initial_run:
+            if extracted_agent_name is not None:
+                # Destroy the verification agent (we've confirmed it started and ran successfully)
+                _destroy_agent(extracted_agent_name)
+            else:
+                logger.warning(
+                    "Could not extract agent name from output -- skipping cleanup. "
+                    "The agent may still be running and will need manual cleanup."
+                )
 
         logger.info("Deployment verification complete for changeling '{}'", changeling_name)
 

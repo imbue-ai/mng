@@ -19,6 +19,7 @@ from imbue.changelings.deploy.deploy import build_modal_secret_command
 from imbue.changelings.deploy.deploy import collect_secret_values
 from imbue.changelings.deploy.deploy import detect_local_timezone
 from imbue.changelings.deploy.deploy import find_repo_root
+from imbue.changelings.deploy.deploy import get_git_config_value
 from imbue.changelings.deploy.deploy import get_imbue_commit_hash
 from imbue.changelings.deploy.deploy import get_imbue_repo_url
 from imbue.changelings.deploy.deploy import get_modal_app_name
@@ -26,7 +27,6 @@ from imbue.changelings.deploy.deploy import get_modal_environment_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
 from imbue.changelings.deploy.deploy import get_modal_volume_name
 from imbue.changelings.deploy.deploy import list_mngr_profiles
-from imbue.changelings.deploy.deploy import parse_agent_name_from_list_json
 from imbue.changelings.deploy.deploy import read_profile_user_id
 from imbue.changelings.deploy.deploy import serialize_changeling_config
 from imbue.changelings.errors import ChangelingDeployError
@@ -617,52 +617,19 @@ def test_get_modal_environment_name_uses_full_user_id() -> None:
     assert result == "mngr-8caed3bc40df435fae5817ea0afdbf77"
 
 
-# -- parse_agent_name_from_list_json tests --
+# -- get_git_config_value tests --
 
 
-def test_parse_agent_name_from_list_json_finds_matching_agent() -> None:
-    json_output = json.dumps({"agents": [{"name": "my-fairy-2026-02-14-03-00-00", "state": "RUNNING"}]})
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
-    assert result == "my-fairy-2026-02-14-03-00-00"
-
-
-def test_parse_agent_name_from_list_json_returns_none_when_no_match() -> None:
-    json_output = json.dumps({"agents": [{"name": "other-agent-123", "state": "RUNNING"}]})
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
+def test_get_git_config_value_returns_none_when_not_set() -> None:
+    """With an isolated home dir (no gitconfig), all keys should return None."""
+    result = get_git_config_value("user.name")
     assert result is None
 
 
-def test_parse_agent_name_from_list_json_returns_none_on_empty_agents() -> None:
-    json_output = json.dumps({"agents": []})
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
-    assert result is None
+def test_get_git_config_value_returns_value_when_set(tmp_path: Path) -> None:
+    """When a global gitconfig exists with the key, return its value."""
+    gitconfig = tmp_path / ".gitconfig"
+    gitconfig.write_text("[user]\n\tname = Test Changeling\n\temail = test@example.com\n")
 
-
-def test_parse_agent_name_from_list_json_returns_none_on_invalid_json() -> None:
-    result = parse_agent_name_from_list_json("not valid json{{{", "my-fairy")
-    assert result is None
-
-
-def test_parse_agent_name_from_list_json_returns_first_match() -> None:
-    json_output = json.dumps(
-        {
-            "agents": [
-                {"name": "my-fairy-2026-02-14-01-00-00", "state": "STOPPED"},
-                {"name": "my-fairy-2026-02-14-03-00-00", "state": "RUNNING"},
-            ]
-        }
-    )
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
-    assert result == "my-fairy-2026-02-14-01-00-00"
-
-
-def test_parse_agent_name_from_list_json_handles_missing_agents_key() -> None:
-    json_output = json.dumps({"errors": []})
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
-    assert result is None
-
-
-def test_parse_agent_name_from_list_json_handles_agent_without_name() -> None:
-    json_output = json.dumps({"agents": [{"id": "abc-123", "state": "RUNNING"}]})
-    result = parse_agent_name_from_list_json(json_output, "my-fairy")
-    assert result is None
+    assert get_git_config_value("user.name") == "Test Changeling"
+    assert get_git_config_value("user.email") == "test@example.com"

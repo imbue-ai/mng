@@ -1,4 +1,3 @@
-import json
 import os
 import sys
 from collections.abc import Mapping
@@ -17,7 +16,7 @@ from imbue.imbue_common.pure import pure
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
-AGENT_POLL_TIMEOUT_SECONDS: float = 900.0
+VERIFICATION_TIMEOUT_SECONDS: float = 900.0
 
 
 @pure
@@ -180,27 +179,6 @@ def collect_secret_values(
 def serialize_changeling_config(changeling: ChangelingDefinition) -> str:
     """Serialize a changeling definition to JSON for embedding in the Modal image."""
     return changeling.model_dump_json()
-
-
-@pure
-def parse_agent_name_from_list_json(
-    json_output: str,
-    changeling_name: str,
-) -> str | None:
-    """Parse mngr list JSON output to find an agent created by the given changeling.
-
-    Returns the agent name if found, None otherwise.
-    """
-    try:
-        data = json.loads(json_output)
-        for agent in data.get("agents", []):
-            name = agent.get("name", "")
-            if name.startswith(f"{changeling_name}-"):
-                return name
-    except json.JSONDecodeError:
-        pass
-
-    return None
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
