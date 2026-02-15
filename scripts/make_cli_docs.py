@@ -41,6 +41,7 @@ SECONDARY_COMMANDS = {
     "gc",
     "message",
     "provision",
+    "plugin",
 }
 ALIAS_COMMANDS = {
     "clone",
