@@ -177,6 +177,7 @@ def load_config(
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
+    config_dict["default_destroyed_host_persisted_seconds"] = config.default_destroyed_host_persisted_seconds
 
     # Allow plugins to modify config_dict before validation
     pm.hook.on_load_config(config_dict=config_dict)
