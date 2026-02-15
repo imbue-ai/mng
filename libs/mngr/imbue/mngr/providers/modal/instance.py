@@ -1737,25 +1737,17 @@ log "=== Shutdown script completed ==="
         self._destroy_agents_on_host(host_id)
         # FIXME: we should also delete the snapshots here (from the host record)
         # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
-
-        # Delete the persistent host volume
-        host_volume_name = self._get_host_volume_name(host_id)
-        try:
-            modal.Volume.objects.delete(host_volume_name, environment_name=self.environment_name)
-            logger.debug("Deleted host volume: {}", host_volume_name)
-        except NotFoundError:
-            logger.trace("Host volume {} already deleted", host_volume_name)
-        except (modal.exception.InvalidError, modal.exception.InternalError) as e:
-            logger.warning("Failed to delete host volume {}: {}", host_volume_name, e)
+        self._delete_host_volume(host_id)
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
-        # just make sure all agent records are gone
         self._destroy_agents_on_host(host.id)
-        # then delete the main host record
         self._delete_host_record(host.id)
-        # also clean up the host volume
-        host_volume_name = self._get_host_volume_name(host.id)
+        self._delete_host_volume(host.id)
+
+    def _delete_host_volume(self, host_id: HostId) -> None:
+        """Delete the persistent host volume, logging but not raising on failure."""
+        host_volume_name = self._get_host_volume_name(host_id)
         try:
             modal.Volume.objects.delete(host_volume_name, environment_name=self.environment_name)
             logger.debug("Deleted host volume: {}", host_volume_name)
