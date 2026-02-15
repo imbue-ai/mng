@@ -115,8 +115,13 @@ def test_scoped_volume_listdir(volume_with_files: InMemoryVolume) -> None:
     scoped = volume_with_files.scoped("/host")
     entries = scoped.listdir("agents")
     paths = [e.path for e in entries]
-    assert "/host/agents/a1.json" in paths
-    assert "/host/agents/a2.json" in paths
+    # Paths should be relative to the scope, not the delegate root
+    assert "agents/a1.json" in paths
+    assert "agents/a2.json" in paths
+    # Returned paths should be usable with the same scoped volume
+    for entry in entries:
+        data = scoped.read_file(entry.path)
+        assert len(data) > 0
 
 
 def test_scoped_volume_chained_scoping(volume_with_files: InMemoryVolume) -> None:

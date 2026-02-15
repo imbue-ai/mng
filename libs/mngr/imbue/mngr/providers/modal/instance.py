@@ -410,7 +410,7 @@ class ModalProviderInstance(BaseProviderInstance):
             # Probe the volume to verify it exists (from_name returns lazy references)
             modal_vol.listdir("/")
             return ModalVolume.model_construct(modal_volume=modal_vol)
-        except (NotFoundError, modal.exception.Error):
+        except (NotFoundError, modal.exception.InvalidError):
             return None
 
     # =========================================================================
@@ -1018,7 +1018,7 @@ log "Agents: $AGENTS"
 
 # Sync the host volume to ensure all data is flushed before snapshot
 log "Syncing host volume before shutdown..."
-sync /host_volume 2>/dev/null || log "Warning: host volume sync failed"
+sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"
 
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
@@ -1721,6 +1721,8 @@ log "=== Shutdown script completed ==="
         self.stop_host(host)
         host_id = host.id if isinstance(host, HostInterface) else host
         self._destroy_agents_on_host(host_id)
+        # FIXME: we should also delete the snapshots here (from the host record)
+        # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
 
         # Delete the persistent host volume
         host_volume_name = self._get_host_volume_name(host_id)

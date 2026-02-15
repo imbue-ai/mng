@@ -82,8 +82,17 @@ class ScopedVolume(BaseVolume):
     delegate: Volume = Field(frozen=True, description="The underlying volume to delegate to")
     prefix: str = Field(frozen=True, description="Path prefix prepended to all operations")
 
+    def _strip_prefix(self, full_path: str) -> str:
+        """Strip the scope prefix from a path returned by the delegate."""
+        prefix = self.prefix.rstrip("/") + "/"
+        stripped = full_path.lstrip("/")
+        if stripped.startswith(prefix.lstrip("/")):
+            return stripped[len(prefix.lstrip("/")) :]
+        return stripped
+
     def listdir(self, path: str) -> list[VolumeFile]:
-        return self.delegate.listdir(_scoped_path(self.prefix, path))
+        entries = self.delegate.listdir(_scoped_path(self.prefix, path))
+        return [VolumeFile(path=self._strip_prefix(e.path), mtime=e.mtime, size=e.size) for e in entries]
 
     def read_file(self, path: str) -> bytes:
         return self.delegate.read_file(_scoped_path(self.prefix, path))

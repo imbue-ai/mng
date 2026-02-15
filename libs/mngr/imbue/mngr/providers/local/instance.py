@@ -1,5 +1,7 @@
 import json
 import shutil
+from datetime import datetime
+from datetime import timezone
 from functools import cached_property
 from pathlib import Path
 from typing import Final
@@ -324,7 +326,20 @@ class LocalProviderInstance(BaseProviderInstance):
         volumes_dir = self._volumes_dir
         if not volumes_dir.is_dir():
             return []
-        return []
+        results: list[VolumeInfo] = []
+        for subdir in sorted(volumes_dir.iterdir()):
+            if subdir.is_dir():
+                stat = subdir.stat()
+                results.append(
+                    VolumeInfo(
+                        volume_id=VolumeId(subdir.name),
+                        name=subdir.name,
+                        size_bytes=0,
+                        created_at=datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc),
+                        host_id=HostId(subdir.name) if subdir.name.startswith("host-") else None,
+                    )
+                )
+        return results
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a local volume directory."""
