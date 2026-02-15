@@ -59,7 +59,7 @@ def filter_agents_by_host(
 
 def select_agent_interactively_with_host(
     mngr_ctx: MngrContext,
-    start_host_if_needed: bool = False,
+    is_start_desired: bool = False,
     skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Show interactive UI to select an agent.
@@ -81,7 +81,7 @@ def select_agent_interactively_with_host(
         agents_by_host,
         mngr_ctx,
         "select",
-        start_host_if_needed=start_host_if_needed,
+        is_start_desired=is_start_desired,
         skip_agent_state_check=skip_agent_state_check,
     )
 
@@ -130,7 +130,7 @@ def find_agent_for_command(
     agent_identifier: str | None,
     command_usage: str,
     host_filter: str | None,
-    start_host_if_needed: bool = False,
+    is_start_desired: bool = False,
     skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Find an agent by identifier, or interactively if no identifier given.
@@ -147,7 +147,7 @@ def find_agent_for_command(
             agents_by_host,
             mngr_ctx,
             command_usage,
-            start_host_if_needed=start_host_if_needed,
+            is_start_desired=is_start_desired,
             skip_agent_state_check=skip_agent_state_check,
         )
 
@@ -156,7 +156,7 @@ def find_agent_for_command(
 
     result = select_agent_interactively_with_host(
         mngr_ctx,
-        start_host_if_needed=start_host_if_needed,
+        is_start_desired=is_start_desired,
         skip_agent_state_check=skip_agent_state_check,
     )
     if result is None:

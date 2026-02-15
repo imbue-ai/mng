@@ -335,8 +335,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     mngr_ctx: MngrContext,
     command_name: str,
-    start_host_if_needed: bool = False,
-    start_agent_if_needed: bool = False,
+    is_start_desired: bool = False,
     skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
@@ -344,8 +343,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     This function resolves an agent identifier to the actual agent and host objects,
     which is needed by CLI commands that need to interact with the agent.
 
-    start_host_if_needed: if True, start the host when it is offline.
-    start_agent_if_needed: if True, start the agent when it is stopped.
+    is_start_desired: if True, start both the host and the agent when they are stopped.
     skip_agent_state_check: if True, skip the agent lifecycle state check entirely
         (useful for commands like provision that need the host online but don't care
         whether the agent process is running).
@@ -367,12 +365,12 @@ def find_and_maybe_start_agent_by_name_or_id(
                     provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
                     online_host, _was_started = ensure_host_started(
-                        host, is_start_desired=start_host_if_needed, provider=provider
+                        host, is_start_desired=is_start_desired, provider=provider
                     )
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
                             if not skip_agent_state_check:
-                                ensure_agent_started(agent, online_host, is_start_desired=start_agent_if_needed)
+                                ensure_agent_started(agent, online_host, is_start_desired=is_start_desired)
                             return agent, online_host
         raise AgentNotFoundError(agent_id)
 
@@ -386,7 +384,7 @@ def find_and_maybe_start_agent_by_name_or_id(
                 provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
                 online_host, _was_started = ensure_host_started(
-                    host, is_start_desired=start_host_if_needed, provider=provider
+                    host, is_start_desired=is_start_desired, provider=provider
                 )
                 # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in online_host.get_agents():
@@ -411,7 +409,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     # make sure the agent is started
     agent, host = matching[0]
     if not skip_agent_state_check:
-        ensure_agent_started(agent, host, is_start_desired=start_agent_if_needed)
+        ensure_agent_started(agent, host, is_start_desired=is_start_desired)
 
     return agent, host
 

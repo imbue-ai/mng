@@ -439,8 +439,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             agents_by_host,
             mngr_ctx,
             "connect",
-            start_host_if_needed=opts.start,
-            start_agent_if_needed=opts.start,
+            is_start_desired=opts.start,
         )
     elif not sys.stdin.isatty():
         # Default to most recently created agent when running non-interactively
@@ -457,8 +456,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             agents_by_host,
             mngr_ctx,
             "connect",
-            start_host_if_needed=opts.start,
-            start_agent_if_needed=opts.start,
+            is_start_desired=opts.start,
         )
     else:
         list_result = list_agents(mngr_ctx, is_streaming=False)
@@ -475,8 +473,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             agents_by_host,
             mngr_ctx,
             "connect",
-            start_host_if_needed=opts.start,
-            start_agent_if_needed=opts.start,
+            is_start_desired=opts.start,
         )
 
     # Build connection options

@@ -216,7 +216,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
         agent_identifier=agent_identifier,
         command_usage="provision",
         host_filter=None,
-        start_host_if_needed=True,
+        is_start_desired=True,
         skip_agent_state_check=True,
     )
     if result is None:

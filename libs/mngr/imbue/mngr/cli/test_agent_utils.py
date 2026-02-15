@@ -117,7 +117,7 @@ def test_find_agent_for_command_with_stopped_agent_and_skip_agent_state_check(
             agent_identifier=agent_name,
             command_usage="test",
             host_filter=None,
-            start_host_if_needed=True,
+            is_start_desired=True,
             skip_agent_state_check=True,
         )
 
