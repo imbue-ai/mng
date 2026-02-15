@@ -62,10 +62,10 @@ def _load_backends(pm, *, include_modal: bool) -> None:
     if _registry_state["backends_loaded"]:
         return
 
-    pm.register(local_backend_module)
-    pm.register(ssh_backend_module)
+    pm.register(local_backend_module, name="local")
+    pm.register(ssh_backend_module, name="ssh")
     if include_modal:
-        pm.register(modal_backend_module)
+        pm.register(modal_backend_module, name="modal")
 
     registrations = pm.hook.register_provider_backend()
 

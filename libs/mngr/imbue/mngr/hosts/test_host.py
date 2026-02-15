@@ -920,14 +920,25 @@ def test_start_agent_starts_process_activity_monitor(
         # The process activity monitor should write process activity within ~5-6 seconds
         activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "process"
 
-        def activity_file_exists() -> bool:
-            return activity_path.exists()
+        # Wait until the file exists AND has valid JSON content. The writer
+        # creates the file then writes to it, so there is a brief window where
+        # the file exists but is empty.
+        data: dict = {}
 
-        wait_for(activity_file_exists, timeout=10.0, error_message="process activity file not created")
+        def activity_file_has_content() -> bool:
+            nonlocal data
+            if not activity_path.exists():
+                return False
+            content = activity_path.read_text()
+            if not content.strip():
+                return False
+            try:
+                data = json.loads(content)
+                return True
+            except json.JSONDecodeError:
+                return False
 
-        # Verify the activity file has valid JSON content with time in milliseconds
-        content = activity_path.read_text()
-        data = json.loads(content)
+        wait_for(activity_file_has_content, timeout=10.0, error_message="process activity file not created or empty")
         assert "time" in data
         # Time should be an integer (milliseconds since epoch)
         assert isinstance(data["time"], int)

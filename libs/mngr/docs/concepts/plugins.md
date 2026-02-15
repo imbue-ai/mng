@@ -7,7 +7,7 @@ Plugins extend `mngr` with new agent types, providers, commands, and behaviors. 
 Only install plugins from sources you trust. Built-in plugins are maintained as part of mngr itself.
 
 ```bash
-mngr plugin list              # Show installed plugins [future]
+mngr plugin list              # Show installed plugins
 mngr plugin add <name>        # Install a plugin (pip/uv install) [future]
 mngr plugin remove <name>     # Uninstall a plugin [future]
 ```
@@ -15,8 +15,9 @@ mngr plugin remove <name>     # Uninstall a plugin [future]
 Plugins can be enabled/disabled without uninstalling:
 
 ```bash
-# Disable permanently via config
-mngr config set plugins.modal.enabled false
+mngr plugin enable modal             # Enable a plugin
+mngr plugin disable modal            # Disable a plugin
+mngr plugin disable modal --scope user  # Disable at user scope
 
 # Or disable for a single command
 mngr create --disable-plugin modal ...
@@ -128,9 +129,9 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 
 And for the basic provider backends:
 
-- **local-provider**: Local host backend
-- **docker-provider** [future]: Docker-based host backend
-- **modal-provider**: Modal cloud host backend
+- **local**: Local host backend
+- **docker** [future]: Docker-based host backend
+- **modal**: Modal cloud host backend
 
 Utility plugins [future] for additional features:
 
