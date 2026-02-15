@@ -48,12 +48,10 @@ def _find_changeling_agent(changeling_name: str) -> str | None:
     return agent_name
 
 
-def _destroy_agent_if_exists(changeling_name: str) -> None:
-    """Try to find and destroy any agent created by this changeling."""
-    agent_name = _find_changeling_agent(changeling_name)
-    if agent_name is not None:
-        logger.info("Destroying agent '{}' during cleanup", agent_name)
-        _run_mngr_command(["uv", "run", "mngr", "destroy", "--force", agent_name])
+def _destroy_agent(agent_name: str) -> None:
+    """Destroy an agent by name (no-op if it doesn't exist, since --force is used)."""
+    logger.info("Destroying agent '{}'", agent_name)
+    _run_mngr_command(["uv", "run", "mngr", "destroy", "--force", agent_name])
 
 
 def _run_mngr_command(cmd: list[str]) -> None:
@@ -180,7 +178,8 @@ def verify_deployment(
 
         # If error detected, clean up and fail
         if error_event.is_set():
-            _destroy_agent_if_exists(changeling_name)
+            if agent_name is not None:
+                _destroy_agent(agent_name)
             process.kill()
             process.wait()
             error_detail = "\n".join(error_lines) if error_lines else "See output above"
@@ -207,8 +206,7 @@ def verify_deployment(
             _run_mngr_command(["uv", "run", "mngr", "stop", agent_name])
         else:
             # Destroy the agent immediately (we've verified it started)
-            logger.info("Destroying agent '{}' (deployment verified)", agent_name)
-            _run_mngr_command(["uv", "run", "mngr", "destroy", "--force", agent_name])
+            _destroy_agent(agent_name)
             # Wait for modal run to exit (it will exit because we killed the agent)
             process.wait(timeout=60)
 

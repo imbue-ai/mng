@@ -467,11 +467,18 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, indicator),
                 timeout=_TUI_READY_TIMEOUT_SECONDS,
             ):
-                # FIXME: if we end up here, we really need to print out the remote pane content for debugging, since otherwise this is a really annoying error to debug
-                #  and we should log those contents as well, again, for easier debugging
+                pane_content = self._capture_pane_content(session_name)
+                if pane_content is not None:
+                    logger.error(
+                        "TUI ready timeout -- remote pane content:\n{}",
+                        pane_content,
+                    )
+                else:
+                    logger.error("TUI ready timeout -- failed to capture remote pane content")
                 raise SendMessageError(
                     str(self.name),
-                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)"
+                    + (f"\nPane content:\n{pane_content}" if pane_content else ""),
                 )
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:

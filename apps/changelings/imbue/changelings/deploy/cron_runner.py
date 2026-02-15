@@ -70,7 +70,7 @@ if modal.is_local():
     _VOLUME_NAME: str = _require_env("CHANGELING_VOLUME_NAME")
 
     # Assemble all deployment data + user config into a single staging directory.
-    # This produces one mount instead of many separate file/dir mounts.
+    # This is mounted as one directory in the image to minimize the number of mounts.
     _staging_dir = Path(".changelings/staging")
     if _staging_dir.exists():
         shutil.rmtree(_staging_dir)
@@ -115,14 +115,14 @@ if modal.is_local():
     if _mngr_profiles.is_dir():
         shutil.copytree(_mngr_profiles, user_cfg_dir / "mngr" / "profiles", dirs_exist_ok=True)
 else:
-    _APP_NAME = Path("/deployment/app_name").read_text().strip()
-    _CONFIG_JSON = Path("/deployment/config.json").read_text().strip()
-    _CRON_SCHEDULE = Path("/deployment/cron_schedule").read_text().strip()
-    _CRON_TIMEZONE = Path("/deployment/cron_timezone").read_text().strip()
-    _IMBUE_REPO_URL = Path("/deployment/imbue_repo_url").read_text().strip()
-    _IMBUE_COMMIT_HASH = Path("/deployment/imbue_commit_hash").read_text().strip()
-    _SECRET_NAME = Path("/deployment/secret_name").read_text().strip()
-    _VOLUME_NAME = Path("/deployment/volume_name").read_text().strip()
+    _APP_NAME = Path("/staging/deployment/app_name").read_text().strip()
+    _CONFIG_JSON = Path("/staging/deployment/config.json").read_text().strip()
+    _CRON_SCHEDULE = Path("/staging/deployment/cron_schedule").read_text().strip()
+    _CRON_TIMEZONE = Path("/staging/deployment/cron_timezone").read_text().strip()
+    _IMBUE_REPO_URL = Path("/staging/deployment/imbue_repo_url").read_text().strip()
+    _IMBUE_COMMIT_HASH = Path("/staging/deployment/imbue_commit_hash").read_text().strip()
+    _SECRET_NAME = Path("/staging/deployment/secret_name").read_text().strip()
+    _VOLUME_NAME = Path("/staging/deployment/volume_name").read_text().strip()
 
 # --- Image definition ---
 # The image includes system dependencies, GitHub CLI, uv, and Claude Code.
@@ -169,9 +169,7 @@ _image = (
 
 # Add the single staging directory containing all deployment + user config data
 if modal.is_local():
-    _image = _image.add_local_dir(str(_staging_dir / "deployment"), "/deployment", copy=True).add_local_dir(
-        str(_staging_dir / "user_config"), "/staged_user_config", copy=True
-    )
+    _image = _image.add_local_dir(str(_staging_dir), "/staging", copy=True)
 
 app = modal.App(name=_APP_NAME, image=_image)
 
@@ -223,7 +221,7 @@ def _run_and_stream(
 
 def _install_user_config() -> None:
     """Copy staged user config files to their expected locations in the container."""
-    staged = Path("/staged_user_config")
+    staged = Path("/staging/user_config")
 
     claude_json = staged / "claude.json"
     if claude_json.exists():
