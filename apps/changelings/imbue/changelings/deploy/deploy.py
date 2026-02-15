@@ -18,7 +18,6 @@ from imbue.imbue_common.pure import pure
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
 AGENT_POLL_TIMEOUT_SECONDS: float = 900.0
-AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
 
 @pure
@@ -93,6 +92,8 @@ def build_deploy_env(
     imbue_commit_hash: str,
     volume_name: str,
     cron_timezone: str,
+    git_user_name: str,
+    git_user_email: str,
 ) -> dict[str, str]:
     """Build the environment variables needed for deploying the cron runner.
 
@@ -112,6 +113,8 @@ def build_deploy_env(
         "CHANGELING_IMBUE_COMMIT_HASH": imbue_commit_hash,
         "CHANGELING_VOLUME_NAME": volume_name,
         "CHANGELING_CRON_TIMEZONE": cron_timezone,
+        "CHANGELING_GIT_USER_NAME": git_user_name,
+        "CHANGELING_GIT_USER_EMAIL": git_user_email,
     }
 
 
@@ -287,6 +290,18 @@ def get_imbue_repo_url() -> str:
     return url
 
 
+def get_git_config_value(key: str) -> str | None:
+    """Read a git config value, returning None if not set."""
+    with ConcurrencyGroup(name=f"git-config-{key}") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "config", "--global", key],
+            is_checked_after=False,
+        )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def list_mngr_profiles() -> list[str]:
     """List available mngr profile IDs from ~/.mngr/profiles/.
 
@@ -386,8 +401,8 @@ def deploy_changeling(
     1. Creates/updates a Modal secret with the changeling's API keys
     2. Deploys the cron runner function with the changeling's configuration
     3. Invokes the function once via `modal run` to verify it works
-    4. Polls `mngr list` to confirm an agent is created
-    5. Destroys the test agent (or waits for it to finish if is_finish_initial_run)
+    4. Waits for the verification run to complete
+    5. Destroys the test agent (unless is_finish_initial_run is True)
 
     Returns the Modal app name.
     Raises ChangelingDeployError if deployment or verification fails.
@@ -429,6 +444,11 @@ def deploy_changeling(
     cron_timezone = detect_local_timezone()
     logger.info("Detected local timezone '{}' for cron schedule", cron_timezone)
 
+    # Read git user config to forward to the deployed repos
+    git_user_name = get_git_config_value("user.name") or "changeling"
+    git_user_email = get_git_config_value("user.email") or "changeling@noreply.github.com"
+    logger.debug("Forwarding git user config: name='{}', email='{}'", git_user_name, git_user_email)
+
     deploy_env_vars = build_deploy_env(
         app_name=app_name,
         config_json=config_json,
@@ -438,6 +458,8 @@ def deploy_changeling(
         imbue_commit_hash=imbue_commit_hash,
         volume_name=volume_name,
         cron_timezone=cron_timezone,
+        git_user_name=git_user_name,
+        git_user_email=git_user_email,
     )
 
     env = {**os.environ, **deploy_env_vars}

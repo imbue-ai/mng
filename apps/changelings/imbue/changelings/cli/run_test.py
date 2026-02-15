@@ -83,14 +83,6 @@ def test_build_command_includes_no_connect_flag() -> None:
     assert "--no-connect" in cmd
 
 
-def test_build_command_includes_await_agent_stopped_flag() -> None:
-    """The command should include --await-agent-stopped to wait for completion."""
-    changeling = make_test_changeling()
-    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
-
-    assert "--await-agent-stopped" in cmd
-
-
 def test_build_command_includes_creator_tag() -> None:
     """The command should tag the agent as created by changeling."""
     changeling = make_test_changeling()
@@ -256,7 +248,6 @@ def test_build_command_modal_still_includes_core_flags() -> None:
     cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=None)
 
     assert "--no-connect" in cmd
-    assert "--await-agent-stopped" in cmd
     assert "--no-ensure-clean" in cmd
     assert "CREATOR=changeling" in cmd
 
@@ -406,7 +397,6 @@ def test_run_cli_builds_correct_command_from_config() -> None:
     assert cmd[5] == "code-guardian"
     assert "--no-connect" in cmd
     assert "--yes" in cmd
-    assert "--await-agent-stopped" in cmd
     assert "CHANGELING=test-guardian" in cmd
 
 

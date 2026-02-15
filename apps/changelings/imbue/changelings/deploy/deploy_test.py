@@ -90,6 +90,8 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
         imbue_commit_hash="abc123",
         volume_name="changeling-test-vol",
         cron_timezone="America/Los_Angeles",
+        git_user_name="Test User",
+        git_user_email="test@example.com",
     )
 
     assert env["CHANGELING_MODAL_APP_NAME"] == "changeling-test"
@@ -100,6 +102,8 @@ def test_build_deploy_env_includes_all_required_vars() -> None:
     assert env["CHANGELING_IMBUE_COMMIT_HASH"] == "abc123"
     assert env["CHANGELING_VOLUME_NAME"] == "changeling-test-vol"
     assert env["CHANGELING_CRON_TIMEZONE"] == "America/Los_Angeles"
+    assert env["CHANGELING_GIT_USER_NAME"] == "Test User"
+    assert env["CHANGELING_GIT_USER_EMAIL"] == "test@example.com"
 
 
 # -- detect_local_timezone / _resolve_timezone_from_paths tests --
@@ -429,7 +433,6 @@ def test_build_cron_mngr_command_includes_core_flags() -> None:
     cmd = build_cron_mngr_command(changeling, env_file)
 
     assert "--no-connect" in cmd
-    assert "--await-agent-stopped" in cmd
     assert "--no-ensure-clean" in cmd
     assert "CREATOR=changeling" in cmd
 

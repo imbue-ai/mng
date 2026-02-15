@@ -34,6 +34,8 @@
 # - CHANGELING_IMBUE_COMMIT_HASH: Git commit hash to checkout in the imbue repo
 # - CHANGELING_SECRET_NAME: Name of the Modal Secret containing API keys
 # - CHANGELING_VOLUME_NAME: Name of the Modal Volume for persistent target repo storage
+# - CHANGELING_GIT_USER_NAME: Git user.name for commits (e.g., "Josh Albrecht")
+# - CHANGELING_GIT_USER_EMAIL: Git user.email for commits (e.g., "user@example.com")
 
 import json
 import os
@@ -68,6 +70,8 @@ if modal.is_local():
     _IMBUE_COMMIT_HASH: str = _require_env("CHANGELING_IMBUE_COMMIT_HASH")
     _SECRET_NAME: str = _require_env("CHANGELING_SECRET_NAME")
     _VOLUME_NAME: str = _require_env("CHANGELING_VOLUME_NAME")
+    _GIT_USER_NAME: str = _require_env("CHANGELING_GIT_USER_NAME")
+    _GIT_USER_EMAIL: str = _require_env("CHANGELING_GIT_USER_EMAIL")
 
     # Assemble all deployment data + user config into a single staging directory.
     # This is mounted as one directory in the image to minimize the number of mounts.
@@ -87,6 +91,8 @@ if modal.is_local():
     (deploy_dir / "imbue_commit_hash").write_text(_IMBUE_COMMIT_HASH)
     (deploy_dir / "secret_name").write_text(_SECRET_NAME)
     (deploy_dir / "volume_name").write_text(_VOLUME_NAME)
+    (deploy_dir / "git_user_name").write_text(_GIT_USER_NAME)
+    (deploy_dir / "git_user_email").write_text(_GIT_USER_EMAIL)
 
     # User config files needed by mngr at runtime
     _user_home = Path.home()
@@ -123,6 +129,8 @@ else:
     _IMBUE_COMMIT_HASH = Path("/staging/deployment/imbue_commit_hash").read_text().strip()
     _SECRET_NAME = Path("/staging/deployment/secret_name").read_text().strip()
     _VOLUME_NAME = Path("/staging/deployment/volume_name").read_text().strip()
+    _GIT_USER_NAME = Path("/staging/deployment/git_user_name").read_text().strip()
+    _GIT_USER_EMAIL = Path("/staging/deployment/git_user_email").read_text().strip()
 
 # --- Image definition ---
 # The image includes system dependencies, GitHub CLI, uv, and Claude Code.
@@ -253,6 +261,17 @@ def _repo_name_from_url(url: str) -> str:
     return name
 
 
+def _ssh_url_to_https(url: str) -> str:
+    """Convert an SSH git URL to HTTPS format.
+
+    e.g. "git@github.com:org/repo.git" -> "https://github.com/org/repo.git"
+    Non-SSH URLs are returned unchanged.
+    """
+    if url.startswith("git@github.com:"):
+        return "https://github.com/" + url[len("git@github.com:") :]
+    return url
+
+
 def _clone_or_fetch_repo(
     repo_url: str,
     branch_or_commit: str,
@@ -266,8 +285,14 @@ def _clone_or_fetch_repo(
     (appropriate for branch names). When False, only fetch+checkout is done
     (appropriate for commit hashes, which result in a detached HEAD).
 
+    The repo URL is converted from SSH to HTTPS if needed (since Modal uses
+    gh auth setup-git which requires HTTPS). The origin remote is always set
+    to the correct URL after clone/fetch, and git user config is applied.
+
     Returns the path to the repo directory.
     """
+    https_url = _ssh_url_to_https(repo_url)
+
     git_dir = f"{target_dir}/.git"
     parent_dir = str(Path(target_dir).parent)
     os.makedirs(parent_dir, exist_ok=True)
@@ -275,15 +300,21 @@ def _clone_or_fetch_repo(
     if os.path.isdir(git_dir):
         # Repo already exists on the volume -- just fetch and checkout
         print(f"Repo already on volume at {target_dir}, fetching updates...")
+        # Ensure origin points to the correct URL (may have changed between deploys)
+        _run_and_stream(["git", "remote", "set-url", "origin", https_url], cwd=target_dir)
         _run_and_stream(["git", "fetch", "--all"], cwd=target_dir)
         _run_and_stream(["git", "checkout", branch_or_commit], cwd=target_dir)
         if is_branch:
             _run_and_stream(["git", "pull", "--ff-only"], cwd=target_dir, is_checked=False)
     else:
-        # Fresh clone
-        print(f"Cloning repo {repo_url} to {target_dir}...")
-        _run_and_stream(["git", "clone", repo_url, target_dir])
+        # Fresh clone (always use HTTPS URL)
+        print(f"Cloning repo {https_url} to {target_dir}...")
+        _run_and_stream(["git", "clone", https_url, target_dir])
         _run_and_stream(["git", "checkout", branch_or_commit], cwd=target_dir)
+
+    # Set git user config so commits have the correct author
+    _run_and_stream(["git", "config", "user.name", _GIT_USER_NAME], cwd=target_dir)
+    _run_and_stream(["git", "config", "user.email", _GIT_USER_EMAIL], cwd=target_dir)
 
     return target_dir
 
