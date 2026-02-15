@@ -5,9 +5,9 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
-from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -17,12 +17,8 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
-from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import OutputFormat
 
@@ -35,56 +31,6 @@ class RenameCliOptions(CommonCliOptions):
     dry_run: bool
     # Planned features (not yet implemented)
     host: bool
-
-
-def _find_agent_without_starting(
-    mngr_ctx: MngrContext,
-    agent_identifier: str,
-) -> tuple[AgentInterface, OnlineHostInterface]:
-    """Find an agent by name or ID without attempting to start it.
-
-    Unlike find_agent_for_command, this does not call ensure_agent_started,
-    so it works for both running and stopped agents.
-    """
-    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
-
-    # Try parsing as an AgentId first
-    try:
-        agent_id = AgentId(agent_identifier)
-    except ValueError:
-        agent_id = None
-
-    matching: list[tuple[AgentInterface, OnlineHostInterface]] = []
-
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            is_match = (agent_id is not None and agent_ref.agent_id == agent_id) or (
-                agent_id is None and agent_ref.agent_name == AgentName(agent_identifier)
-            )
-            if is_match:
-                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
-                host = provider.get_host(host_ref.host_id)
-                if not isinstance(host, OnlineHostInterface):
-                    raise UserInputError(
-                        f"Host '{host_ref.host_id}' is offline. Cannot rename agents on offline hosts."
-                    )
-                for agent in host.get_agents():
-                    if agent.id == agent_ref.agent_id:
-                        matching.append((agent, host))
-                        break
-
-    if not matching:
-        raise UserInputError(f"No agent found with name or ID: {agent_identifier}")
-
-    if len(matching) > 1:
-        agent_list = "\n".join([f"  - {agent.id} (on {host.get_name()})" for agent, host in matching])
-        raise UserInputError(
-            f"Multiple agents found with name '{agent_identifier}':\n{agent_list}\n\n"
-            f"Please use the agent ID instead:\n"
-            f"  mngr rename <agent-id> <new-name>"
-        )
-
-    return matching[0]
 
 
 def _output(message: str, output_opts: OutputOptions) -> None:
@@ -168,8 +114,15 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
     except ValueError as e:
         raise UserInputError(f"Invalid new name: {e}") from None
 
-    # Resolve the agent (without starting it)
-    agent, host = _find_agent_without_starting(mngr_ctx, opts.current)
+    # Resolve the agent (without requiring the agent process to be running)
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx)
+    agent, host = find_and_maybe_start_agent_by_name_or_id(
+        opts.current,
+        agents_by_host,
+        mngr_ctx,
+        "rename",
+        skip_agent_state_check=True,
+    )
 
     old_name = str(agent.name)
 

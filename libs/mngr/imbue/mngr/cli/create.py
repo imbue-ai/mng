@@ -36,12 +36,12 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.env_utils import resolve_env_vars
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -1108,29 +1108,6 @@ def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext
     return get_current_git_branch(source_location.path, mngr_ctx.concurrency_group)
 
 
-def _resolve_env_vars(
-    pass_env_var_names: tuple[str, ...],
-    explicit_env_var_strings: tuple[str, ...],
-) -> tuple[EnvVar, ...]:
-    """Resolve and merge environment variables.
-
-    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
-    Explicit env vars take precedence over pass-through values.
-    """
-    # Start with pass-through env vars from current shell
-    merged: dict[str, str] = {}
-    for var_name in pass_env_var_names:
-        if var_name in os.environ:
-            merged[var_name] = os.environ[var_name]
-
-    # Explicit env vars override pass-through values
-    for env_str in explicit_env_var_strings:
-        env_var = EnvVar.from_string(env_str)
-        merged[env_var.key] = env_var.value
-
-    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
-
-
 def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
     return find_git_worktree_root(path, cg) is not None
@@ -1237,7 +1214,7 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
+    env_vars = resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
@@ -1392,7 +1369,7 @@ def _parse_target_host(
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = _resolve_env_vars(opts.pass_host_env, opts.host_env)
+        host_env_vars = resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options

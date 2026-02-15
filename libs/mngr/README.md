@@ -182,7 +182,7 @@ mngr <command> [options]
 - [`push`](docs/commands/primary/push.md): Push data to agent
 - [`pair`](docs/commands/primary/pair.md): Continually sync data with an agent
 - [`message`](docs/commands/secondary/message.md): Send a message to an agent
-- [`provision`](docs/commands/secondary/provision.md) [future]: Re-run provisioning on an agent (useful for syncing config and auth)
+- [`provision`](docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
 
 ### For managing mngr itself:
 
