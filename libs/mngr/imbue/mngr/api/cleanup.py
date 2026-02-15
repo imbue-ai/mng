@@ -123,7 +123,7 @@ def _execute_destroy(
                 case HostInterface() as offline_host:
                     with log_span("Destroying offline host {} with {} agent(s)", host_id, len(host_agents)):
                         try:
-                            provider.destroy_host(offline_host, delete_snapshots=True)
+                            provider.destroy_host(offline_host)
                             for agent_info in host_agents:
                                 result.destroyed_agents.append(agent_info.name)
                                 logger.debug("Destroyed agent: {} (via host destruction)", agent_info.name)
