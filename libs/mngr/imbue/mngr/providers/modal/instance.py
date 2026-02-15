@@ -483,11 +483,13 @@ class ModalProviderInstance(BaseProviderInstance):
         except (NotFoundError, FileNotFoundError):
             return None
 
-    def _delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record from the volume and clear caches."""
+    def _destroy_agents_on_host(self, host_id: HostId) -> None:
+        """Remove the agents for this host from the volume."""
         volume = self._get_volume()
 
-        # first delete all agent records for this host
+        # FIXME: this would actually probably be faster if we called "modal volume rm -r -e env_name volume_name /host_id"
+        #  because that would automatically be able to handle the recursion and parallelism
+        # delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
             entries = _volume_listdir(volume, host_dir)
@@ -500,6 +502,15 @@ class ModalProviderInstance(BaseProviderInstance):
                 _volume_remove_file(volume, agent_path)
             # then finally remove the empty host directory
             _volume_remove_file(volume, host_dir)
+        logger.trace("Deleted agent records from host volume dir: {}", host_dir)
+
+        # Clear cache entries for this host
+        self._host_by_id_cache.pop(host_id, None)
+        self._host_record_cache_by_id.pop(host_id, None)
+
+    def _delete_host_record(self, host_id: HostId) -> None:
+        """Delete a host record from the volume and clear caches."""
+        volume = self._get_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
@@ -1667,20 +1678,17 @@ log "=== Shutdown script completed ==="
         return restored_host
 
     @handle_modal_auth_error
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
-        """Destroy a Modal sandbox permanently.
-
-        If delete_snapshots is True, also deletes the host record from the volume.
-        """
-        host_id = host.id if isinstance(host, HostInterface) else host
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        """Destroy a Modal sandbox permanently."""
         self.stop_host(host)
+        host_id = host.id if isinstance(host, HostInterface) else host
+        self._destroy_agents_on_host(host_id)
+        # FIXME: we should also delete the snapshots here (from the host record)
+        # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
 
-        if delete_snapshots:
-            self._delete_host_record(host_id)
+    @handle_modal_auth_error
+    def delete_host(self, host: HostInterface) -> None:
+        self._delete_host_record(host.id)
 
     def on_connection_error(self, host_id: HostId) -> None:
         """Remove all caches if we notice a connection to the host fail"""

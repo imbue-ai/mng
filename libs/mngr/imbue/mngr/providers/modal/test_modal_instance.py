@@ -145,16 +145,27 @@ def test_list_hosts_includes_created_host(real_modal_provider: ModalProviderInst
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(180)
-def test_destroy_host_removes_sandbox(real_modal_provider: ModalProviderInstance) -> None:
-    """Destroying a host should remove it from the provider."""
+def test_destroy_host_stops_sandbox_and_delete_host_removes_record(
+    real_modal_provider: ModalProviderInstance,
+) -> None:
+    """destroy_host stops the sandbox; delete_host removes the host record."""
     host = real_modal_provider.create_host(HostName("test-host"))
     host_id = host.id
 
-    real_modal_provider.destroy_host(host)
+    try:
+        real_modal_provider.destroy_host(host)
 
-    # Host should no longer be found
-    with pytest.raises(HostNotFoundError):
-        real_modal_provider.get_host(host_id)
+        # Host record still exists (as an offline host) after destroy
+        found_host = real_modal_provider.get_host(host_id)
+        assert found_host.id == host_id
+
+        # delete_host permanently removes the record
+        real_modal_provider.delete_host(found_host)
+
+        with pytest.raises(HostNotFoundError):
+            real_modal_provider.get_host(host_id)
+    finally:
+        real_modal_provider.destroy_host(host)
 
 
 @pytest.mark.acceptance
