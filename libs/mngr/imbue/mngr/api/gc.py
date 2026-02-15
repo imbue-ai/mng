@@ -181,7 +181,7 @@ def gc_machines(
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
-    """Garbage collect idle and offline machines with no agents."""
+    """Garbage collect idle machines and delete old offline host records."""
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider in providers:

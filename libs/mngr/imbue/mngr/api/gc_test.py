@@ -28,6 +28,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.mock_provider_test import MockProviderInstance
+from imbue.mngr.providers.mock_provider_test import make_offline_host
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
@@ -233,22 +234,16 @@ def _make_offline_host(
     failure_reason: str | None = None,
 ) -> OfflineHost:
     """Create an offline host with configurable age and state."""
-    host_id = HostId.generate()
     stopped_at = datetime.now(timezone.utc) - timedelta(days=days_old)
     certified_data = CertifiedHostData(
-        host_id=str(host_id),
+        host_id=str(HostId.generate()),
         host_name="test-host",
         stop_reason=stop_reason,
         failure_reason=failure_reason,
         created_at=stopped_at - timedelta(hours=1),
         updated_at=stopped_at,
     )
-    return OfflineHost(
-        id=host_id,
-        certified_host_data=certified_data,
-        provider_instance=provider,
-        mngr_ctx=mngr_ctx,
-    )
+    return make_offline_host(certified_data, provider, mngr_ctx)
 
 
 def _run_gc_machines(provider: MockProviderInstance, *, dry_run: bool = False) -> GcResult:
