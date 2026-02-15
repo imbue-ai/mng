@@ -75,6 +75,7 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 | `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
+| `--adopt-session` | text | Adopt an existing Claude Code session into this agent. Optionally specify a session ID; otherwise auto-detects the most recent session. | None |
 
 ## Agent Source Data (what to include in the new agent)
 
@@ -295,4 +296,16 @@ $ mngr create my-agent -c server="npm run dev"
 
 ```bash
 $ mngr create my-agent --reuse
+```
+
+**Adopt an existing Claude session**
+
+```bash
+$ mngr create my-agent --adopt-session
+```
+
+**Adopt a specific session by ID**
+
+```bash
+$ mngr create my-agent --adopt-session <session-id>
 ```

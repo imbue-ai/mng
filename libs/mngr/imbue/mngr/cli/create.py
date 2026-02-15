@@ -225,6 +225,7 @@ class CreateCliOptions(CommonCliOptions):
     append_to_file: tuple[str, ...]
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
+    adopt_session: str | None
     ready_timeout: float
     yes: bool
 
@@ -324,6 +325,14 @@ class CreateCliOptions(CommonCliOptions):
     default=True,
     show_default=True,
     help="Automatically start offline hosts (source and target) before proceeding",
+)
+@optgroup.option(
+    "--adopt-session",
+    is_flag=False,
+    flag_value="",
+    default=None,
+    help="Adopt an existing Claude Code session into this agent. "
+    "Optionally specify a session ID; otherwise auto-detects the most recent session.",
 )
 @optgroup.group("Agent Source Data (what to include in the new agent)")
 @optgroup.option(
@@ -549,6 +558,13 @@ def _handle_create(mngr_ctx, output_opts, opts):
         raise UserInputError(
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
+
+    # Validate --adopt-session is only used with claude agent type (or default)
+    if opts.adopt_session is not None:
+        if opts.agent_type is not None and opts.agent_type != "claude":
+            raise UserInputError(
+                f"--adopt-session can only be used with the claude agent type. Got --agent-type={opts.agent_type}."
+            )
 
     # Early validation: --edit-message cannot be used with background creation
     # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
@@ -1285,6 +1301,11 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
+    # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
+    # This is set when cloning from an existing agent (--source-agent) or adopting a session (--adopt-session).
+    is_session_transfer = opts.source_agent is not None or opts.adopt_session is not None
+    parsed_source_work_dir = source_location.path if is_session_transfer else None
+
     agent_opts = CreateAgentOptions(
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
         name=parsed_agent_name,
@@ -1303,6 +1324,8 @@ def _parse_agent_opts(
         lifecycle=lifecycle,
         permissions=permissions,
         provisioning=provisioning,
+        adopt_session_id=opts.adopt_session,
+        source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
 
@@ -1563,6 +1586,8 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
         ("Reuse existing agent or create if not found", "mngr create my-agent --reuse"),
+        ("Adopt an existing Claude session", "mngr create my-agent --adopt-session"),
+        ("Adopt a specific session by ID", "mngr create my-agent --adopt-session <session-id>"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),

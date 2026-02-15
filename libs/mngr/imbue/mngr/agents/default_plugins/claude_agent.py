@@ -20,6 +20,7 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTr
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
+from imbue.mngr.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
@@ -28,6 +29,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import RelativePath
@@ -159,6 +161,38 @@ def _has_api_credentials_available(
             return True
 
     return False
+
+
+def _get_claude_project_dir(path: Path) -> Path:
+    """Get the Claude project directory for a given filesystem path."""
+    return Path.home() / ".claude" / "projects" / encode_claude_project_dir_name(path)
+
+
+def _find_most_recent_session(project_dir: Path) -> str:
+    """Find the most recent session ID in a Claude project directory.
+
+    Reads sessions-index.json and returns the session ID of the most
+    recently modified session. Falls back to finding the most recently
+    modified .jsonl file if sessions-index.json doesn't exist.
+
+    Raises UserInputError if no sessions are found.
+    """
+    # Try sessions-index.json first
+    index_path = project_dir / "sessions-index.json"
+    if index_path.exists():
+        index_data = json.loads(index_path.read_text())
+        entries = index_data.get("entries", [])
+        if entries:
+            # Sort by modified time (descending), then return the most recent
+            entries.sort(key=lambda e: e.get("fileMtime", 0), reverse=True)
+            return entries[0]["sessionId"]
+
+    # Fallback: find most recently modified .jsonl file
+    jsonl_files = list(project_dir.glob("*.jsonl"))
+    if not jsonl_files:
+        raise UserInputError(f"No sessions found in {project_dir}")
+    jsonl_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    return jsonl_files[0].stem
 
 
 class ClaudeAgent(BaseAgent):
@@ -574,6 +608,178 @@ class ClaudeAgent(BaseAgent):
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)
+
+        # Transfer Claude session data from source agent (if cloning)
+        if options.source_work_dir is not None:
+            self._transfer_claude_session(host, options.source_work_dir)
+
+    def on_after_provisioning(
+        self,
+        host: OnlineHostInterface,
+        options: CreateAgentOptions,
+        mngr_ctx: MngrContext,
+    ) -> None:
+        """Set the specific adopted session ID if --adopt-session was specified.
+
+        The session transfer itself is handled by provision() via source_work_dir.
+        This method resolves auto-detection, validates the session exists, and
+        overwrites the session ID (since _transfer_claude_session writes the
+        most recent session, which may differ from the one being adopted).
+        """
+        if options.adopt_session_id is None:
+            return
+
+        if options.source_work_dir is None:
+            raise PluginMngrError("source_work_dir is required when adopt_session_id is set")
+
+        source_project_dir = _get_claude_project_dir(options.source_work_dir)
+        if not source_project_dir.exists():
+            raise UserInputError(
+                f"No Claude project directory found for {options.source_work_dir}. Expected: {source_project_dir}"
+            )
+
+        # Auto-detect session if empty string
+        session_id = options.adopt_session_id
+        if session_id == "":
+            session_id = _find_most_recent_session(source_project_dir)
+            logger.info("Auto-detected session: {}", session_id)
+
+        # Verify session exists in the transferred project dir
+        target_project_dir = _get_claude_project_dir(self.work_dir)
+        target_file = target_project_dir / f"{session_id}.jsonl"
+        if not target_file.exists():
+            raise UserInputError(
+                f"Session {session_id} not found after transfer. "
+                f"Available sessions: {[f.stem for f in target_project_dir.glob('*.jsonl')]}"
+            )
+
+        # Overwrite the session ID with the specific adopted session
+        agent_state_dir = self._get_agent_dir()
+        host.write_text_file(agent_state_dir / "claude_session_id", session_id)
+
+        logger.info("Adopted session {}", session_id)
+
+    def _transfer_claude_session(
+        self,
+        host: OnlineHostInterface,
+        source_work_dir: Path,
+    ) -> None:
+        """Transfer Claude Code session data from a source agent's project directory.
+
+        Copies the entire ~/.claude/projects/<encoded-source-path>/ directory
+        to ~/.claude/projects/<encoded-dest-path>/ so that session transcripts,
+        subagent data, and auto-memory are preserved. Also writes the latest
+        session ID to the new agent's state dir so --resume picks it up.
+
+        For remote hosts, rewrites sessions-index.json so that fullPath and
+        projectPath entries point to the correct remote paths.
+        """
+        source_dir_name = encode_claude_project_dir_name(source_work_dir)
+        dest_dir_name = encode_claude_project_dir_name(self.work_dir)
+
+        source_project_dir = Path.home() / ".claude" / "projects" / source_dir_name
+        if not source_project_dir.exists():
+            logger.debug(
+                "No Claude project directory found at {}, skipping session transfer",
+                source_project_dir,
+            )
+            return
+
+        with log_span("Transferring Claude session from {} to {}", source_dir_name, dest_dir_name):
+            if host.is_local:
+                dest_project_dir = Path.home() / ".claude" / "projects" / dest_dir_name
+                host.execute_command(
+                    f"cp -a {shlex.quote(str(source_project_dir))} {shlex.quote(str(dest_project_dir))}",
+                    timeout_seconds=60.0,
+                )
+                # Rewrite sessions-index.json paths if source and dest dirs differ
+                if source_dir_name != dest_dir_name:
+                    self._rewrite_sessions_index(
+                        host,
+                        dest_project_dir,
+                        str(source_project_dir),
+                        str(dest_project_dir),
+                        source_work_dir,
+                    )
+            else:
+                dest_project_dir = Path(".claude/projects") / dest_dir_name
+                # Resolve the remote home directory for rewriting absolute paths
+                home_result = host.execute_command("echo $HOME", timeout_seconds=5.0)
+                remote_home = home_result.stdout.strip() if home_result.success else "/root"
+                remote_project_dir_abs = Path(remote_home) / ".claude" / "projects" / dest_dir_name
+
+                for file_path in source_project_dir.rglob("*"):
+                    if file_path.is_file():
+                        relative_path = file_path.relative_to(source_project_dir)
+                        remote_path = dest_project_dir / relative_path
+                        content = file_path.read_text()
+
+                        # Rewrite sessions-index.json paths for the remote host
+                        if file_path.name == "sessions-index.json":
+                            content = self._rewrite_sessions_index_content(
+                                content,
+                                str(source_project_dir),
+                                str(remote_project_dir_abs),
+                                source_work_dir,
+                            )
+
+                        host.write_text_file(remote_path, content)
+
+            # Find the latest session ID from the most recently modified .jsonl file
+            jsonl_files = sorted(source_project_dir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime)
+            if jsonl_files:
+                latest_session_id = jsonl_files[-1].stem
+                agent_state_dir = self._get_agent_dir()
+                host.write_text_file(agent_state_dir / "claude_session_id", latest_session_id)
+                logger.debug("Wrote session ID {} to agent state dir", latest_session_id)
+            else:
+                logger.debug("No .jsonl session files found in source project dir")
+
+    def _rewrite_sessions_index_content(
+        self,
+        content: str,
+        source_project_dir: str,
+        dest_project_dir: str,
+        source_work_dir: Path,
+    ) -> str:
+        """Rewrite fullPath and projectPath in sessions-index.json content.
+
+        Replaces the source project directory prefix with the dest prefix in
+        fullPath entries, and replaces projectPath with the new work_dir.
+        """
+        try:
+            index = json.loads(content)
+        except json.JSONDecodeError:
+            logger.debug("Failed to parse sessions-index.json, transferring as-is")
+            return content
+
+        for entry in index.get("entries", []):
+            if "fullPath" in entry:
+                entry["fullPath"] = entry["fullPath"].replace(source_project_dir, dest_project_dir)
+            if "projectPath" in entry:
+                entry["projectPath"] = str(self.work_dir)
+
+        return json.dumps(index, indent=2) + "\n"
+
+    def _rewrite_sessions_index(
+        self,
+        host: OnlineHostInterface,
+        dest_project_dir: Path,
+        source_project_dir_str: str,
+        dest_project_dir_str: str,
+        source_work_dir: Path,
+    ) -> None:
+        """Rewrite sessions-index.json in the dest project directory after a local copy."""
+        index_path = dest_project_dir / "sessions-index.json"
+        try:
+            content = host.read_text_file(index_path)
+        except FileNotFoundError:
+            return
+
+        rewritten = self._rewrite_sessions_index_content(
+            content, source_project_dir_str, dest_project_dir_str, source_work_dir
+        )
+        host.write_text_file(index_path, rewritten)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""
