@@ -16,7 +16,7 @@ from imbue.imbue_common.pure import pure
 
 _FALLBACK_TIMEZONE: str = "UTC"
 
-AGENT_POLL_TIMEOUT_SECONDS: float = 300.0
+AGENT_POLL_TIMEOUT_SECONDS: float = 900.0
 AGENT_POLL_INTERVAL_SECONDS: float = 10.0
 
 
