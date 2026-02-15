@@ -164,6 +164,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
             certified_data["stop_reason"] = stop_reason
+            certified_data["updated_at"] = datetime.now(timezone.utc).isoformat()
             host_record["certified_host_data"] = certified_data
 
             # Write updated host record
