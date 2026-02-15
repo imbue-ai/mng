@@ -1,6 +1,7 @@
 """Unit tests for OfflineHost implementation."""
 
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 from pathlib import Path
 
@@ -72,6 +73,39 @@ def test_get_activity_config_returns_config_from_certified_data(offline_host: Of
         ActivitySource.START,
         ActivitySource.BOOT,
     )
+
+
+def test_get_stop_time_returns_updated_at(offline_host: OfflineHost) -> None:
+    """Test that get_stop_time returns the updated_at timestamp from certified data."""
+    stop_time = offline_host.get_stop_time()
+
+    assert stop_time is not None
+    assert stop_time == offline_host.certified_host_data.updated_at
+
+
+def test_get_seconds_since_stopped_returns_elapsed_time(
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
+) -> None:
+    """Test that get_seconds_since_stopped computes elapsed time from updated_at."""
+    host_id = HostId.generate()
+    five_minutes_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="stopped-host",
+        created_at=five_minutes_ago,
+        updated_at=five_minutes_ago,
+    )
+    host = OfflineHost(
+        id=host_id,
+        certified_host_data=certified_data,
+        provider_instance=fake_provider,
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    seconds = host.get_seconds_since_stopped()
+    assert seconds is not None
+    # Should be approximately 300 seconds (5 minutes), with some tolerance
+    assert 290 < seconds < 310
 
 
 def test_get_all_certified_data_returns_stored_data(offline_host: OfflineHost) -> None:
