@@ -1688,8 +1688,8 @@ log "=== Shutdown script completed ==="
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
-        # just make sure all of the agent records are gone
-        self._destroy_agents_on_host(host_id)
+        # just make sure all agent records are gone
+        self._destroy_agents_on_host(host.id)
         # then delete the main host record
         self._delete_host_record(host.id)
 
