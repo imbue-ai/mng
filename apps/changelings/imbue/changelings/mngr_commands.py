@@ -59,8 +59,12 @@ def build_mngr_create_command(
         branch_name,
         "--message",
         initial_message,
+        # get the code in the right place
         "--target-path",
         "/code/mngr",
+        # make another command window that tries to log us in
+        "-c",
+        "github_setup='mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && gh auth setup-git'",
     ]
 
     # When running on Modal, specify the provider and pass secrets via env file
