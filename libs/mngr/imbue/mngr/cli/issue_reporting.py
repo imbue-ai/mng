@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 
 import click
 from loguru import logger
+from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ConcurrencyGroupError
@@ -32,9 +33,9 @@ class IssueSearchError(BaseMngrError):
 class ExistingIssue(FrozenModel):
     """A GitHub issue that already exists for a NotImplementedError."""
 
-    number: int
-    title: str
-    url: str
+    number: int = Field(description="GitHub issue number")
+    title: str = Field(description="GitHub issue title")
+    url: str = Field(description="URL to the GitHub issue")
 
 
 @pure

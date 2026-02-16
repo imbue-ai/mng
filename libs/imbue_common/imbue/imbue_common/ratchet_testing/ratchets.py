@@ -1,5 +1,6 @@
 import ast
 from pathlib import Path
+from typing import Final
 
 from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
@@ -9,7 +10,7 @@ from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
-TEST_FILE_PATTERNS: tuple[str, ...] = ("*_test.py", "test_*.py")
+TEST_FILE_PATTERNS: Final[tuple[str, ...]] = ("*_test.py", "test_*.py")
 
 
 def find_if_elif_without_else(

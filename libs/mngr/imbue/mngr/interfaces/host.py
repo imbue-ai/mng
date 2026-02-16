@@ -162,6 +162,8 @@ class HostInterface(MutableModel, ABC):
 
 
 class OnlineHostInterface(HostInterface, ABC):
+    """Interface for hosts that are currently online and accessible for operations."""
+
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     # =========================================================================

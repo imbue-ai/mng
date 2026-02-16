@@ -2,10 +2,11 @@ import functools
 import inspect
 import sys
 import time
+from collections.abc import Callable
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
-from typing import Callable
-from typing import Iterator
+from typing import Final
 from typing import ParamSpec
 from typing import TypeVar
 
@@ -28,13 +29,15 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+_MAX_LOG_VALUE_REPR_LENGTH: Final[int] = 200
+
+
 @pure
 def _format_arg_value(value: Any) -> str:
     """Format an argument value for logging, truncating if too long."""
     str_value = repr(value)
-    max_len = 200
-    if len(str_value) > max_len:
-        return str_value[: max_len - 3] + "..."
+    if len(str_value) > _MAX_LOG_VALUE_REPR_LENGTH:
+        return str_value[: _MAX_LOG_VALUE_REPR_LENGTH - 3] + "..."
     return str_value
 
 

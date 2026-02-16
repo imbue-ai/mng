@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import auto
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Mapping
 from typing import Self
 
@@ -226,7 +227,7 @@ class ProviderInstanceName(NonEmptyStr):
     """Name of a provider instance."""
 
 
-LOCAL_PROVIDER_NAME = ProviderInstanceName("local")
+LOCAL_PROVIDER_NAME: Final[ProviderInstanceName] = ProviderInstanceName("local")
 
 
 class ProviderBackendName(NonEmptyStr):
@@ -301,9 +302,9 @@ class SnapshotName(str):
 class HostReference(FrozenModel):
     """Lightweight reference to a host for display and identification purposes."""
 
-    host_id: HostId
-    host_name: HostName
-    provider_name: ProviderInstanceName
+    host_id: HostId = Field(description="Unique identifier for the host")
+    host_name: HostName = Field(description="Human-readable name of the host")
+    provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
 class AgentReference(FrozenModel):

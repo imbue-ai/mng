@@ -256,13 +256,13 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         elapsed_seconds = time.monotonic() - start_time_seconds
         return max(0, total_timeout_seconds - elapsed_seconds)
 
-    def _raise_if_not_active(self):
+    def _raise_if_not_active(self) -> None:
         if self._state != ConcurrencyGroupState.ACTIVE:
             raise InvalidConcurrencyGroupStateError(
                 f"Concurrency group `{self.name}` not active: the state is {self._state}."
             )
 
-    def _raise_if_any_strands_or_ancestors_failed(self):
+    def _raise_if_any_strands_or_ancestors_failed(self) -> None:
         exceptions = []
         with self._lock:
             threads = self._threads[:]
@@ -296,7 +296,7 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
                 exceptions,
             )
 
-    def raise_if_any_strands_or_ancestors_failed_or_is_shutting_down(self):
+    def raise_if_any_strands_or_ancestors_failed_or_is_shutting_down(self) -> None:
         """
         Check all the registered strands and raise an exception if any of them failed.
 

@@ -417,10 +417,10 @@ def find_and_maybe_start_agent_by_name_or_id(
 class AgentMatch(FrozenModel):
     """Information about an agent that matched a search query."""
 
-    agent_id: AgentId
-    agent_name: AgentName
-    host_id: HostId
-    provider_name: ProviderInstanceName
+    agent_id: AgentId = Field(description="Unique identifier for the matched agent")
+    agent_name: AgentName = Field(description="Human-readable name of the matched agent")
+    host_id: HostId = Field(description="Unique identifier for the host the agent runs on")
+    provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
 @pure

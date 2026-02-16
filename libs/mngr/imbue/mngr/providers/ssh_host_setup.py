@@ -1,10 +1,3 @@
-"""SSH host setup utilities for providers.
-
-Contains shell command builders for setting up SSH access on host containers/VMs.
-These utilities are designed to be reusable across different providers (Modal, Docker, etc.)
-that need to configure SSH access on newly created hosts.
-"""
-
 import importlib.resources
 from pathlib import Path
 from typing import Final

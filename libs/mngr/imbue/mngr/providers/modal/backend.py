@@ -3,6 +3,7 @@ from contextlib import AbstractContextManager
 from io import StringIO
 from pathlib import Path
 from typing import ClassVar
+from typing import Final
 
 import modal
 import modal.exception
@@ -36,9 +37,9 @@ from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.log_utils import ModalLoguruWriter
 from imbue.mngr.providers.modal.log_utils import enable_modal_output_capture
 
-MODAL_BACKEND_NAME = ProviderBackendName("modal")
-STATE_VOLUME_SUFFIX = "-state"
-MODAL_NAME_MAX_LENGTH = 64
+MODAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("modal")
+STATE_VOLUME_SUFFIX: Final[str] = "-state"
+MODAL_NAME_MAX_LENGTH: Final[int] = 64
 
 
 def _create_environment(environment_name: str, cg: ConcurrencyGroup) -> None:
@@ -451,7 +452,7 @@ def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
     """We need to snapshot the sandbox after the agents are created and initial messages are delivered."""
 
     if not isinstance(host, Host):
-        raise Exception("Host is not an instance of Host class")
+        raise MngrError("Host is not an instance of Host class")
 
     provider_instance = host.provider_instance
     if isinstance(provider_instance, ModalProviderInstance):

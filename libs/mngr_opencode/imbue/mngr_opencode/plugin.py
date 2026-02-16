@@ -1,12 +1,3 @@
-"""OpenCode agent type plugin for mngr.
-
-This module registers the OpenCode agent type via pluggy hooks. When the mngr_opencode
-package is installed, the agent type is automatically discovered and available for use.
-
-The hookimpl-decorated function must be at module level for pluggy's entry point
-discovery to find it when the module is loaded via load_setuptools_entrypoints().
-"""
-
 from pydantic import Field
 
 from imbue.mngr import hookimpl

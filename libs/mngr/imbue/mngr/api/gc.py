@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import assert_never
 
 from loguru import logger
 
@@ -670,13 +671,15 @@ def _apply_cel_filters(
 
 def _handle_error(error_msg: str, error_behavior: ErrorBehavior, exc: Exception | None = None) -> None:
     """Handle an error according to the specified error behavior."""
-    if error_behavior == ErrorBehavior.ABORT:
-        if exc:
-            raise exc
-        raise MngrError(error_msg)
-    else:
-        # CONTINUE - just log the error
-        if exc:
-            logger.exception(exc)
-        else:
-            logger.error(error_msg)
+    match error_behavior:
+        case ErrorBehavior.ABORT:
+            if exc:
+                raise exc
+            raise MngrError(error_msg)
+        case ErrorBehavior.CONTINUE:
+            if exc:
+                logger.exception(exc)
+            else:
+                logger.error(error_msg)
+        case _ as unreachable:
+            assert_never(unreachable)

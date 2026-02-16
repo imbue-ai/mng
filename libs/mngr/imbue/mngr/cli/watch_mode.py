@@ -1,5 +1,3 @@
-"""Utility for running commands in watch mode (periodic refresh)."""
-
 from collections.abc import Callable
 
 from loguru import logger
