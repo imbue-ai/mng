@@ -495,11 +495,14 @@ def _print_test_durations_for_ci(
     if "CI" not in os.environ:
         return
 
-    durations = _collect_test_durations(terminalreporter)
-    if not durations:
+    all_durations = _collect_test_durations(terminalreporter)
+    if not all_durations:
         return
 
-    output = json.dumps(durations, indent=2, sort_keys=True)
+    # Sort by duration (slowest first)
+    durations = sorted(all_durations.items(), key=lambda x: x[1], reverse=True)
+
+    output = json.dumps({**durations}, indent=2)
     os.write(2, f"\n=== test durations (pytest-split format) ===\n{output}\n".encode())
 
 
