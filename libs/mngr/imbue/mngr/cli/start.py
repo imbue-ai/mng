@@ -22,6 +22,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -56,6 +57,10 @@ def _output(message: str, output_opts: OutputOptions) -> None:
 
 def _output_result(started_agents: Sequence[str], output_opts: OutputOptions) -> None:
     """Output the final result."""
+    if output_opts.format_template is not None:
+        items = [{"name": name} for name in started_agents]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     result_data = {"started_agents": started_agents, "count": len(started_agents)}
     match output_opts.output_format:
         case OutputFormat.JSON:
@@ -166,6 +171,8 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
     the container/instance. For local agents, this starts the agent's tmux
     session.
 
+    Supports custom format templates via --format. Available fields: name.
+
     \b
     Examples:
 
@@ -176,11 +183,14 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
       mngr start --agent my-agent --connect
 
       mngr start --all
+
+      mngr start --all --format '{name}'
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="start",
         command_class=StartCliOptions,
+        is_format_template_supported=True,
     )
 
     # Check for unsupported [future] options

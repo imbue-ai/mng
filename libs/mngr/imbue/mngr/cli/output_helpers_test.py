@@ -7,9 +7,11 @@ import pytest
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
+from imbue.mngr.cli.output_helpers import render_format_template
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -232,3 +234,94 @@ def test_mngr_error_format_message_with_multiline_help_text() -> None:
     # No "Error:" prefix - Click adds that when displaying MngrError exceptions
     assert "Test error" in result
     assert "Line 1\nLine 2" in result
+
+
+# =============================================================================
+# Tests for render_format_template
+# =============================================================================
+
+
+def test_render_format_template_simple_field() -> None:
+    """render_format_template should substitute a single field."""
+    result = render_format_template("{name}", {"name": "my-agent"})
+    assert result == "my-agent"
+
+
+def test_render_format_template_multiple_fields() -> None:
+    """render_format_template should substitute multiple fields."""
+    result = render_format_template("{name}\t{state}", {"name": "my-agent", "state": "RUNNING"})
+    assert result == "my-agent\tRUNNING"
+
+
+def test_render_format_template_unknown_field_returns_empty() -> None:
+    """render_format_template should return empty string for unknown fields."""
+    result = render_format_template("{name}\t{missing}", {"name": "my-agent"})
+    assert result == "my-agent\t"
+
+
+def test_render_format_template_literal_text_preserved() -> None:
+    """render_format_template should preserve literal text around fields."""
+    result = render_format_template("Agent: {name} is {state}!", {"name": "foo", "state": "OK"})
+    assert result == "Agent: foo is OK!"
+
+
+def test_render_format_template_no_fields() -> None:
+    """render_format_template should handle template with no fields."""
+    result = render_format_template("just text", {})
+    assert result == "just text"
+
+
+def test_render_format_template_conversion_s() -> None:
+    """render_format_template should apply !s conversion."""
+    result = render_format_template("{name!s}", {"name": "test"})
+    assert result == "test"
+
+
+def test_render_format_template_conversion_r() -> None:
+    """render_format_template should apply !r conversion."""
+    result = render_format_template("{name!r}", {"name": "test"})
+    assert result == "'test'"
+
+
+def test_render_format_template_conversion_a() -> None:
+    """render_format_template should apply !a conversion."""
+    result = render_format_template("{name!a}", {"name": "test"})
+    assert result == "'test'"
+
+
+def test_render_format_template_format_spec() -> None:
+    """render_format_template should apply format specs."""
+    result = render_format_template("{name:>10}", {"name": "test"})
+    assert result == "      test"
+
+
+def test_render_format_template_format_spec_left_align() -> None:
+    """render_format_template should apply left-alignment format spec."""
+    result = render_format_template("{name:<10}", {"name": "test"})
+    assert result == "test      "
+
+
+# =============================================================================
+# Tests for emit_format_template_lines
+# =============================================================================
+
+
+def test_emit_format_template_lines_outputs_one_line_per_item(capsys) -> None:
+    """emit_format_template_lines should output one line per item."""
+    items = [
+        {"name": "agent-1", "state": "RUNNING"},
+        {"name": "agent-2", "state": "STOPPED"},
+    ]
+    emit_format_template_lines("{name}\t{state}", items)
+    captured = capsys.readouterr()
+    lines = captured.out.strip().split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "agent-1\tRUNNING"
+    assert lines[1] == "agent-2\tSTOPPED"
+
+
+def test_emit_format_template_lines_empty_list(capsys) -> None:
+    """emit_format_template_lines should produce no output for empty list."""
+    emit_format_template_lines("{name}", [])
+    captured = capsys.readouterr()
+    assert captured.out == ""

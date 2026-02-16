@@ -19,6 +19,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
@@ -101,6 +102,9 @@ def exec_command(ctx: click.Context, **kwargs: Any) -> None:
     defaulting to each agent's work_dir. The command's stdout is printed to
     stdout and stderr to stderr.
 
+    Supports custom format templates via --format. Available fields:
+    agent, stdout, stderr, success.
+
     \b
     Alias: x
 
@@ -114,6 +118,8 @@ def exec_command(ctx: click.Context, **kwargs: Any) -> None:
       mngr exec --agent my-agent --agent another-agent "echo hello"
 
       mngr exec --all "echo hello"
+
+      mngr exec --all "hostname" --format '{agent}\\t{stdout}'
     """
     try:
         _exec_impl(ctx, **kwargs)
@@ -128,6 +134,7 @@ def _exec_impl(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="exec",
         command_class=ExecCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started exec command")
 
@@ -206,6 +213,28 @@ def _emit_jsonl_error(agent_name: str, error: str) -> None:
 
 def _emit_output(result: MultiExecResult, output_opts: OutputOptions) -> None:
     """Emit output based on the result and format."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for r in result.successful_results:
+            items.append(
+                {
+                    "agent": r.agent_name,
+                    "stdout": r.stdout.rstrip("\n"),
+                    "stderr": r.stderr.rstrip("\n"),
+                    "success": str(r.success).lower(),
+                }
+            )
+        for agent_name, error in result.failed_agents:
+            items.append(
+                {
+                    "agent": agent_name,
+                    "stdout": "",
+                    "stderr": error,
+                    "success": "false",
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             _emit_human_output(result)

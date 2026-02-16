@@ -15,11 +15,15 @@ View log files from an agent or host.
 TARGET is an agent name/ID or host name/ID. If a log file name is not
 specified, lists all available log files.
 
+When listing files, supports custom format templates via --format.
+Available fields: name, size.
+
 Examples:
   mngr logs my-agent
   mngr logs my-agent output.log
   mngr logs my-agent output.log --tail 50
   mngr logs my-agent output.log --follow
+  mngr logs my-agent --format '{name}\t{size}'
 
 **Usage:**
 
@@ -46,7 +50,7 @@ mngr logs [OPTIONS] TARGET [LOG_FILENAME]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
