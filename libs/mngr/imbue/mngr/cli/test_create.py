@@ -55,7 +55,7 @@ def test_cli_create_with_echo_command(
         assert "Done." in result.output
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        # Agents now live under hosts/{host_id}/agents/
+        # Agents live under hosts/{host_id}/agents/
         hosts_dir = temp_host_dir / "hosts"
         assert hosts_dir.exists(), "hosts directory should exist in temp dir"
         host_subdirs = list(hosts_dir.iterdir())
@@ -112,7 +112,7 @@ def test_cli_create_via_subprocess(
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        # Agents now live under hosts/{host_id}/agents/
+        # Agents live under hosts/{host_id}/agents/
         hosts_dir = temp_host_dir / "hosts"
         assert hosts_dir.exists(), "hosts directory should exist in temp dir"
 

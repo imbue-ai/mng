@@ -40,6 +40,7 @@ SECONDARY_COMMANDS = {
     "config",
     "gc",
     "limit",
+    "logs",
     "message",
     "provision",
     "plugin",

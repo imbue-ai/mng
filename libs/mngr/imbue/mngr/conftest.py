@@ -383,6 +383,19 @@ def local_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> LocalProv
 
 
 @pytest.fixture
+def per_host_dir(temp_host_dir: Path) -> Path:
+    """Get the per-host directory for the local provider.
+
+    This is the directory where host-scoped data lives: agents/, data.json,
+    activity/, etc. Located at {temp_host_dir}/hosts/{host_id}/.
+    """
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    result = temp_host_dir / "hosts" / str(host_id)
+    result.mkdir(parents=True, exist_ok=True)
+    return result
+
+
+@pytest.fixture
 def cli_runner() -> CliRunner:
     """Create a Click CLI runner for testing CLI commands."""
     return CliRunner()

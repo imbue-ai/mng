@@ -16,14 +16,6 @@ from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import tmux_session_cleanup
 
 
-def _find_agents_dir(temp_host_dir: Path) -> Path:
-    """Find the agents directory under the per-host hosts/ hierarchy."""
-    hosts_dir = temp_host_dir / "hosts"
-    host_subdirs = list(hosts_dir.iterdir())
-    assert len(host_subdirs) == 1
-    return host_subdirs[0] / "agents"
-
-
 def test_provision_existing_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -84,6 +76,7 @@ def test_provision_with_env_var(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     temp_host_dir: Path,
+    per_host_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
@@ -108,7 +101,7 @@ def test_provision_with_env_var(
         assert result.exit_code == 0, f"Provision failed with: {result.output}"
 
         # Verify the env var was written to the agent's env file
-        agents_dir = _find_agents_dir(temp_host_dir)
+        agents_dir = per_host_dir / "agents"
         assert agents_dir.exists()
         agent_dirs = list(agents_dir.iterdir())
         assert len(agent_dirs) == 1
@@ -122,6 +115,7 @@ def test_provision_preserves_existing_env_vars(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     temp_host_dir: Path,
+    per_host_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
@@ -166,7 +160,7 @@ def test_provision_preserves_existing_env_vars(
         assert result.exit_code == 0, f"Provision failed with: {result.output}"
 
         # Verify both env vars are present
-        agents_dir = _find_agents_dir(temp_host_dir)
+        agents_dir = per_host_dir / "agents"
         agent_dirs = list(agents_dir.iterdir())
         assert len(agent_dirs) == 1
         env_file = agent_dirs[0] / "env"
