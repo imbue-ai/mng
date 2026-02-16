@@ -19,6 +19,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import ErrorBehavior
@@ -223,7 +224,7 @@ def _emit_human_output(result: MultiExecResult) -> None:
         # Show agent name header when there are multiple results
         is_multi = len(result.successful_results) + len(result.failed_agents) > 1
         if is_multi:
-            logger.info("--- {} ---", exec_result.agent_name)
+            write_human_line("--- {} ---", exec_result.agent_name)
 
         if exec_result.stdout:
             sys.stdout.write(exec_result.stdout)
@@ -238,7 +239,7 @@ def _emit_human_output(result: MultiExecResult) -> None:
             sys.stderr.flush()
 
         if exec_result.success:
-            logger.info("Command succeeded on agent {}", exec_result.agent_name)
+            write_human_line("Command succeeded on agent {}", exec_result.agent_name)
         else:
             logger.error("Command failed on agent {}", exec_result.agent_name)
 

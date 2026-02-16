@@ -68,21 +68,6 @@ CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 _console_handler_ids: dict[str, int] = {}
 
 
-def _dynamic_stdout_sink(message: Any) -> None:
-    """Loguru sink that always writes to the current sys.stdout.
-
-    When loguru receives a stream via logger.add(sys.stdout), it captures the object
-    reference at that moment. If the stream is later replaced (e.g., by pytest's capture
-    mechanism) or closed, the handler writes to a stale/closed object, causing
-    ValueError("I/O operation on closed file").
-
-    This callable sink solves the problem by resolving sys.stdout at write time, so it
-    always writes to whatever sys.stdout currently points to.
-    """
-    sys.stdout.write(str(message))
-    sys.stdout.flush()
-
-
 def _dynamic_stderr_sink(message: Any) -> None:
     """Loguru sink that always writes to the current sys.stderr."""
     sys.stderr.write(str(message))
@@ -123,7 +108,7 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     """Configure logging based on output options and mngr context.
 
     Sets up:
-    - stdout logging for user-facing messages (clean format)
+    - stderr logging for user-facing messages (clean format)
     - stderr logging for structured diagnostic messages (detailed format)
     - File logging to custom path (if log_file_path provided) or
       ~/.mngr/logs/<timestamp>-<pid>.json (default)
