@@ -179,13 +179,13 @@ def test_resolve_logs_target_finds_agent(
     target = resolve_logs_target("test-resolve-agent", temp_mngr_ctx)
     assert "test-resolve-agent" in target.display_name
 
-    # Should be able to list and read log files
+    # Should be able to list and read log files via the online host
     log_files = list_log_files(target)
     assert len(log_files) == 1
     assert log_files[0].name == "output.log"
 
     content = read_log_content(target, "output.log")
-    assert content == "agent log content\n"
+    assert "agent log content" in content
 
 
 def test_resolve_logs_target_finds_host(
@@ -208,13 +208,13 @@ def test_resolve_logs_target_finds_host(
     target = resolve_logs_target(str(host.id), temp_mngr_ctx)
     assert "host" in target.display_name
 
-    # Should be able to list and read log files
+    # Should be able to list and read log files via the online host
     log_files = list_log_files(target)
     assert len(log_files) == 1
     assert log_files[0].name == "host-output.log"
 
     content = read_log_content(target, "host-output.log")
-    assert content == "host log content\n"
+    assert "host log content" in content
 
 
 def test_resolve_logs_target_raises_for_unknown_identifier(

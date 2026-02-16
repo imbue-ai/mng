@@ -188,7 +188,11 @@ def _try_get_online_host_for_logs(
 
 def list_log_files(target: LogsTarget) -> list[LogFileEntry]:
     """List available log files in the target's logs directory."""
-    # Prefer volume-based listing
+    # Prefer host-based listing (direct access to the online host)
+    if target.online_host is not None and target.logs_path is not None:
+        return _list_log_files_via_host(target.online_host, target.logs_path, target.display_name)
+
+    # Fall back to volume-based listing
     if target.volume is not None:
         with log_span("Listing log files for {} via volume", target.display_name):
             entries = target.volume.listdir("")
@@ -197,10 +201,6 @@ def list_log_files(target: LogsTarget) -> list[LogFileEntry]:
                 for entry in entries
                 if entry.file_type == VolumeFileType.FILE
             ]
-
-    # Fall back to host-based listing
-    if target.online_host is not None and target.logs_path is not None:
-        return _list_log_files_via_host(target.online_host, target.logs_path, target.display_name)
 
     raise MngrError(f"Cannot list log files for {target.display_name}: no volume or online host available")
 
@@ -261,15 +261,15 @@ def _extract_filename(path: str) -> str:
 
 def read_log_content(target: LogsTarget, log_file_name: str) -> str:
     """Read the full content of a log file."""
-    # Prefer volume-based reading
+    # Prefer host-based reading (direct access to the online host)
+    if target.online_host is not None and target.logs_path is not None:
+        return _read_log_content_via_host(target.online_host, target.logs_path, log_file_name, target.display_name)
+
+    # Fall back to volume-based reading
     if target.volume is not None:
         with log_span("Reading log file '{}' for {} via volume", log_file_name, target.display_name):
             content_bytes = target.volume.read_file(log_file_name)
             return content_bytes.decode("utf-8", errors="replace")
-
-    # Fall back to host-based reading
-    if target.online_host is not None and target.logs_path is not None:
-        return _read_log_content_via_host(target.online_host, target.logs_path, log_file_name, target.display_name)
 
     raise MngrError(f"Cannot read log file for {target.display_name}: no volume or online host available")
 
@@ -368,22 +368,13 @@ def follow_log_file(
     """
     # Prefer host-based tail -f for real-time streaming
     if target.online_host is not None and target.logs_path is not None:
-        try:
-            _follow_log_file_via_host(
-                target.online_host,
-                target.logs_path / log_file_name,
-                on_new_content,
-                tail_count,
-            )
-            return
-        except KeyboardInterrupt:
-            raise
-        except MngrError as e:
-            # If host-based follow fails and we have a volume, fall back to polling
-            if target.volume is not None:
-                logger.debug("Host-based follow failed, falling back to volume polling: {}", e)
-            else:
-                raise
+        _follow_log_file_via_host(
+            target.online_host,
+            target.logs_path / log_file_name,
+            on_new_content,
+            tail_count,
+        )
+        return
 
     # Fall back to volume-based polling
     if target.volume is not None:
