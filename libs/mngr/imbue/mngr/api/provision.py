@@ -31,6 +31,7 @@ def provision_agent(
     provisioning: AgentProvisioningOptions,
     environment: AgentEnvironmentOptions,
     mngr_ctx: MngrContext,
+    is_restart: bool = True,
 ) -> None:
     """Re-run provisioning on an existing agent.
 
@@ -38,6 +39,10 @@ def provision_agent(
     it works for both local and remote hosts), then includes it as the first env_file
     entry so existing vars are preserved with lowest priority. CLI-provided env_files
     and env_vars override them.
+
+    If is_restart is True and the agent is running, the agent is stopped before
+    provisioning and restarted after. This ensures that config and env var changes
+    take effect. Use is_restart=False for non-disruptive changes like installing packages.
 
     Precedence (lowest to highest): existing env vars < CLI env_files < CLI env_vars.
     """
@@ -66,6 +71,14 @@ def provision_agent(
         environment=merged_environment,
     )
 
+    # Check if agent was running before provisioning (for restart logic)
+    is_was_running = is_restart and agent.is_running()
+
+    # Stop agent before provisioning if restart is requested and agent is running
+    if is_was_running:
+        with log_span("Stopping agent {} before provisioning", agent.name):
+            host.stop_agents([agent.id])
+
     try:
         with host.lock_cooperatively():
             with log_span("Provisioning agent {}", agent.name):
@@ -74,5 +87,10 @@ def provision_agent(
         # Clean up the temp file if we created one
         if existing_env_content is not None:
             existing_env_local_path.unlink(missing_ok=True)
+
+    # Restart agent after provisioning if it was running before
+    if is_was_running:
+        with log_span("Restarting agent {} after provisioning", agent.name):
+            host.start_agents([agent.id])
 
     logger.info("Provisioned agent: {}", agent.name)

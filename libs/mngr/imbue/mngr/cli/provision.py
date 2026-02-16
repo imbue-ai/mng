@@ -35,6 +35,7 @@ class ProvisionCliOptions(CommonCliOptions):
     # Behavior options
     bootstrap: str | None
     destroy_on_fail: bool
+    restart: bool
     # Provisioning options
     user_command: tuple[str, ...]
     sudo_command: tuple[str, ...]
@@ -62,8 +63,6 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
             assert_never(unreachable)
 
 
-# FIXME: ensure that, by default, agents are restarted when you run provision (since provisioning often involves config and env var changes that require a restart),
-#  but add an option to skip the restart if desired (e.g. for non-disruptive changes like installing packages).
 @click.command(name="provision")
 @click.argument("agent", required=False, default=None)
 @optgroup.group("Target Selection")
@@ -88,6 +87,12 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
     "destroy_on_fail",
     default=False,
     help="Destroy the host if provisioning fails [future]",
+)
+@optgroup.option(
+    "--restart/--no-restart",
+    "restart",
+    default=True,
+    help="Restart agent after provisioning (default: restart). Use --no-restart for non-disruptive changes like installing packages",
 )
 @optgroup.group("Agent Provisioning")
 @optgroup.option(
@@ -163,10 +168,10 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
     The agent's existing environment variables are preserved. New env vars from
     --env, --env-file, and --pass-env override existing ones with the same key.
 
-    The command runs regardless of whether the agent is running or stopped.
-    Provisioning steps are designed to be idempotent. Note that provisioning a
-    running agent may cause brief disruption if config files are overwritten
-    while the agent is actively reading them.
+    By default, if the agent is running, it is stopped before provisioning and
+    restarted after. This ensures config and env var changes take effect. Use
+    --no-restart to skip the restart for non-disruptive changes like installing
+    packages.
 
     Provisioning is done per agent, but changes are visible to other agents on the
     same host. Be careful to avoid conflicts when provisioning multiple agents on
@@ -180,7 +185,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 
       mngr provision my-agent
 
-      mngr provision my-agent --user-command "pip install pandas"
+      mngr provision my-agent --user-command "pip install pandas" --no-restart
 
       mngr provision my-agent --env "NEW_VAR=value"
 
@@ -253,6 +258,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
         provisioning=provisioning,
         environment=environment,
         mngr_ctx=mngr_ctx,
+        is_restart=opts.restart,
     )
 
     # Output result
@@ -275,11 +281,10 @@ defined using the options below.
 The agent's existing environment variables are preserved. New env vars from
 --env, --env-file, and --pass-env override existing ones with the same key.
 
-The command runs regardless of whether the agent is running or stopped.
-Provisioning steps are designed to be idempotent. Note that provisioning a
-running agent may cause brief disruption if config files are overwritten
-while the agent is actively reading them. Consider stopping the agent first
-if that is a concern.
+By default, if the agent is running, it is stopped before provisioning and
+restarted after. This ensures config and env var changes take effect. Use
+--no-restart to skip the restart for non-disruptive changes like installing
+packages.
 
 Provisioning is done per agent, but changes are visible to other agents on the
 same host. Be careful to avoid conflicts when provisioning multiple agents on
@@ -288,7 +293,10 @@ the same host.""",
     arguments_description="- `AGENT`: Agent name or ID to provision",
     examples=(
         ("Re-provision an agent", "mngr provision my-agent"),
-        ("Install a package", "mngr provision my-agent --user-command 'pip install pandas'"),
+        (
+            "Install a package without restarting",
+            "mngr provision my-agent --user-command 'pip install pandas' --no-restart",
+        ),
         ("Upload a config file", "mngr provision my-agent --upload-file ./config.json:/app/config.json"),
         ("Set an environment variable", "mngr provision my-agent --env 'API_KEY=secret'"),
         ("Run a root command", "mngr provision my-agent --sudo-command 'apt-get install -y ffmpeg'"),

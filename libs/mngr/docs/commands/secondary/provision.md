@@ -21,10 +21,10 @@ options below.
 The agent's existing environment variables are preserved. New env vars from
 --env, --env-file, and --pass-env override existing ones with the same key.
 
-The command runs regardless of whether the agent is running or stopped.
-Provisioning steps are designed to be idempotent. Note that provisioning a
-running agent may cause brief disruption if config files are overwritten
-while the agent is actively reading them.
+By default, if the agent is running, it is stopped before provisioning and
+restarted after. This ensures config and env var changes take effect. Use
+--no-restart to skip the restart for non-disruptive changes like installing
+packages.
 
 Provisioning is done per agent, but changes are visible to other agents on the
 same host. Be careful to avoid conflicts when provisioning multiple agents on
@@ -36,7 +36,7 @@ Examples:
 
   mngr provision my-agent
 
-  mngr provision my-agent --user-command "pip install pandas"
+  mngr provision my-agent --user-command "pip install pandas" --no-restart
 
   mngr provision my-agent --env "NEW_VAR=value"
 
@@ -67,6 +67,7 @@ mngr provision [OPTIONS] [AGENT]
 | ---- | ---- | ----------- | ------- |
 | `--bootstrap` | choice (`yes` &#x7C; `warn` &#x7C; `no`) | Auto-install missing required tools: yes, warn (install with warning), or no [default: warn on remote, no on local] [future] | None |
 | `--destroy-on-fail`, `--no-destroy-on-fail` | boolean | Destroy the host if provisioning fails [future] | `False` |
+| `--restart`, `--no-restart` | boolean | Restart agent after provisioning (default: restart). Use --no-restart for non-disruptive changes like installing packages | `True` |
 
 ## Agent Provisioning
 
@@ -122,10 +123,10 @@ mngr provision [OPTIONS] [AGENT]
 $ mngr provision my-agent
 ```
 
-**Install a package**
+**Install a package without restarting**
 
 ```bash
-$ mngr provision my-agent --user-command 'pip install pandas'
+$ mngr provision my-agent --user-command 'pip install pandas' --no-restart
 ```
 
 **Upload a config file**
