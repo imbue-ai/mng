@@ -442,7 +442,7 @@ def test_mngr_create_with_default_dockerfile_on_modal(
     commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mngr/dev/modal_image_commit_hash").read_text().strip()
 
     # go make the tar
-    result = subprocess.run(
+    subprocess.run(
         [
             "bash",
             "-c",
