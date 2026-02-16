@@ -11,6 +11,7 @@ from imbue.mngr.api.logs import _extract_filename
 from imbue.mngr.api.logs import _find_agent_in_hosts
 from imbue.mngr.api.logs import _find_host_in_hosts
 from imbue.mngr.api.logs import apply_head_or_tail
+from imbue.mngr.api.logs import follow_log_file
 from imbue.mngr.api.logs import list_log_files
 from imbue.mngr.api.logs import read_log_content
 from imbue.mngr.api.logs import resolve_logs_target
@@ -308,8 +309,8 @@ def test_check_for_new_content_handles_truncated_file(tmp_path) -> None:
     assert captured_content[0] == "short\n"
 
 
-def test_follow_log_file_shows_initial_content_with_tail(tmp_path) -> None:
-    """Verify follow_log_file shows tail of initial content before polling."""
+def test_follow_log_file_emits_initial_content_with_tail(tmp_path) -> None:
+    """Verify follow_log_file emits tailed initial content via the callback."""
     logs_dir = tmp_path / "logs"
     logs_dir.mkdir()
     log_file = logs_dir / "test.log"
@@ -318,7 +319,50 @@ def test_follow_log_file_shows_initial_content_with_tail(tmp_path) -> None:
     volume = LocalVolume(root_path=logs_dir)
     target = LogsTarget(volume=volume, display_name="test")
 
-    # Verify the initial content with tail applied matches expected output
-    content = read_log_content(target, "test.log")
-    initial = apply_head_or_tail(content, head_count=None, tail_count=2)
-    assert initial == "line4\nline5\n"
+    captured: list[str] = []
+
+    def _capture_and_interrupt(content: str) -> None:
+        """Capture the content and raise KeyboardInterrupt to stop polling."""
+        captured.append(content)
+        raise KeyboardInterrupt
+
+    # follow_log_file emits the initial tailed content via the callback,
+    # then enters the poll loop. We interrupt on the first callback invocation.
+    with pytest.raises(KeyboardInterrupt):
+        follow_log_file(
+            target=target,
+            log_file_name="test.log",
+            on_new_content=_capture_and_interrupt,
+            tail_count=2,
+        )
+
+    assert len(captured) == 1
+    assert captured[0] == "line4\nline5\n"
+
+
+def test_follow_log_file_emits_all_content_when_no_tail(tmp_path) -> None:
+    """Verify follow_log_file emits all content when tail_count is None."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    log_file = logs_dir / "test.log"
+    log_file.write_text("line1\nline2\n")
+
+    volume = LocalVolume(root_path=logs_dir)
+    target = LogsTarget(volume=volume, display_name="test")
+
+    captured: list[str] = []
+
+    def _capture_and_interrupt(content: str) -> None:
+        captured.append(content)
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        follow_log_file(
+            target=target,
+            log_file_name="test.log",
+            on_new_content=_capture_and_interrupt,
+            tail_count=None,
+        )
+
+    assert len(captured) == 1
+    assert captured[0] == "line1\nline2\n"

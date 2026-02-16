@@ -51,13 +51,13 @@ class LogsCliOptions(CommonCliOptions):
 )
 @optgroup.option(
     "--tail",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Print the last N lines of the log",
 )
 @optgroup.option(
     "--head",
-    type=int,
+    type=click.IntRange(min=1),
     default=None,
     help="Print the first N lines of the log",
 )
@@ -108,7 +108,7 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
             follow_log_file(
                 target=target,
                 log_file_name=opts.log_filename,
-                on_new_content=lambda content: sys.stdout.write(content),
+                on_new_content=lambda content: (sys.stdout.write(content), sys.stdout.flush()),
                 tail_count=opts.tail,
             )
         except KeyboardInterrupt:
