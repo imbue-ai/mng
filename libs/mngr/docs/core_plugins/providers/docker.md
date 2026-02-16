@@ -10,51 +10,43 @@ mngr create my-agent --in docker
 
 ## Build Arguments
 
-Build arguments configure the Docker container. Pass them using `-b` or `--build-args`:
+Build arguments are passed directly to `docker build`. Use `-b` or `--build-arg` to specify them:
 
 ```bash
-# Key-value format (recommended)
-mngr create my-agent --in docker -b cpu=2 -b memory=4
+# Build from a Dockerfile
+mngr create my-agent --in docker -b --file=./Dockerfile -b .
 
-# Flag format (also supported)
-mngr create my-agent --in docker -b --cpu=2 -b --memory=4
+# Build with no cache
+mngr create my-agent --in docker -b --file=./Dockerfile -b --no-cache -b .
 
-# Bulk format
-mngr create my-agent --in docker --build-args "cpu=2 memory=4"
+# Build with build-time variables
+mngr create my-agent --in docker -b --build-arg=MY_VAR=value -b --file=./Dockerfile -b .
 ```
 
-### Available Build Arguments
+Run `docker build --help` for the full list of supported flags.
 
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `cpu` | Number of CPU cores | 1.0 |
-| `memory` | Memory in GB | 1.0 |
-| `gpu` | GPU access (e.g., `all`, `0`, `nvidia`) | None |
-| `image` | Base Docker image | debian:bookworm-slim |
-| `dockerfile` | Path to Dockerfile for custom image build | None |
-| `context-dir` | Build context directory for Dockerfile | Dockerfile's directory |
-| `network` | Docker network to attach to | bridge |
-| `volume` | Additional volume mount (host:container[:mode]). Can be repeated | None |
-| `port` | Additional port mapping (host:container). Can be repeated | None |
+## Start Arguments
 
-### Examples
+Start arguments are passed directly to `docker run` for container resource limits, networking, volumes, and other runtime configuration. Use `-s` or `--start-arg`:
 
 ```bash
-# Create with more resources
-mngr create my-agent --in docker -b cpu=4 -b memory=16
+# Set CPU and memory limits
+mngr create my-agent --in docker -s --cpus=4 -s --memory=16g
 
-# Create with GPU access
-mngr create my-agent --in docker -b gpu=all
+# GPU access
+mngr create my-agent --in docker -s --gpus=all
 
-# Create with a custom image
-mngr create my-agent --in docker -b image=python:3.11-slim
+# Mount a volume
+mngr create my-agent --in docker -s -v=/host/data:/container/data
 
-# Create with a custom Dockerfile
-mngr create my-agent --in docker -b dockerfile=./Dockerfile
+# Attach to a network
+mngr create my-agent --in docker -s --network=my-network
 
-# Create with a volume mount
-mngr create my-agent --in docker -b volume=/host/data:/container/data
+# Publish an additional port
+mngr create my-agent --in docker -s -p=8080:80
 ```
+
+Run `docker run --help` for the full list of supported flags.
 
 ## Snapshots
 
@@ -104,10 +96,8 @@ Configure the Docker provider in your mngr config file:
 backend = "docker"
 host = ""                    # Docker host URL (empty = local daemon)
 default_image = "debian:bookworm-slim"
-default_cpu = 1.0
-default_memory = 1.0
+default_start_args = ["--cpus=2", "--memory=4g"]  # Default docker run flags
 default_idle_timeout = 800
-network = ""                 # Docker network name
 ```
 
 Set `host` to connect to a remote Docker daemon (e.g., `ssh://user@server` or `tcp://host:2376`).

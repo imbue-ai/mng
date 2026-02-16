@@ -29,17 +29,9 @@ class DockerProviderConfig(ProviderInstanceConfig):
         default=None,
         description="Default base image. None uses debian:bookworm-slim.",
     )
-    default_cpu: float = Field(
-        default=1.0,
-        description="Default CPU cores (maps to Docker --cpus)",
-    )
-    default_memory: float = Field(
-        default=1.0,
-        description="Default memory in GB (maps to Docker --memory)",
-    )
-    default_gpu: str | None = Field(
-        default=None,
-        description="Default GPU configuration. None means no GPU.",
+    default_start_args: tuple[str, ...] = Field(
+        default=(),
+        description="Default docker run arguments applied to all containers (e.g., '--cpus=2', '--memory=4g')",
     )
     default_idle_timeout: int = Field(
         default=800,
@@ -53,11 +45,11 @@ class DockerProviderConfig(ProviderInstanceConfig):
         default_factory=lambda: tuple(ActivitySource),
         description="Default activity sources that count toward keeping host active",
     )
-    network: str | None = Field(
-        default=None,
-        description="Docker network to attach containers to. None uses the default bridge.",
-    )
+    # Legacy fields kept for backward compatibility with existing config files
+    default_cpu: float = Field(default=1.0, description="Deprecated: use default_start_args with --cpus instead")
+    default_memory: float = Field(default=1.0, description="Deprecated: use default_start_args with --memory instead")
+    default_gpu: str | None = Field(default=None, description="Deprecated: use default_start_args with --gpus instead")
+    network: str | None = Field(default=None, description="Deprecated: use default_start_args with --network instead")
     extra_hosts: dict[str, str] = Field(
-        default_factory=dict,
-        description="Extra /etc/hosts entries (maps to Docker --add-host)",
+        default_factory=dict, description="Deprecated: use default_start_args with --add-host instead"
     )

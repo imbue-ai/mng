@@ -184,21 +184,15 @@ def test_exec_detach_returns_immediately(docker_provider: DockerProviderInstance
 
 
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
-def test_build_or_pull_image_pulls_default(docker_provider: DockerProviderInstance) -> None:
-    result = docker_provider._build_or_pull_image()
+def test_pull_image_pulls_default(docker_provider: DockerProviderInstance) -> None:
+    result = docker_provider._pull_image("debian:bookworm-slim")
     assert result == "debian:bookworm-slim"
 
 
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
-def test_build_or_pull_image_with_custom_image(docker_provider: DockerProviderInstance) -> None:
-    result = docker_provider._build_or_pull_image(base_image="debian:bookworm-slim")
-    assert result == "debian:bookworm-slim"
-
-
-@pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
-def test_build_or_pull_image_not_found_raises(docker_provider: DockerProviderInstance) -> None:
+def test_pull_image_not_found_raises(docker_provider: DockerProviderInstance) -> None:
     with pytest.raises(MngrError, match="Docker image not found"):
-        docker_provider._build_or_pull_image(base_image="nonexistent-image-that-does-not-exist:99999")
+        docker_provider._pull_image("nonexistent-image-that-does-not-exist:99999")
 
 
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
@@ -206,9 +200,9 @@ def test_build_image_from_dockerfile(docker_provider: DockerProviderInstance, tm
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text(f"FROM {TEST_IMAGE}\nRUN echo 'built' > /build-marker.txt\n")
 
-    result = docker_provider._build_or_pull_image(dockerfile=dockerfile)
-    # Result should be a sha256 image ID
-    assert result.startswith("sha256:")
+    tag = "mngr-test-build-image"
+    result = docker_provider._build_image([f"--file={dockerfile}", str(tmp_path)], tag)
+    assert result == tag
 
 
 # =========================================================================

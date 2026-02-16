@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from imbue.mngr import hookimpl
@@ -12,6 +13,26 @@ from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 
 DOCKER_BACKEND_NAME = ProviderBackendName("docker")
+
+
+def _get_docker_cli_help(subcommand: str) -> str:
+    """Get help text from docker CLI for a subcommand (e.g., 'build', 'run').
+
+    Build/start args are passed through to docker directly, so the native
+    docker CLI help is the authoritative reference.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", subcommand, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0 and result.stdout:
+            return f"Arguments are passed directly to 'docker {subcommand}'.\n\n{result.stdout}"
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return f"Arguments are passed directly to 'docker {subcommand}'.\nRun 'docker {subcommand} --help' for details."
 
 
 class DockerProviderBackend(ProviderBackendInterface):
@@ -35,22 +56,11 @@ class DockerProviderBackend(ProviderBackendInterface):
 
     @staticmethod
     def get_build_args_help() -> str:
-        return """\
-Supported build arguments for the docker provider:
-  --cpu COUNT       Number of CPU cores. Default: 1.0
-  --memory GB       Memory in GB. Default: 1.0
-  --gpu TYPE        GPU access (e.g., "all", "0", "nvidia"). Default: no GPU
-  --image NAME      Base Docker image. Default: debian:bookworm-slim
-  --dockerfile PATH Path to Dockerfile for custom image build
-  --context-dir DIR Build context directory for Dockerfile. Default: Dockerfile's directory
-  --network NAME    Docker network to attach to. Default: bridge
-  --volume SPEC     Additional volume mount (host:container[:mode]). Can be repeated.
-  --port SPEC       Additional port mapping (host:container). Can be repeated.
-"""
+        return _get_docker_cli_help("build")
 
     @staticmethod
     def get_start_args_help() -> str:
-        return "No start arguments are supported for the docker provider."
+        return _get_docker_cli_help("run")
 
     @staticmethod
     def build_provider_instance(

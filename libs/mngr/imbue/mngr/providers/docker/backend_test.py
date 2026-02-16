@@ -24,19 +24,13 @@ def test_backend_description() -> None:
 def test_backend_build_args_help() -> None:
     help_text = DockerProviderBackend.get_build_args_help()
     assert isinstance(help_text, str)
-    assert "--cpu" in help_text
-    assert "--memory" in help_text
-    assert "--gpu" in help_text
-    assert "--image" in help_text
-    assert "--dockerfile" in help_text
-    assert "--volume" in help_text
-    assert "--port" in help_text
+    assert "docker build" in help_text.lower()
 
 
 def test_backend_start_args_help() -> None:
     help_text = DockerProviderBackend.get_start_args_help()
     assert isinstance(help_text, str)
-    assert len(help_text) > 0
+    assert "docker run" in help_text.lower()
 
 
 def test_backend_get_config_class() -> None:

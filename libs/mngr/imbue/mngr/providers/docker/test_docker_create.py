@@ -69,13 +69,13 @@ def test_mngr_create_echo_command_on_docker(
 
 @pytest.mark.acceptance
 @pytest.mark.timeout(120)
-def test_mngr_create_with_build_args_on_docker(
+def test_mngr_create_with_start_args_on_docker(
     temp_source_dir: Path,
     docker_subprocess_env: dict[str, str],
 ) -> None:
-    """Test creating a Docker host with custom CPU and memory build args."""
-    agent_name = f"test-docker-build-{get_short_random_string()}"
-    expected_output = f"build-test-{get_short_random_string()}"
+    """Test creating a Docker host with custom CPU and memory start args."""
+    agent_name = f"test-docker-start-{get_short_random_string()}"
+    expected_output = f"start-test-{get_short_random_string()}"
 
     result = subprocess.run(
         [
@@ -92,14 +92,10 @@ def test_mngr_create_with_build_args_on_docker(
             "--no-ensure-clean",
             "--source-path",
             str(temp_source_dir),
-            "-b",
-            "--cpu",
-            "-b",
-            "2",
-            "-b",
-            "--memory",
-            "-b",
-            "2",
+            "-s",
+            "--cpus=2",
+            "-s",
+            "--memory=2g",
             "--",
             expected_output,
         ],
@@ -194,7 +190,9 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
             "--source-path",
             str(temp_source_dir),
             "-b",
-            f"--dockerfile={dockerfile_path}",
+            f"--file={dockerfile_path}",
+            "-b",
+            str(temp_source_dir),
             "--",
             expected_output,
         ],

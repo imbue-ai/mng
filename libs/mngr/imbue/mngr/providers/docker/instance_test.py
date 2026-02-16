@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -8,14 +7,15 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.host_store import ContainerConfig
-from imbue.mngr.providers.docker.instance import DockerProviderInstance
+from imbue.mngr.providers.docker.instance import CONTAINER_SSH_PORT
 from imbue.mngr.providers.docker.instance import LABEL_HOST_ID
 from imbue.mngr.providers.docker.instance import LABEL_HOST_NAME
 from imbue.mngr.providers.docker.instance import LABEL_PROVIDER
 from imbue.mngr.providers.docker.instance import LABEL_TAGS
 from imbue.mngr.providers.docker.instance import _get_ssh_host_from_docker_config
+from imbue.mngr.providers.docker.instance import _parse_memory_string
+from imbue.mngr.providers.docker.instance import _parse_resources_from_start_args
 from imbue.mngr.providers.docker.instance import build_container_labels
 from imbue.mngr.providers.docker.instance import parse_container_labels
 from imbue.mngr.providers.docker.testing import make_docker_provider
@@ -168,145 +168,168 @@ def test_get_ssh_host_remote_docker_tcp() -> None:
 
 
 # =========================================================================
-# Build Args Parsing
+# Docker Run Command Building
 # =========================================================================
 
 
-def test_parse_build_args_empty(temp_mngr_ctx: MngrContext) -> None:
+def test_build_docker_run_command_includes_mandatory_flags(temp_mngr_ctx: MngrContext) -> None:
     provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(None)
-    assert isinstance(config, ContainerConfig)
-    assert config.cpu == 1.0
-    assert config.memory == 1.0
-    assert config.gpu is None
-    assert config.image is None
-
-
-def test_parse_build_args_empty_list(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args([])
-    assert config.cpu == 1.0
-    assert config.memory == 1.0
-
-
-def test_parse_build_args_key_value_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["cpu=2", "memory=8"])
-    assert config.cpu == 2.0
-    assert config.memory == 8.0
-
-
-def test_parse_build_args_flag_equals_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--cpu=2", "--memory=8", "--gpu=nvidia"])
-    assert config.cpu == 2.0
-    assert config.memory == 8.0
-    assert config.gpu == "nvidia"
-
-
-def test_parse_build_args_flag_space_format(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--cpu", "2", "--memory", "8"])
-    assert config.cpu == 2.0
-    assert config.memory == 8.0
-
-
-def test_parse_build_args_mixed_formats(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["cpu=4", "--memory=16"])
-    assert config.cpu == 4.0
-    assert config.memory == 16.0
-
-
-def test_parse_build_args_image(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--image=python:3.11-slim"])
-    assert config.image == "python:3.11-slim"
-
-
-def test_parse_build_args_dockerfile(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--dockerfile=/path/to/Dockerfile"])
-    assert config.dockerfile == "/path/to/Dockerfile"
-
-
-def test_parse_build_args_context_dir(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--context-dir=/path/to/context"])
-    assert config.context_dir == "/path/to/context"
-
-
-def test_parse_build_args_network(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--network=my-network"])
-    assert config.network == "my-network"
-
-
-def test_parse_build_args_volume_single(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--volume=/host:/container"])
-    assert config.volumes == ("/host:/container",)
-
-
-def test_parse_build_args_volume_multiple(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--volume=/a:/b", "--volume=/c:/d"])
-    assert config.volumes == ("/a:/b", "/c:/d")
-
-
-def test_parse_build_args_port_single(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--port=8080:80"])
-    assert config.ports == ("8080:80",)
-
-
-def test_parse_build_args_port_multiple(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = provider._parse_build_args(["--port=8080:80", "--port=9090:90"])
-    assert config.ports == ("8080:80", "9090:90")
-
-
-def test_parse_build_args_unknown_raises_error(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    with pytest.raises(MngrError, match="Unknown build arguments"):
-        provider._parse_build_args(["--foobar=baz"])
-
-
-def test_parse_build_args_uses_config_default_gpu(temp_mngr_ctx: MngrContext) -> None:
-    config = DockerProviderConfig(default_gpu="nvidia")
-    provider = DockerProviderInstance(
-        name=ProviderInstanceName("test-docker"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=temp_mngr_ctx,
-        config=config,
+    cmd = provider._build_docker_run_command(
+        image="debian:bookworm-slim",
+        container_name="test-container",
+        labels={"com.imbue.mngr.host-id": HOST_ID_A},
+        start_args=(),
     )
-    result = provider._parse_build_args(None)
-    assert result.gpu == "nvidia"
+    assert "run" in cmd
+    assert "-d" in cmd
+    assert "--name" in cmd
+    assert "test-container" in cmd
+    assert f":{CONTAINER_SSH_PORT}" in cmd
+    assert "debian:bookworm-slim" in cmd
 
 
-def test_parse_build_args_uses_config_default_image(temp_mngr_ctx: MngrContext) -> None:
-    config = DockerProviderConfig(default_image="ubuntu:22.04")
-    provider = DockerProviderInstance(
-        name=ProviderInstanceName("test-docker"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=temp_mngr_ctx,
-        config=config,
+def test_build_docker_run_command_includes_labels(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    cmd = provider._build_docker_run_command(
+        image="debian:bookworm-slim",
+        container_name="test",
+        labels={"key1": "val1", "key2": "val2"},
+        start_args=(),
     )
-    result = provider._parse_build_args(None)
-    assert result.image == "ubuntu:22.04"
+    assert "--label" in cmd
+    label_indices = [i for i, arg in enumerate(cmd) if arg == "--label"]
+    label_values = [cmd[i + 1] for i in label_indices]
+    assert "key1=val1" in label_values
+    assert "key2=val2" in label_values
 
 
-def test_parse_build_args_explicit_args_override_config_defaults(temp_mngr_ctx: MngrContext) -> None:
-    config = DockerProviderConfig(default_gpu="nvidia", default_cpu=8.0)
-    provider = DockerProviderInstance(
-        name=ProviderInstanceName("test-docker"),
-        host_dir=Path("/mngr"),
-        mngr_ctx=temp_mngr_ctx,
-        config=config,
+def test_build_docker_run_command_passes_through_start_args(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    cmd = provider._build_docker_run_command(
+        image="debian:bookworm-slim",
+        container_name="test",
+        labels={},
+        start_args=("--cpus=2", "--memory=4g", "--gpus=all"),
     )
-    result = provider._parse_build_args(["--gpu=amd", "--cpu=2"])
-    assert result.gpu == "amd"
-    assert result.cpu == 2.0
+    assert "--cpus=2" in cmd
+    assert "--memory=4g" in cmd
+    assert "--gpus=all" in cmd
+
+
+def test_build_docker_run_command_entrypoint_at_end(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    cmd = provider._build_docker_run_command(
+        image="my-image",
+        container_name="test",
+        labels={},
+        start_args=(),
+    )
+    # Image and entrypoint should be at the end: --entrypoint sh <image> -c <cmd>
+    image_idx = cmd.index("my-image")
+    assert cmd[image_idx - 1] == "sh"
+    assert cmd[image_idx + 1] == "-c"
+
+
+# =========================================================================
+# Effective Start Args (legacy conversion)
+# =========================================================================
+
+
+def test_get_effective_start_args_returns_start_args_when_present(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig(start_args=("--cpus=4", "--memory=8g"))
+    assert provider._get_effective_start_args(config) == ("--cpus=4", "--memory=8g")
+
+
+def test_get_effective_start_args_converts_legacy_cpu_and_memory(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig(cpu=4.0, memory=8.0)
+    result = provider._get_effective_start_args(config)
+    assert "--cpus" in result
+    assert "4.0" in result
+    assert "--memory" in result
+    assert "8192m" in result
+
+
+def test_get_effective_start_args_converts_legacy_gpu(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig(gpu="all")
+    result = provider._get_effective_start_args(config)
+    assert "--gpus" in result
+    assert "all" in result
+
+
+def test_get_effective_start_args_converts_legacy_network(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig(network="my-net")
+    result = provider._get_effective_start_args(config)
+    assert "--network" in result
+    assert "my-net" in result
+
+
+def test_get_effective_start_args_converts_legacy_volumes_and_ports(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig(volumes=("/a:/b", "/c:/d"), ports=("8080:80",))
+    result = provider._get_effective_start_args(config)
+    assert "--volume" in result
+    assert "/a:/b" in result
+    assert "--publish" in result
+    assert "8080:80" in result
+
+
+def test_get_effective_start_args_returns_empty_for_defaults(temp_mngr_ctx: MngrContext) -> None:
+    provider = make_docker_provider(temp_mngr_ctx)
+    config = ContainerConfig()
+    assert provider._get_effective_start_args(config) == ()
+
+
+# =========================================================================
+# Resource Parsing from Start Args
+# =========================================================================
+
+
+def test_parse_resources_from_start_args_empty() -> None:
+    cpu, mem = _parse_resources_from_start_args(())
+    assert cpu == 1.0
+    assert mem == 1.0
+
+
+def test_parse_resources_from_start_args_cpus_equals() -> None:
+    cpu, mem = _parse_resources_from_start_args(("--cpus=4",))
+    assert cpu == 4.0
+    assert mem == 1.0
+
+
+def test_parse_resources_from_start_args_cpus_space() -> None:
+    cpu, mem = _parse_resources_from_start_args(("--cpus", "2.5"))
+    assert cpu == 2.5
+
+
+def test_parse_resources_from_start_args_memory_gb() -> None:
+    cpu, mem = _parse_resources_from_start_args(("--memory=8g",))
+    assert mem == 8.0
+
+
+def test_parse_resources_from_start_args_memory_mb() -> None:
+    cpu, mem = _parse_resources_from_start_args(("--memory=512m",))
+    assert mem == 0.5
+
+
+def test_parse_resources_from_start_args_memory_short_flag() -> None:
+    cpu, mem = _parse_resources_from_start_args(("-m", "2g"))
+    assert mem == 2.0
+
+
+def test_parse_memory_string_gigabytes() -> None:
+    assert _parse_memory_string("4g") == 4.0
+
+
+def test_parse_memory_string_megabytes() -> None:
+    assert _parse_memory_string("1024m") == 1.0
+
+
+def test_parse_memory_string_bytes() -> None:
+    assert _parse_memory_string(str(1024 * 1024 * 1024)) == 1.0
 
 
 # =========================================================================

@@ -1,5 +1,6 @@
-import argparse
 import json
+import os
+import subprocess
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -15,7 +16,6 @@ import docker
 import docker.errors
 import docker.models.containers
 import docker.models.images
-import docker.types
 from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
@@ -66,6 +66,9 @@ from imbue.mngr.providers.ssh_utils import wait_for_sshd
 # Container entrypoint that keeps PID 1 alive and responds to SIGTERM
 CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"]
 
+# Default image used when no image is specified
+DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"
+
 # Docker label prefix
 LABEL_PREFIX: Final[str] = "com.imbue.mngr."
 LABEL_HOST_ID: Final[str] = f"{LABEL_PREFIX}host-id"
@@ -113,6 +116,43 @@ def parse_container_labels(
         user_tags = {}
 
     return host_id, host_name, provider_name, user_tags
+
+
+def _parse_resources_from_start_args(start_args: Sequence[str]) -> tuple[float, float]:
+    """Extract CPU and memory values from raw docker run start_args.
+
+    Returns (cpu_count, memory_gb). Defaults to (1.0, 1.0) if not found.
+    """
+    cpu = 1.0
+    memory_gb = 1.0
+
+    args_iter = iter(start_args)
+    for arg in args_iter:
+        if arg.startswith("--cpus="):
+            cpu = float(arg.split("=", 1)[1])
+        elif arg == "--cpus":
+            cpu = float(next(args_iter, "1"))
+        elif arg.startswith("--memory=") or arg.startswith("-m="):
+            memory_gb = _parse_memory_string(arg.split("=", 1)[1])
+        elif arg in ("--memory", "-m"):
+            memory_gb = _parse_memory_string(next(args_iter, "1g"))
+        else:
+            pass
+
+    return cpu, memory_gb
+
+
+def _parse_memory_string(mem_str: str) -> float:
+    """Parse a Docker memory string (e.g., '4g', '512m', '2048') into GB."""
+    mem_str = mem_str.strip().lower()
+    if mem_str.endswith("g"):
+        return float(mem_str[:-1])
+    if mem_str.endswith("m"):
+        return float(mem_str[:-1]) / 1024.0
+    if mem_str.endswith("k"):
+        return float(mem_str[:-1]) / (1024.0 * 1024.0)
+    # Assume bytes
+    return float(mem_str) / (1024.0 * 1024.0 * 1024.0)
 
 
 def _get_ssh_host_from_docker_config(docker_host_url: str) -> str:
@@ -418,55 +458,112 @@ kill -TERM 1
             self._host_store.write_host_record(host_record)
 
     # =========================================================================
-    # Build Args Parsing
+    # Docker CLI Subprocess Helpers
     # =========================================================================
 
-    def _parse_build_args(
+    def _docker_env(self) -> dict[str, str]:
+        """Build environment variables for docker subprocess calls."""
+        env = dict(os.environ)
+        if self.config.host:
+            env["DOCKER_HOST"] = self.config.host
+        return env
+
+    def _run_docker_command(self, args: list[str], timeout: float = 300) -> subprocess.CompletedProcess[str]:
+        """Run a docker CLI command and return the result."""
+        return subprocess.run(
+            ["docker"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=self._docker_env(),
+        )
+
+    def _build_image(self, build_args: Sequence[str], tag: str) -> str:
+        """Build a Docker image using native docker build with passthrough args."""
+        cmd = ["build", "-t", tag] + list(build_args)
+        with log_span("Running docker build with {} args", len(build_args)):
+            result = self._run_docker_command(cmd)
+        if result.returncode != 0:
+            raise MngrError(f"docker build failed:\n{result.stderr}")
+        return tag
+
+    def _pull_image(self, image_name: str) -> str:
+        """Pull a Docker image if not already present locally."""
+        with log_span("Pulling Docker image: {}", image_name):
+            try:
+                self._docker_client.images.pull(image_name)
+            except docker.errors.ImageNotFound as e:
+                raise MngrError(f"Docker image not found: {image_name}") from e
+            except docker.errors.APIError as e:
+                raise MngrError(f"Docker API error pulling image: {e}") from e
+        return image_name
+
+    def _build_docker_run_command(
         self,
-        build_args: Sequence[str] | None,
-    ) -> ContainerConfig:
-        """Parse build arguments into container configuration."""
-        normalized_args: list[str] = []
-        for arg in build_args or []:
-            if "=" in arg and not arg.startswith("-"):
-                normalized_args.append(f"--{arg}")
-            else:
-                normalized_args.append(arg)
+        *,
+        image: str,
+        container_name: str,
+        labels: dict[str, str],
+        start_args: Sequence[str],
+    ) -> list[str]:
+        """Build a docker run command with mandatory flags + user passthrough args."""
+        cmd = ["run", "-d", "--name", container_name, "-p", f":{CONTAINER_SSH_PORT}"]
 
-        parser = argparse.ArgumentParser(
-            prog="build_args",
-            add_help=False,
-            exit_on_error=False,
+        for key, value in labels.items():
+            cmd.extend(["--label", f"{key}={value}"])
+
+        cmd.extend(list(start_args))
+        cmd.extend(["--entrypoint", "sh", image, "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"])
+        return cmd
+
+    def _run_container(
+        self,
+        *,
+        image: str,
+        container_name: str,
+        labels: dict[str, str],
+        start_args: Sequence[str],
+    ) -> docker.models.containers.Container:
+        """Create and start a container via docker run subprocess.
+
+        Returns the SDK container object for subsequent management.
+        """
+        cmd = self._build_docker_run_command(
+            image=image,
+            container_name=container_name,
+            labels=labels,
+            start_args=start_args,
         )
-        parser.add_argument("--gpu", type=str, default=self.config.default_gpu)
-        parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
-        parser.add_argument("--memory", type=float, default=self.config.default_memory)
-        parser.add_argument("--image", type=str, default=self.config.default_image)
-        parser.add_argument("--dockerfile", type=str, default=None)
-        parser.add_argument("--context-dir", type=str, default=None)
-        parser.add_argument("--network", type=str, default=self.config.network)
-        parser.add_argument("--volume", type=str, action="append", default=[])
-        parser.add_argument("--port", type=str, action="append", default=[])
+        result = self._run_docker_command(cmd)
+        if result.returncode != 0:
+            raise docker.errors.APIError(f"docker run failed:\n{result.stderr}")
 
-        try:
-            parsed, unknown = parser.parse_known_args(normalized_args)
-        except argparse.ArgumentError as e:
-            raise MngrError(f"Invalid build argument: {e}") from None
+        container_id = result.stdout.strip()
+        return self._docker_client.containers.get(container_id)
 
-        if unknown:
-            raise MngrError(f"Unknown build arguments: {unknown}")
+    def _get_effective_start_args(self, config: ContainerConfig) -> tuple[str, ...]:
+        """Get effective start_args, converting from legacy fields if needed.
 
-        return ContainerConfig(
-            gpu=parsed.gpu,
-            cpu=parsed.cpu,
-            memory=parsed.memory,
-            image=parsed.image,
-            dockerfile=parsed.dockerfile,
-            context_dir=parsed.context_dir,
-            network=parsed.network,
-            volumes=tuple(parsed.volume),
-            ports=tuple(parsed.port),
-        )
+        Old host records stored resource limits in typed fields (cpu, memory, etc.)
+        rather than raw start_args. This method converts them to docker run flags.
+        """
+        if config.start_args:
+            return config.start_args
+
+        args: list[str] = []
+        if config.cpu != 1.0:
+            args.extend(["--cpus", str(config.cpu)])
+        if config.memory != 1.0:
+            args.extend(["--memory", f"{int(config.memory * 1024)}m"])
+        if config.gpu:
+            args.extend(["--gpus", config.gpu])
+        if config.network:
+            args.extend(["--network", config.network])
+        for vol in config.volumes:
+            args.extend(["--volume", vol])
+        for port in config.ports:
+            args.extend(["--publish", port])
+        return tuple(args)
 
     # =========================================================================
     # Container Discovery Helpers
@@ -586,122 +683,6 @@ kill -TERM 1
         )
 
     # =========================================================================
-    # Container Run Kwargs
-    # =========================================================================
-
-    def _build_container_run_kwargs(
-        self,
-        *,
-        image: str,
-        container_name: str,
-        labels: dict[str, str],
-        config: ContainerConfig,
-    ) -> dict[str, Any]:
-        """Build kwargs for docker client containers.run().
-
-        This is shared between create_host and _start_from_snapshot to ensure
-        both paths produce identical container configurations.
-        """
-        # Build port bindings: always expose SSH, plus any user-specified ports
-        port_bindings: dict[str, int | None] = {"22/tcp": None}
-        for port_spec in config.ports:
-            parts = port_spec.split(":")
-            if len(parts) == 2:
-                port_bindings[f"{parts[1]}/tcp"] = int(parts[0])
-            else:
-                port_bindings[f"{port_spec}/tcp"] = None
-
-        # Build volume bindings
-        volume_bindings: dict[str, dict[str, str]] = {}
-        for volume_spec in config.volumes:
-            parts = volume_spec.split(":")
-            if len(parts) >= 2:
-                host_path = parts[0]
-                container_path = parts[1]
-                mode = parts[2] if len(parts) > 2 else "rw"
-                volume_bindings[host_path] = {"bind": container_path, "mode": mode}
-
-        run_kwargs: dict[str, Any] = {
-            "image": image,
-            "name": container_name,
-            "command": CONTAINER_ENTRYPOINT,
-            "detach": True,
-            "ports": port_bindings,
-            "labels": labels,
-            "nano_cpus": int(config.cpu * 1e9),
-            "mem_limit": f"{int(config.memory * 1024)}m",
-        }
-
-        if volume_bindings:
-            run_kwargs["volumes"] = volume_bindings
-
-        if config.network:
-            run_kwargs["network"] = config.network
-
-        if self.config.extra_hosts:
-            run_kwargs["extra_hosts"] = self.config.extra_hosts
-
-        # GPU support
-        if config.gpu:
-            run_kwargs["device_requests"] = [
-                docker.types.DeviceRequest(
-                    count=-1 if config.gpu == "all" else 1,
-                    capabilities=[["gpu"]],
-                )
-            ]
-
-        return run_kwargs
-
-    # =========================================================================
-    # Docker Image Build
-    # =========================================================================
-
-    def _build_or_pull_image(
-        self,
-        base_image: str | None = None,
-        dockerfile: Path | None = None,
-        context_dir: Path | None = None,
-    ) -> str:
-        """Build or pull a Docker image, returning the image name/id.
-
-        If dockerfile is provided, builds from that Dockerfile.
-        If base_image is provided, pulls that image.
-        Otherwise uses debian:bookworm-slim.
-        """
-        if dockerfile is not None:
-            effective_context_dir = str(context_dir if context_dir is not None else dockerfile.parent)
-            with log_span("Building Docker image from Dockerfile: {}", dockerfile):
-                try:
-                    image, build_logs = self._docker_client.images.build(
-                        path=effective_context_dir,
-                        dockerfile=str(dockerfile),
-                        rm=True,
-                    )
-                except docker.errors.BuildError as e:
-                    build_log = "\n".join(
-                        line.get("stream", line.get("error", ""))
-                        for line in e.build_log
-                        if isinstance(line, dict) and (line.get("stream") or line.get("error"))
-                    )
-                    raise MngrError(f"Docker build failed: {e}\n{build_log}") from e
-                except docker.errors.APIError as e:
-                    raise MngrError(f"Docker API error during build: {e}") from e
-            return image.id
-
-        image_name = base_image or "debian:bookworm-slim"
-        with log_span("Pulling Docker image: {}", image_name):
-            try:
-                self._docker_client.images.pull(image_name)
-            except docker.errors.ImageNotFound as e:
-                raise MngrError(
-                    f"Docker image not found: {image_name}. "
-                    "Check the image name or use --dockerfile to build a custom image."
-                ) from e
-            except docker.errors.APIError as e:
-                raise MngrError(f"Docker API error pulling image: {e}") from e
-        return image_name
-
-    # =========================================================================
     # Core Lifecycle Methods
     # =========================================================================
 
@@ -715,41 +696,36 @@ kill -TERM 1
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
     ) -> Host:
-        """Create a new Docker container host."""
+        """Create a new Docker container host.
+
+        Build args are passed through to 'docker build' (if provided).
+        Start args are passed through to 'docker run' for resource limits,
+        volumes, ports, network, etc.
+        """
         host_id = HostId.generate()
-
-        if start_args:
-            raise NotImplementedError(
-                "separate start_args are not yet supported for Docker provider: use build_args instead"
-            )
-
         logger.info("Creating host {} in {} ...", name, self.name)
 
-        config = self._parse_build_args(build_args)
-        base_image = str(image) if image else config.image
-        dockerfile_path = Path(config.dockerfile).resolve() if config.dockerfile else None
-        context_dir_path = Path(config.context_dir).resolve() if config.context_dir else None
+        base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
+        effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
         try:
-            image_name = self._build_or_pull_image(base_image, dockerfile_path, context_dir_path)
+            # Build image if build_args provided, otherwise pull base image
+            if build_args:
+                build_tag = f"mngr-build-{host_id}"
+                image_name = self._build_image(build_args, build_tag)
+            else:
+                image_name = self._pull_image(base_image)
 
             labels = build_container_labels(host_id, name, str(self.name), tags)
             container_name = f"{self.mngr_ctx.config.prefix}{name}"
 
-            run_kwargs = self._build_container_run_kwargs(
-                image=image_name,
-                container_name=container_name,
-                labels=labels,
-                config=config,
-            )
-
-            with log_span(
-                "Creating Docker container",
-                container_name=container_name,
-                cpu=config.cpu,
-                memory_gb=config.memory,
-            ):
-                container = self._docker_client.containers.run(**run_kwargs)
+            with log_span("Creating Docker container", container_name=container_name):
+                container = self._run_container(
+                    image=image_name,
+                    container_name=container_name,
+                    labels=labels,
+                    start_args=effective_start_args,
+                )
 
         except docker.errors.APIError as e:
             failure_reason = str(e)
@@ -773,6 +749,7 @@ kill -TERM 1
             raise
 
         self._container_cache_by_id[host_id] = container
+        config = ContainerConfig(start_args=effective_start_args, image=base_image)
 
         lifecycle_options = lifecycle if lifecycle is not None else HostLifecycleOptions()
         activity_config = lifecycle_options.to_activity_config(
@@ -983,15 +960,15 @@ kill -TERM 1
         labels = build_container_labels(host_id, host_name, str(self.name), user_tags)
         container_name = f"{self.mngr_ctx.config.prefix}{host_name}"
 
-        run_kwargs = self._build_container_run_kwargs(
-            image=image_id,
-            container_name=container_name,
-            labels=labels,
-            config=config,
-        )
+        effective_start_args = self._get_effective_start_args(config)
 
         try:
-            new_container = self._docker_client.containers.run(**run_kwargs)
+            new_container = self._run_container(
+                image=image_id,
+                container_name=container_name,
+                labels=labels,
+                start_args=effective_start_args,
+            )
         except docker.errors.APIError as e:
             raise MngrError(f"Failed to create container from snapshot: {e}") from e
 
@@ -1178,9 +1155,18 @@ kill -TERM 1
                 gpu=None,
             )
 
-        cpu = host_record.config.cpu
-        memory = host_record.config.memory
+        config = host_record.config
+        # Try legacy typed fields first (backward compat with old records)
+        if config.cpu != 1.0 or config.memory != 1.0:
+            return HostResources(
+                cpu=CpuResources(count=max(1, int(config.cpu)), frequency_ghz=None),
+                memory_gb=config.memory,
+                disk_gb=None,
+                gpu=None,
+            )
 
+        # Parse from start_args
+        cpu, memory = _parse_resources_from_start_args(config.start_args)
         return HostResources(
             cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=None),
             memory_gb=memory,

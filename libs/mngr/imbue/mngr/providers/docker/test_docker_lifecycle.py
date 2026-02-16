@@ -72,7 +72,7 @@ def test_create_host_with_custom_image(docker_provider: DockerProviderInstance) 
 def test_create_host_with_resource_limits(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(
         HostName("test-resources"),
-        build_args=["--cpu=2", "--memory=2"],
+        start_args=["--cpus=2", "--memory=2g"],
     )
     resources = docker_provider.get_host_resources(host)
     assert resources.cpu.count == 2
@@ -267,7 +267,7 @@ def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tm
     )
     host = docker_provider.create_host(
         HostName("test-dockerfile"),
-        build_args=[f"--dockerfile={dockerfile}"],
+        build_args=[f"--file={dockerfile}", str(tmp_path)],
     )
     assert isinstance(host, Host)
     result = host.execute_command("cat /dockerfile-marker.txt")
