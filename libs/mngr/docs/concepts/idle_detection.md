@@ -41,8 +41,7 @@ Only the following activity reports are trustworthy:
 
 Everything else can be manipulated by a malicious or buggy agent (including e.g. changing the clock).
 
-This means that, if running an untrusted agent, you should only use the "create" or "boot" idle modes to ensure that the agent cannot prevent stopping by faking activity.
-In such a case, it's important to periodically run `mngr enforce` [future] as well (to ensure that, even if the idle detection script is killed, the host will still be stopped when idle).
+This means that, if running an untrusted agent, you should only use the "create" or "boot" idle modes to ensure that the agent cannot prevent stopping by faking activity. You should also use a provider that enforces host lifetime limits externally (e.g., Modal's sandbox timeout), which guarantees the host will be stopped regardless of what happens inside it.
 
 ## User Input Tracking
 
