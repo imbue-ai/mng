@@ -33,7 +33,7 @@ class IssueSearchError(BaseMngrError):
 
 
 class ExistingIssue(FrozenModel):
-    """A GitHub issue that already exists for a NotImplementedError."""
+    """A GitHub issue that already exists matching an error report."""
 
     number: int = Field(description="GitHub issue number")
     title: str = Field(description="GitHub issue title")
@@ -174,6 +174,31 @@ def _format_existing_issue_message(issue: ExistingIssue) -> str:
     return "Found existing issue " + str(issue.number) + ": " + issue.title
 
 
+def _prompt_and_report_issue(title: str, body: str, search_text: str) -> None:
+    """Prompt the user to report a GitHub issue and open the browser.
+
+    Searches for an existing issue matching search_text. If found, opens that
+    issue's URL. Otherwise, opens the new issue form pre-populated with title
+    and body.
+    """
+    if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
+        return
+
+    # Search for existing issue using a standalone ConcurrencyGroup
+    logger.info("Searching for existing issues...")
+    with ConcurrencyGroup(name="issue-search") as cg:
+        existing = search_for_existing_issue(search_text, cg)
+
+    if existing is not None:
+        logger.info("{}", _format_existing_issue_message(existing))
+        logger.info("Opening: {}", existing.url)
+        webbrowser.open(existing.url)
+    else:
+        logger.info("No existing issue found. Opening new issue form...")
+        url = build_new_issue_url(title, body)
+        webbrowser.open(url)
+
+
 def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
     """Handle a NotImplementedError by showing the error and optionally reporting it."""
     error_message = str(error) if str(error) else "Feature not implemented"
@@ -186,24 +211,9 @@ def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
         raise SystemExit(1)
 
     # In interactive mode, offer to report
-    if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
-        raise SystemExit(1)
-
-    # Search for existing issue using a standalone ConcurrencyGroup
-    logger.info("Searching for existing issues...")
     title = build_issue_title(error_message)
-    with ConcurrencyGroup(name="issue-search") as cg:
-        existing = search_for_existing_issue(error_message, cg)
-
-    if existing is not None:
-        logger.info("{}", _format_existing_issue_message(existing))
-        logger.info("Opening: {}", existing.url)
-        webbrowser.open(existing.url)
-    else:
-        logger.info("No existing issue found. Opening new issue form...")
-        body = build_issue_body(error_message)
-        url = build_new_issue_url(title, body)
-        webbrowser.open(url)
+    body = build_issue_body(error_message)
+    _prompt_and_report_issue(title, body, error_message)
 
     raise SystemExit(1)
 
@@ -248,24 +258,9 @@ def handle_unexpected_error(error: Exception) -> NoReturn:
         raise SystemExit(1)
 
     # In interactive mode, offer to report
-    if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
-        raise SystemExit(1)
-
-    # Search for existing issue using a standalone ConcurrencyGroup
-    logger.info("Searching for existing issues...")
     error_message = str(error) if str(error) else type(error).__name__
     title = build_unexpected_error_issue_title(error)
-    with ConcurrencyGroup(name="issue-search") as cg:
-        existing = search_for_existing_issue(error_message, cg)
-
-    if existing is not None:
-        logger.info("{}", _format_existing_issue_message(existing))
-        logger.info("Opening: {}", existing.url)
-        webbrowser.open(existing.url)
-    else:
-        logger.info("No existing issue found. Opening new issue form...")
-        body = build_unexpected_error_issue_body(error, tb_str)
-        url = build_new_issue_url(title, body)
-        webbrowser.open(url)
+    body = build_unexpected_error_issue_body(error, tb_str)
+    _prompt_and_report_issue(title, body, error_message)
 
     raise SystemExit(1)
