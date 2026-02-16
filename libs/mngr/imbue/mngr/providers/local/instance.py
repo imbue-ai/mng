@@ -42,12 +42,32 @@ from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.local.volume import LocalVolume
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
-VOLUMES_SUBDIR: Final[str] = "volumes"
+HOSTS_SUBDIR: Final[str] = "hosts"
 
 # Fixed namespace for deterministic VolumeId derivation from volume directory names.
 _LOCAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
+
+
+def get_or_create_local_host_id(base_dir: Path) -> HostId:
+    """Get the persistent host ID, creating it if it doesn't exist.
+
+    The host_id is stored at {base_dir}/host_id because it identifies
+    the local machine, not a particular profile.
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    host_id_path = base_dir / HOST_ID_FILENAME
+
+    if host_id_path.exists():
+        host_id = HostId(host_id_path.read_text().strip())
+        logger.trace("Loaded existing local host id={}", host_id)
+        return host_id
+
+    new_host_id = HostId.generate()
+    host_id_path.write_text(new_host_id)
+    logger.debug("Generated new local host id={}", new_host_id)
+    return new_host_id
 
 
 class LocalProviderInstance(BaseProviderInstance):
@@ -75,24 +95,9 @@ class LocalProviderInstance(BaseProviderInstance):
         return True
 
     @property
-    def _volumes_dir(self) -> Path:
-        """Get the directory for local volumes."""
-        return self.mngr_ctx.config.default_host_dir.expanduser() / VOLUMES_SUBDIR
-
-    @property
     def _provider_data_dir(self) -> Path:
         """Get the provider data directory path (not profile-specific, for tags etc)."""
         return self.mngr_ctx.config.default_host_dir.expanduser() / "providers" / LOCAL_PROVIDER_SUBDIR
-
-    @property
-    def _host_id_dir(self) -> Path:
-        """Get the directory for host_id (global, not profile-specific).
-
-        The host_id is stored at ~/.mngr/host_id because it identifies this local
-        machine, not a particular profile. Different profiles on the same machine
-        should share the same local host_id.
-        """
-        return self.mngr_ctx.config.default_host_dir.expanduser()
 
     def _ensure_provider_data_dir(self) -> None:
         """Ensure the provider data directory exists."""
@@ -100,27 +105,8 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @cached_property
     def host_id(self) -> HostId:
-        return self._get_or_create_host_id()
-
-    def _get_or_create_host_id(self) -> HostId:
-        """Get the persistent host ID, creating it if it doesn't exist.
-
-        The host_id is stored globally at ~/.mngr/host_id (not per-profile)
-        because it identifies the local machine itself, not a profile.
-        """
-        host_id_dir = self._host_id_dir
-        host_id_dir.mkdir(parents=True, exist_ok=True)
-        host_id_path = host_id_dir / HOST_ID_FILENAME
-
-        if host_id_path.exists():
-            host_id = HostId(host_id_path.read_text().strip())
-            logger.trace("Loaded existing local host id={}", host_id)
-            return host_id
-
-        new_host_id = HostId.generate()
-        host_id_path.write_text(new_host_id)
-        logger.debug("Generated new local host id={}", new_host_id)
-        return new_host_id
+        base_dir = self.mngr_ctx.config.default_host_dir.expanduser()
+        return get_or_create_local_host_id(base_dir)
 
     def _get_tags_path(self) -> Path:
         """Get the path to the tags file."""
@@ -336,13 +322,18 @@ class LocalProviderInstance(BaseProviderInstance):
         derived = uuid.uuid5(_LOCAL_VOLUME_ID_NAMESPACE, dir_name)
         return VolumeId(f"vol-{derived.hex}")
 
+    @property
+    def _hosts_dir(self) -> Path:
+        """Get the parent directory containing all host directories."""
+        return self.mngr_ctx.config.default_host_dir.expanduser() / HOSTS_SUBDIR
+
     def list_volumes(self) -> list[VolumeInfo]:
-        """List all local volumes (subdirectories of ~/.mngr/volumes/)."""
-        volumes_dir = self._volumes_dir
-        if not volumes_dir.is_dir():
+        """List all local volumes (subdirectories of ~/.mngr/hosts/)."""
+        hosts_dir = self._hosts_dir
+        if not hosts_dir.is_dir():
             return []
         results: list[VolumeInfo] = []
-        for subdir in sorted(volumes_dir.iterdir()):
+        for subdir in sorted(hosts_dir.iterdir()):
             if subdir.is_dir():
                 stat = subdir.stat()
                 host_id = None
@@ -364,10 +355,10 @@ class LocalProviderInstance(BaseProviderInstance):
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a local volume directory."""
-        volumes_dir = self._volumes_dir
-        if not volumes_dir.is_dir():
-            raise MngrError(f"Volume {volume_id} not found (no volumes directory)")
-        for subdir in volumes_dir.iterdir():
+        hosts_dir = self._hosts_dir
+        if not hosts_dir.is_dir():
+            raise MngrError(f"Volume {volume_id} not found (no hosts directory)")
+        for subdir in hosts_dir.iterdir():
             if subdir.is_dir() and self._volume_id_for_dir(subdir.name) == volume_id:
                 shutil.rmtree(subdir)
                 logger.debug("Deleted local volume: {}", subdir)
@@ -377,13 +368,11 @@ class LocalProviderInstance(BaseProviderInstance):
     def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the local volume for a host.
 
-        Returns a HostVolume backed by ~/.mngr/volumes/{host_id}/.
+        Returns a HostVolume backed by the host_dir (which is ~/.mngr/hosts/{host_id}/).
         The directory is created if it doesn't exist.
         """
-        host_id = host.id if isinstance(host, HostInterface) else host
-        volume_dir = self._volumes_dir / str(host_id)
-        volume_dir.mkdir(parents=True, exist_ok=True)
-        return HostVolume(volume=LocalVolume(root_path=volume_dir))
+        self.host_dir.mkdir(parents=True, exist_ok=True)
+        return HostVolume(volume=LocalVolume(root_path=self.host_dir))
 
     # =========================================================================
     # Host Mutation Methods

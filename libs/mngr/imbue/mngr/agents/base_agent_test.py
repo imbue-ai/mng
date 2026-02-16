@@ -35,8 +35,8 @@ def create_test_agent(
     agent_name = AgentName(f"test-agent-{get_short_random_string()}")
     agent_type = AgentTypeName("test")
 
-    # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    # Create agent directory and data.json (under the per-host host_dir)
+    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
 
     agent_config = AgentTypeConfig(
@@ -99,7 +99,7 @@ def test_lifecycle_state_running_when_expected_process_exists(
     )
 
     # Create the active file in the agent's state directory (signals RUNNING)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     active_file = agent_dir / "active"
     active_file.write_text("")
 
@@ -190,7 +190,7 @@ def test_get_reported_status_returns_status_with_markdown_only(
 ) -> None:
     """Test that get_reported_status returns AgentStatus with markdown content."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
 
@@ -211,7 +211,7 @@ def test_get_reported_status_returns_status_with_html_and_markdown(
 ) -> None:
     """Test that get_reported_status returns AgentStatus with both markdown and html."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     status_dir = agent_dir / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
 
@@ -270,7 +270,7 @@ def test_lifecycle_state_running_when_active_file_created(
         timeout_seconds=5.0,
     )
 
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
 
     try:
         # First verify it's in WAITING state (no active file)
@@ -310,7 +310,7 @@ def test_get_initial_message_returns_message_when_set(
 ) -> None:
     """Test that get_initial_message returns the message when set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with initial_message
@@ -338,7 +338,7 @@ def test_get_resume_message_returns_message_when_set(
 ) -> None:
     """Test that get_resume_message returns the message when set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with resume_message
@@ -366,7 +366,7 @@ def test_get_ready_timeout_seconds_returns_value_when_set(
 ) -> None:
     """Test that get_ready_timeout_seconds returns the value when set in data.json."""
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with ready_timeout_seconds

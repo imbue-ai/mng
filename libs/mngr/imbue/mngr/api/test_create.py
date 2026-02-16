@@ -204,7 +204,7 @@ def test_agent_state_is_persisted(
             mngr_ctx=temp_mngr_ctx,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         assert agents_dir.exists(), "agents directory should exist"
 
         agent_dirs = list(agents_dir.iterdir())
@@ -418,7 +418,7 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
             mngr_ctx=temp_mngr_ctx,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         agent_dir = agents_dir / str(result.agent.id)
         data_file = agent_dir / "data.json"
         assert data_file.exists(), "agent data.json should exist"
@@ -426,7 +426,7 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
         data = json.loads(data_file.read_text())
         assert data["work_dir"] == str(temp_work_dir), "work_dir should be the source work_dir"
 
-        host_data_file = temp_host_dir / "data.json"
+        host_data_file = local_host.host_dir / "data.json"
         host_data = json.loads(host_data_file.read_text()) if host_data_file.exists() else {}
         generated_work_dirs = host_data.get("generated_work_dirs", [])
         assert str(temp_work_dir) not in generated_work_dirs, (
@@ -464,7 +464,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
                 mngr_ctx=temp_mngr_ctx,
             )
 
-            agents_dir = temp_host_dir / "agents"
+            agents_dir = local_host.host_dir / "agents"
             agent_dir = agents_dir / str(result.agent.id)
             data_file = agent_dir / "data.json"
             assert data_file.exists(), "agent data.json should exist"
@@ -475,7 +475,7 @@ def test_worktree_mode_sets_is_generated_work_dir_true(
             agent = _get_agent_from_create_result(result, temp_mngr_ctx)
             worktree_path = Path(agent.work_dir)
 
-            host_data_file = temp_host_dir / "data.json"
+            host_data_file = local_host.host_dir / "data.json"
             assert host_data_file.exists(), "host data.json should exist"
             host_data = json.loads(host_data_file.read_text())
             generated_work_dirs = host_data.get("generated_work_dirs", [])
@@ -519,7 +519,7 @@ def test_target_path_different_from_source_sets_is_generated_work_dir_true(
             mngr_ctx=temp_mngr_ctx,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         agent_dir = agents_dir / str(result.agent.id)
         data_file = agent_dir / "data.json"
         assert data_file.exists(), "agent data.json should exist"
@@ -527,7 +527,7 @@ def test_target_path_different_from_source_sets_is_generated_work_dir_true(
         data = json.loads(data_file.read_text())
         assert data["work_dir"] == str(target_dir), "work_dir should be the target path"
 
-        host_data_file = temp_host_dir / "data.json"
+        host_data_file = local_host.host_dir / "data.json"
         assert host_data_file.exists(), "host data.json should exist"
         host_data = json.loads(host_data_file.read_text())
         generated_work_dirs = host_data.get("generated_work_dirs", [])
@@ -562,7 +562,7 @@ def test_target_path_same_as_source_sets_is_generated_work_dir_false(
             mngr_ctx=temp_mngr_ctx,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         agent_dir = agents_dir / str(result.agent.id)
         data_file = agent_dir / "data.json"
         assert data_file.exists(), "agent data.json should exist"
@@ -570,7 +570,7 @@ def test_target_path_same_as_source_sets_is_generated_work_dir_false(
         data = json.loads(data_file.read_text())
         assert data["work_dir"] == str(temp_work_dir), "work_dir should be the source/target path"
 
-        host_data_file = temp_host_dir / "data.json"
+        host_data_file = local_host.host_dir / "data.json"
         host_data = json.loads(host_data_file.read_text()) if host_data_file.exists() else {}
         generated_work_dirs = host_data.get("generated_work_dirs", [])
         assert str(temp_work_dir) not in generated_work_dirs, (
@@ -613,7 +613,7 @@ def test_create_work_dir_false_uses_target_path(
             create_work_dir=False,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         agent_dir = agents_dir / str(result.agent.id)
         data_file = agent_dir / "data.json"
         assert data_file.exists(), "agent data.json should exist"
@@ -650,7 +650,7 @@ def test_create_work_dir_false_without_target_path_uses_source(
             create_work_dir=False,
         )
 
-        agents_dir = temp_host_dir / "agents"
+        agents_dir = local_host.host_dir / "agents"
         agent_dir = agents_dir / str(result.agent.id)
         data_file = agent_dir / "data.json"
         assert data_file.exists(), "agent data.json should exist"

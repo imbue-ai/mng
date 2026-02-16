@@ -129,7 +129,8 @@ def test_read_log_content_returns_file_contents(logs_volume_target: tuple[LogsTa
 
 
 def _create_agent_data_json(
-    temp_host_dir: Path,
+    # The per-host directory (local_provider.host_dir)
+    per_host_dir: Path,
     agent_name: str,
     command: str,
 ) -> AgentId:
@@ -138,7 +139,7 @@ def _create_agent_data_json(
     Returns the generated AgentId.
     """
     agent_id = AgentId.generate()
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir = per_host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
@@ -155,16 +156,13 @@ def _create_agent_data_json(
 def test_resolve_logs_target_finds_agent(
     temp_mngr_ctx: MngrContext,
     local_provider,
-    temp_host_dir: Path,
 ) -> None:
     """Verify resolve_logs_target finds an agent and returns a scoped logs volume."""
-    host = local_provider.get_host(HostName("local"))
-    agent_id = _create_agent_data_json(temp_host_dir, "test-resolve-agent", "sleep 94817")
+    per_host_dir = local_provider.host_dir
+    agent_id = _create_agent_data_json(per_host_dir, "test-resolve-agent", "sleep 94817")
 
-    # Create logs in the volume
-    volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
-    host_volume_dir = volumes_dir / str(host.id)
-    agent_logs_dir = host_volume_dir / "agents" / str(agent_id) / "logs"
+    # Create logs in the agent's directory (volume and host_dir are the same path now)
+    agent_logs_dir = per_host_dir / "agents" / str(agent_id) / "logs"
     agent_logs_dir.mkdir(parents=True, exist_ok=True)
     (agent_logs_dir / "output.log").write_text("agent log content\n")
 
@@ -184,18 +182,16 @@ def test_resolve_logs_target_finds_agent(
 def test_resolve_logs_target_finds_host(
     temp_mngr_ctx: MngrContext,
     local_provider,
-    temp_host_dir: Path,
 ) -> None:
     """Verify resolve_logs_target falls back to host when no agent matches."""
+    per_host_dir = local_provider.host_dir
     host = local_provider.get_host(HostName("local"))
 
     # Create an agent so the host appears in load_all_agents_grouped_by_host
-    _create_agent_data_json(temp_host_dir, "unrelated-agent-47291", "sleep 47291")
+    _create_agent_data_json(per_host_dir, "unrelated-agent-47291", "sleep 47291")
 
     # Create logs directly in the host volume (not under agents/)
-    volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
-    host_volume_dir = volumes_dir / str(host.id)
-    host_logs_dir = host_volume_dir / "logs"
+    host_logs_dir = per_host_dir / "logs"
     host_logs_dir.mkdir(parents=True, exist_ok=True)
     (host_logs_dir / "host-output.log").write_text("host log content\n")
 

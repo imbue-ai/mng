@@ -13,6 +13,15 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.interfaces.data_types import CertifiedHostData
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
+
+
+def _get_per_host_dir(temp_host_dir: Path) -> Path:
+    """Get the per-host directory for data.json and agents."""
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    per_host_dir = temp_host_dir / "hosts" / str(host_id)
+    per_host_dir.mkdir(parents=True, exist_ok=True)
+    return per_host_dir
 
 
 def test_gc_work_dirs_dry_run(
@@ -24,15 +33,20 @@ def test_gc_work_dirs_dry_run(
     orphaned_dir = temp_host_dir / "worktrees" / "orphaned-agent-123"
     orphaned_dir.mkdir(parents=True)
 
+    # Write data.json in the per-host directory
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    per_host_dir = temp_host_dir / "hosts" / str(host_id)
+    per_host_dir.mkdir(parents=True, exist_ok=True)
+
     now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
-        host_id="test-host-id",
+        host_id=str(host_id),
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
         created_at=now,
         updated_at=now,
     )
-    data_path = temp_host_dir / "data.json"
+    data_path = per_host_dir / "data.json"
     data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
@@ -62,13 +76,13 @@ def test_gc_work_dirs_removes_orphaned_directory(
 
     now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
-        host_id="test-host-id",
+        host_id=str(get_or_create_local_host_id(temp_host_dir)),
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
         created_at=now,
         updated_at=now,
     )
-    data_path = temp_host_dir / "data.json"
+    data_path = _get_per_host_dir(temp_host_dir) / "data.json"
     data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
@@ -101,13 +115,13 @@ def test_gc_work_dirs_with_cel_filter(
 
     now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
-        host_id="test-host-id",
+        host_id=str(get_or_create_local_host_id(temp_host_dir)),
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir1), str(orphaned_dir2)),
         created_at=now,
         updated_at=now,
     )
-    data_path = temp_host_dir / "data.json"
+    data_path = _get_per_host_dir(temp_host_dir) / "data.json"
     data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     result = cli_runner.invoke(
@@ -139,13 +153,13 @@ def test_gc_work_dirs_with_provider_name_filter(
 
     now = datetime.now(timezone.utc)
     certified_data = CertifiedHostData(
-        host_id="test-host-id",
+        host_id=str(get_or_create_local_host_id(temp_host_dir)),
         host_name="test-host",
         generated_work_dirs=(str(orphaned_dir),),
         created_at=now,
         updated_at=now,
     )
-    data_path = temp_host_dir / "data.json"
+    data_path = _get_per_host_dir(temp_host_dir) / "data.json"
     data_path.write_text(json.dumps(certified_data.model_dump(by_alias=True, mode="json"), indent=2))
 
     # Filter by provider_name - should match local provider

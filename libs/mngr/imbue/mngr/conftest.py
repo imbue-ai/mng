@@ -29,6 +29,7 @@ from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
@@ -371,10 +372,13 @@ def interactive_mngr_ctx(
 
 @pytest.fixture
 def local_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> LocalProviderInstance:
-    """Create a LocalProviderInstance with a temporary host directory."""
+    """Create a LocalProviderInstance with a per-host temporary directory."""
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    per_host_dir = temp_host_dir / "hosts" / str(host_id)
+    per_host_dir.mkdir(parents=True, exist_ok=True)
     return LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=temp_mngr_ctx,
     )
 

@@ -47,6 +47,7 @@ from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
 from imbue.mngr.utils.polling import wait_for
@@ -54,12 +55,20 @@ from imbue.mngr.utils.testing import generate_ssh_keypair
 from imbue.mngr.utils.testing import local_sshd
 
 
+def _per_host_dir(temp_host_dir: Path) -> Path:
+    """Compute the per-host directory for LocalProviderInstance in tests."""
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    per_host = temp_host_dir / "hosts" / str(host_id)
+    per_host.mkdir(parents=True, exist_ok=True)
+    return per_host
+
+
 @pytest.fixture
-def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Path) -> tuple[Host, Path]:
-    """Create a Host using the local provider and its temp directory."""
+def host_with_temp_dir(local_provider: LocalProviderInstance) -> tuple[Host, Path]:
+    """Create a Host using the local provider and its per-host directory."""
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
-    return host, temp_host_dir
+    return host, host.host_dir
 
 
 @pytest.fixture
@@ -650,7 +659,7 @@ def test_unset_vars_applied_during_agent_start(
     mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider_with_unset = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx_with_unset,
     )
 
@@ -731,7 +740,7 @@ def test_stop_agent_kills_single_pane_processes(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-stop-single"))
@@ -784,7 +793,7 @@ def test_stop_agent_kills_multi_pane_processes(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-stop-multi"))
@@ -843,7 +852,7 @@ def test_start_agent_creates_process_group(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-pgid"))
@@ -899,7 +908,7 @@ def test_start_agent_starts_process_activity_monitor(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-activity-monitor"))
@@ -918,7 +927,7 @@ def test_start_agent_starts_process_activity_monitor(
 
     try:
         # The process activity monitor should write process activity within ~5-6 seconds
-        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "process"
+        activity_path = host.host_dir / "agents" / str(agent.id) / "activity" / "process"
 
         # Wait until the file exists AND has valid JSON content. The writer
         # creates the file then writes to it, so there is a brief window where
@@ -968,7 +977,7 @@ def test_additional_commands_stored_in_agent_data(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-cmds-stored"))
@@ -988,7 +997,7 @@ def test_additional_commands_stored_in_agent_data(
     )
 
     # Read the data.json file and verify additional_commands are stored
-    data_path = temp_host_dir / "agents" / str(agent.id) / "data.json"
+    data_path = host.host_dir / "agents" / str(agent.id) / "data.json"
     data = json.loads(data_path.read_text())
 
     assert "additional_commands" in data
@@ -1010,7 +1019,7 @@ def test_start_agent_creates_additional_tmux_windows(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-windows"))
@@ -1066,7 +1075,7 @@ def test_start_agent_additional_windows_run_commands(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-commands"))
@@ -1920,7 +1929,7 @@ def test_start_agent_has_access_to_env_vars(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-env-start"))
@@ -1981,7 +1990,7 @@ def test_new_tmux_window_inherits_env_vars(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=_per_host_dir(temp_host_dir),
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-new-window"))

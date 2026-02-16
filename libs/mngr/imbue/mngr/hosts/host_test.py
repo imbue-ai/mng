@@ -63,7 +63,7 @@ def _create_testable_agent(
     create_time = datetime.now(timezone.utc)
 
     # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
@@ -98,7 +98,7 @@ def host_with_agents_dir(
     """Create a Host with an agents directory for testing."""
     host = local_provider.create_host(HostName("test-agent-refs"))
     assert isinstance(host, Host)
-    agents_dir = temp_host_dir / "agents"
+    agents_dir = local_provider.host_dir / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     return host, agents_dir
 
@@ -316,7 +316,7 @@ def test_destroy_agent_calls_on_destroy(
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
 
     host.destroy_agent(agent)
@@ -333,7 +333,7 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir, on_destroy_should_raise=True)
 
-    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
 
     # Exception propagates, but cleanup still runs
@@ -362,7 +362,7 @@ def _create_test_agent(
     agent_name = AgentName(f"test-agent-{get_short_random_string()}")
 
     # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
