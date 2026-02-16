@@ -12,9 +12,12 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.api.exec import ExecResult
+from imbue.mngr.api.exec import MultiExecResult
 from imbue.mngr.api.exec import exec_command_on_agent
+from imbue.mngr.api.exec import exec_command_on_agents
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
@@ -170,3 +173,74 @@ def test_exec_command_on_agent_returns_failure(
     )
 
     assert result.success is False
+
+
+def test_multi_exec_result_fields() -> None:
+    """Test MultiExecResult has the expected fields."""
+    result = MultiExecResult()
+    assert result.successful_results == []
+    assert result.failed_agents == []
+
+
+def test_multi_exec_result_accumulates_results() -> None:
+    """Test MultiExecResult accumulates results correctly."""
+    result = MultiExecResult()
+    result.successful_results.append(ExecResult(agent_name="agent-1", stdout="hello\n", stderr="", success=True))
+    result.failed_agents.append(("agent-2", "host offline"))
+
+    assert len(result.successful_results) == 1
+    assert len(result.failed_agents) == 1
+    assert result.successful_results[0].agent_name == "agent-1"
+    assert result.failed_agents[0] == ("agent-2", "host offline")
+
+
+def test_exec_command_on_agents_single_agent(
+    temp_mngr_ctx: MngrContext,
+    running_test_agent: RunningTestAgent,
+) -> None:
+    """Test exec_command_on_agents runs a command on a single agent."""
+    result = exec_command_on_agents(
+        mngr_ctx=temp_mngr_ctx,
+        agent_identifiers=[str(running_test_agent.agent.name)],
+        command="echo multi-exec-test",
+        is_all=False,
+    )
+
+    assert len(result.successful_results) == 1
+    assert result.successful_results[0].agent_name == str(running_test_agent.agent.name)
+    assert "multi-exec-test" in result.successful_results[0].stdout
+    assert result.successful_results[0].success is True
+    assert len(result.failed_agents) == 0
+
+
+def test_exec_command_on_agents_nonexistent_agent(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Test exec_command_on_agents with a nonexistent agent raises AgentNotFoundError."""
+    with pytest.raises(AgentNotFoundError):
+        exec_command_on_agents(
+            mngr_ctx=temp_mngr_ctx,
+            agent_identifiers=["nonexistent-agent-82716"],
+            command="echo test",
+            is_all=False,
+        )
+
+
+def test_exec_command_on_agents_invokes_callbacks(
+    temp_mngr_ctx: MngrContext,
+    running_test_agent: RunningTestAgent,
+) -> None:
+    """Test exec_command_on_agents invokes on_success callback."""
+    callback_results: list[ExecResult] = []
+
+    result = exec_command_on_agents(
+        mngr_ctx=temp_mngr_ctx,
+        agent_identifiers=[str(running_test_agent.agent.name)],
+        command="echo callback-test",
+        is_all=False,
+        on_success=lambda r: callback_results.append(r),
+    )
+
+    assert len(callback_results) == 1
+    assert "callback-test" in callback_results[0].stdout
+    assert len(result.successful_results) == 1

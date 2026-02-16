@@ -131,6 +131,9 @@ def test_exec_json_output_on_modal(
 
     assert result.returncode == 0, f"exec failed: {result.stderr}\n{result.stdout}"
     output = json.loads(result.stdout.strip())
-    assert output["agent"] == agent_name
-    assert "json-test" in output["stdout"]
-    assert output["success"] is True
+    assert output["total_executed"] == 1
+    assert output["total_failed"] == 0
+    assert len(output["results"]) == 1
+    assert output["results"][0]["agent"] == agent_name
+    assert "json-test" in output["results"][0]["stdout"]
+    assert output["results"][0]["success"] is True

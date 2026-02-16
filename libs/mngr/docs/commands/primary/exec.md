@@ -6,30 +6,47 @@
 **Synopsis:**
 
 ```text
-mngr [exec|x] AGENT COMMAND [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>]
+mngr [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]
 ```
 
 
-Execute a shell command on an agent's host.
+Execute a shell command on one or more agents' hosts.
 
-Runs COMMAND on the host where AGENT is running, defaulting to the
-agent's work_dir. The command's stdout is printed to stdout and stderr
-to stderr.
+Runs COMMAND on the host(s) where the specified agent(s) are running,
+defaulting to each agent's work_dir. The command's stdout is printed to
+stdout and stderr to stderr.
 
 Alias: x
+
+Examples:
+
+  mngr exec my-agent "echo hello"
+
+  mngr exec agent1 agent2 "echo hello"
+
+  mngr exec --agent my-agent --agent another-agent "echo hello"
+
+  mngr exec --all "echo hello"
 
 **Usage:**
 
 ```text
-mngr exec [OPTIONS] AGENT COMMAND
+mngr exec [OPTIONS] [AGENTS]... COMMAND
 ```
 
 ## Arguments
 
-- `AGENT`: Name or ID of the agent whose host will run the command
+- `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command
 - `COMMAND`: Shell command to execute on the agent's host
 
 **Options:**
+
+## Target Selection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--agent` | text | Agent name or ID to exec on (can be specified multiple times) | None |
+| `-a`, `--all`, `--all-agents` | boolean | Execute the command on all agents | `False` |
 
 ## Execution
 
@@ -44,6 +61,12 @@ mngr exec [OPTIONS] AGENT COMMAND
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--start`, `--no-start` | boolean | Automatically start the host/agent if stopped | `True` |
+
+## Error Handling
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `continue` |
 
 ## Common
 
@@ -66,6 +89,10 @@ mngr exec [OPTIONS] AGENT COMMAND
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
+## Related Documentation
+
+- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents
+
 ## See Also
 
 - [mngr connect](./connect.md) - Connect to an agent interactively
@@ -78,6 +105,18 @@ mngr exec [OPTIONS] AGENT COMMAND
 
 ```bash
 $ mngr exec my-agent "echo hello"
+```
+
+**Run on multiple agents**
+
+```bash
+$ mngr exec agent1 agent2 "echo hello"
+```
+
+**Run on all agents**
+
+```bash
+$ mngr exec --all "echo hello"
 ```
 
 **Run with a custom working directory**
