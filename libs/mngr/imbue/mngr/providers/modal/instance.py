@@ -1,9 +1,7 @@
 import argparse
 import json
 import os
-import socket
 import tempfile
-import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
@@ -29,9 +27,6 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
 from pyinfra.api import Host as PyinfraHost
-from pyinfra.api import State as PyinfraState
-from pyinfra.api.inventory import Inventory
-from pyinfra.connectors.sshuserclient.client import get_host_keys
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -72,8 +67,10 @@ from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.errors import NoSnapshotsModalMngrError
 from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
+from imbue.mngr.providers.modal.ssh_utils import create_pyinfra_host
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mngr.providers.modal.volume import ModalVolume
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
@@ -353,7 +350,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
-        return load_or_create_ssh_keypair(self._keys_dir)
+        return load_or_create_ssh_keypair(self._keys_dir, key_name="modal_ssh_key")
 
     def _get_host_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH host keypair for Modal sandboxes.
@@ -816,53 +813,12 @@ class ModalProviderInstance(BaseProviderInstance):
         return ssh_tunnel.tcp_socket
 
     def _wait_for_sshd(self, hostname: str, port: int, timeout_seconds: float = SSH_CONNECT_TIMEOUT) -> None:
-        """Wait for sshd to be ready to accept connections.
-
-        Uses socket timeouts to pace connection attempts without explicit sleep calls.
-        """
-        start_time = time.time()
-        while time.time() - start_time < timeout_seconds:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                # Socket timeout provides delay between connection attempts
-                sock.settimeout(2.0)
-                sock.connect((hostname, port))
-                banner = sock.recv(256)
-                if banner.startswith(b"SSH-"):
-                    return
-            except (socket.error, socket.timeout):
-                # Connection failed or timed out, will retry
-                pass
-            finally:
-                sock.close()
-        raise MngrError(f"SSH server not ready after {timeout_seconds}s at {hostname}:{port}")
+        """Wait for sshd to be ready to accept connections."""
+        wait_for_sshd(hostname, port, timeout_seconds)
 
     def _create_pyinfra_host(self, hostname: str, port: int, private_key_path: Path) -> PyinfraHost:
         """Create a pyinfra host with SSH connector."""
-        # Clear pyinfra's memoized known_hosts cache to ensure fresh reads.
-        # pyinfra caches known_hosts by filename, but we add new entries dynamically,
-        # so we need to clear the cache to pick up new entries.
-        known_hosts_path_str = str(self._known_hosts_path)
-        cache_key = f"('{known_hosts_path_str}',){{}}"
-        if cache_key in get_host_keys.cache:
-            del get_host_keys.cache[cache_key]
-
-        host_data = {
-            "ssh_user": "root",
-            "ssh_port": port,
-            "ssh_key": str(private_key_path),
-            "ssh_known_hosts_file": known_hosts_path_str,
-            "ssh_strict_host_key_checking": "yes",
-        }
-
-        names_data = ([(hostname, host_data)], {})
-        inventory = Inventory(names_data)
-        state = PyinfraState(inventory=inventory)
-
-        pyinfra_host = inventory.get_host(hostname)
-        pyinfra_host.init(state)
-
-        return pyinfra_host
+        return create_pyinfra_host(hostname, port, private_key_path, self._known_hosts_path)
 
     def _setup_sandbox_ssh_and_create_host(
         self,
