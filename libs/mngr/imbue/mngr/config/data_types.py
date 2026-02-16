@@ -465,6 +465,10 @@ class MngrConfig(FrozenModel):
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
     )
+    is_error_reporting_enabled: bool = Field(
+        default=True,
+        description="Whether to prompt users to report unexpected errors as GitHub issues when running interactively",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
@@ -588,6 +592,11 @@ class MngrConfig(FrozenModel):
         if override.is_nested_tmux_allowed is not None:
             merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
 
+        # Merge is_error_reporting_enabled (scalar - override wins if not None)
+        merged_is_error_reporting_enabled = self.is_error_reporting_enabled
+        if override.is_error_reporting_enabled is not None:
+            merged_is_error_reporting_enabled = override.is_error_reporting_enabled
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
@@ -618,6 +627,7 @@ class MngrConfig(FrozenModel):
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
+            is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,
             default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,
         )

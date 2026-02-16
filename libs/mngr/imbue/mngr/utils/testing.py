@@ -283,7 +283,7 @@ def make_local_provider(
 
 def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     """Create a MngrContext with the given default_host_dir, prefix, and a basic plugin manager."""
-    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
+    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix, is_error_reporting_enabled=False)
     pm = pluggy.PluginManager("mngr")
     # Create a profile directory in the default_host_dir
     profile_dir = default_host_dir / PROFILES_DIRNAME / uuid4().hex
