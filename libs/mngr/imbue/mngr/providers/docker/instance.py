@@ -147,8 +147,9 @@ class DockerProviderInstance(BaseProviderInstance):
     Containers have a long-running PID 1 process and can be stopped/started
     natively (unlike Modal which must terminate and recreate from snapshots).
 
-    Host metadata (SSH info, config, snapshots) is stored in a local JSON
-    file store. Container labels are used for discovery and immutable tags.
+    Host metadata (SSH info, config, snapshots) is stored on a Docker named
+    volume via a singleton state container, allowing multiple mngr clients
+    to share state. Container labels are used for discovery and immutable tags.
     """
 
     config: DockerProviderConfig = Field(frozen=True, description="Docker provider configuration")
