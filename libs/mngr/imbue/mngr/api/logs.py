@@ -1,8 +1,10 @@
 import shlex
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
+from typing import IO
 
 from loguru import logger
 from pydantic import Field
@@ -444,13 +446,22 @@ def _follow_log_file_via_host(
     )
     try:
         assert process.stdout is not None
+        assert process.stderr is not None
+
+        # Drain stderr in a background thread to prevent pipe buffer deadlock
+        stderr_chunks: list[bytes] = []
+        stderr_thread = threading.Thread(target=_drain_pipe, args=(process.stderr, stderr_chunks), daemon=True)
+        stderr_thread.start()
+
+        # Stream stdout line by line
         for raw_line in iter(process.stdout.readline, b""):
             on_new_content(raw_line.decode("utf-8", errors="replace"))
 
         # The stdout loop ended because the process exited; check for errors
         process.wait()
+        stderr_thread.join(timeout=5)
         if process.returncode != 0:
-            stderr_output = process.stderr.read().decode("utf-8", errors="replace") if process.stderr else ""
+            stderr_output = b"".join(stderr_chunks).decode("utf-8", errors="replace")
             raise MngrError(f"Failed to follow log file (exit code {process.returncode}): {stderr_output.strip()}")
     except KeyboardInterrupt:
         raise
@@ -461,6 +472,11 @@ def _follow_log_file_via_host(
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+
+
+def _drain_pipe(pipe: IO[bytes], chunks: list[bytes]) -> None:
+    """Read all data from a pipe and append to chunks. Used as a thread target."""
+    chunks.append(pipe.read())
 
 
 @pure

@@ -608,5 +608,5 @@ def test_build_ssh_base_args_raises_when_no_known_hosts(
     assert isinstance(host, OnlineHostInterface)
 
     # Local hosts have no ssh_known_hosts_file configured, so this should raise
-    with pytest.raises(MngrError, match="No known_hosts file"):
+    with pytest.raises(MngrError, match="known_hosts"):
         build_ssh_base_args(host)
