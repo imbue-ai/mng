@@ -4,7 +4,7 @@ A **provider instance** creates and manages [hosts](./hosts.md). Each provider i
 
 From the perspective of `[pyinfra](https://pyinfra.com/)` (the tool we suggest for [provisioning](./provisioning.md)), you can think of provider instances as "something that mutates the inventory" (eg, create, destroy, stop, start, etc.)
 
-There are some built-in provider instances (`local` and `local_docker`), but you generally define your own in your `mngr` settings:
+There are some built-in provider instances (`local` and `docker`), but you generally define your own in your `mngr` settings:
 
 ```toml
 [[providers]]

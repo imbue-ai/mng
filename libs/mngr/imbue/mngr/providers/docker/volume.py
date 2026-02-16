@@ -100,10 +100,9 @@ class DockerVolume(BaseVolume):
     def listdir(self, path: str) -> list[VolumeFile]:
         resolved = self._resolve(path)
         # BusyBox-compatible: use ls -la and parse output
-        exit_code, output = self._exec(f"ls -la '{resolved}' 2>/dev/null")
+        exit_code, output = self._exec(f"ls -la '{resolved}'")
         if exit_code != 0:
-            logger.trace("listdir failed for {}: exit_code={}", path, exit_code)
-            return []
+            raise FileNotFoundError(f"Directory not found on volume: {path}")
         if not output.strip():
             return []
 
@@ -146,14 +145,14 @@ class DockerVolume(BaseVolume):
         rm_flag = "-rf" if recursive else "-f"
         exit_code, _ = self._exec(f"rm {rm_flag} '{resolved}'")
         if exit_code != 0:
-            logger.trace("Failed to remove file from volume: {}", path)
+            raise FileNotFoundError(f"File not found on volume: {path}")
 
     def remove_directory(self, path: str) -> None:
         """Recursively remove a directory and all its contents."""
         resolved = self._resolve(path)
         exit_code, _ = self._exec(f"rm -rf '{resolved}'")
         if exit_code != 0:
-            logger.trace("Failed to remove directory from volume: {}", path)
+            logger.warning("Failed to remove directory from volume: {}", path)
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         """Write files to the volume using docker put_archive for binary safety."""
