@@ -63,8 +63,11 @@ from imbue.mngr.providers.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_utils import wait_for_sshd
 
-# Container entrypoint that keeps PID 1 alive and responds to SIGTERM
-CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"]
+# Shell command that keeps PID 1 alive and responds to SIGTERM
+CONTAINER_ENTRYPOINT_CMD: Final[str] = "trap 'exit 0' TERM; tail -f /dev/null & wait"
+
+# Container entrypoint as SDK-style command list (used by tests and legacy code)
+CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", CONTAINER_ENTRYPOINT_CMD]
 
 # Default image used when no image is specified
 DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"
@@ -513,7 +516,7 @@ kill -TERM 1
             cmd.extend(["--label", f"{key}={value}"])
 
         cmd.extend(list(start_args))
-        cmd.extend(["--entrypoint", "sh", image, "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"])
+        cmd.extend(["--entrypoint", "sh", image, "-c", CONTAINER_ENTRYPOINT_CMD])
         return cmd
 
     def _run_container(
@@ -536,7 +539,7 @@ kill -TERM 1
         )
         result = self._run_docker_command(cmd)
         if result.returncode != 0:
-            raise docker.errors.APIError(f"docker run failed:\n{result.stderr}")
+            raise MngrError(f"docker run failed:\n{result.stderr}")
 
         container_id = result.stdout.strip()
         return self._docker_client.containers.get(container_id)

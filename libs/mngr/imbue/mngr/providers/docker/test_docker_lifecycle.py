@@ -13,6 +13,7 @@ from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
@@ -61,7 +62,7 @@ def test_create_host_with_tags(docker_provider: DockerProviderInstance) -> None:
 def test_create_host_with_custom_image(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(
         HostName("test-image"),
-        build_args=["--image=python:3.11-slim"],
+        image=ImageReference("python:3.11-slim"),
     )
     assert isinstance(host, Host)
     result = host.execute_command("python3 --version")

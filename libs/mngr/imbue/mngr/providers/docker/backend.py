@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+from loguru import logger
+
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
@@ -30,8 +32,8 @@ def _get_docker_cli_help(subcommand: str) -> str:
         )
         if result.returncode == 0 and result.stdout:
             return f"Arguments are passed directly to 'docker {subcommand}'.\n\n{result.stdout}"
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.trace("Could not get docker {} --help: {}", subcommand, e)
     return f"Arguments are passed directly to 'docker {subcommand}'.\nRun 'docker {subcommand} --help' for details."
 
 
