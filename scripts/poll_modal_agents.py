@@ -67,22 +67,32 @@ def notify_user(message: str) -> None:
 def detect_state_transitions(
     previous_state_by_name: dict[str, str],
     current_state_by_name: dict[str, str],
+    known_agent_names: set[str],
 ) -> list[tuple[str, str, str]]:
     """Detect agents that have transitioned away from RUNNING.
 
-    Returns a list of (agent_name, old_state, new_state) tuples for agents
-    that were previously RUNNING but are now in a different state.
+    Returns a list of (agent_name, old_state, new_state) tuples for:
+    - Agents that were previously RUNNING but are now in a different state
+    - New agents that appear already in a non-RUNNING state (finished between polls)
     """
     transitions: list[tuple[str, str, str]] = []
+
+    # Check agents that were RUNNING in the previous poll
     for name, old_state in previous_state_by_name.items():
         if old_state != "RUNNING":
             continue
         new_state = current_state_by_name.get(name)
-        # Agent was running and now has a different state (or disappeared)
         if new_state is None:
             transitions.append((name, old_state, "GONE"))
         elif new_state != "RUNNING":
             transitions.append((name, old_state, new_state))
+
+    # Check for new agents that appeared already in a non-RUNNING state
+    # (they ran and finished between two polls, so we never saw them as RUNNING)
+    for name, state in current_state_by_name.items():
+        if name not in known_agent_names and state != "RUNNING":
+            transitions.append((name, "RUNNING", state))
+
     return transitions
 
 
@@ -107,6 +117,10 @@ def main(poll_interval: float) -> None:
     if previous_state_by_name is None:
         previous_state_by_name = {}
 
+    # Track all agents we've ever seen so we can detect new agents that
+    # appear already finished (ran and completed between two polls)
+    known_agent_names: set[str] = set(previous_state_by_name.keys())
+
     running_count = sum(1 for state in previous_state_by_name.values() if state == "RUNNING")
     click.echo(f"Initial state: {len(previous_state_by_name)} agents, {running_count} running")
 
@@ -118,14 +132,15 @@ def main(poll_interval: float) -> None:
             if current_state_by_name is None:
                 continue
 
-            # Detect transitions away from RUNNING
-            transitions = detect_state_transitions(previous_state_by_name, current_state_by_name)
+            # Detect transitions away from RUNNING (including new agents that finished between polls)
+            transitions = detect_state_transitions(previous_state_by_name, current_state_by_name, known_agent_names)
 
             for agent_name, old_state, new_state in transitions:
                 message = f"Agent '{agent_name}' finished ({old_state} -> {new_state})"
                 click.echo(message)
                 notify_user(message)
 
+            known_agent_names.update(current_state_by_name.keys())
             previous_state_by_name = current_state_by_name
 
     except KeyboardInterrupt:

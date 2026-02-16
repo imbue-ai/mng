@@ -58,42 +58,48 @@ def test_parse_all_agents_from_jsonl_skips_lines_missing_name_or_state() -> None
 def test_detect_state_transitions_detects_running_to_waiting() -> None:
     previous = {"agent-a": "RUNNING"}
     current = {"agent-a": "WAITING"}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == [("agent-a", "RUNNING", "WAITING")]
 
 
 def test_detect_state_transitions_detects_running_to_done() -> None:
     previous = {"agent-a": "RUNNING"}
     current = {"agent-a": "DONE"}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == [("agent-a", "RUNNING", "DONE")]
 
 
 def test_detect_state_transitions_ignores_still_running() -> None:
     previous = {"agent-a": "RUNNING"}
     current = {"agent-a": "RUNNING"}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == []
 
 
 def test_detect_state_transitions_ignores_non_running_changes() -> None:
     previous = {"agent-a": "WAITING", "agent-b": "STOPPED"}
     current = {"agent-a": "DONE", "agent-b": "RUNNING"}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a", "agent-b"}
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == []
 
 
 def test_detect_state_transitions_detects_disappeared_agent() -> None:
     previous = {"agent-a": "RUNNING"}
     current = {}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == [("agent-a", "RUNNING", "GONE")]
 
 
 def test_detect_state_transitions_handles_multiple_transitions() -> None:
     previous = {"agent-a": "RUNNING", "agent-b": "RUNNING", "agent-c": "WAITING"}
     current = {"agent-a": "WAITING", "agent-b": "DONE", "agent-c": "DONE"}
-    transitions = detect_state_transitions(previous, current)
+    known = {"agent-a", "agent-b", "agent-c"}
+    transitions = detect_state_transitions(previous, current, known)
     # Both running agents transitioned, but not agent-c (was WAITING)
     assert len(transitions) == 2
     names = {t[0] for t in transitions}
@@ -103,10 +109,49 @@ def test_detect_state_transitions_handles_multiple_transitions() -> None:
 def test_detect_state_transitions_handles_empty_previous() -> None:
     previous: dict[str, str] = {}
     current = {"agent-a": "RUNNING"}
-    transitions = detect_state_transitions(previous, current)
+    known: set[str] = set()
+    transitions = detect_state_transitions(previous, current, known)
     assert transitions == []
 
 
 def test_detect_state_transitions_handles_empty_both() -> None:
-    transitions = detect_state_transitions({}, {})
+    transitions = detect_state_transitions({}, {}, set())
     assert transitions == []
+
+
+def test_detect_state_transitions_notifies_for_new_agent_appearing_already_finished() -> None:
+    """An agent that ran and finished between two polls should still trigger a notification."""
+    previous = {"agent-a": "RUNNING"}
+    current = {"agent-a": "RUNNING", "agent-new": "WAITING"}
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
+    assert transitions == [("agent-new", "RUNNING", "WAITING")]
+
+
+def test_detect_state_transitions_no_notification_for_new_agent_still_running() -> None:
+    """A new agent that appears as RUNNING should not trigger a notification yet."""
+    previous = {"agent-a": "RUNNING"}
+    current = {"agent-a": "RUNNING", "agent-new": "RUNNING"}
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
+    assert transitions == []
+
+
+def test_detect_state_transitions_no_duplicate_for_known_non_running_agent() -> None:
+    """An agent already known from a previous poll should not re-trigger."""
+    previous = {"agent-a": "WAITING"}
+    current = {"agent-a": "WAITING"}
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
+    assert transitions == []
+
+
+def test_detect_state_transitions_new_agent_done_and_existing_transition() -> None:
+    """Both a new finished agent and an existing transition should be detected."""
+    previous = {"agent-a": "RUNNING"}
+    current = {"agent-a": "DONE", "agent-new": "DONE"}
+    known = {"agent-a"}
+    transitions = detect_state_transitions(previous, current, known)
+    assert len(transitions) == 2
+    names = {t[0] for t in transitions}
+    assert names == {"agent-a", "agent-new"}
