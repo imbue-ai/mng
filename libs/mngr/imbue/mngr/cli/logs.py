@@ -38,7 +38,6 @@ class LogsCliOptions(CommonCliOptions):
     follow: bool
     tail: int | None
     head: int | None
-    allow_unknown_host: bool
 
 
 def _write_and_flush_stdout(content: str) -> None:
@@ -68,14 +67,6 @@ def _write_and_flush_stdout(content: str) -> None:
     type=click.IntRange(min=1),
     default=None,
     help="Print the first N lines of the log",
-)
-@optgroup.group("Connection")
-@optgroup.option(
-    "--allow-unknown-host/--no-allow-unknown-host",
-    "allow_unknown_host",
-    default=False,
-    show_default=True,
-    help="Allow following logs on hosts without a known_hosts file (disables SSH host key verification)",
 )
 @add_common_options
 @click.pass_context
@@ -126,7 +117,6 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
                 log_file_name=opts.log_filename,
                 on_new_content=_write_and_flush_stdout,
                 tail_count=opts.tail,
-                is_unknown_host_allowed=opts.allow_unknown_host,
             )
         except KeyboardInterrupt:
             # Clean exit on Ctrl+C

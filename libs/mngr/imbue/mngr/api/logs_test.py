@@ -599,21 +599,14 @@ def test_follow_log_file_via_host_detects_new_content(logs_host_target: tuple[Lo
 # =============================================================================
 
 
-def test_build_ssh_base_args_disables_host_key_checking_when_allowed(
+def test_build_ssh_base_args_raises_when_no_known_hosts(
     temp_mngr_ctx: MngrContext,
     local_provider,
 ) -> None:
-    """Verify build_ssh_base_args disables host key checking when is_unknown_host_allowed is True."""
+    """Verify build_ssh_base_args raises MngrError when no known_hosts file is configured."""
     host = local_provider.get_host(HostName("local"))
     assert isinstance(host, OnlineHostInterface)
 
-    # Local hosts have is_local=True, so build_ssh_base_args should still work
-    # (it reads from connector data which may not have SSH fields set)
-    args = build_ssh_base_args(host, is_unknown_host_allowed=True)
-
-    # Should start with "ssh" and end with the host target
-    assert args[0] == "ssh"
-    # Should have StrictHostKeyChecking=no since no known_hosts for local
-    assert "-o" in args
-    strict_idx = args.index("StrictHostKeyChecking=no") if "StrictHostKeyChecking=no" in args else -1
-    assert strict_idx >= 0
+    # Local hosts have no ssh_known_hosts_file configured, so this should raise
+    with pytest.raises(MngrError, match="No known_hosts file"):
+        build_ssh_base_args(host)

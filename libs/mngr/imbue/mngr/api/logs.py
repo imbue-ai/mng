@@ -358,7 +358,6 @@ def follow_log_file(
     # Callback invoked with new content each time the file changes
     on_new_content: Callable[[str], None],
     tail_count: int | None,
-    is_unknown_host_allowed: bool = False,
 ) -> None:
     """Follow a log file, streaming new content as it appears.
 
@@ -372,7 +371,6 @@ def follow_log_file(
             target.logs_path / log_file_name,
             on_new_content,
             tail_count,
-            is_unknown_host_allowed=is_unknown_host_allowed,
         )
         return
 
@@ -420,7 +418,6 @@ def _follow_log_file_via_host(
     log_file_path: Path,
     on_new_content: Callable[[str], None],
     tail_count: int | None,
-    is_unknown_host_allowed: bool,
 ) -> None:
     """Follow a log file using tail -f on the host (locally or via SSH).
 
@@ -435,7 +432,7 @@ def _follow_log_file_via_host(
     else:
         # Remote host: wrap in SSH
         tail_cmd_str = " ".join(shlex.quote(a) for a in tail_args)
-        ssh_args = build_ssh_base_args(online_host, is_unknown_host_allowed=is_unknown_host_allowed)
+        ssh_args = build_ssh_base_args(online_host)
         cmd = ssh_args + [tail_cmd_str]
 
     logger.debug("Following log file via host: {}", " ".join(cmd))

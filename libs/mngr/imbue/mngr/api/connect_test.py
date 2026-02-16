@@ -220,25 +220,11 @@ def test_build_ssh_args_with_known_hosts_file(
     assert "ubuntu@example.com" in args
 
 
-def test_build_ssh_args_with_allow_unknown_host(
+def test_build_ssh_args_raises_without_known_hosts(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
 ) -> None:
-    """Test that _build_ssh_args disables host key checking when allowed."""
-    host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
-    opts = ConnectionOptions(is_unknown_host_allowed=True)
-
-    args = _build_ssh_args(host, opts)
-
-    assert "StrictHostKeyChecking=no" in " ".join(args)
-    assert "UserKnownHostsFile=/dev/null" in " ".join(args)
-
-
-def test_build_ssh_args_raises_without_known_hosts_or_allow_unknown(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Test that _build_ssh_args raises MngrError when no known_hosts and not allowing unknown."""
+    """Test that _build_ssh_args raises MngrError when no known_hosts file is configured."""
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file=None)
     opts = ConnectionOptions(is_unknown_host_allowed=False)
 
@@ -295,10 +281,9 @@ def test_build_ssh_args_known_hosts_dev_null_treated_as_missing(
     host = _make_ssh_host(local_provider, temp_mngr_ctx, ssh_known_hosts_file="/dev/null")
     opts = ConnectionOptions(is_unknown_host_allowed=True)
 
-    args = _build_ssh_args(host, opts)
-
-    # Should fall through to the allow_unknown_host branch
-    assert "StrictHostKeyChecking=no" in " ".join(args)
+    # /dev/null is treated as missing, so this should raise
+    with pytest.raises(MngrError, match="known_hosts"):
+        _build_ssh_args(host, opts)
 
 
 # =========================================================================

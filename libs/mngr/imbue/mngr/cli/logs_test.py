@@ -11,7 +11,6 @@ def _make_logs_opts(
     follow: bool = False,
     tail: int | None = None,
     head: int | None = None,
-    allow_unknown_host: bool = False,
 ) -> LogsCliOptions:
     return LogsCliOptions(
         output_format="human",
@@ -29,7 +28,6 @@ def _make_logs_opts(
         follow=follow,
         tail=tail,
         head=head,
-        allow_unknown_host=allow_unknown_host,
     )
 
 
