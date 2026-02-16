@@ -985,6 +985,17 @@ class ModalProviderInstance(BaseProviderInstance):
         sandbox_id = sandbox.object_id
         host_dir_str = str(host.host_dir)
 
+        # Build the optional volume sync section for the shutdown script
+        volume_sync_section = (
+            (
+                f"# Sync the host volume to ensure all data is flushed before snapshot\n"
+                f'log "Syncing host volume before shutdown..."\n'
+                f'sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"\n'
+            )
+            if self.config.is_host_volume_created
+            else ""
+        )
+
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
         # It also gathers agent data from the agents directory to persist to the volume
@@ -1047,11 +1058,7 @@ log "Gathering agents..."
 AGENTS=$(gather_agents)
 log "Agents: $AGENTS"
 
-# Sync the host volume to ensure all data is flushed before snapshot
-log "Syncing host volume before shutdown..."
-sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"
-
-# Send the shutdown request with agent data and stop reason
+{volume_sync_section}# Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
 if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\

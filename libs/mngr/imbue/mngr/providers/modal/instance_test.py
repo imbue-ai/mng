@@ -1311,3 +1311,126 @@ def test_remove_persisted_agent_data_handles_file_not_found(
     # Verify the method was called
     expected_path = f"/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
+
+
+# =============================================================================
+# Tests for is_host_volume_created=False behavior
+# =============================================================================
+
+
+def _make_modal_provider_without_host_volume(
+    mngr_ctx: MngrContext,
+    app_name: str,
+) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with is_host_volume_created=False."""
+    mock_app = MagicMock()
+    mock_app.app_id = "mock-app-id"
+    mock_app.name = app_name
+
+    mock_volume = MagicMock()
+    output_buffer = StringIO()
+    mock_environment_name = f"test-env-{app_name}"
+
+    modal_app = ModalProviderApp.model_construct(
+        app_name=app_name,
+        environment_name=mock_environment_name,
+        app=mock_app,
+        volume=mock_volume,
+        close_callback=MagicMock(),
+        get_output_callback=output_buffer.getvalue,
+    )
+
+    config = ModalProviderConfig(
+        app_name=app_name,
+        host_dir=Path("/mngr"),
+        default_sandbox_timeout=300,
+        default_cpu=0.5,
+        default_memory=0.5,
+        is_persistent=False,
+        is_snapshotted_after_create=False,
+        is_host_volume_created=False,
+    )
+
+    return ModalProviderInstance.model_construct(
+        name=ProviderInstanceName("modal-test-no-vol"),
+        host_dir=Path("/mngr"),
+        mngr_ctx=mngr_ctx,
+        config=config,
+        modal_app=modal_app,
+    )
+
+
+@pytest.fixture
+def modal_provider_no_host_volume(temp_mngr_ctx: MngrContext, mngr_test_id: str) -> ModalProviderInstance:
+    """Create a ModalProviderInstance with is_host_volume_created=False."""
+    app_name = f"{MODAL_TEST_APP_PREFIX}{mngr_test_id}"
+    return _make_modal_provider_without_host_volume(temp_mngr_ctx, app_name)
+
+
+def test_get_volume_for_host_returns_none_when_host_volume_disabled(
+    modal_provider_no_host_volume: ModalProviderInstance,
+) -> None:
+    """get_volume_for_host should return None when is_host_volume_created=False."""
+    host_id = HostId.generate()
+    result = modal_provider_no_host_volume.get_volume_for_host(host_id)
+    assert result is None
+
+
+def test_shutdown_script_omits_volume_sync_when_host_volume_disabled(
+    modal_provider_no_host_volume: ModalProviderInstance,
+) -> None:
+    """Shutdown script should not include volume sync when is_host_volume_created=False."""
+    written_content: dict[str, str] = {}
+
+    class MockHost:
+        host_dir = Path("/mngr")
+
+        def write_text_file(self, path: Path, content: str, mode: str | None = None) -> None:
+            written_content[str(path)] = content
+
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-9182736"
+
+    host_id = HostId.generate()
+    modal_provider_no_host_volume._create_shutdown_script(
+        cast(Any, MockHost()),
+        mock_sandbox,
+        host_id,
+        "https://test--snapshot.modal.run",
+    )
+
+    script = written_content["/mngr/commands/shutdown.sh"]
+    assert "sync /host_volume" not in script
+
+
+def test_shutdown_script_includes_volume_sync_when_host_volume_enabled(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """Shutdown script should include volume sync when is_host_volume_created=True."""
+    written_content: dict[str, str] = {}
+
+    class MockHost:
+        host_dir = Path("/mngr")
+
+        def write_text_file(self, path: Path, content: str, mode: str | None = None) -> None:
+            written_content[str(path)] = content
+
+    mock_sandbox = MagicMock()
+    mock_sandbox.object_id = "sb-test-4567890"
+
+    host_id = HostId.generate()
+    modal_provider._create_shutdown_script(
+        cast(Any, MockHost()),
+        mock_sandbox,
+        host_id,
+        "https://test--snapshot.modal.run",
+    )
+
+    script = written_content["/mngr/commands/shutdown.sh"]
+    assert "sync /host_volume" in script
+
+
+def test_is_host_volume_created_defaults_to_true() -> None:
+    """ModalProviderConfig.is_host_volume_created should default to True."""
+    config = ModalProviderConfig()
+    assert config.is_host_volume_created is True
