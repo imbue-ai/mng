@@ -24,6 +24,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.limit import limit
 from imbue.mngr.cli.list import list_command
+from imbue.mngr.cli.logs import logs
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
@@ -260,6 +261,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     destroy,
     exec_command,
     list_command,
+    logs,
     connect,
     message,
     pair,
