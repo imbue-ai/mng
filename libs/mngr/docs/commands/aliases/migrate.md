@@ -6,13 +6,17 @@
 **Synopsis:**
 
 ```text
-mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]
+mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] --in <PROVIDER> [create-options...]
 ```
 
 Move an agent to a different host by cloning it and destroying the original.
 
-This is equivalent to running `mngr clone <source>` followed by
-`mngr destroy --force <source>`. The first argument is the source agent to
+Migrate always moves an agent between different providers (e.g. local to
+Docker, local to Modal). To copy an agent within the same provider, use
+`mngr clone` instead.
+
+This is equivalent to running `mngr clone <source> --in <provider>` followed
+by `mngr destroy --force <source>`. The first argument is the source agent to
 migrate. An optional second positional argument sets the new agent's name.
 All remaining arguments are passed through to the create command.
 
@@ -46,5 +50,5 @@ $ mngr migrate my-agent new-agent --in modal
 **Migrate and pass args to the agent**
 
 ```bash
-$ mngr migrate my-agent -- --model opus
+$ mngr migrate my-agent --in modal -- --model opus
 ```

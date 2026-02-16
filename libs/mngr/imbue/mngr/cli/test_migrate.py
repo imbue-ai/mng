@@ -14,109 +14,46 @@ from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.conftest import ModalSubprocessTestEnv
 from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import get_short_random_string
-from imbue.mngr.utils.testing import tmux_session_cleanup
-from imbue.mngr.utils.testing import tmux_session_exists
 
 
-def test_migrate_clones_and_destroys_source(
+def test_migrate_rejects_same_provider(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that migrate creates a new agent and destroys the source."""
-    source_name = f"test-migrate-source-{uuid4().hex}"
-    target_name = f"test-migrate-target-{uuid4().hex}"
-    source_session = f"{mngr_test_prefix}{source_name}"
-    target_session = f"{mngr_test_prefix}{target_name}"
+    """Migrate should reject same-provider migration with a helpful error."""
+    source_name = f"test-migrate-reject-{uuid4().hex}"
 
-    with tmux_session_cleanup(source_session), tmux_session_cleanup(target_session):
-        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, source_name)
+    create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, source_name)
 
-        # Migrate the source agent to a new name
-        migrate_result = cli_runner.invoke(
-            migrate,
-            [
-                source_name,
-                target_name,
-                "--agent-cmd",
-                "sleep 482917",
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert migrate_result.exit_code == 0, f"Migrate failed with: {migrate_result.output}"
+    # Attempt to migrate without --in (defaults to local, same as source)
+    migrate_result = cli_runner.invoke(
+        migrate,
+        [
+            source_name,
+            "--agent-cmd",
+            "sleep 482917",
+            "--no-connect",
+            "--no-copy-work-dir",
+        ],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
 
-        # Verify the target agent exists
-        assert tmux_session_exists(target_session), f"Expected target session {target_session} to exist"
+    assert migrate_result.exit_code != 0, f"Expected migrate to fail, but got: {migrate_result.output}"
+    assert "same provider" in migrate_result.output
+    assert "clone" in migrate_result.output
 
-        # Verify the source agent was destroyed
-        assert not tmux_session_exists(source_session), f"Expected source session {source_session} to be destroyed"
-
-        # Verify via list: target should be present, source should not
-        list_result = cli_runner.invoke(
-            list_command,
-            [],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert list_result.exit_code == 0
-        assert target_name in list_result.output, f"Expected target agent in list output: {list_result.output}"
-        assert source_name not in list_result.output, f"Expected source agent NOT in list output: {list_result.output}"
-
-
-def test_migrate_same_name_does_not_destroy_clone(
-    cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mngr_test_prefix: str,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Migrate without a new name should destroy only the source, not the clone.
-
-    When no target name is specified, the clone inherits the source name.
-    The destroy step must target the source by ID (not name) to avoid
-    destroying the newly cloned agent that shares the same name.
-    """
-    agent_name = f"test-migrate-same-{uuid4().hex}"
-    session_name = f"{mngr_test_prefix}{agent_name}"
-
-    with tmux_session_cleanup(session_name):
-        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
-
-        # Migrate without specifying a new name -- clone inherits the source name
-        migrate_result = cli_runner.invoke(
-            migrate,
-            [
-                agent_name,
-                "--agent-cmd",
-                "sleep 573819",
-                "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
-            ],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert migrate_result.exit_code == 0, f"Migrate failed with: {migrate_result.output}"
-
-        # The cloned agent (same name) should still exist
-        assert tmux_session_exists(session_name), (
-            f"Expected session {session_name} to exist after migrate -- "
-            "destroy likely matched by name and killed the clone too"
-        )
-
-        # Verify via list: agent should still appear exactly once
-        list_result = cli_runner.invoke(
-            list_command,
-            [],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert list_result.exit_code == 0
-        assert agent_name in list_result.output, f"Expected agent in list output: {list_result.output}"
+    # Verify the source agent still exists (not destroyed)
+    list_result = cli_runner.invoke(
+        list_command,
+        [],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert list_result.exit_code == 0
+    assert source_name in list_result.output, f"Source agent should still exist: {list_result.output}"
 
 
 @pytest.fixture

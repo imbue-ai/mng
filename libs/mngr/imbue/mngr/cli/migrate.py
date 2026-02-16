@@ -6,19 +6,19 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import list_agents
-from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.clone import args_before_dd_count
 from imbue.mngr.cli.clone import has_name_in_remaining_args
 from imbue.mngr.cli.clone import parse_source_and_invoke_create
 from imbue.mngr.cli.connect import connect as connect_cmd
+from imbue.mngr.cli.destroy import destroy as destroy_cmd
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.config.loader import load_config
-from imbue.mngr.errors import AgentNotFoundError
 from imbue.mngr.errors import UserInputError
-from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import ProviderInstanceName
 
 
 @pure
@@ -33,16 +33,50 @@ def _user_specified_quiet(args: tuple[str, ...]) -> bool:
     return "--quiet" in args or "-q" in args
 
 
-def _resolve_and_stop_source_agent(ctx: click.Context, source_agent: str) -> AgentId:
-    """Resolve the source agent name or ID to a unique AgentId, then stop it.
+@pure
+def _extract_target_provider_name(
+    remaining: list[str],
+    original_argv: list[str],
+) -> ProviderInstanceName | None:
+    """Extract the target provider from --in or --new-host in the remaining args.
 
-    Loads config, lists all agents to find a match, and stops the source
-    agent's tmux session before returning. Stopping the source is necessary
-    because tmux session names are derived from agent names (not IDs). If
-    the clone inherits the same name, it needs the session name to be free
-    so it can create its own session.
+    Returns the provider name if found before the ``--`` separator, or None
+    if neither --in nor --new-host is specified.
+    """
+    before_dd_count = args_before_dd_count(remaining, original_argv)
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
 
-    The source's data/config remains intact for the clone to copy from.
+    for i, arg in enumerate(check):
+        if arg in ("--in", "--new-host") and i + 1 < len(check):
+            return ProviderInstanceName(check[i + 1])
+        if arg.startswith("--in="):
+            return ProviderInstanceName(arg.split("=", 1)[1])
+        if arg.startswith("--new-host="):
+            return ProviderInstanceName(arg.split("=", 1)[1])
+
+    return None
+
+
+@pure
+def _has_host_flag(remaining: list[str], original_argv: list[str]) -> bool:
+    """Check if --host or --target-host appears before ``--``."""
+    before_dd_count = args_before_dd_count(remaining, original_argv)
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    for arg in check:
+        if arg in ("--host", "--target-host") or arg.startswith(("--host=", "--target-host=")):
+            return True
+    return False
+
+
+def _resolve_source_agent(
+    ctx: click.Context,
+    source_agent: str,
+) -> tuple[AgentId, ProviderInstanceName]:
+    """Resolve the source agent name or ID to its AgentId and provider.
+
+    Loads config and lists all agents to find a match. Does NOT stop or
+    modify the source agent in any way.
     """
     pm = ctx.obj
     with ConcurrencyGroup(name="mngr-migrate-resolve") as cg:
@@ -51,41 +85,9 @@ def _resolve_and_stop_source_agent(ctx: click.Context, source_agent: str) -> Age
 
         for agent_info in result.agents:
             if str(agent_info.name) == source_agent or str(agent_info.id) == source_agent:
-                # Stop the source agent so the clone can create its own
-                # tmux session with the same name
-                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
-                host = provider.get_host(agent_info.host.id)
-                if isinstance(host, OnlineHostInterface):
-                    host.stop_agents([agent_info.id])
-                return agent_info.id
+                return agent_info.id, agent_info.host.provider_name
 
     raise UserInputError(f"Source agent '{source_agent}' not found")
-
-
-def _destroy_source_agent_data(ctx: click.Context, source_agent_id: AgentId) -> None:
-    """Destroy the source agent's data without killing its tmux session.
-
-    Uses skip_stop=True on destroy_agent because the source was already stopped
-    before cloning, and the clone may now own a tmux session with the same name.
-    Calling stop_agents would kill the clone's session due to name-based lookup.
-    """
-    pm = ctx.obj
-    with ConcurrencyGroup(name="mngr-migrate-destroy") as cg:
-        mngr_ctx = load_config(pm, cg)
-        result = list_agents(mngr_ctx, is_streaming=False)
-
-        for agent_info in result.agents:
-            if agent_info.id == source_agent_id:
-                provider = get_provider_instance(agent_info.host.provider_name, mngr_ctx)
-                host = provider.get_host(agent_info.host.id)
-                if isinstance(host, OnlineHostInterface):
-                    for agent in host.get_agents():
-                        if agent.id == source_agent_id:
-                            host.destroy_agent(agent, skip_stop=True)
-                            return
-                raise AgentNotFoundError(str(source_agent_id))
-
-    raise AgentNotFoundError(str(source_agent_id))
 
 
 @pure
@@ -133,9 +135,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     """Move an agent to a different host by cloning it and destroying the original.
 
     \b
-    This is equivalent to running `mngr clone` followed by `mngr destroy --force`.
+    Migrate always moves an agent between different providers (e.g. local to
+    Docker, local to Modal). To copy an agent within the same provider, use
+    `mngr clone` instead.
+
     All create options are supported. The source agent is force-destroyed after
-    a successful clone (including running agents).
+    a successful clone (including running agents). If the clone step fails,
+    the source agent is left untouched.
 
     When connecting (the default), the source agent is destroyed as soon as
     the clone is ready, before attaching to the new agent's session.
@@ -147,20 +153,30 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
     remaining = list(args[1:])
     original_argv = sys.argv
 
-    # Determine if the user wants to connect (the default).
-    # If they do, we inject --no-connect so that create returns after the
-    # agent is ready, then we destroy the source, then connect manually.
     wants_connect = not _user_specified_no_connect(args)
     is_quiet = _user_specified_quiet(args)
 
-    # Resolve the source agent's unique ID and stop its tmux session before
-    # cloning. This ensures: (1) destroy targets only this specific agent,
-    # not a newly cloned agent with the same name, and (2) the clone can
-    # create its own tmux session (session names are name-based, not ID-based).
-    if not is_quiet:
-        logger.info("Stopping source agent...")
-    source_agent_id = _resolve_and_stop_source_agent(ctx, source_agent)
+    # Resolve the source agent's unique ID and provider (source stays running).
+    source_agent_id, source_provider = _resolve_source_agent(ctx, source_agent)
 
+    # Validate cross-provider migration. When --in/--new-host is specified,
+    # check that it differs from the source provider. When --host/--target-host
+    # is specified (targeting an existing host), we skip the check since
+    # resolving the host's provider requires extra context. When neither is
+    # specified, the default target is the local provider.
+    target_provider = _extract_target_provider_name(remaining, original_argv)
+    if target_provider is None and not _has_host_flag(remaining, original_argv):
+        target_provider = LOCAL_PROVIDER_NAME
+
+    if target_provider is not None and target_provider == source_provider:
+        raise UserInputError(
+            f"Cannot migrate agent '{source_agent}' within the same provider '{source_provider}'. "
+            f"Use 'mngr clone' to copy an agent within the same provider, "
+            f"or specify a different target with '--in <provider>'."
+        )
+
+    # Clone the agent to the target host. The source stays running and
+    # untouched so that if the clone fails, nothing is lost.
     if wants_connect:
         create_args = args + ("--no-connect", "--await-ready")
     else:
@@ -168,16 +184,21 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
     parse_source_and_invoke_create(ctx, create_args, command_name="migrate")
 
-    # Destroy the source agent's data. We use skip_stop=True because:
-    # (1) the source was already stopped before cloning, and
-    # (2) the clone may now own a tmux session with the same name
-    #     (session names are name-based), so stop_agents would kill it.
+    # Destroy the source agent by ID using the normal destroy flow.
+    # Destroying by ID (not name) ensures we target the exact source agent
+    # even when the clone inherits the same name.
     if not is_quiet:
         logger.info("Cleaning up source agent...")
 
     try:
-        _destroy_source_agent_data(ctx, source_agent_id)
-    except click.ClickException:
+        destroy_ctx = destroy_cmd.make_context(
+            "migrate-destroy",
+            [str(source_agent_id), "--force"],
+            parent=ctx,
+        )
+        with destroy_ctx:
+            destroy_cmd.invoke(destroy_ctx)
+    except (click.Abort, click.ClickException):
         logger.error(
             "Clone succeeded but destroy of '{}' failed. "
             "Please manually destroy the source agent:\n"
@@ -198,11 +219,15 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 _MIGRATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-migrate",
     one_line_description="Move an agent to a different host",
-    synopsis="mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
+    synopsis="mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] --in <PROVIDER> [create-options...]",
     description="""Move an agent to a different host by cloning it and destroying the original.
 
-This is equivalent to running `mngr clone <source>` followed by
-`mngr destroy --force <source>`. The first argument is the source agent to
+Migrate always moves an agent between different providers (e.g. local to
+Docker, local to Modal). To copy an agent within the same provider, use
+`mngr clone` instead.
+
+This is equivalent to running `mngr clone <source> --in <provider>` followed
+by `mngr destroy --force <source>`. The first argument is the source agent to
 migrate. An optional second positional argument sets the new agent's name.
 All remaining arguments are passed through to the create command.
 
@@ -213,7 +238,7 @@ manually clean up.""",
     examples=(
         ("Migrate an agent to a Docker container", "mngr migrate my-agent --in docker"),
         ("Migrate with a new name", "mngr migrate my-agent new-agent --in modal"),
-        ("Migrate and pass args to the agent", "mngr migrate my-agent -- --model opus"),
+        ("Migrate and pass args to the agent", "mngr migrate my-agent --in modal -- --model opus"),
     ),
     see_also=(
         ("clone", "Clone an agent (without destroying the original)"),

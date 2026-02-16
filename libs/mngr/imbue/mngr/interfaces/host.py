@@ -429,14 +429,8 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
-    def destroy_agent(self, agent: AgentInterface, *, skip_stop: bool = False) -> None:
-        """Remove an agent and all its associated state from this host.
-
-        When skip_stop is True, the agent's processes and tmux session are not
-        stopped (assumes the caller has already handled stopping). This is used
-        by migrate to avoid killing a clone's tmux session that shares the same
-        name as the source agent being destroyed.
-        """
+    def destroy_agent(self, agent: AgentInterface) -> None:
+        """Remove an agent and all its associated state from this host."""
         ...
 
     @abstractmethod
