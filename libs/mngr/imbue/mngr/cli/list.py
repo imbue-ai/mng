@@ -91,7 +91,6 @@ class ListCliOptions(CommonCliOptions):
     remote: bool
     provider: tuple[str, ...]
     stdin: bool
-    format_template: str | None
     fields: str | None
     sort: str
     sort_order: str
@@ -143,18 +142,6 @@ class ListCliOptions(CommonCliOptions):
     help="Read agent and host IDs or names from stdin (one per line)",
 )
 @optgroup.group("Output Format")
-# FIXME: --format-template should be replaced with:
-#             --format (json|jsonl|human|FORMAT), where the last one is the format string functionality from --format-template
-#             --json, just an alias for "--format json"
-#             --jsonl, just an alias for "--format jsonl"
-#             note: --human isn't needed because it is the default
-#   and all docs should be updated to take this into consideration / properly describe how our formatting options work across all commands
-#   and all commands should be updated to do this in the same way and to use the nice formatting functionality that we added here to list (which should be factored out into shared methods)
-@optgroup.option(
-    "--format-template",
-    "format_template",
-    help="Output format as a string template (mutually exclusive with --format)",
-)
 @optgroup.option(
     "--fields",
     help="Which fields to include (comma-separated)",
@@ -222,24 +209,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         command_class=ListCliOptions,
     )
 
-    # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
-    # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
-    format_template: str | None = None
-    if opts.format_template is not None:
-        # Mutual exclusivity: if --format was explicitly provided, error out
-        format_source = ctx.get_parameter_source("output_format")
-        is_format_explicit = format_source is not None and format_source != click.core.ParameterSource.DEFAULT
-        if is_format_explicit:
-            raise click.UsageError("--format-template is mutually exclusive with --format")
-
-        # Validate template syntax early
-        try:
-            list(string.Formatter().parse(opts.format_template))
-        except (ValueError, KeyError) as e:
-            raise click.UsageError(f"Invalid format template: {e}") from None
-
-        # Interpret shell escape sequences (\t -> tab, \n -> newline, etc.)
-        format_template = _process_template_escapes(opts.format_template)
+    # Format template is now resolved by the common option parsing infrastructure
+    # (via --format with a template string, e.g. --format '{name}\t{state}')
+    format_template = output_opts.format_template
 
     # Parse fields if provided
     fields = None
@@ -317,7 +289,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
     )
 
-    # Template output path: if --format-template is set, use streaming when possible, batch otherwise
+    # Template output path: if --format is a template string, use streaming when possible, batch otherwise
     if format_template is not None:
         is_streaming_template = _is_streaming_eligible(is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit)
         if is_streaming_template:
@@ -952,31 +924,6 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         return _format_value_as_string(value)
     except (AttributeError, KeyError):
         return ""
-
-
-@pure
-def _process_template_escapes(template: str) -> str:
-    """Interpret common backslash escape sequences in a template string.
-
-    The shell passes \\t, \\n, etc. as literal characters. This function converts
-    them to actual tab, newline, etc. -- matching the behavior of tools like awk
-    and printf. Uses a single-pass scanner to correctly handle sequences like
-    \\\\t (literal backslash + t) without re-processing.
-    """
-    escape_map = {"t": "\t", "n": "\n", "r": "\r", "\\": "\\"}
-    result: list[str] = []
-    idx = 0
-    while idx < len(template):
-        char = template[idx]
-        if char == "\\" and idx + 1 < len(template):
-            next_char = template[idx + 1]
-            if next_char in escape_map:
-                result.append(escape_map[next_char])
-                idx += 2
-                continue
-        result.append(char)
-        idx += 1
-    return "".join(result)
 
 
 @pure

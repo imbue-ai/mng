@@ -666,6 +666,10 @@ class OutputOptions(FrozenModel):
         default=OutputFormat.HUMAN,
         description="Output format for command results",
     )
+    format_template: str | None = Field(
+        default=None,
+        description="Format template string for custom output formatting (set when --format is a template string rather than a built-in format name)",
+    )
     console_level: LogLevel = Field(
         default=LogLevel.BUILD,
         description="Log level for console output",

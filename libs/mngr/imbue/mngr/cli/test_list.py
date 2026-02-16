@@ -1066,10 +1066,10 @@ def test_list_command_format_template_no_agents(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test list command with --format-template when no agents exist produces silent output."""
+    """Test list command with --format template when no agents exist produces silent output."""
     result = cli_runner.invoke(
         list_command,
-        ["--format-template", "{name}\t{state}"],
+        ["--format", "{name}\\t{state}"],
         obj=plugin_manager,
         catch_exceptions=False,
     )
@@ -1085,7 +1085,7 @@ def test_list_command_format_template_with_agent(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test list command with --format-template shows template-expanded output."""
+    """Test list command with --format template shows template-expanded output."""
     agent_name = f"test-list-template-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
@@ -1110,10 +1110,10 @@ def test_list_command_format_template_with_agent(
         )
         assert create_result.exit_code == 0
 
-        # List with --format-template
+        # List with --format template string
         result = cli_runner.invoke(
             list_command,
-            ["--format-template", "{name}\t{state}"],
+            ["--format", "{name}\\t{state}"],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -1124,21 +1124,6 @@ def test_list_command_format_template_with_agent(
         assert f"{agent_name}\t" in result.output
 
 
-def test_list_command_format_template_mutually_exclusive_with_format(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --format-template and --format cannot be used together."""
-    result = cli_runner.invoke(
-        list_command,
-        ["--format-template", "{name}", "--format", "json"],
-        obj=plugin_manager,
-    )
-
-    assert result.exit_code != 0
-    assert "mutually exclusive" in result.output
-
-
 def test_list_command_format_template_invalid_syntax(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -1146,9 +1131,70 @@ def test_list_command_format_template_invalid_syntax(
     """Test that an invalid format template produces a clear error."""
     result = cli_runner.invoke(
         list_command,
-        ["--format-template", "{"],
+        ["--format", "{"],
         obj=plugin_manager,
     )
 
     assert result.exit_code != 0
     assert "Invalid format template" in result.output
+
+
+def test_list_command_json_flag(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --json flag (alias for --format json)."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--json"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert '"agents": []' in result.output
+
+
+def test_list_command_jsonl_flag(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test list command with --jsonl flag (alias for --format jsonl)."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--jsonl"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+
+
+def test_list_command_json_flag_mutually_exclusive_with_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --json and --format cannot be used together."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--json", "--format", "jsonl"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_list_command_json_and_jsonl_flags_mutually_exclusive(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --json and --jsonl cannot be used together."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--json", "--jsonl"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output

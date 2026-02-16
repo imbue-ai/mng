@@ -2,7 +2,9 @@
 
 ### Output Format
 
-- `--format [human|json|jsonl|FORMAT]`: Output format for command results. If FORMAT [future], see below docs about template formatting [default: human]
+- `--format [human|json|jsonl|FORMAT]`: Output format for command results. If not one of the built-in formats (human, json, jsonl), the value is treated as a Python format template string. Template fields use `{field.name}` syntax and support shell escape sequences (`\t`, `\n`). Example: `--format '{name}\t{state}'` [default: human]
+- `--json`: Alias for `--format json`
+- `--jsonl`: Alias for `--format jsonl`
 
 Command results are sent to stdout. Console logging is sent to stderr.
 

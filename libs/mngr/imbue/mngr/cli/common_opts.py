@@ -1,3 +1,4 @@
+import string
 import sys
 import uuid
 from collections.abc import Callable
@@ -18,6 +19,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -28,6 +30,10 @@ from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.utils.logging import setup_logging
+
+# The set of built-in format names (case-insensitive). Any --format value not
+# matching one of these is treated as a format template string.
+_BUILTIN_FORMAT_NAMES: frozenset[str] = frozenset(f.value.lower() for f in OutputFormat)
 
 # Constant for the "Common" option group name used across all commands
 COMMON_OPTIONS_GROUP_NAME = "Common"
@@ -48,6 +54,8 @@ class CommonCliOptions(FrozenModel):
     """
 
     output_format: str
+    json_flag: bool = False
+    jsonl_flag: bool = False
     quiet: bool
     verbose: int
     log_file: str | None
@@ -63,7 +71,9 @@ def add_common_options(command: TDecorated) -> TDecorated:
     """Decorator to add common options to a command.
 
     Adds the following options in the "Common" option group:
-    - --format: Output format (human/json/jsonl)
+    - --format: Output format (human/json/jsonl, or a template string)
+    - --json: Alias for --format json
+    - --jsonl: Alias for --format jsonl
     - -q, --quiet: Suppress console output
     - -v, --verbose: Increase verbosity
     - --log-file: Override log file path
@@ -106,12 +116,25 @@ def add_common_options(command: TDecorated) -> TDecorated:
     )(command)
     command = optgroup.option("-q", "--quiet", is_flag=True, help="Suppress all console output")(command)
     command = optgroup.option(
+        "--jsonl",
+        "jsonl_flag",
+        is_flag=True,
+        default=False,
+        help="Alias for --format jsonl",
+    )(command)
+    command = optgroup.option(
+        "--json",
+        "json_flag",
+        is_flag=True,
+        default=False,
+        help="Alias for --format json",
+    )(command)
+    command = optgroup.option(
         "--format",
         "output_format",
-        type=click.Choice(["human", "json", "jsonl"], case_sensitive=False),
         default="human",
         show_default=True,
-        help="Output format for command results",
+        help="Output format: human, json, jsonl, or a template string (e.g. '{name}\\t{state}')",
     )(command)
     # Start the "Common" option group - applied last since decorators run in reverse order
     command = optgroup.group(COMMON_OPTIONS_GROUP_NAME)(command)
@@ -171,11 +194,14 @@ def setup_command_context(
     # Re-create options with config defaults applied
     opts = command_class(**updated_params)
 
+    # Resolve --json / --jsonl flags into output_format before parsing output options.
+    effective_format = _resolve_format_flags(ctx, opts)
+
     # Parse output options after all defaults and overrides have been applied,
     # so that config defaults and plugin overrides for logging-related params
     # (verbose, quiet, log_file, etc.) are taken into consideration.
     output_opts = parse_output_options(
-        output_format=opts.output_format,
+        output_format=effective_format,
         quiet=opts.quiet,
         verbose=opts.verbose,
         log_file=opts.log_file,
@@ -198,6 +224,26 @@ def setup_command_context(
     return mngr_ctx, output_opts, opts
 
 
+def _resolve_format_flags(ctx: click.Context, opts: CommonCliOptions) -> str:
+    """Resolve --json / --jsonl convenience flags into a single format string.
+
+    Validates mutual exclusivity: --json and --jsonl cannot be used together,
+    and neither can be combined with an explicit --format value.
+    """
+    if opts.json_flag and opts.jsonl_flag:
+        raise click.UsageError("--json and --jsonl are mutually exclusive")
+
+    if opts.json_flag or opts.jsonl_flag:
+        format_source = ctx.get_parameter_source("output_format")
+        is_format_explicit = format_source is not None and format_source != ParameterSource.DEFAULT
+        if is_format_explicit:
+            flag_name = "--json" if opts.json_flag else "--jsonl"
+            raise click.UsageError(f"{flag_name} is mutually exclusive with --format")
+        return "json" if opts.json_flag else "jsonl"
+
+    return opts.output_format
+
+
 def parse_output_options(
     output_format: str,
     quiet: bool,
@@ -208,9 +254,28 @@ def parse_output_options(
     log_env_vars: bool | None,
     config: MngrConfig,
 ) -> OutputOptions:
-    """Parse output-related CLI options. CLI flags can override config values."""
-    # Parse output format
-    parsed_output_format = OutputFormat(output_format.upper())
+    """Parse output-related CLI options. CLI flags can override config values.
+
+    If output_format is a built-in format name (human, json, jsonl), it is parsed
+    as an OutputFormat enum. Otherwise it is treated as a format template string:
+    the output_format is set to HUMAN and the template is stored in format_template
+    (with shell escape sequences like \\t and \\n interpreted).
+    """
+    # Detect whether the format string is a built-in format or a template
+    parsed_output_format: OutputFormat
+    format_template: str | None = None
+
+    if output_format.lower() in _BUILTIN_FORMAT_NAMES:
+        parsed_output_format = OutputFormat(output_format.upper())
+    else:
+        # Validate template syntax early
+        try:
+            list(string.Formatter().parse(output_format))
+        except (ValueError, KeyError) as e:
+            raise click.UsageError(f"Invalid format template: {e}") from None
+        # Interpret shell escape sequences (\t -> tab, \n -> newline, etc.)
+        format_template = _process_template_escapes(output_format)
+        parsed_output_format = OutputFormat.HUMAN
 
     # Determine console level based on quiet and verbose flags
     if quiet:
@@ -236,12 +301,38 @@ def parse_output_options(
 
     return OutputOptions(
         output_format=parsed_output_format,
+        format_template=format_template,
         console_level=console_level,
         log_file_path=log_file_path,
         is_log_commands=is_log_commands,
         is_log_command_output=is_log_command_output,
         is_log_env_vars=is_log_env_vars,
     )
+
+
+@pure
+def _process_template_escapes(template: str) -> str:
+    """Interpret common backslash escape sequences in a template string.
+
+    The shell passes \\t, \\n, etc. as literal characters. This function converts
+    them to actual tab, newline, etc. -- matching the behavior of tools like awk
+    and printf. Uses a single-pass scanner to correctly handle sequences like
+    \\\\t (literal backslash + t) without re-processing.
+    """
+    escape_map = {"t": "\t", "n": "\n", "r": "\r", "\\": "\\"}
+    result: list[str] = []
+    idx = 0
+    while idx < len(template):
+        char = template[idx]
+        if char == "\\" and idx + 1 < len(template):
+            next_char = template[idx + 1]
+            if next_char in escape_map:
+                result.append(escape_map[next_char])
+                idx += 2
+                continue
+        result.append(char)
+        idx += 1
+    return "".join(result)
 
 
 def apply_config_defaults(ctx: click.Context, config: MngrConfig, command_name: str) -> dict[str, Any]:
