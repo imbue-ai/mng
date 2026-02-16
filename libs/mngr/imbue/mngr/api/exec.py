@@ -9,6 +9,8 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mngr.api.find import AgentMatch
+from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mngr.api.find import group_agents_by_host
@@ -16,7 +18,9 @@ from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 
@@ -40,6 +44,10 @@ class MultiExecResult(MutableModel):
         default_factory=list,
         description="List of (agent_name, error_message) tuples for agents that could not be reached",
     )
+
+    @property
+    def is_any_failure(self) -> bool:
+        return bool(self.failed_agents) or any(not r.success for r in self.successful_results)
 
 
 @log_call
@@ -82,6 +90,131 @@ def exec_command_on_agent(
     )
 
 
+def _record_failure(
+    result: MultiExecResult,
+    agent_name: AgentName,
+    error_msg: str,
+    on_error: Callable[[str, str], None] | None,
+    error_behavior: ErrorBehavior,
+) -> bool:
+    """Record a failure for an agent and return True if the caller should abort."""
+    result.failed_agents.append((str(agent_name), error_msg))
+    if on_error is not None:
+        on_error(str(agent_name), error_msg)
+    return error_behavior == ErrorBehavior.ABORT
+
+
+def _get_online_host_for_agents(
+    host_id_str: str,
+    agent_list: Sequence[AgentMatch],
+    mngr_ctx: MngrContext,
+    is_start_desired: bool,
+    result: MultiExecResult,
+    on_error: Callable[[str, str], None] | None,
+    error_behavior: ErrorBehavior,
+) -> OnlineHostInterface | None:
+    """Get an online host for a group of agents, starting it if needed.
+
+    Returns the online host, or None if the host could not be reached
+    (failures are recorded in result).
+    """
+    provider_name = agent_list[0].provider_name
+
+    try:
+        provider = get_provider_instance(provider_name, mngr_ctx)
+        host_interface = provider.get_host(HostId(host_id_str))
+    except MngrError as e:
+        for match in agent_list:
+            is_should_abort = _record_failure(
+                result,
+                match.agent_name,
+                f"Failed to get host for agent {match.agent_name}: {e}",
+                on_error,
+                error_behavior,
+            )
+            if is_should_abort:
+                return None
+        return None
+
+    # Ensure host is online (start if needed)
+    try:
+        started_host, _was_started = ensure_host_started(
+            host_interface, is_start_desired=is_start_desired, provider=provider
+        )
+        return started_host
+    except (MngrError, UserInputError) as e:
+        for match in agent_list:
+            is_should_abort = _record_failure(
+                result,
+                match.agent_name,
+                f"Failed to start host for agent {match.agent_name}: {e}",
+                on_error,
+                error_behavior,
+            )
+            if is_should_abort:
+                return None
+        return None
+
+
+def _execute_on_single_agent(
+    online_host: OnlineHostInterface,
+    match: AgentMatch,
+    command: str,
+    user: str | None,
+    cwd: str | None,
+    timeout_seconds: float | None,
+    result: MultiExecResult,
+    on_success: Callable[[ExecResult], None] | None,
+    on_error: Callable[[str, str], None] | None,
+    error_behavior: ErrorBehavior,
+) -> bool:
+    """Execute a command on a single agent. Returns True if the caller should abort."""
+    try:
+        # Find the agent on the host to get its work_dir
+        agent_work_dir: Path | None = None
+        for agent in online_host.get_agents():
+            if agent.id == match.agent_id:
+                agent_work_dir = agent.work_dir
+                break
+
+        if cwd is not None:
+            effective_cwd: Path | None = Path(cwd)
+        elif agent_work_dir is not None:
+            effective_cwd = agent_work_dir
+        else:
+            return _record_failure(
+                result, match.agent_name, f"Agent {match.agent_name} not found on host", on_error, error_behavior
+            )
+
+        with log_span("Executing command on agent {}", match.agent_name):
+            cmd_result = online_host.execute_command(
+                command,
+                user=user,
+                cwd=effective_cwd,
+                timeout_seconds=timeout_seconds,
+            )
+
+        exec_result = ExecResult(
+            agent_name=str(match.agent_name),
+            stdout=cmd_result.stdout,
+            stderr=cmd_result.stderr,
+            success=cmd_result.success,
+        )
+        result.successful_results.append(exec_result)
+        if on_success is not None:
+            on_success(exec_result)
+        return False
+
+    except MngrError as e:
+        return _record_failure(
+            result,
+            match.agent_name,
+            f"Failed to execute command on agent {match.agent_name}: {e}",
+            on_error,
+            error_behavior,
+        )
+
+
 @log_call
 def exec_command_on_agents(
     mngr_ctx: MngrContext,
@@ -121,85 +254,22 @@ def exec_command_on_agents(
 
     for host_key, agent_list in agents_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
-        provider_name = agent_list[0].provider_name
 
-        # Get the host
-        try:
-            provider = get_provider_instance(provider_name, mngr_ctx)
-            host_interface = provider.get_host(HostId(host_id_str))
-        except MngrError as e:
-            for match in agent_list:
-                error_msg = f"Failed to get host for agent {match.agent_name}: {e}"
-                result.failed_agents.append((str(match.agent_name), error_msg))
-                if on_error is not None:
-                    on_error(str(match.agent_name), error_msg)
-                if error_behavior == ErrorBehavior.ABORT:
-                    return result
+        # Get an online host (starting it if needed)
+        online_host = _get_online_host_for_agents(
+            host_id_str, agent_list, mngr_ctx, is_start_desired, result, on_error, error_behavior
+        )
+        if online_host is None:
+            if error_behavior == ErrorBehavior.ABORT and result.failed_agents:
+                return result
             continue
-
-        # Ensure host is online
-        if not isinstance(host_interface, OnlineHostInterface):
-            if is_start_desired:
-                try:
-                    with log_span("Starting host {}", host_id_str):
-                        host_interface = provider.start_host(host_interface)
-                except MngrError as e:
-                    for match in agent_list:
-                        error_msg = f"Failed to start host for agent {match.agent_name}: {e}"
-                        result.failed_agents.append((str(match.agent_name), error_msg))
-                        if on_error is not None:
-                            on_error(str(match.agent_name), error_msg)
-                        if error_behavior == ErrorBehavior.ABORT:
-                            return result
-                    continue
-            else:
-                for match in agent_list:
-                    error_msg = f"Host '{host_id_str}' is offline and automatic starting is disabled"
-                    result.failed_agents.append((str(match.agent_name), error_msg))
-                    if on_error is not None:
-                        on_error(str(match.agent_name), error_msg)
-                    if error_behavior == ErrorBehavior.ABORT:
-                        return result
-                continue
-
-        online_host: OnlineHostInterface = host_interface
 
         # Execute command on each agent on this host
         for match in agent_list:
-            try:
-                # Find the agent on the host to get its work_dir
-                agent_work_dir: Path | None = None
-                for agent in online_host.get_agents():
-                    if agent.id == match.agent_id:
-                        agent_work_dir = agent.work_dir
-                        break
-
-                effective_cwd = Path(cwd) if cwd is not None else agent_work_dir
-
-                with log_span("Executing command on agent {}", match.agent_name):
-                    cmd_result = online_host.execute_command(
-                        command,
-                        user=user,
-                        cwd=effective_cwd,
-                        timeout_seconds=timeout_seconds,
-                    )
-
-                exec_result = ExecResult(
-                    agent_name=str(match.agent_name),
-                    stdout=cmd_result.stdout,
-                    stderr=cmd_result.stderr,
-                    success=cmd_result.success,
-                )
-                result.successful_results.append(exec_result)
-                if on_success is not None:
-                    on_success(exec_result)
-
-            except MngrError as e:
-                error_msg = f"Failed to execute command on agent {match.agent_name}: {e}"
-                result.failed_agents.append((str(match.agent_name), error_msg))
-                if on_error is not None:
-                    on_error(str(match.agent_name), error_msg)
-                if error_behavior == ErrorBehavior.ABORT:
-                    return result
+            is_should_abort = _execute_on_single_agent(
+                online_host, match, command, user, cwd, timeout_seconds, result, on_success, on_error, error_behavior
+            )
+            if is_should_abort:
+                return result
 
     return result
