@@ -19,6 +19,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
@@ -272,6 +273,21 @@ def _emit_list_snapshots(
     output_opts: OutputOptions,
 ) -> None:
     """Emit output for snapshot list."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for host_id, snap in all_snapshots:
+            items.append(
+                {
+                    "id": str(snap.id),
+                    "name": str(snap.name),
+                    "created_at": snap.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "size": format_size(snap.size_bytes) if snap.size_bytes is not None else "-",
+                    "size_bytes": str(snap.size_bytes) if snap.size_bytes is not None else "",
+                    "host_id": host_id,
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             data = [
@@ -620,6 +636,9 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
 
     Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
+    Supports custom format templates via --format. Available fields:
+    id, name, created_at, size, size_bytes, host_id.
+
     \b
     Examples:
 
@@ -630,11 +649,14 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
       mngr snapshot list my-agent --limit 5
 
       mngr snapshot list my-agent --format json
+
+      mngr snapshot list my-agent --format '{name}\\t{size}\\t{host_id}'
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="snapshot_list",
         command_class=SnapshotListCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot list command")
 

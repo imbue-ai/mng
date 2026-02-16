@@ -28,6 +28,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import render_format_template
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
@@ -932,34 +933,16 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 def _render_format_template(template: str, agent: AgentInfo) -> str:
     """Expand a str.format()-style template using agent field values.
 
-    Uses string.Formatter().parse() to extract field names, resolves each via
-    _get_field_value(), then assembles the output. This avoids str.format_map()
-    because Python's format machinery interprets dots as attribute access, but
-    our field names use dots as part of the field path (e.g. "host.name").
+    Pre-resolves field names via _get_field_value() (which supports nested
+    attribute access and bracket notation on AgentInfo), then delegates
+    template expansion to the shared render_format_template helper.
     """
-    parts: list[str] = []
-    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(template):
-        parts.append(literal_text)
-        if field_name is None:
-            continue
-        # Resolve the field value
-        value = _get_field_value(agent, field_name)
-        # Apply conversion (!s, !r, !a)
-        if conversion is None:
-            pass
-        elif conversion == "s":
-            value = str(value)
-        elif conversion == "r":
-            value = repr(value)
-        elif conversion == "a":
-            value = ascii(value)
-        else:
-            raise AssertionError(f"Unknown conversion: {conversion!r}")
-        # Apply format spec (e.g. ">20")
-        if format_spec:
-            value = format(value, format_spec)
-        parts.append(value)
-    return "".join(parts)
+    # Pre-resolve all referenced field names using the agent-specific field resolver
+    field_values: dict[str, str] = {}
+    for _, field_name, _, _ in string.Formatter().parse(template):
+        if field_name is not None:
+            field_values[field_name] = _get_field_value(agent, field_name)
+    return render_format_template(template, field_values)
 
 
 # Register help metadata for git-style help formatting

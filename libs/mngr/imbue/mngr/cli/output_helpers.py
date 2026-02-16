@@ -1,6 +1,8 @@
 import json
+import string
 import sys
 from collections.abc import Mapping
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
@@ -138,6 +140,48 @@ def on_error(
 def emit_final_json(data: Mapping[str, Any]) -> None:
     """Emit final JSON output (for JSON format only)."""
     _write_json_line(data)
+
+
+@pure
+def render_format_template(template: str, values: Mapping[str, str]) -> str:
+    """Expand a str.format()-style template using field values from a mapping.
+
+    Uses string.Formatter().parse() to extract field names, resolves each via
+    mapping lookup, then assembles the output. This avoids str.format_map()
+    because Python's format machinery interprets dots as attribute access, but
+    our field names may use dots as part of the key path.
+    """
+    parts: list[str] = []
+    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(template):
+        parts.append(literal_text)
+        if field_name is None:
+            continue
+        value = values.get(field_name, "")
+        if conversion is None:
+            pass
+        elif conversion == "s":
+            value = str(value)
+        elif conversion == "r":
+            value = repr(value)
+        elif conversion == "a":
+            value = ascii(value)
+        else:
+            raise AssertionError(f"Unknown conversion: {conversion!r}")
+        if format_spec:
+            value = format(value, format_spec)
+        parts.append(value)
+    return "".join(parts)
+
+
+def emit_format_template_lines(
+    template: str,
+    items: Sequence[Mapping[str, str]],
+) -> None:
+    """Emit one line per item using a format template string."""
+    for item in items:
+        line = render_format_template(template, item)
+        sys.stdout.write(line + "\n")
+    sys.stdout.flush()
 
 
 def output_sync_files_result(

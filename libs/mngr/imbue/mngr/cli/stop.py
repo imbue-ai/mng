@@ -18,6 +18,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import HostOfflineError
@@ -54,6 +55,10 @@ def _output(message: str, output_opts: OutputOptions) -> None:
 
 def _output_result(stopped_agents: Sequence[str], output_opts: OutputOptions) -> None:
     """Output the final result."""
+    if output_opts.format_template is not None:
+        items = [{"name": name} for name in stopped_agents]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     result_data = {"stopped_agents": stopped_agents, "count": len(stopped_agents)}
     match output_opts.output_format:
         case OutputFormat.JSON:
@@ -139,6 +144,8 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 
     For local agents, this stops the agent's tmux session.
 
+    Supports custom format templates via --format. Available fields: name.
+
     \b
     Alias: s
 
@@ -152,11 +159,14 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
       mngr stop --agent my-agent
 
       mngr stop --all
+
+      mngr stop --all --format '{name}'
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="stop",
         command_class=StopCliOptions,
+        is_format_template_supported=True,
     )
 
     # Check for unsupported [future] options
