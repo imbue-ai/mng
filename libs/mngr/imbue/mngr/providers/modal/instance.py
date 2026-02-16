@@ -538,6 +538,31 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_by_id_cache.pop(host_id, None)
         self._host_record_cache_by_id.pop(host_id, None)
 
+    def _clear_snapshots_from_host_record(self, host_id: HostId) -> None:
+        """Clear all snapshot records from a host record on the state volume.
+
+        This is called during destroy_host to mark the host as DESTROYED
+        (no snapshots, cannot be restarted) while keeping the host record
+        for visibility.
+        """
+        host_record = self._read_host_record(host_id, use_cache=False)
+        if host_record is None:
+            return
+
+        if not host_record.certified_host_data.snapshots:
+            return
+
+        updated_certified_data = host_record.certified_host_data.model_copy_update(
+            to_update(host_record.certified_host_data.field_ref().snapshots, []),
+            to_update(host_record.certified_host_data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
+        self._write_host_record(
+            host_record.model_copy_update(
+                to_update(host_record.field_ref().certified_host_data, updated_certified_data),
+            )
+        )
+        logger.debug("Cleared snapshots from host record: {}", host_id)
+
     def _list_all_host_records(self, cg: ConcurrencyGroup) -> list[HostRecord]:
         """List all host records stored on the state volume.
 
@@ -1719,7 +1744,7 @@ log "=== Shutdown script completed ==="
         self.stop_host(host)
         host_id = host.id if isinstance(host, HostInterface) else host
         self._destroy_agents_on_host(host_id)
-        # FIXME: we should also delete the snapshots here (from the host record)
+        self._clear_snapshots_from_host_record(host_id)
         # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
         self._delete_host_volume(host_id)
 
