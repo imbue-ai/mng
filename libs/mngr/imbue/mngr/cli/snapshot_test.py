@@ -1,6 +1,8 @@
 from imbue.mngr.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mngr.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mngr.cli.snapshot import SnapshotListCliOptions
+from imbue.mngr.cli.snapshot import _classify_mixed_identifiers
+from imbue.mngr.config.data_types import MngrContext
 
 # =============================================================================
 # Options classes tests
@@ -96,3 +98,26 @@ def test_snapshot_destroy_cli_options_fields() -> None:
     )
     assert opts.snapshots == ("snap-123",)
     assert opts.force is True
+
+
+# =============================================================================
+# _classify_mixed_identifiers tests
+# =============================================================================
+
+
+def test_classify_mixed_identifiers_empty_input_returns_empty_lists(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Empty identifier list returns two empty lists."""
+    agent_ids, host_ids = _classify_mixed_identifiers([], temp_mngr_ctx)
+    assert agent_ids == []
+    assert host_ids == []
+
+
+def test_classify_mixed_identifiers_no_agents_treats_all_as_hosts(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """When no agents exist, all identifiers are classified as host identifiers."""
+    agent_ids, host_ids = _classify_mixed_identifiers(["foo", "bar"], temp_mngr_ctx)
+    assert agent_ids == []
+    assert host_ids == ["foo", "bar"]
