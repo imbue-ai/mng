@@ -261,10 +261,13 @@ def test_host_has_local_connector(local_provider: LocalProviderInstance) -> None
     assert host.connector.connector_cls_name == "LocalConnector"
 
 
-def test_list_volumes_returns_empty_list_when_no_volumes(local_provider: LocalProviderInstance) -> None:
-    """Local provider returns empty list when no volumes directory exists."""
+def test_list_volumes_returns_host_volume(local_provider: LocalProviderInstance) -> None:
+    """Local provider returns the host's own volume directory."""
     volumes = local_provider.list_volumes()
-    assert volumes == []
+    # The local_provider fixture creates the per-host dir, so there's always at least one
+    assert len(volumes) >= 1
+    host_volume_names = [v.name for v in volumes]
+    assert any(name.startswith("host-") for name in host_volume_names)
 
 
 def test_supports_volumes(local_provider: LocalProviderInstance) -> None:

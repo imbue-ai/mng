@@ -10,7 +10,9 @@ from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.config import LocalProviderConfig
+from imbue.mngr.providers.local.instance import HOSTS_SUBDIR
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 
 LOCAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("local")
 
@@ -52,13 +54,17 @@ class LocalProviderBackend(ProviderBackendInterface):
         """Build a local provider instance."""
         if not isinstance(config, LocalProviderConfig):
             raise ConfigStructureError(f"Expected LocalProviderConfig, got {type(config).__name__}")
-        # Get host_dir from typed config, falling back to default
+        # Get base_dir from typed config, falling back to default
         if config.host_dir is not None:
-            host_dir = config.host_dir
+            base_dir = Path(config.host_dir).expanduser()
         else:
-            host_dir = mngr_ctx.config.default_host_dir
-        # Expand ~ to the actual home directory
-        host_dir = Path(host_dir).expanduser()
+            base_dir = Path(mngr_ctx.config.default_host_dir).expanduser()
+
+        # Compute the per-host directory: {base_dir}/hosts/{host_id}/
+        host_id = get_or_create_local_host_id(base_dir)
+        host_dir = base_dir / HOSTS_SUBDIR / str(host_id)
+        host_dir.mkdir(parents=True, exist_ok=True)
+
         return LocalProviderInstance(
             name=name,
             host_dir=host_dir,

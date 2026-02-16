@@ -55,8 +55,13 @@ def test_cli_create_with_echo_command(
         assert "Done." in result.output
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist in temp dir"
+        # Agents live under hosts/{host_id}/agents/
+        hosts_dir = temp_host_dir / "hosts"
+        assert hosts_dir.exists(), "hosts directory should exist in temp dir"
+        host_subdirs = list(hosts_dir.iterdir())
+        assert len(host_subdirs) == 1, "should have exactly one host directory"
+        agents_dir = host_subdirs[0] / "agents"
+        assert agents_dir.exists(), "agents directory should exist under host dir"
 
 
 def test_cli_create_via_subprocess(
@@ -107,8 +112,9 @@ def test_cli_create_via_subprocess(
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist in temp dir"
+        # Agents live under hosts/{host_id}/agents/
+        hosts_dir = temp_host_dir / "hosts"
+        assert hosts_dir.exists(), "hosts directory should exist in temp dir"
 
 
 def test_connect_flag_calls_tmux_attach_for_local_agent(
