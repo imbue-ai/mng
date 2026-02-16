@@ -1743,7 +1743,7 @@ log "=== Shutdown script completed ==="
     @handle_modal_auth_error
     def destroy_host(self, host: HostInterface | HostId) -> None:
         """Destroy a Modal sandbox permanently."""
-        self.stop_host(host)
+        self.stop_host(host, create_snapshot=False)
         host_id = host.id if isinstance(host, HostInterface) else host
         self._destroy_agents_on_host(host_id)
         self._clear_snapshots_from_host_record(host_id)
