@@ -505,6 +505,11 @@ def _print_test_durations_for_ci(
     output = json.dumps(dict(durations), indent=2)
     os.write(2, f"\n=== test durations (pytest-split format) ===\n{output}\n".encode())
 
+    # Save to file for CI artifact collection
+    output_file = _generate_output_filename("test_durations", ".json")
+    output_file.write_text(output)
+    _print_lock_message(f"Test durations saved to: {output_file}")
+
 
 # ---------------------------------------------------------------------------
 # Registration
