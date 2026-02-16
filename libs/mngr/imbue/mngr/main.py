@@ -5,6 +5,7 @@ import pluggy
 from click.shell_completion import CompletionItem
 from click_option_group import OptionGroup
 
+from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.ask import ask
 from imbue.mngr.cli.cleanup import cleanup
 from imbue.mngr.cli.clone import clone
@@ -18,6 +19,8 @@ from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
+from imbue.mngr.cli.help_formatter import get_help_metadata
+from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
 from imbue.mngr.cli.limit import limit
 from imbue.mngr.cli.list import list_command
@@ -33,6 +36,7 @@ from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
+from imbue.mngr.providers.registry import get_all_provider_args_help_sections
 from imbue.mngr.providers.registry import load_all_registries
 
 # Module-level container for the plugin manager singleton, created lazily.
@@ -301,3 +305,26 @@ PLUGIN_COMMANDS = _register_plugin_commands()
 
 for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
     apply_plugin_cli_options(cmd)
+
+
+def _update_create_help_with_provider_args() -> None:
+    """Update the create command's help metadata with provider-specific build/start args help.
+
+    This must be called after backends are loaded so that all provider backends
+    are registered and their help text is available.
+    """
+    for command_name in ("create", "c"):
+        existing_metadata = get_help_metadata(command_name)
+        if existing_metadata is None:
+            continue
+        provider_sections = get_all_provider_args_help_sections()
+        updated_metadata = existing_metadata.model_copy_update(
+            to_update(
+                existing_metadata.field_ref().additional_sections,
+                existing_metadata.additional_sections + provider_sections,
+            ),
+        )
+        register_help_metadata(command_name, updated_metadata)
+
+
+_update_create_help_with_provider_args()

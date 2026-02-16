@@ -16,6 +16,7 @@ import pluggy
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
+from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
@@ -148,3 +149,29 @@ def build_provider_instance(
             f"Backend {backend_name} returned {type(obj).__name__}, expected BaseProviderInstance subclass"
         )
     return obj
+
+
+@pure
+def _indent_text(text: str, indent: str) -> str:
+    """Indent each line of text with the given prefix."""
+    return "\n".join(indent + line if line.strip() else "" for line in text.split("\n"))
+
+
+@pure
+def get_all_provider_args_help_sections() -> tuple[tuple[str, str], ...]:
+    """Generate help sections for build/start args from all registered backends.
+
+    Returns a tuple of (title, content) pairs suitable for use as additional
+    sections in CommandHelpMetadata.
+    """
+    lines: list[str] = []
+    for backend_name in sorted(_backend_registry.keys()):
+        backend_class = _backend_registry[backend_name]
+        build_help = backend_class.get_build_args_help().strip()
+        start_help = backend_class.get_start_args_help().strip()
+        lines.append(f"Provider: {backend_name}")
+        lines.append(_indent_text(build_help, "  "))
+        if start_help != build_help:
+            lines.append(_indent_text(start_help, "  "))
+        lines.append("")
+    return (("Provider Build/Start Arguments", "\n".join(lines)),)
