@@ -794,13 +794,15 @@ class ModalProviderInstance(BaseProviderInstance):
                 with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
                     sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
 
-        # FIXME: we should make sshd log to <host_dir>/logs/sshd.log so that we can more easily debug
-        #  In fact, we should find *everything* we're running that has a log, and make sure it's actually ending up in that logs dir
         with log_span("Starting sshd in sandbox"):
-            # Start sshd (-D: don't detach)
-            # suppress all output--we don't want Modal tracking this for performance and stability reasons.
-            # yes, this is annoying for debugging, sorry--feel free to modify this code when debugging
-            sandbox.exec("/usr/sbin/sshd", "-D", stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL)
+            sshd_log_path = f"{self.host_dir}/logs/sshd.log"
+            # Ensure the logs directory exists before sshd starts writing to it
+            sandbox.exec("mkdir", "-p", f"{self.host_dir}/logs").wait()
+            # Start sshd (-D: don't detach, -E: log to file instead of syslog)
+            # stdout/stderr are suppressed so Modal doesn't track them for performance/stability reasons.
+            sandbox.exec(
+                "/usr/sbin/sshd", "-D", "-E", sshd_log_path, stdout=StreamType.DEVNULL, stderr=StreamType.DEVNULL
+            )
 
     def _get_ssh_info_from_sandbox(self, sandbox: modal.Sandbox) -> tuple[str, int]:
         """Extract SSH connection info from a running sandbox."""
