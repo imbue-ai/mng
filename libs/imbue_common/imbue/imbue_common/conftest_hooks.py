@@ -17,6 +17,7 @@ by pytest. Without the guard, pytest_addoption would fail with duplicate option 
 """
 
 import fcntl
+import json
 import os
 import time
 from io import StringIO
@@ -389,6 +390,9 @@ def _pytest_terminal_summary(
     if coverage_to_file:
         _write_coverage_summary_to_file(terminalreporter, config)
 
+    # Print all test durations in CI for visibility into per-split timing
+    _print_test_durations_for_ci(terminalreporter)
+
 
 def _write_slow_tests_to_file(
     terminalreporter: "pytest.TerminalReporter",
@@ -470,6 +474,32 @@ def _write_coverage_summary_to_file(
     except CoverageException:
         # If we can't generate the report, don't create an empty file
         pass
+
+
+def _print_test_durations_for_ci(
+    terminalreporter: "pytest.TerminalReporter",
+) -> None:
+    """Print all test durations in pytest-split format when running in CI.
+
+    Writes every test's duration to stderr (bypassing pytest output capture)
+    in the same JSON format as .test_durations. This makes it easy to inspect
+    per-split timing and periodically update the pytest-split timing data.
+    """
+    if "CI" not in os.environ:
+        return
+
+    durations: dict[str, float] = {}
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            if hasattr(report, "duration") and hasattr(report, "nodeid"):
+                if getattr(report, "when", None) == "call":
+                    durations[report.nodeid] = report.duration
+
+    if not durations:
+        return
+
+    output = json.dumps(durations, indent=2, sort_keys=True)
+    os.write(2, f"\n=== test durations (pytest-split format) ===\n{output}\n".encode())
 
 
 # ---------------------------------------------------------------------------
