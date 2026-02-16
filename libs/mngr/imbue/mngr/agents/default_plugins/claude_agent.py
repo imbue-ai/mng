@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.resources
 import json
 import os
 import shlex
@@ -15,6 +16,7 @@ from pydantic import Field
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
+from imbue.mngr import resources
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
@@ -118,6 +120,29 @@ def _claude_json_has_primary_api_key() -> bool:
         return bool(config_data.get("primaryApiKey"))
     except (json.JSONDecodeError, OSError):
         return False
+
+
+def _load_resource_script(filename: str) -> str:
+    """Load a shell script from the mngr resources package."""
+    resource_files = importlib.resources.files(resources)
+    script_path = resource_files.joinpath(filename)
+    return script_path.read_text()
+
+
+def _provision_background_scripts(host: OnlineHostInterface) -> None:
+    """Write the background task scripts to $MNGR_HOST_DIR/commands/.
+
+    Provisions export_transcript.sh and claude_background_tasks.sh so they
+    can be launched by the agent's assemble_command at runtime.
+    """
+    commands_dir = host.host_dir / "commands"
+    host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
+
+    for script_name in ("export_transcript.sh", "claude_background_tasks.sh"):
+        script_content = _load_resource_script(script_name)
+        script_path = commands_dir / script_name
+        with log_span("Writing {} to host", script_name):
+            host.write_file(script_path, script_content.encode(), mode="0755")
 
 
 def _has_api_credentials_available(
@@ -235,34 +260,15 @@ class ClaudeAgent(BaseAgent):
                 "This may indicate a trust dialog appeared or Claude Code failed to start.",
             )
 
-    def _build_activity_updater_command(self, session_name: str) -> str:
-        """Build a shell command that starts the activity updater in the background.
+    def _build_background_tasks_command(self, session_name: str) -> str:
+        """Build a shell command that starts the background tasks script.
 
-        The activity updater continuously updates the agent's activity file
-        ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists
-        AND the $MNGR_AGENT_STATE_DIR/active file is present (indicating the agent is actively
-        processing, not idle). Uses a pidfile to prevent duplicate instances for
-        the same session.
+        The background tasks script (provisioned to $MNGR_HOST_DIR/commands/)
+        handles both activity tracking and transcript export. It runs in the
+        background while the tmux session is alive.
         """
-        parts = [
-            "(",
-            f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid;",
-            'if [ -f "$_MNGR_ACT_LOCK" ] &&',
-            'kill -0 "$(cat "$_MNGR_ACT_LOCK" 2>/dev/null)" 2>/dev/null;',
-            "then exit 0; fi;",
-            'echo $$ > "$_MNGR_ACT_LOCK";',
-            """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
-            'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
-            f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            'if [ -f "$MNGR_AGENT_STATE_DIR/active" ]; then',
-            """printf '{"time": %d, "source": "activity_updater"}'""",
-            '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
-            "fi;",
-            "sleep 15; done;",
-            'rm -f "$_MNGR_ACT_LOCK"',
-            ") &",
-        ]
-        return " ".join(parts)
+        script_path = "$MNGR_HOST_DIR/commands/claude_background_tasks.sh"
+        return f"( {script_path} {shlex.quote(session_name)} ) &"
 
     def assemble_command(
         self,
@@ -317,13 +323,13 @@ class ClaudeAgent(BaseAgent):
         # IS_SANDBOX is only set for remote hosts (not local)
         env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
-        # Build the activity updater background command
+        # Build the background tasks command (activity tracking + transcript export)
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
-        activity_cmd = self._build_activity_updater_command(session_name)
+        background_cmd = self._build_background_tasks_command(session_name)
 
-        # Combine: start activity updater in background, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
+        # Combine: start background tasks, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
         return CommandString(
-            f"{activity_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
+            f"{background_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
         )
 
     def on_before_provisioning(
@@ -574,6 +580,9 @@ class ClaudeAgent(BaseAgent):
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)
+
+        # Provision background task scripts to the host commands directory
+        _provision_background_scripts(host)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

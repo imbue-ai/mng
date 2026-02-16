@@ -5,8 +5,10 @@ from typing import Mapping
 from pydantic import ConfigDict
 from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.interfaces.data_types import VolumeFile
+from imbue.mngr.primitives import AgentId
 
 
 class Volume(MutableModel, ABC):
@@ -110,3 +112,15 @@ class ScopedVolume(BaseVolume):
     def scoped(self, prefix: str) -> "Volume":
         combined = f"{self.prefix}/{prefix.lstrip('/')}"
         return ScopedVolume(delegate=self.delegate, prefix=combined)
+
+
+class HostVolume(FrozenModel):
+    """A host-level volume with the ability to scope down to a specific agent."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    volume: Volume = Field(description="The underlying volume for the entire host")
+
+    def get_agent_volume(self, agent_id: AgentId) -> Volume:
+        """Return a Volume scoped to the given agent's subdirectory."""
+        return self.volume.scoped(f"agents/{agent_id}")

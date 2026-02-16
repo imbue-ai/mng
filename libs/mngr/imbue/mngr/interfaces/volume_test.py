@@ -5,8 +5,10 @@ import pytest
 from imbue.mngr.interfaces.data_types import VolumeFile
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.volume import BaseVolume
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.interfaces.volume import ScopedVolume
 from imbue.mngr.interfaces.volume import _scoped_path
+from imbue.mngr.primitives import AgentId
 
 
 class InMemoryVolume(BaseVolume):
@@ -165,3 +167,44 @@ def test_volume_file_fields() -> None:
 def test_volume_file_type_enum_values() -> None:
     assert VolumeFileType.FILE == "FILE"
     assert VolumeFileType.DIRECTORY == "DIRECTORY"
+
+
+# =============================================================================
+# HostVolume tests
+# =============================================================================
+
+
+def test_host_volume_get_agent_volume_returns_scoped_volume() -> None:
+    agent_id = AgentId.generate()
+    vol = InMemoryVolume(files={f"agents/{agent_id}/data.json": b'{"id": "test"}'})
+    host_volume = HostVolume(volume=vol)
+    agent_volume = host_volume.get_agent_volume(agent_id)
+    assert isinstance(agent_volume, ScopedVolume)
+    assert agent_volume.read_file("data.json") == b'{"id": "test"}'
+
+
+def test_host_volume_get_agent_volume_isolates_agents() -> None:
+    agent_id_a = AgentId.generate()
+    agent_id_b = AgentId.generate()
+    vol = InMemoryVolume(
+        files={
+            f"agents/{agent_id_a}/file.txt": b"agent-a",
+            f"agents/{agent_id_b}/file.txt": b"agent-b",
+        }
+    )
+    host_volume = HostVolume(volume=vol)
+
+    vol_a = host_volume.get_agent_volume(agent_id_a)
+    vol_b = host_volume.get_agent_volume(agent_id_b)
+
+    assert vol_a.read_file("file.txt") == b"agent-a"
+    assert vol_b.read_file("file.txt") == b"agent-b"
+
+
+def test_host_volume_get_agent_volume_write_goes_to_correct_path() -> None:
+    agent_id = AgentId.generate()
+    vol = InMemoryVolume(files={})
+    host_volume = HostVolume(volume=vol)
+    agent_volume = host_volume.get_agent_volume(agent_id)
+    agent_volume.write_files({"logs/transcript.jsonl": b"line1\nline2\n"})
+    assert vol.files[f"agents/{agent_id}/logs/transcript.jsonl"] == b"line1\nline2\n"
