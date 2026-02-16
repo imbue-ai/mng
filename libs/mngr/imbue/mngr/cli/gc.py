@@ -22,6 +22,7 @@ from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -360,12 +361,12 @@ def _emit_json_summary(result: GcResult, dry_run: bool) -> None:
 
 def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
     """Emit human-readable summary."""
-    logger.info("")
+    write_human_line("")
     if dry_run:
-        logger.info("Garbage Collection (Dry Run)")
+        write_human_line("Garbage Collection (Dry Run)")
     else:
-        logger.info("Garbage Collection Results")
-    logger.info("=" * 40)
+        write_human_line("Garbage Collection Results")
+    write_human_line("=" * 40)
 
     total_count = 0
 
@@ -376,47 +377,47 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
         total_count_str = f"Work directories: {len(result.work_dirs_destroyed)}"
         if local_count > 0:
             total_count_str += f" ({local_count} local, freed {format_size(local_size)})"
-        logger.info("\n{}", total_count_str)
+        write_human_line("\n{}", total_count_str)
         total_count += len(result.work_dirs_destroyed)
 
     if result.machines_destroyed:
-        logger.info("\nMachines: {}", len(result.machines_destroyed))
+        write_human_line("\nMachines: {}", len(result.machines_destroyed))
         total_count += len(result.machines_destroyed)
 
     if result.machines_deleted:
-        logger.info("\nMachine records deleted: {}", len(result.machines_deleted))
+        write_human_line("\nMachine records deleted: {}", len(result.machines_deleted))
         total_count += len(result.machines_deleted)
 
     if result.snapshots_destroyed:
-        logger.info("\nSnapshots: {}", len(result.snapshots_destroyed))
+        write_human_line("\nSnapshots: {}", len(result.snapshots_destroyed))
         total_count += len(result.snapshots_destroyed)
 
     if result.volumes_destroyed:
-        logger.info("\nVolumes: {}", len(result.volumes_destroyed))
+        write_human_line("\nVolumes: {}", len(result.volumes_destroyed))
         total_count += len(result.volumes_destroyed)
 
     if result.logs_destroyed:
         logs_size_bytes = sum(log.size_bytes for log in result.logs_destroyed)
-        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), format_size(logs_size_bytes))
+        write_human_line("\nLogs: {} (freed {})", len(result.logs_destroyed), format_size(logs_size_bytes))
         total_count += len(result.logs_destroyed)
 
     if result.build_cache_destroyed:
         build_cache_size_bytes = sum(cache.size_bytes for cache in result.build_cache_destroyed)
-        logger.info(
+        write_human_line(
             "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), format_size(build_cache_size_bytes)
         )
         total_count += len(result.build_cache_destroyed)
 
     if total_count == 0:
-        logger.info("\nNo resources found to destroy")
+        write_human_line("\nNo resources found to destroy")
     else:
         action = "Would destroy" if dry_run else "Destroyed"
-        logger.info("\n{} {} resource(s) total", action, total_count)
+        write_human_line("\n{} {} resource(s) total", action, total_count)
 
     if result.errors:
-        logger.info("\nErrors:")
+        write_human_line("\nErrors:")
         for error in result.errors:
-            logger.info("  - {}", error)
+            write_human_line("  - {}", error)
 
 
 def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:

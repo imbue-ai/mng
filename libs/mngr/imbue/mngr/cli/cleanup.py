@@ -37,6 +37,7 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.primitives import CleanupAction
 from imbue.mngr.primitives import ErrorBehavior
@@ -586,7 +587,7 @@ def _emit_no_agents_found(output_opts: OutputOptions) -> None:
         case OutputFormat.JSONL:
             emit_event("info", {"message": "No agents found"}, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("No agents found matching the specified filters")
+            write_human_line("No agents found matching the specified filters")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -622,9 +623,9 @@ def _emit_dry_run_output(
         case OutputFormat.JSONL:
             emit_event("dry_run", {"action": action.value.lower(), "agents": agent_data}, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("\n{} {} agent(s):", action_verb, len(agents))
+            write_human_line("\n{} {} agent(s):", action_verb, len(agents))
             for agent in agents:
-                logger.info(
+                write_human_line(
                     "  - {} (type={}, state={}, provider={})",
                     agent.name,
                     agent.type,
@@ -656,19 +657,19 @@ def _emit_result(
             emit_event("cleanup_result", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.destroyed_agents:
-                logger.info("Successfully destroyed {} agent(s)", len(result.destroyed_agents))
+                write_human_line("Successfully destroyed {} agent(s)", len(result.destroyed_agents))
                 for name in result.destroyed_agents:
-                    logger.info("  - {}", name)
+                    write_human_line("  - {}", name)
             if result.stopped_agents:
-                logger.info("Successfully stopped {} agent(s)", len(result.stopped_agents))
+                write_human_line("Successfully stopped {} agent(s)", len(result.stopped_agents))
                 for name in result.stopped_agents:
-                    logger.info("  - {}", name)
+                    write_human_line("  - {}", name)
             if result.errors:
                 logger.warning("{} error(s) occurred:", len(result.errors))
                 for error in result.errors:
                     logger.warning("  - {}", error)
             if not result.destroyed_agents and not result.stopped_agents:
-                logger.info("No agents were affected")
+                write_human_line("No agents were affected")
         case _ as unreachable:
             assert_never(unreachable)
 

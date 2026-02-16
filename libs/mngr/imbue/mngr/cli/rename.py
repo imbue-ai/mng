@@ -17,6 +17,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentName
@@ -36,7 +37,7 @@ class RenameCliOptions(CommonCliOptions):
 def _output(message: str, output_opts: OutputOptions) -> None:
     """Output a message according to the format."""
     if output_opts.output_format == OutputFormat.HUMAN:
-        logger.info(message)
+        write_human_line(message)
 
 
 def _output_result(
@@ -57,7 +58,7 @@ def _output_result(
         case OutputFormat.JSONL:
             emit_event("rename_result", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Renamed agent: {} -> {}", old_name, new_name)
+            write_human_line("Renamed agent: {} -> {}", old_name, new_name)
         case _ as unreachable:
             assert_never(unreachable)
 
