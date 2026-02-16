@@ -1,5 +1,46 @@
+from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import ProviderInstanceConfig
+from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
+from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.providers.registry import _backend_registry
 from imbue.mngr.providers.registry import _indent_text
 from imbue.mngr.providers.registry import get_all_provider_args_help_sections
+
+_TEST_BACKEND_NAME = ProviderBackendName("test-same-help")
+
+
+class _TestBackendWithSameHelp(ProviderBackendInterface):
+    """Test backend where build and start args help are identical."""
+
+    @staticmethod
+    def get_name() -> ProviderBackendName:
+        return _TEST_BACKEND_NAME
+
+    @staticmethod
+    def get_description() -> str:
+        return "Test backend"
+
+    @staticmethod
+    def get_config_class() -> type[ProviderInstanceConfig]:
+        return ProviderInstanceConfig
+
+    @staticmethod
+    def get_build_args_help() -> str:
+        return "No arguments supported."
+
+    @staticmethod
+    def get_start_args_help() -> str:
+        return "No arguments supported."
+
+    @staticmethod
+    def build_provider_instance(
+        name: ProviderInstanceName,
+        config: ProviderInstanceConfig,
+        mngr_ctx: MngrContext,
+    ) -> ProviderInstanceInterface:
+        raise NotImplementedError
 
 
 def test_indent_text_adds_prefix_to_each_line() -> None:
@@ -49,11 +90,28 @@ def test_get_all_provider_args_help_sections_includes_start_help_when_different_
     _title, content = sections[0]
     # Local backend has different build and start help, so both should appear
     assert "No start arguments are supported for the local provider" in content
+    # SSH backend also has different start help
+    assert "No start arguments are supported for the SSH provider" in content
 
 
 def test_get_all_provider_args_help_sections_omits_start_help_when_same_as_build() -> None:
-    sections = get_all_provider_args_help_sections()
-    _title, content = sections[0]
-    # SSH backend has different build and start help text, so start should appear
-    # (this test verifies the dedup logic doesn't incorrectly drop start help)
-    assert "No start arguments are supported for the SSH provider" in content
+    # Register a test backend with identical build and start help
+    _backend_registry[_TEST_BACKEND_NAME] = _TestBackendWithSameHelp
+    try:
+        sections = get_all_provider_args_help_sections()
+        _title, content = sections[0]
+        # The test backend should be listed
+        assert f"Provider: {_TEST_BACKEND_NAME}" in content
+        # The help text should appear exactly once (not duplicated for start)
+        test_backend_section_start = content.index(f"Provider: {_TEST_BACKEND_NAME}")
+        # Find the next provider section (or end of content)
+        remaining = content[test_backend_section_start:]
+        next_provider_idx = remaining.find("\nProvider: ", 1)
+        if next_provider_idx == -1:
+            test_backend_section = remaining
+        else:
+            test_backend_section = remaining[:next_provider_idx]
+        # "No arguments supported." should appear exactly once (build only, not duplicated for start)
+        assert test_backend_section.count("No arguments supported.") == 1
+    finally:
+        del _backend_registry[_TEST_BACKEND_NAME]
