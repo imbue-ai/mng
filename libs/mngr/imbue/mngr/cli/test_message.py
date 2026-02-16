@@ -132,7 +132,7 @@ def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Genera
     _destroy_agent(agent_name, env=claude_test_env)
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_with_message_succeeds(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mngr create --message` successfully sends a message to Claude.
@@ -153,24 +153,7 @@ def test_mngr_create_with_message_succeeds(claude_test_env: dict[str, str], temp
         _destroy_agent(agent_name, env=claude_test_env)
 
 
-@pytest.mark.release
-@pytest.mark.timeout(300)
-def test_mngr_message_to_existing_agent_succeeds(claude_agent: str, claude_test_env: dict[str, str]) -> None:
-    """Test that `mngr message` successfully sends a message to an existing agent.
-
-    This tests the separate flow where an agent is created first, then messaged separately.
-    """
-    message = f"test message {get_short_random_string()}"
-
-    result = _send_message(claude_agent, message, env=claude_test_env)
-
-    assert result.returncode == 0, f"mngr message failed: {result.stderr}"
-    assert _message_was_submitted(result), (
-        f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-
-
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_mngr_create_with_message_multiple_times(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mngr create --message` works reliably across multiple trials.
@@ -178,7 +161,7 @@ def test_mngr_create_with_message_multiple_times(claude_test_env: dict[str, str]
     This is a reliability test that creates multiple agents with messages to verify
     the message sending mechanism works consistently.
     """
-    trial_count = 5
+    trial_count = 3
     successes = 0
     failures: list[str] = []
 

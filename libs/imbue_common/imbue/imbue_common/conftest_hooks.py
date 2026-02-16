@@ -247,24 +247,24 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # There are 4 types of tests, each with different time limits in CI:
         # - unit tests: fast, local, no network (run with integration tests)
         # - integration tests: local, no network, used for coverage calculation
-        # - acceptance tests: run on all branches except main, have network/Modal/etc access
-        # - release tests: only run on main, comprehensive tests for release readiness
+        # - acceptance tests: run on all branches except release, have network/Modal/etc access
+        # - release tests: only run on release, comprehensive tests for release readiness
 
         # Allow explicit override via environment variable (useful for generating test timings)
         if "PYTEST_MAX_DURATION" in os.environ:
             max_duration = float(os.environ["PYTEST_MAX_DURATION"])
         # release tests have the highest limit, since there can be many more of them, and they can take a really long time
         elif os.environ.get("IS_RELEASE", "0") == "1":
-            # this limit applies to the test suite that runs against "main" in GitHub CI
+            # this limit applies to the test suite that runs against "release" in GitHub CI
             max_duration = 10 * 60.0
         # acceptance tests have a somewhat higher limit (than integration and unit)
         elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
-            # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
+            # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and has access to network, Modal, etc)
             max_duration = 6 * 60.0
         # integration tests have a lower limit
         else:
             if "CI" in os.environ:
-                # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and which is basically just used for calculating coverage)
+                # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and which is basically just used for calculating coverage)
                 # typically integration tests and unit tests are run locally, so we want them to be fast
                 max_duration = 80.0
             else:
