@@ -56,7 +56,7 @@ def ensure_state_container(
         pass
 
     # Create the container with a named volume
-    logger.info("Creating Docker state container: {}", container_name)
+    logger.debug("Creating Docker state container: {}", container_name)
     container = client.containers.run(
         image=STATE_CONTAINER_IMAGE,
         name=container_name,
