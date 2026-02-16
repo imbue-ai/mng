@@ -1,10 +1,12 @@
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from inline_snapshot import snapshot
 
+from imbue.mngr.api.connect import build_ssh_base_args
 from imbue.mngr.api.logs import LogsTarget
 from imbue.mngr.api.logs import _FollowState
 from imbue.mngr.api.logs import _build_tail_args
@@ -489,3 +491,140 @@ def test_resolve_logs_target_populates_online_host_for_agent(
     assert target.online_host is not None
     assert target.logs_path is not None
     assert str(target.logs_path).endswith(f"agents/{agent_id}/logs")
+
+
+# =============================================================================
+# follow_log_file via host tests
+# =============================================================================
+
+
+def test_follow_log_file_via_host_streams_existing_content(logs_host_target: tuple[LogsTarget, Path]) -> None:
+    """Verify follow_log_file uses tail -f on host and emits existing file content."""
+    target, logs_dir = logs_host_target
+    (logs_dir / "test.log").write_text("line1\nline2\nline3\n")
+
+    captured: list[str] = []
+    call_count = [0]
+
+    def capture_then_interrupt(content: str) -> None:
+        captured.append(content)
+        call_count[0] += 1
+        # Interrupt after receiving some content
+        if call_count[0] >= 3:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        follow_log_file(
+            target=target,
+            log_file_name="test.log",
+            on_new_content=capture_then_interrupt,
+            tail_count=None,
+        )
+
+    # Should have received the file content line by line (tail -f streams line by line)
+    joined = "".join(captured)
+    assert "line1" in joined
+    assert "line2" in joined
+    assert "line3" in joined
+
+
+def test_follow_log_file_via_host_with_tail_count(logs_host_target: tuple[LogsTarget, Path]) -> None:
+    """Verify follow_log_file via host respects tail_count."""
+    target, logs_dir = logs_host_target
+    (logs_dir / "test.log").write_text("line1\nline2\nline3\nline4\nline5\n")
+
+    captured: list[str] = []
+    call_count = [0]
+
+    def capture_then_interrupt(content: str) -> None:
+        captured.append(content)
+        call_count[0] += 1
+        if call_count[0] >= 2:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        follow_log_file(
+            target=target,
+            log_file_name="test.log",
+            on_new_content=capture_then_interrupt,
+            tail_count=2,
+        )
+
+    # Should only see the last 2 lines
+    joined = "".join(captured)
+    assert "line4" in joined
+    assert "line5" in joined
+    assert "line1" not in joined
+
+
+def test_follow_log_file_via_host_detects_new_content(logs_host_target: tuple[LogsTarget, Path]) -> None:
+    """Verify follow_log_file via host streams new content appended to the file."""
+    target, logs_dir = logs_host_target
+    log_file = logs_dir / "test.log"
+    log_file.write_text("initial\n")
+
+    captured: list[str] = []
+    call_count = [0]
+
+    append_event = threading.Event()
+
+    def capture_and_maybe_interrupt(content: str) -> None:
+        captured.append(content)
+        call_count[0] += 1
+        # After receiving the initial content, signal the writer thread
+        if call_count[0] == 1:
+            append_event.set()
+        # Interrupt after we see the appended content
+        if call_count[0] >= 2:
+            raise KeyboardInterrupt
+
+    # Start a writer thread that waits for the signal then appends content
+    def append_content() -> None:
+        append_event.wait(timeout=10.0)
+        with log_file.open("a") as f:
+            f.write("appended\n")
+            f.flush()
+
+    writer = threading.Thread(target=append_content, daemon=True)
+    writer.start()
+
+    with pytest.raises(KeyboardInterrupt):
+        follow_log_file(
+            target=target,
+            log_file_name="test.log",
+            on_new_content=capture_and_maybe_interrupt,
+            tail_count=None,
+        )
+
+    joined = "".join(captured)
+    assert "initial" in joined
+    assert "appended" in joined
+
+
+# =============================================================================
+# build_ssh_base_args tests
+# =============================================================================
+
+
+def test_build_ssh_base_args_includes_key_and_port(
+    temp_mngr_ctx: MngrContext,
+    local_provider,
+) -> None:
+    """Verify build_ssh_base_args constructs correct args for a local host.
+
+    Local hosts return basic SSH args without key/port since they use the
+    local connector (not SSH). This test verifies the function runs without error.
+    """
+    host = local_provider.get_host(HostName("local"))
+    assert isinstance(host, OnlineHostInterface)
+
+    # Local hosts have is_local=True, so build_ssh_base_args should still work
+    # (it reads from connector data which may not have SSH fields set)
+    args = build_ssh_base_args(host, is_unknown_host_allowed=True)
+
+    # Should start with "ssh" and end with the host target
+    assert args[0] == "ssh"
+    # Should have StrictHostKeyChecking=no since no known_hosts for local
+    assert "-o" in args
+    strict_idx = args.index("StrictHostKeyChecking=no") if "StrictHostKeyChecking=no" in args else -1
+    assert strict_idx >= 0

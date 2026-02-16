@@ -11,6 +11,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
+from imbue.mngr.api.connect import build_ssh_base_args
 from imbue.mngr.api.find import resolve_agent_reference
 from imbue.mngr.api.find import resolve_host_reference
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
@@ -21,6 +22,8 @@ from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import Volume
+from imbue.mngr.primitives import HostId
+from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
 from imbue.mngr.utils.polling import poll_until
 
@@ -145,23 +148,18 @@ def resolve_logs_target(
 
 
 def _try_get_online_host_for_logs(
-    provider: object,
-    host_id: object,
+    provider: BaseProviderInstance,
+    host_id: HostId,
     logs_subpath: Path,
 ) -> tuple[OnlineHostInterface | None, Path | None]:
     """Try to get the online host and compute the absolute logs path.
 
     Returns (online_host, logs_path) if the host is online, (None, None) otherwise.
-    The provider and host_id parameters are typed as object because this function
-    is called with dynamically-resolved provider instances.
     """
-    get_host = getattr(provider, "get_host", None)
-    if get_host is None:
-        return None, None
-
     try:
-        host_interface = get_host(host_id)
-    except MngrError:
+        host_interface = provider.get_host(host_id)
+    except MngrError as e:
+        logger.trace("Host {} is not available for direct log access: {}", host_id, e)
         return None, None
 
     if not isinstance(host_interface, OnlineHostInterface):
@@ -230,6 +228,7 @@ def _parse_file_listing_output(output: str) -> list[LogFileEntry]:
             try:
                 size = int(parts[1])
             except ValueError:
+                logger.trace("Could not parse file size for '{}': '{}'", name, parts[1])
                 size = 0
             entries.append(LogFileEntry(name=name, size=size))
     return entries
@@ -421,7 +420,8 @@ def _follow_log_file_via_host(
     else:
         # Remote host: wrap in SSH
         tail_cmd_str = " ".join(shlex.quote(a) for a in tail_args)
-        cmd = _build_ssh_tail_command(online_host, tail_cmd_str)
+        ssh_args = build_ssh_base_args(online_host, is_unknown_host_allowed=True)
+        cmd = ssh_args + [tail_cmd_str]
 
     logger.debug("Following log file via host: {}", " ".join(cmd))
 
@@ -455,36 +455,4 @@ def _build_tail_args(log_file_path: Path, tail_count: int | None) -> list[str]:
         # Show entire file then follow (equivalent to cat + tail -f)
         args.extend(["-n", "+1"])
     args.extend(["-f", str(log_file_path)])
-    return args
-
-
-def _build_ssh_tail_command(online_host: OnlineHostInterface, remote_command: str) -> list[str]:
-    """Build an SSH command to run a tail command on a remote host."""
-    pyinfra_host = online_host.connector.host
-    ssh_host = pyinfra_host.name
-    ssh_user = pyinfra_host.data.get("ssh_user")
-    ssh_port = pyinfra_host.data.get("ssh_port")
-    ssh_key = pyinfra_host.data.get("ssh_key")
-    ssh_known_hosts_file = pyinfra_host.data.get("ssh_known_hosts_file")
-
-    args = ["ssh"]
-
-    if ssh_key:
-        args.extend(["-i", str(ssh_key)])
-    if ssh_port:
-        args.extend(["-p", str(ssh_port)])
-
-    # Handle known_hosts verification
-    if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
-        args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
-        args.extend(["-o", "StrictHostKeyChecking=yes"])
-    else:
-        # The host is already connected via pyinfra, so the connection is trusted
-        args.extend(["-o", "StrictHostKeyChecking=no"])
-        args.extend(["-o", "UserKnownHostsFile=/dev/null"])
-
-    target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
-    args.append(target)
-    args.append(remote_command)
-
     return args

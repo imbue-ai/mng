@@ -66,14 +66,18 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path, agent_
     )
 
 
-def _build_ssh_args(
+def build_ssh_base_args(
     host: OnlineHostInterface,
-    connection_opts: ConnectionOptions,
+    is_unknown_host_allowed: bool,
 ) -> list[str]:
-    """Build the SSH command arguments for connecting to a remote host.
+    """Build base SSH command args for connecting to a remote host.
 
-    Returns the list of arguments for the SSH command (not including the
-    wrapper script or -t bash -c ... suffix).
+    Returns args like ["ssh", "-i", key, "-p", port, "-o", ..., "user@host"].
+    The caller appends the remote command or other options (e.g., -t).
+
+    When no known_hosts file is configured:
+    - If is_unknown_host_allowed is True, disables host key checking.
+    - If is_unknown_host_allowed is False, raises MngrError.
     """
     pyinfra_host = host.connector.host
     ssh_host = pyinfra_host.name
@@ -94,7 +98,7 @@ def _build_ssh_args(
     if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
         ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
         ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
-    elif connection_opts.is_unknown_host_allowed:
+    elif is_unknown_host_allowed:
         # Fall back to disabling host key checking if no known_hosts file
         ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
         ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
@@ -104,12 +108,22 @@ def _build_ssh_args(
             "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
         )
 
-    if ssh_user:
-        ssh_args.append(f"{ssh_user}@{ssh_host}")
-    else:
-        ssh_args.append(ssh_host)
+    target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
+    ssh_args.append(target)
 
     return ssh_args
+
+
+def _build_ssh_args(
+    host: OnlineHostInterface,
+    connection_opts: ConnectionOptions,
+) -> list[str]:
+    """Build the SSH command arguments for connecting to a remote host.
+
+    Returns the list of arguments for the SSH command (not including the
+    wrapper script or -t bash -c ... suffix).
+    """
+    return build_ssh_base_args(host, connection_opts.is_unknown_host_allowed)
 
 
 @pure
