@@ -156,8 +156,7 @@ def _exec_impl(ctx: click.Context, **kwargs: Any) -> None:
             on_success=lambda r: _emit_jsonl_exec_result(r),
             on_error=lambda agent_name, error: _emit_jsonl_error(agent_name, error),
         )
-        is_any_failure = result.failed_agents or any(not r.success for r in result.successful_results)
-        if is_any_failure:
+        if result.is_any_failure:
             ctx.exit(1)
         return
 
