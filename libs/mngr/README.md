@@ -213,7 +213,7 @@ You can interact with `mngr` either via:
 `mngr` stores very little state (beyond configuration and local caches for performance), and instead relies on conventions:
 
 - any process running in window 0 of a `mngr-` prefixed tmux sessions is considered an agent
-- agents store their status, events, and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
+- agents store their status and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
 - all hosts are accessed via SSH--if you can SSH into it, it can be a host
 - ...[and more](./docs/conventions.md)
 

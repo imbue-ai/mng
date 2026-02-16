@@ -7,7 +7,7 @@ Unless otherwise specified, `mngr` assumes:
 - a host name is a unique identifier for the host (a host can contain multiple agents).
 - tmux sessions are named `mngr-<agent_name>`
 - agent data exists at `$MNGR_AGENT_STATE_DIR` (i.e., `$MNGR_HOST_DIR/agents/$MNGR_AGENT_ID/`)
-- there are `logs` and `events` subdirectories inside `$MNGR_HOST_DIR` and each `$MNGR_AGENT_STATE_DIR` for storing logs and event data
+- there are `logs` subdirectories inside `$MNGR_HOST_DIR` and each `$MNGR_AGENT_STATE_DIR` for storing log data
 - environment variables for hosts and agents are stored in `$MNGR_HOST_DIR/env` and `$MNGR_AGENT_STATE_DIR/env` respectively
 - IDs are base16-encoded UUID4s
 - Names are human-readable strings that can contain letters, numbers, and hyphens (no underscores, spaces, etc because they are used for DNS)

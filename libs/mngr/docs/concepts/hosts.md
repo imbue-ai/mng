@@ -8,7 +8,7 @@ Hosts must have at least one agent.
 
 A host contains:
 - **files**:
-  - **host state_dir**: a directory where host-level state is stored (events, logs, etc.)
+  - **host state_dir**: a directory where host-level state is stored (logs, etc.)
   - **agent work_dirs**: project files. Agents run in this directory.
   - **agent state_dirs**: per-agent state (status, logs, caches, etc.)
   - **...any other files**: created during provisioning or by agents themselves
