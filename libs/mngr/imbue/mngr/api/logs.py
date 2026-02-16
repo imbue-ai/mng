@@ -1,4 +1,3 @@
-import time
 from collections.abc import Callable
 from typing import Final
 
@@ -7,6 +6,7 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
@@ -21,6 +21,7 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
+from imbue.mngr.utils.polling import poll_until
 
 FOLLOW_POLL_INTERVAL_SECONDS: Final[float] = 1.0
 
@@ -71,7 +72,8 @@ def _find_agent_in_hosts(
         return matches[0]
     elif len(matches) > 1:
         raise UserInputError(f"Multiple agents found with name '{identifier}'. Please use the agent ID instead.")
-    return None
+    else:
+        return None
 
 
 @pure
@@ -99,7 +101,8 @@ def _find_host_in_hosts(
         return matches[0]
     elif len(matches) > 1:
         raise UserInputError(f"Multiple hosts found with name '{identifier}'. Please use the host ID instead.")
-    return None
+    else:
+        return None
 
 
 def resolve_logs_target(
@@ -189,7 +192,41 @@ def apply_head_or_tail(
         lines = lines[:head_count]
     elif tail_count is not None:
         lines = lines[-tail_count:]
+    else:
+        pass
     return "".join(lines)
+
+
+class _FollowState(MutableModel):
+    """Mutable state for the follow polling loop."""
+
+    previous_length: int = Field(description="Length of content at last check")
+
+
+def _check_for_new_content(
+    target: LogsTarget,
+    log_file_name: str,
+    on_new_content: Callable[[str], None],
+    state: _FollowState,
+) -> bool:
+    """Check for new content and emit it. Always returns False to keep polling."""
+    try:
+        current_content = read_log_content(target, log_file_name)
+    except (MngrError, OSError):
+        return False
+    current_length = len(current_content)
+    if current_length > state.previous_length:
+        new_content = current_content[state.previous_length :]
+        on_new_content(new_content)
+        state.previous_length = current_length
+    elif current_length < state.previous_length:
+        # File was truncated, re-read from the start
+        logger.debug("Log file was truncated, re-reading from start")
+        on_new_content(current_content)
+        state.previous_length = current_length
+    else:
+        pass
+    return False
 
 
 def follow_log_file(
@@ -215,22 +252,12 @@ def follow_log_file(
     if initial_content:
         on_new_content(initial_content)
 
-    previous_length = len(content)
+    state = _FollowState(previous_length=len(content))
 
-    # Poll for new content
-    while True:
-        time.sleep(FOLLOW_POLL_INTERVAL_SECONDS)
-        try:
-            current_content = read_log_content(target, log_file_name)
-        except (MngrError, OSError):
-            continue
-        current_length = len(current_content)
-        if current_length > previous_length:
-            new_content = current_content[previous_length:]
-            on_new_content(new_content)
-            previous_length = current_length
-        elif current_length < previous_length:
-            # File was truncated, re-read from the start
-            logger.debug("Log file was truncated, re-reading from start")
-            on_new_content(current_content)
-            previous_length = current_length
+    # Poll indefinitely until interrupted (KeyboardInterrupt propagates out)
+    # We use a very large timeout since the user will Ctrl+C to stop
+    poll_until(
+        condition=lambda: _check_for_new_content(target, log_file_name, on_new_content, state),
+        timeout=365 * 24 * 3600.0,
+        poll_interval=FOLLOW_POLL_INTERVAL_SECONDS,
+    )

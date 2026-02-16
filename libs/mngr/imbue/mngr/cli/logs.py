@@ -6,6 +6,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.mngr.api.logs import LogFileEntry
 from imbue.mngr.api.logs import apply_head_or_tail
 from imbue.mngr.api.logs import follow_log_file
 from imbue.mngr.api.logs import list_log_files
@@ -70,10 +71,10 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
 
     \b
     Examples:
-      mngr logs my-agent                    # list available logs
-      mngr logs my-agent output.log         # view a log file
-      mngr logs my-agent output.log --tail 50  # last 50 lines
-      mngr logs my-agent output.log --follow   # follow new output
+      mngr logs my-agent
+      mngr logs my-agent output.log
+      mngr logs my-agent output.log --tail 50
+      mngr logs my-agent output.log --follow
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
@@ -127,7 +128,7 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
 
 
 def _emit_log_file_list(
-    log_files: list,
+    log_files: list[LogFileEntry],
     display_name: str,
     output_opts: OutputOptions,
 ) -> None:
