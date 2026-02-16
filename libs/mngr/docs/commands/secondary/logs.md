@@ -42,6 +42,12 @@ mngr logs [OPTIONS] TARGET [LOG_FILENAME]
 | `--tail` | integer range | Print the last N lines of the log | None |
 | `--head` | integer range | Print the first N lines of the log | None |
 
+## Connection
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--allow-unknown-host`, `--no-allow-unknown-host` | boolean | Allow following logs on hosts without a known_hosts file (disables SSH host key verification) | `False` |
+
 ## Common
 
 | Name | Type | Description | Default |

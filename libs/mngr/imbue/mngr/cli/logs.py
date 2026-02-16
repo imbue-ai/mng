@@ -37,6 +37,7 @@ class LogsCliOptions(CommonCliOptions):
     follow: bool
     tail: int | None
     head: int | None
+    allow_unknown_host: bool
 
 
 def _write_and_flush_stdout(content: str) -> None:
@@ -66,6 +67,14 @@ def _write_and_flush_stdout(content: str) -> None:
     type=click.IntRange(min=1),
     default=None,
     help="Print the first N lines of the log",
+)
+@optgroup.group("Connection")
+@optgroup.option(
+    "--allow-unknown-host/--no-allow-unknown-host",
+    "allow_unknown_host",
+    default=False,
+    show_default=True,
+    help="Allow following logs on hosts without a known_hosts file (disables SSH host key verification)",
 )
 @add_common_options
 @click.pass_context
@@ -116,6 +125,7 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
                 log_file_name=opts.log_filename,
                 on_new_content=_write_and_flush_stdout,
                 tail_count=opts.tail,
+                is_unknown_host_allowed=opts.allow_unknown_host,
             )
         except KeyboardInterrupt:
             # Clean exit on Ctrl+C
@@ -198,8 +208,10 @@ The command first tries to match TARGET as an agent, then as a host.
 If LOG_FILE is not specified, lists all available log files.
 If LOG_FILE is specified, prints its contents.
 
-In follow mode (--follow), the command polls for new content and
-prints it as it appears, similar to 'tail -f'. Press Ctrl+C to stop.""",
+In follow mode (--follow), the command uses tail -f for real-time
+streaming when the host is online (locally or via SSH). When the host
+is offline, it falls back to polling the volume for new content.
+Press Ctrl+C to stop.""",
     examples=(
         ("List available log files for an agent", "mngr logs my-agent"),
         ("View a specific log file", "mngr logs my-agent output.log"),

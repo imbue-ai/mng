@@ -469,6 +469,14 @@ def test_read_log_content_raises_when_no_volume_or_host() -> None:
         read_log_content(target, "test.log")
 
 
+def test_follow_log_file_raises_when_no_volume_or_host() -> None:
+    """Verify follow_log_file raises MngrError when neither volume nor host is available."""
+    target = LogsTarget(display_name="test-empty")
+
+    with pytest.raises(MngrError, match="no volume or online host"):
+        follow_log_file(target, "test.log", lambda _: None, tail_count=None)
+
+
 # =============================================================================
 # resolve_logs_target with online host tests
 # =============================================================================
