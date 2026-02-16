@@ -401,12 +401,15 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get the host volume for reading data written by the sandbox.
 
         Returns a HostVolume wrapping the persistent volume mounted inside
-        the sandbox. Returns None if the volume does not exist.
+        the sandbox. Returns None if the volume does not exist or if
+        host volume creation is disabled.
 
         Probes the volume with a listdir to verify it actually exists, since
         modal.Volume.from_name returns a lazy reference that doesn't fail
         for deleted volumes.
         """
+        if not self.config.is_host_volume_created:
+            return None
         host_id = host.id if isinstance(host, HostInterface) else host
         volume_name = self._get_host_volume_name(host_id)
         try:
@@ -742,10 +745,12 @@ class ModalProviderInstance(BaseProviderInstance):
         for faster startup while supporting images without these tools.
         """
         # Build and execute the combined check-and-install command.
-        # Pass the host volume mount path so host_dir is symlinked to the volume.
+        # Pass the host volume mount path so host_dir is symlinked to the volume,
+        # or None to create host_dir as a regular directory.
+        effective_volume_mount_path = HOST_VOLUME_MOUNT_PATH if self.config.is_host_volume_created else None
         check_install_cmd = build_check_and_install_packages_command(
             str(self.host_dir),
-            host_volume_mount_path=HOST_VOLUME_MOUNT_PATH,
+            host_volume_mount_path=effective_volume_mount_path,
         )
         process = sandbox.exec("sh", "-c", check_install_cmd)
 
@@ -957,10 +962,11 @@ class ModalProviderInstance(BaseProviderInstance):
             start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
             sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
-        # Start periodic volume sync to flush writes to the host volume
-        with log_span("Starting volume sync in sandbox"):
-            volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
-            sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+        # Start periodic volume sync to flush writes to the host volume (only when a host volume is mounted)
+        if self.config.is_host_volume_created:
+            with log_span("Starting volume sync in sandbox"):
+                volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
+                sandbox.exec("sh", "-c", volume_sync_cmd).wait()
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -978,6 +984,17 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         sandbox_id = sandbox.object_id
         host_dir_str = str(host.host_dir)
+
+        # Build the optional volume sync section for the shutdown script
+        volume_sync_section = (
+            (
+                f"# Sync the host volume to ensure all data is flushed before snapshot\n"
+                f'log "Syncing host volume before shutdown..."\n'
+                f'sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"\n'
+            )
+            if self.config.is_host_volume_created
+            else ""
+        )
 
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
@@ -1041,11 +1058,7 @@ log "Gathering agents..."
 AGENTS=$(gather_agents)
 log "Agents: $AGENTS"
 
-# Sync the host volume to ensure all data is flushed before snapshot
-log "Syncing host volume before shutdown..."
-sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"
-
-# Send the shutdown request with agent data and stop reason
+{volume_sync_section}# Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
 if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
@@ -1428,9 +1441,10 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from build args
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
-            # Add the persistent host volume so all host_dir data is preserved
-            with log_span("Ensuring host volume for {}", host_id):
-                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+            # Add the persistent host volume so all host_dir data is preserved (if enabled)
+            if self.config.is_host_volume_created:
+                with log_span("Ensuring host volume for {}", host_id):
+                    sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
 
             with log_span(
                 "Creating Modal sandbox",
@@ -1701,8 +1715,9 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from the stored config
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
-            # Re-attach the persistent host volume
-            sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+            # Re-attach the persistent host volume (if enabled)
+            if self.config.is_host_volume_created:
+                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
 
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
@@ -1748,13 +1763,15 @@ log "=== Shutdown script completed ==="
         self._destroy_agents_on_host(host_id)
         self._clear_snapshots_from_host_record(host_id)
         # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
-        self._delete_host_volume(host_id)
+        if self.config.is_host_volume_created:
+            self._delete_host_volume(host_id)
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
         self._destroy_agents_on_host(host.id)
         self._delete_host_record(host.id)
-        self._delete_host_volume(host.id)
+        if self.config.is_host_volume_created:
+            self._delete_host_volume(host.id)
 
     def _delete_host_volume(self, host_id: HostId) -> None:
         """Delete the persistent host volume, logging but not raising on failure."""

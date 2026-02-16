@@ -56,6 +56,7 @@ def register_build_level() -> None:
 register_build_level()
 
 
+# FIXME: actually, changeling log messages should be going to stderr!  Please fix this, update any tests, etc.
 def _dynamic_stdout_sink(message: Any) -> None:
     """Loguru sink that always writes to the current sys.stdout.
 

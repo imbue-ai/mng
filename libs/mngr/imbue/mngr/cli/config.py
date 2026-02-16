@@ -24,6 +24,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import ConfigKeyNotFoundError
 from imbue.mngr.errors import ConfigNotFoundError
@@ -302,16 +303,16 @@ def _emit_config_list(
             emit_final_json(output)
         case OutputFormat.HUMAN:
             if scope is not None and config_path is not None:
-                logger.info("Config from {} ({}):", scope.value.lower(), config_path)
+                write_human_line("Config from {} ({}):", scope.value.lower(), config_path)
             else:
-                logger.info("Merged configuration (all scopes):")
-            logger.info("")
+                write_human_line("Merged configuration (all scopes):")
+            write_human_line("")
             if not config_data:
-                logger.info("  (empty)")
+                write_human_line("  (empty)")
             else:
                 flattened = _flatten_config(config_data)
                 for key, value in sorted(flattened):
-                    logger.info("  {} = {}", key, _format_value_for_display(value))
+                    write_human_line("  {} = {}", key, _format_value_for_display(value))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -381,7 +382,7 @@ def _emit_config_value(key: str, value: Any, output_opts: OutputOptions) -> None
         case OutputFormat.JSONL:
             emit_final_json({"event": "config_value", "key": key, "value": value})
         case OutputFormat.HUMAN:
-            logger.info("{}", _format_value_for_display(value))
+            write_human_line("{}", _format_value_for_display(value))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -489,7 +490,7 @@ def _emit_config_set_result(
                 }
             )
         case OutputFormat.HUMAN:
-            logger.info(
+            write_human_line(
                 "Set {} = {} in {} ({})", key, _format_value_for_display(value), scope.value.lower(), config_path
             )
         case _ as unreachable:
@@ -581,7 +582,7 @@ def _emit_config_unset_result(
                 }
             )
         case OutputFormat.HUMAN:
-            logger.info("Removed {} from {} ({})", key, scope.value.lower(), config_path)
+            write_human_line("Removed {} from {} ({})", key, scope.value.lower(), config_path)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -641,7 +642,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     match output_opts.output_format:
         case OutputFormat.HUMAN:
-            logger.info("Opening {} in {}...", config_path, editor)
+            write_human_line("Opening {} in {}...", config_path, editor)
         case OutputFormat.JSON | OutputFormat.JSONL:
             pass
         case _ as unreachable:
@@ -813,7 +814,7 @@ def _emit_single_path(scope: ConfigScope, config_path: Path, output_opts: Output
                 }
             )
         case OutputFormat.HUMAN:
-            logger.info("{}", config_path)
+            write_human_line("{}", config_path)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -832,10 +833,10 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
                 exists = path_info.get("exists", False)
                 if path:
                     status = "exists" if exists else "not found"
-                    logger.info("{}: {} ({})", scope, path, status)
+                    write_human_line("{}: {} ({})", scope, path, status)
                 else:
                     error = path_info.get("error", "unavailable")
-                    logger.info("{}: {}", scope, error)
+                    write_human_line("{}: {}", scope, error)
         case _ as unreachable:
             assert_never(unreachable)
 

@@ -1,5 +1,6 @@
 import json
 import sys
+import traceback
 import webbrowser
 from typing import Final
 from typing import NoReturn
@@ -19,6 +20,7 @@ from imbue.mngr.errors import BaseMngrError
 GITHUB_REPO: Final[str] = "imbue-ai/mngr"
 GITHUB_BASE_URL: Final[str] = f"https://github.com/{GITHUB_REPO}"
 ISSUE_TITLE_PREFIX: Final[str] = "[NotImplemented]"
+UNEXPECTED_ERROR_TITLE_PREFIX: Final[str] = "[Bug]"
 
 # Maximum URL length to stay within browser and GitHub limits
 _MAX_URL_LENGTH: Final[int] = 8000
@@ -31,7 +33,7 @@ class IssueSearchError(BaseMngrError):
 
 
 class ExistingIssue(FrozenModel):
-    """A GitHub issue that already exists for a NotImplementedError."""
+    """A GitHub issue that already exists matching an error report."""
 
     number: int = Field(description="GitHub issue number")
     title: str = Field(description="GitHub issue title")
@@ -172,6 +174,31 @@ def _format_existing_issue_message(issue: ExistingIssue) -> str:
     return "Found existing issue " + str(issue.number) + ": " + issue.title
 
 
+def _prompt_and_report_issue(title: str, body: str, search_text: str) -> None:
+    """Prompt the user to report a GitHub issue and open the browser.
+
+    Searches for an existing issue matching search_text. If found, opens that
+    issue's URL. Otherwise, opens the new issue form pre-populated with title
+    and body.
+    """
+    if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
+        return
+
+    # Search for existing issue using a standalone ConcurrencyGroup
+    logger.info("Searching for existing issues...")
+    with ConcurrencyGroup(name="issue-search") as cg:
+        existing = search_for_existing_issue(search_text, cg)
+
+    if existing is not None:
+        logger.info("{}", _format_existing_issue_message(existing))
+        logger.info("Opening: {}", existing.url)
+        webbrowser.open(existing.url)
+    else:
+        logger.info("No existing issue found. Opening new issue form...")
+        url = build_new_issue_url(title, body)
+        webbrowser.open(url)
+
+
 def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
     """Handle a NotImplementedError by showing the error and optionally reporting it."""
     error_message = str(error) if str(error) else "Feature not implemented"
@@ -184,23 +211,58 @@ def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
         raise SystemExit(1)
 
     # In interactive mode, offer to report
-    if not click.confirm("\nWould you like to report this as a GitHub issue?", default=True):
+    title = build_issue_title(error_message)
+    body = build_issue_body(error_message)
+    _prompt_and_report_issue(title, body, error_message)
+
+    raise SystemExit(1)
+
+
+# FIXME: actually, to make this sane, we want to search just for the type of error being raised, and the function it is being raised from (the lowest level one in the traceback that is actually from one of our libraries)
+#  otherwise we're likely to end up missing existing issues, esp if there is anything random or dynamic in the error message (e.g. memory addresses, random IDs, etc.) that would prevent matching against existing issues.
+@pure
+def build_unexpected_error_issue_title(error: Exception) -> str:
+    """Build a GitHub issue title from an unexpected error."""
+    error_type = type(error).__name__
+    error_message = str(error).strip().split("\n")[0] if str(error) else "No message"
+    return f"{UNEXPECTED_ERROR_TITLE_PREFIX} {error_type}: {error_message}"
+
+
+@pure
+def build_unexpected_error_issue_body(error: Exception, traceback_str: str) -> str:
+    """Build a GitHub issue body from an unexpected error with traceback."""
+    return (
+        "## Bug Report\n"
+        "\n"
+        "An unexpected error occurred during command execution.\n"
+        "\n"
+        "**Error:**\n"
+        f"```\n{type(error).__name__}: {error}\n```\n"
+        "\n"
+        "**Traceback:**\n"
+        f"```\n{traceback_str}\n```\n"
+        "\n"
+        "## Additional Context\n"
+        "\n"
+        "_Please describe what you were doing when this error occurred._\n"
+    )
+
+
+def handle_unexpected_error(error: Exception) -> NoReturn:
+    """Handle an unexpected error by showing the traceback and optionally reporting it."""
+    tb_str = "".join(traceback.format_exception(type(error), error, error.__traceback__))
+
+    # Show the full traceback
+    logger.error("Unexpected error:\n{}", tb_str)
+
+    # In non-interactive mode, just exit
+    if not sys.stdin.isatty():
         raise SystemExit(1)
 
-    # Search for existing issue using a standalone ConcurrencyGroup
-    logger.info("Searching for existing issues...")
-    title = build_issue_title(error_message)
-    with ConcurrencyGroup(name="issue-search") as cg:
-        existing = search_for_existing_issue(error_message, cg)
-
-    if existing is not None:
-        logger.info("{}", _format_existing_issue_message(existing))
-        logger.info("Opening: {}", existing.url)
-        webbrowser.open(existing.url)
-    else:
-        logger.info("No existing issue found. Opening new issue form...")
-        body = build_issue_body(error_message)
-        url = build_new_issue_url(title, body)
-        webbrowser.open(url)
+    # In interactive mode, offer to report
+    error_message = str(error) if str(error) else type(error).__name__
+    title = build_unexpected_error_issue_title(error)
+    body = build_unexpected_error_issue_body(error, tb_str)
+    _prompt_and_report_issue(title, body, error_message)
 
     raise SystemExit(1)

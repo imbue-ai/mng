@@ -22,6 +22,7 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import BaseMngrError
@@ -258,7 +259,7 @@ def _emit_create_result(
             emit_event("create_result", event_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if created:
-                logger.info("Created {} snapshot(s)", len(created))
+                write_human_line("Created {} snapshot(s)", len(created))
             if errors:
                 logger.warning("Failed to create {} snapshot(s)", len(errors))
         case _ as unreachable:
@@ -290,15 +291,15 @@ def _emit_list_snapshots(
                 )
         case OutputFormat.HUMAN:
             if not all_snapshots:
-                logger.info("No snapshots found")
+                write_human_line("No snapshots found")
                 return
             # Table header
-            logger.info("{:<40} {:<25} {:<22} {:<12} {}", "ID", "NAME", "CREATED", "SIZE", "HOST")
-            logger.info("{}", "-" * 110)
+            write_human_line("{:<40} {:<25} {:<22} {:<12} {}", "ID", "NAME", "CREATED", "SIZE", "HOST")
+            write_human_line("{}", "-" * 110)
             for host_id, snap in all_snapshots:
                 size_str = format_size(snap.size_bytes) if snap.size_bytes is not None else "-"
                 created_str = snap.created_at.strftime("%Y-%m-%d %H:%M:%S")
-                logger.info(
+                write_human_line(
                     "{:<40} {:<25} {:<22} {:<12} {}",
                     str(snap.id),
                     str(snap.name),
@@ -322,7 +323,7 @@ def _emit_destroy_result(
             emit_event("destroy_result", {"count": len(destroyed)}, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if destroyed:
-                logger.info("Destroyed {} snapshot(s)", len(destroyed))
+                write_human_line("Destroyed {} snapshot(s)", len(destroyed))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -818,11 +819,11 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 
     # Confirmation prompt (human mode only, unless --force)
     if not opts.force and output_opts.output_format == OutputFormat.HUMAN:
-        logger.info("The following {} snapshot(s) will be destroyed:", len(snapshots_to_delete))
+        write_human_line("The following {} snapshot(s) will be destroyed:", len(snapshots_to_delete))
         for host_id_str, _prov, snap_id, snap_name in snapshots_to_delete:
-            logger.info("  - {} ({}) on host {}", snap_id, snap_name, host_id_str)
+            write_human_line("  - {} ({}) on host {}", snap_id, snap_name, host_id_str)
         if not click.confirm("Proceed?"):
-            logger.info("Aborted")
+            write_human_line("Aborted")
             return
 
     # Delete snapshots

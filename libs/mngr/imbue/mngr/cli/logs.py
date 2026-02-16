@@ -20,6 +20,7 @@ from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
@@ -152,11 +153,11 @@ def _emit_log_file_list(
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             if not log_files:
-                logger.info("No log files found for {}", display_name)
+                write_human_line("No log files found for {}", display_name)
             else:
-                logger.info("Log files for {}:", display_name)
+                write_human_line("Log files for {}:", display_name)
                 for log_file in log_files:
-                    logger.info("  {} ({} bytes)", log_file.name, log_file.size)
+                    write_human_line("  {} ({} bytes)", log_file.name, log_file.size)
         case OutputFormat.JSON | OutputFormat.JSONL:
             emit_final_json(
                 {

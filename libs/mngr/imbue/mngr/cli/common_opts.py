@@ -229,6 +229,11 @@ def setup_command_context(
     span = log_span("Started {} command", command_name)
     ctx.with_resource(span)
 
+    # Register error reporting state on the group context so AliasAwareGroup.invoke()
+    # can check it when catching unexpected exceptions
+    if ctx.parent is not None and mngr_ctx.config.is_error_reporting_enabled and is_interactive:
+        ctx.parent.meta["is_error_reporting_enabled"] = True
+
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
 

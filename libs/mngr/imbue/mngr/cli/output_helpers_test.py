@@ -46,10 +46,10 @@ def test_abort_error_is_base_exception() -> None:
 
 
 def test_emit_info_human_format(capsys) -> None:
-    """emit_info with HUMAN format should output to logger."""
-    # HUMAN format outputs via logger, which uses stdout
+    """emit_info with HUMAN format should output to stdout."""
     emit_info("test message", OutputFormat.HUMAN)
-    # We don't capture logger output in this test - just verify no exception
+    captured = capsys.readouterr()
+    assert "test message" in captured.out
 
 
 def test_emit_info_jsonl_format(capsys) -> None:
@@ -74,9 +74,10 @@ def test_emit_info_json_format(capsys) -> None:
 
 
 def test_emit_event_human_format_with_message(capsys) -> None:
-    """emit_event with HUMAN format should output message via logger."""
+    """emit_event with HUMAN format should output message to stdout."""
     emit_event("destroyed", {"message": "Agent destroyed"}, OutputFormat.HUMAN)
-    # We don't capture logger output in this test - just verify no exception
+    captured = capsys.readouterr()
+    assert "Agent destroyed" in captured.out
 
 
 def test_emit_event_human_format_without_message(capsys) -> None:
