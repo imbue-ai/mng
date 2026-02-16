@@ -1,7 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
 
-import docker.errors
 import pytest
 
 from imbue.mngr.config.data_types import MngrContext
@@ -18,29 +17,14 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.testing import make_docker_provider
+from imbue.mngr.providers.docker.testing import make_docker_provider_with_cleanup
 
 pytestmark = [pytest.mark.docker, pytest.mark.acceptance, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
 def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInstance, None, None]:
-    """Create a Docker provider instance and clean up containers on teardown."""
-    provider = make_docker_provider(temp_mngr_ctx)
-    yield provider
-
-    # Cleanup: destroy all hosts created during the test
-    try:
-        cg = temp_mngr_ctx.concurrency_group
-        hosts = provider.list_hosts(cg, include_destroyed=True)
-        for host in hosts:
-            try:
-                provider.destroy_host(host, delete_snapshots=True)
-            except (MngrError, docker.errors.DockerException, OSError):
-                pass
-    except (MngrError, docker.errors.DockerException, OSError):
-        pass
-
-    provider.close()
+    yield from make_docker_provider_with_cleanup(temp_mngr_ctx)
 
 
 def test_create_host_creates_container_with_ssh(docker_provider: DockerProviderInstance) -> None:

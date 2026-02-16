@@ -32,7 +32,7 @@ from imbue.mngr.providers.docker.instance import LABEL_HOST_NAME
 from imbue.mngr.providers.docker.instance import LABEL_PROVIDER
 from imbue.mngr.providers.docker.instance import LABEL_TAGS
 from imbue.mngr.providers.docker.instance import build_container_labels
-from imbue.mngr.providers.docker.testing import make_docker_provider
+from imbue.mngr.providers.docker.testing import make_docker_provider_with_cleanup
 from imbue.mngr.utils.testing import get_short_random_string
 
 pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
@@ -48,22 +48,7 @@ TEST_IMAGE = "busybox:latest"
 
 @pytest.fixture
 def docker_provider(temp_mngr_ctx: MngrContext) -> Generator[DockerProviderInstance, None, None]:
-    """Create a Docker provider instance with a unique name per test and clean up on teardown."""
-    unique_name = f"integ-{get_short_random_string()}"
-    provider = make_docker_provider(temp_mngr_ctx, unique_name)
-    yield provider
-
-    # Cleanup: remove all containers managed by this provider instance
-    try:
-        for container in provider._list_containers():
-            try:
-                container.remove(force=True)
-            except docker.errors.DockerException:
-                pass
-    except docker.errors.DockerException:
-        pass
-
-    provider.close()
+    yield from make_docker_provider_with_cleanup(temp_mngr_ctx)
 
 
 def _create_test_container(
