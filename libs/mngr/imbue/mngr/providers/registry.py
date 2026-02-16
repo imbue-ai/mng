@@ -157,7 +157,6 @@ def _indent_text(text: str, indent: str) -> str:
     return "\n".join(indent + line if line.strip() else "" for line in text.split("\n"))
 
 
-@pure
 def get_all_provider_args_help_sections() -> tuple[tuple[str, str], ...]:
     """Generate help sections for build/start args from all registered backends.
 

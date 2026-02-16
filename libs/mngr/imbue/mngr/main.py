@@ -313,11 +313,11 @@ def _update_create_help_with_provider_args() -> None:
     This must be called after backends are loaded so that all provider backends
     are registered and their help text is available.
     """
+    provider_sections = get_all_provider_args_help_sections()
     for command_name in ("create", "c"):
         existing_metadata = get_help_metadata(command_name)
         if existing_metadata is None:
             continue
-        provider_sections = get_all_provider_args_help_sections()
         updated_metadata = existing_metadata.model_copy_update(
             to_update(
                 existing_metadata.field_ref().additional_sections,
