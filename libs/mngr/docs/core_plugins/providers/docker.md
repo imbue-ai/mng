@@ -106,4 +106,3 @@ Set `host` to connect to a remote Docker daemon (e.g., `ssh://user@server` or `t
 
 - Tags are immutable after container creation (stored as Docker labels)
 - Volume mounts are not captured in snapshots
-- Docker volumes are managed externally; the provider does not support volume lifecycle management

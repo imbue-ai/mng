@@ -1235,7 +1235,7 @@ kill -TERM 1
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
     # =========================================================================
-    # Volume Methods (not supported)
+    # Volume Methods
     # =========================================================================
 
     def list_volumes(self) -> list[VolumeInfo]:
@@ -1261,9 +1261,12 @@ kill -TERM 1
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a logical volume from the state volume."""
         vol_path = f"volumes/{volume_id}"
-        exit_code, _ = self._state_volume._exec(f"rm -rf '{self._state_volume._resolve(vol_path)}'")
-        if exit_code != 0:
-            raise MngrError(f"Failed to delete volume: {volume_id}")
+        try:
+            entries = self._state_volume.listdir(vol_path)
+            for entry in entries:
+                self._state_volume.remove_file(entry.path)
+        except (FileNotFoundError, OSError) as e:
+            logger.trace("No volume files to clean up for {}: {}", volume_id, e)
 
     # =========================================================================
     # Tag Methods (immutable)
