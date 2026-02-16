@@ -311,7 +311,7 @@ def test_host_store_write_and_discover(docker_provider: DockerProviderInstance) 
         ssh_host="127.0.0.1",
         ssh_port=12345,
         ssh_host_public_key="ssh-ed25519 AAAA-test-key",
-        config=ContainerConfig(cpu=2.0, memory=4.0),
+        config=ContainerConfig(start_args=("--cpus=2", "--memory=4g")),
         container_id=container.id,
     )
     docker_provider._host_store.write_host_record(host_record)
@@ -385,16 +385,11 @@ def test_get_host_tags_from_running_container(docker_provider: DockerProviderIns
 
 
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
-def test_get_host_resources_from_record(docker_provider: DockerProviderInstance) -> None:
-    """Verify get_host_resources reads CPU/memory from the host record."""
+def test_get_host_resources_returns_defaults(docker_provider: DockerProviderInstance) -> None:
+    """Verify get_host_resources returns default values."""
     host_id = HostId.generate()
     now = datetime.now(timezone.utc)
     host_data = CertifiedHostData(host_id=str(host_id), host_name="resources-test", created_at=now, updated_at=now)
-    host_record = HostRecord(
-        certified_host_data=host_data,
-        config=ContainerConfig(cpu=4.0, memory=16.0),
-    )
-    docker_provider._host_store.write_host_record(host_record)
 
     offline_host = OfflineHost(
         id=host_id,
@@ -405,8 +400,8 @@ def test_get_host_resources_from_record(docker_provider: DockerProviderInstance)
     )
 
     resources = docker_provider.get_host_resources(offline_host)
-    assert resources.cpu.count == 4
-    assert resources.memory_gb == 16.0
+    assert resources.cpu.count == 1
+    assert resources.memory_gb == 1.0
 
 
 # =========================================================================

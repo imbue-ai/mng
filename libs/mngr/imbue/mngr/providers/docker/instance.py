@@ -66,7 +66,7 @@ from imbue.mngr.providers.ssh_utils import wait_for_sshd
 # Shell command that keeps PID 1 alive and responds to SIGTERM
 CONTAINER_ENTRYPOINT_CMD: Final[str] = "trap 'exit 0' TERM; tail -f /dev/null & wait"
 
-# Container entrypoint as SDK-style command list (used by tests and legacy code)
+# Container entrypoint as SDK-style command list (used by tests)
 CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", CONTAINER_ENTRYPOINT_CMD]
 
 # Default image used when no image is specified
@@ -119,45 +119,6 @@ def parse_container_labels(
         user_tags = {}
 
     return host_id, host_name, provider_name, user_tags
-
-
-def _parse_resources_from_start_args(start_args: Sequence[str]) -> tuple[float, float]:
-    """Extract CPU and memory values from raw docker run start_args.
-
-    Returns (cpu_count, memory_gb). Defaults to (1.0, 1.0) if not found.
-    """
-    cpu = 1.0
-    memory_gb = 1.0
-
-    args_iter = iter(start_args)
-    for arg in args_iter:
-        if arg.startswith("--cpus="):
-            cpu = float(arg.split("=", 1)[1])
-        elif arg == "--cpus":
-            cpu = float(next(args_iter, "1"))
-        elif arg.startswith("--memory=") or arg.startswith("-m="):
-            memory_gb = _parse_memory_string(arg.split("=", 1)[1])
-        elif arg in ("--memory", "-m"):
-            memory_gb = _parse_memory_string(next(args_iter, "1g"))
-        else:
-            pass
-
-    return cpu, memory_gb
-
-
-def _parse_memory_string(mem_str: str) -> float:
-    """Parse a Docker memory string (e.g., '4g', '512m', '1073741824b', '2048') into GB."""
-    mem_str = mem_str.strip().lower()
-    if mem_str.endswith("g"):
-        return float(mem_str[:-1])
-    if mem_str.endswith("m"):
-        return float(mem_str[:-1]) / 1024.0
-    if mem_str.endswith("k"):
-        return float(mem_str[:-1]) / (1024.0 * 1024.0)
-    if mem_str.endswith("b"):
-        return float(mem_str[:-1]) / (1024.0 * 1024.0 * 1024.0)
-    # Bare number, assume bytes
-    return float(mem_str) / (1024.0 * 1024.0 * 1024.0)
 
 
 def _get_ssh_host_from_docker_config(docker_host_url: str) -> str:
@@ -545,30 +506,6 @@ kill -TERM 1
 
         container_id = result.stdout.strip()
         return self._docker_client.containers.get(container_id)
-
-    def _get_effective_start_args(self, config: ContainerConfig) -> tuple[str, ...]:
-        """Get effective start_args, converting from legacy fields if needed.
-
-        Old host records stored resource limits in typed fields (cpu, memory, etc.)
-        rather than raw start_args. This method converts them to docker run flags.
-        """
-        if config.start_args:
-            return config.start_args
-
-        args: list[str] = []
-        if config.cpu != 1.0:
-            args.extend(["--cpus", str(config.cpu)])
-        if config.memory != 1.0:
-            args.extend(["--memory", f"{int(config.memory * 1024)}m"])
-        if config.gpu:
-            args.extend(["--gpus", config.gpu])
-        if config.network:
-            args.extend(["--network", config.network])
-        for vol in config.volumes:
-            args.extend(["--volume", vol])
-        for port in config.ports:
-            args.extend(["--publish", port])
-        return tuple(args)
 
     # =========================================================================
     # Container Discovery Helpers
@@ -965,7 +902,7 @@ kill -TERM 1
         labels = build_container_labels(host_id, host_name, str(self.name), user_tags)
         container_name = f"{self.mngr_ctx.config.prefix}{host_name}"
 
-        effective_start_args = self._get_effective_start_args(config)
+        effective_start_args = config.start_args
 
         try:
             new_container = self._run_container(
@@ -1150,31 +1087,15 @@ kill -TERM 1
         return hosts
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
-        """Get resource information for a Docker container."""
-        host_record = self._host_store.read_host_record(host.id)
-        if host_record is None or host_record.config is None:
-            return HostResources(
-                cpu=CpuResources(count=1, frequency_ghz=None),
-                memory_gb=1.0,
-                disk_gb=None,
-                gpu=None,
-            )
+        """Get resource information for a Docker container.
 
-        config = host_record.config
-        # Try legacy typed fields first (backward compat with old records)
-        if config.cpu != 1.0 or config.memory != 1.0:
-            return HostResources(
-                cpu=CpuResources(count=max(1, int(config.cpu)), frequency_ghz=None),
-                memory_gb=config.memory,
-                disk_gb=None,
-                gpu=None,
-            )
-
-        # Parse from start_args
-        cpu, memory = _parse_resources_from_start_args(config.start_args)
+        Resource limits are applied via docker run flags (start_args) and are
+        managed by Docker directly. We return defaults here since we don't
+        parse the raw CLI args.
+        """
         return HostResources(
-            cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=None),
-            memory_gb=memory,
+            cpu=CpuResources(count=1, frequency_ghz=None),
+            memory_gb=1.0,
             disk_gb=None,
             gpu=None,
         )
@@ -1201,13 +1122,15 @@ kill -TERM 1
         if name is None:
             name = SnapshotName(f"snapshot-{uuid4().hex}")
 
-        # Warn about volume mounts
+        # Warn about volume mounts (they are not captured in snapshots)
         host_record = self._host_store.read_host_record(host_id)
-        if host_record is not None and host_record.config is not None and host_record.config.volumes:
-            logger.warning(
-                "Container has volume mounts that will NOT be captured in the snapshot: {}",
-                host_record.config.volumes,
-            )
+        if host_record is not None and host_record.config is not None:
+            volume_args = [a for a in host_record.config.start_args if a.startswith("-v") or a.startswith("--volume")]
+            if volume_args:
+                logger.warning(
+                    "Container has volume mounts that will NOT be captured in the snapshot: {}",
+                    volume_args,
+                )
 
         with log_span("Committing Docker container", host_id=str(host_id)):
             committed_image = container.commit(

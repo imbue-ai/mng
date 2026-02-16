@@ -7,15 +7,12 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.instance import CONTAINER_SSH_PORT
 from imbue.mngr.providers.docker.instance import LABEL_HOST_ID
 from imbue.mngr.providers.docker.instance import LABEL_HOST_NAME
 from imbue.mngr.providers.docker.instance import LABEL_PROVIDER
 from imbue.mngr.providers.docker.instance import LABEL_TAGS
 from imbue.mngr.providers.docker.instance import _get_ssh_host_from_docker_config
-from imbue.mngr.providers.docker.instance import _parse_memory_string
-from imbue.mngr.providers.docker.instance import _parse_resources_from_start_args
 from imbue.mngr.providers.docker.instance import build_container_labels
 from imbue.mngr.providers.docker.instance import parse_container_labels
 from imbue.mngr.providers.docker.testing import make_docker_provider
@@ -228,108 +225,6 @@ def test_build_docker_run_command_entrypoint_at_end(temp_mngr_ctx: MngrContext) 
     image_idx = cmd.index("my-image")
     assert cmd[image_idx - 1] == "sh"
     assert cmd[image_idx + 1] == "-c"
-
-
-# =========================================================================
-# Effective Start Args (legacy conversion)
-# =========================================================================
-
-
-def test_get_effective_start_args_returns_start_args_when_present(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig(start_args=("--cpus=4", "--memory=8g"))
-    assert provider._get_effective_start_args(config) == ("--cpus=4", "--memory=8g")
-
-
-def test_get_effective_start_args_converts_legacy_cpu_and_memory(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig(cpu=4.0, memory=8.0)
-    result = provider._get_effective_start_args(config)
-    assert "--cpus" in result
-    assert "4.0" in result
-    assert "--memory" in result
-    assert "8192m" in result
-
-
-def test_get_effective_start_args_converts_legacy_gpu(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig(gpu="all")
-    result = provider._get_effective_start_args(config)
-    assert "--gpus" in result
-    assert "all" in result
-
-
-def test_get_effective_start_args_converts_legacy_network(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig(network="my-net")
-    result = provider._get_effective_start_args(config)
-    assert "--network" in result
-    assert "my-net" in result
-
-
-def test_get_effective_start_args_converts_legacy_volumes_and_ports(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig(volumes=("/a:/b", "/c:/d"), ports=("8080:80",))
-    result = provider._get_effective_start_args(config)
-    assert "--volume" in result
-    assert "/a:/b" in result
-    assert "--publish" in result
-    assert "8080:80" in result
-
-
-def test_get_effective_start_args_returns_empty_for_defaults(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    config = ContainerConfig()
-    assert provider._get_effective_start_args(config) == ()
-
-
-# =========================================================================
-# Resource Parsing from Start Args
-# =========================================================================
-
-
-def test_parse_resources_from_start_args_empty() -> None:
-    cpu, mem = _parse_resources_from_start_args(())
-    assert cpu == 1.0
-    assert mem == 1.0
-
-
-def test_parse_resources_from_start_args_cpus_equals() -> None:
-    cpu, mem = _parse_resources_from_start_args(("--cpus=4",))
-    assert cpu == 4.0
-    assert mem == 1.0
-
-
-def test_parse_resources_from_start_args_cpus_space() -> None:
-    cpu, mem = _parse_resources_from_start_args(("--cpus", "2.5"))
-    assert cpu == 2.5
-
-
-def test_parse_resources_from_start_args_memory_gb() -> None:
-    cpu, mem = _parse_resources_from_start_args(("--memory=8g",))
-    assert mem == 8.0
-
-
-def test_parse_resources_from_start_args_memory_mb() -> None:
-    cpu, mem = _parse_resources_from_start_args(("--memory=512m",))
-    assert mem == 0.5
-
-
-def test_parse_resources_from_start_args_memory_short_flag() -> None:
-    cpu, mem = _parse_resources_from_start_args(("-m", "2g"))
-    assert mem == 2.0
-
-
-def test_parse_memory_string_gigabytes() -> None:
-    assert _parse_memory_string("4g") == 4.0
-
-
-def test_parse_memory_string_megabytes() -> None:
-    assert _parse_memory_string("1024m") == 1.0
-
-
-def test_parse_memory_string_bytes() -> None:
-    assert _parse_memory_string(str(1024 * 1024 * 1024)) == 1.0
 
 
 # =========================================================================

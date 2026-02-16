@@ -45,11 +45,3 @@ class DockerProviderConfig(ProviderInstanceConfig):
         default_factory=lambda: tuple(ActivitySource),
         description="Default activity sources that count toward keeping host active",
     )
-    # Legacy fields kept for backward compatibility with existing config files
-    default_cpu: float = Field(default=1.0, description="Deprecated: use default_start_args with --cpus instead")
-    default_memory: float = Field(default=1.0, description="Deprecated: use default_start_args with --memory instead")
-    default_gpu: str | None = Field(default=None, description="Deprecated: use default_start_args with --gpus instead")
-    network: str | None = Field(default=None, description="Deprecated: use default_start_args with --network instead")
-    extra_hosts: dict[str, str] = Field(
-        default_factory=dict, description="Deprecated: use default_start_args with --add-host instead"
-    )

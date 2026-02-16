@@ -35,7 +35,7 @@ def _make_host_record(
         ssh_host=ssh_host,
         ssh_port=ssh_port,
         ssh_host_public_key=ssh_host_public_key,
-        config=ContainerConfig(cpu=2.0, memory=4.0),
+        config=ContainerConfig(start_args=("--cpus=2", "--memory=4g")),
         container_id="abc123def456",
     )
 
@@ -57,8 +57,7 @@ def test_write_and_read_host_record(store: DockerHostStore) -> None:
     assert result.ssh_port == 12345
     assert result.ssh_host_public_key == "ssh-ed25519 AAAA"
     assert result.config is not None
-    assert result.config.cpu == 2.0
-    assert result.config.memory == 4.0
+    assert result.config.start_args == ("--cpus=2", "--memory=4g")
     assert result.container_id == "abc123def456"
 
 

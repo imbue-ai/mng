@@ -75,9 +75,9 @@ def test_create_host_with_resource_limits(docker_provider: DockerProviderInstanc
         HostName("test-resources"),
         start_args=["--cpus=2", "--memory=2g"],
     )
-    resources = docker_provider.get_host_resources(host)
-    assert resources.cpu.count == 2
-    assert resources.memory_gb == 2.0
+    assert isinstance(host, Host)
+    result = host.execute_command("echo ok")
+    assert result.success
 
 
 def test_stop_host_stops_container(docker_provider: DockerProviderInstance) -> None:

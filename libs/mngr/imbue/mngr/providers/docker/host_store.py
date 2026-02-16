@@ -16,23 +16,14 @@ from imbue.mngr.primitives import HostId
 class ContainerConfig(HostConfig):
     """Configuration for Docker containers.
 
-    New hosts store raw start_args for subprocess passthrough to docker run.
-    Legacy typed fields (gpu, cpu, memory, etc.) are kept for backward
-    compatibility with existing host records on disk.
+    Stores the raw docker run start_args so they can be replayed when
+    restoring a container from a snapshot.
     """
 
     start_args: tuple[str, ...] = Field(
         default=(), description="Raw docker run arguments for replay on snapshot restore"
     )
-    gpu: str | None = Field(default=None, description="GPU access configuration (e.g., 'all', '0', 'nvidia')")
-    cpu: float = Field(default=1.0, description="Number of CPU cores")
-    memory: float = Field(default=1.0, description="Memory in GB")
     image: str | None = Field(default=None, description="Base Docker image name")
-    dockerfile: str | None = Field(default=None, description="Path to Dockerfile for custom image build")
-    context_dir: str | None = Field(default=None, description="Build context directory for Dockerfile")
-    network: str | None = Field(default=None, description="Docker network to attach to")
-    volumes: tuple[str, ...] = Field(default=(), description="Additional volume mounts (host:container[:mode])")
-    ports: tuple[str, ...] = Field(default=(), description="Additional port mappings (host:container)")
 
 
 class HostRecord(FrozenModel):
