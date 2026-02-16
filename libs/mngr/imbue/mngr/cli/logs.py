@@ -216,8 +216,10 @@ The command first tries to match TARGET as an agent, then as a host.
 If LOG_FILE is not specified, lists all available log files.
 If LOG_FILE is specified, prints its contents.
 
-In follow mode (--follow), the command polls for new content and
-prints it as it appears, similar to 'tail -f'. Press Ctrl+C to stop.""",
+In follow mode (--follow), the command uses tail -f for real-time
+streaming when the host is online (locally or via SSH). When the host
+is offline, it falls back to polling the volume for new content.
+Press Ctrl+C to stop.""",
     examples=(
         ("List available log files for an agent", "mngr logs my-agent"),
         ("View a specific log file", "mngr logs my-agent output.log"),
