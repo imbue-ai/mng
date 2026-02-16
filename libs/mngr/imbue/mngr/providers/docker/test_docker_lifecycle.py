@@ -79,7 +79,7 @@ def test_stop_host_with_snapshot(docker_provider: DockerProviderInstance) -> Non
 
     snapshots = docker_provider.list_snapshots(host.id)
     assert len(snapshots) >= 1
-    assert any(s.name == SnapshotName("stop") for s in snapshots)
+    assert any(str(s.name).startswith("stop-") for s in snapshots)
 
 
 def test_start_host_restarts_stopped_container(docker_provider: DockerProviderInstance) -> None:
