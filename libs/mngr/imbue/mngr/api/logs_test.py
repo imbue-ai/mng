@@ -599,15 +599,11 @@ def test_follow_log_file_via_host_detects_new_content(logs_host_target: tuple[Lo
 # =============================================================================
 
 
-def test_build_ssh_base_args_includes_key_and_port(
+def test_build_ssh_base_args_disables_host_key_checking_when_allowed(
     temp_mngr_ctx: MngrContext,
     local_provider,
 ) -> None:
-    """Verify build_ssh_base_args constructs correct args for a local host.
-
-    Local hosts return basic SSH args without key/port since they use the
-    local connector (not SSH). This test verifies the function runs without error.
-    """
+    """Verify build_ssh_base_args disables host key checking when is_unknown_host_allowed is True."""
     host = local_provider.get_host(HostName("local"))
     assert isinstance(host, OnlineHostInterface)
 

@@ -443,12 +443,18 @@ def _follow_log_file_via_host(
     process = popen_interactive_subprocess(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     try:
         assert process.stdout is not None
         for raw_line in iter(process.stdout.readline, b""):
             on_new_content(raw_line.decode("utf-8", errors="replace"))
+
+        # The stdout loop ended because the process exited; check for errors
+        process.wait()
+        if process.returncode != 0:
+            stderr_output = process.stderr.read().decode("utf-8", errors="replace") if process.stderr else ""
+            raise MngrError(f"Failed to follow log file (exit code {process.returncode}): {stderr_output.strip()}")
     except KeyboardInterrupt:
         raise
     finally:
