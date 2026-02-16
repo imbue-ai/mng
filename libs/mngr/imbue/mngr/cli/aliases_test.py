@@ -48,6 +48,12 @@ def test_rm_alias_exists() -> None:
     assert cli.commands["rm"] is cli.commands["destroy"]
 
 
+def test_lim_alias_exists() -> None:
+    """The 'lim' command should be an alias for 'limit'."""
+    assert "lim" in cli.commands
+    assert cli.commands["lim"] is cli.commands["limit"]
+
+
 def test_shell_complete_drops_alias_when_canonical_present() -> None:
     """Completing 'con' should return 'connect' and 'config', not 'conn'."""
     names = _complete_names("con")

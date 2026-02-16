@@ -39,6 +39,7 @@ SECONDARY_COMMANDS = {
     "cleanup",
     "config",
     "gc",
+    "limit",
     "message",
     "provision",
     "plugin",

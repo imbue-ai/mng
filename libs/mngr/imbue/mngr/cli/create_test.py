@@ -45,9 +45,9 @@ def test_parse_host_lifecycle_options_all_none(default_create_cli_opts: CreateCl
 
 
 def test_parse_host_lifecycle_options_with_idle_timeout(default_create_cli_opts: CreateCliOptions) -> None:
-    """idle_timeout should be passed through directly."""
+    """idle_timeout should be parsed as a duration string."""
     opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().idle_timeout, 600),
+        to_update(default_create_cli_opts.field_ref().idle_timeout, "10m"),
     )
 
     result = _parse_host_lifecycle_options(opts)
@@ -121,7 +121,7 @@ def test_parse_host_lifecycle_options_with_activity_sources_whitespace(
 def test_parse_host_lifecycle_options_all_provided(default_create_cli_opts: CreateCliOptions) -> None:
     """All options should be correctly parsed when all are provided."""
     opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().idle_timeout, 1800),
+        to_update(default_create_cli_opts.field_ref().idle_timeout, "30m"),
         to_update(default_create_cli_opts.field_ref().idle_mode, "disabled"),
         to_update(default_create_cli_opts.field_ref().activity_sources, "create,process"),
     )

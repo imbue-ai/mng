@@ -19,6 +19,7 @@ from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
+from imbue.mngr.cli.limit import limit
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
@@ -51,6 +52,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "provision": ["prov"],
     "stop": ["s"],
     "plugin": ["plug"],
+    "limit": ["lim"],
     "rename": ["mv"],
 }
 
@@ -261,6 +263,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     rename,
     start,
     stop,
+    limit,
     config,
     gc,
     plugin_command,
@@ -280,6 +283,7 @@ cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
 cli.add_command(plugin_command, name="plug")
 cli.add_command(provision, name="prov")
+cli.add_command(limit, name="lim")
 cli.add_command(rename, name="mv")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
