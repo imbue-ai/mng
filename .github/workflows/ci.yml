@@ -46,7 +46,7 @@ jobs:
         with:
           name: test-durations-integration-${{ matrix.group }}
           path: .test_output/test_durations_*.json
-          retention-days: 90
+          retention-days: 30
 
       - name: List coverage files
         run: |
@@ -213,7 +213,7 @@ jobs:
         with:
           name: test-durations-acceptance-${{ matrix.group }}
           path: .test_output/test_durations_*.json
-          retention-days: 90
+          retention-days: 30
 
   # Release tests - runs only on main branch pushes
   test-release:
@@ -257,4 +257,4 @@ jobs:
         with:
           name: test-durations-release-${{ matrix.group }}
           path: .test_output/test_durations_*.json
-          retention-days: 90
+          retention-days: 30
