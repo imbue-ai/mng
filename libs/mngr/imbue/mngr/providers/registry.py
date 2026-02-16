@@ -11,6 +11,8 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
+import pluggy
+
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
@@ -33,7 +35,7 @@ _config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 _registry_state: dict[str, bool] = {"backends_loaded": False}
 
 
-def load_all_registries(pm) -> None:
+def load_all_registries(pm: pluggy.PluginManager) -> None:
     """Load all registries from plugins.
 
     This is the main entry point for loading all pluggy-based registries.
@@ -53,7 +55,7 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
-def _load_backends(pm, *, include_modal: bool) -> None:
+def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool) -> None:
     """Load provider backends from the specified modules.
 
     The pm parameter is the pluggy plugin manager. If include_modal is True,
@@ -82,7 +84,7 @@ def _load_backends(pm, *, include_modal: bool) -> None:
     _registry_state["backends_loaded"] = True
 
 
-def load_local_backend_only(pm) -> None:
+def load_local_backend_only(pm: pluggy.PluginManager) -> None:
     """Load only the local and SSH provider backends.
 
     This is used by tests to avoid depending on Modal credentials.
@@ -91,7 +93,7 @@ def load_local_backend_only(pm) -> None:
     _load_backends(pm, include_modal=False)
 
 
-def load_backends_from_plugins(pm) -> None:
+def load_backends_from_plugins(pm: pluggy.PluginManager) -> None:
     """Load all provider backends from plugins."""
     _load_backends(pm, include_modal=True)
 

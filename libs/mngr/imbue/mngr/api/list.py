@@ -34,6 +34,7 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
@@ -714,7 +715,7 @@ def _process_provider_for_host_listing(
 
 
 # retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host, provider):
+def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
     try:
         return host.get_agent_references()
     # retry once when there is a host connection error (the second time we'll probably end up

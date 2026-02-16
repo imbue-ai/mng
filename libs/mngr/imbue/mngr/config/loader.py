@@ -3,6 +3,7 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Sequence
 from uuid import uuid4
 
@@ -46,7 +47,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 #   - command="foo_bar", param="baz"
 #
 # Any future plugins that register custom commands must follow this single-word rule.
-_ENV_COMMANDS_PREFIX = "MNGR_COMMANDS_"
+_ENV_COMMANDS_PREFIX: Final[str] = "MNGR_COMMANDS_"
 
 
 def load_config(
