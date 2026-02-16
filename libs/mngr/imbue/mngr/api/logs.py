@@ -212,7 +212,8 @@ def _check_for_new_content(
     """Check for new content and emit it. Always returns False to keep polling."""
     try:
         current_content = read_log_content(target, log_file_name)
-    except (MngrError, OSError):
+    except (MngrError, OSError) as e:
+        logger.trace("Failed to read log file during follow: {}", e)
         return False
     current_length = len(current_content)
     if current_length > state.previous_length:
@@ -244,7 +245,8 @@ def follow_log_file(
     # Read initial content
     try:
         content = read_log_content(target, log_file_name)
-    except (MngrError, OSError):
+    except (MngrError, OSError) as e:
+        logger.debug("Failed to read initial log content: {}", e)
         content = ""
 
     # Show initial content (with optional tail)

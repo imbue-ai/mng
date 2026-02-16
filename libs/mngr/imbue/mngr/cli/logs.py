@@ -33,7 +33,7 @@ class LogsCliOptions(CommonCliOptions):
     """
 
     target: str
-    log_file: str | None
+    log_filename: str | None
     follow: bool
     tail: int | None
     head: int | None
@@ -41,7 +41,7 @@ class LogsCliOptions(CommonCliOptions):
 
 @click.command(name="logs")
 @click.argument("target", shell_complete=complete_agent_name)
-@click.argument("log_file", required=False, default=None)
+@click.argument("log_filename", required=False, default=None)
 @optgroup.group("Display")
 @optgroup.option(
     "--follow/--no-follow",
@@ -96,18 +96,18 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     # If no log file specified, list available log files
-    if opts.log_file is None:
+    if opts.log_filename is None:
         log_files = list_log_files(target)
         _emit_log_file_list(log_files, target.display_name, output_opts)
         return
 
     if opts.follow:
         # Follow mode: poll and print new content
-        logger.info("Following log file '{}' for {} (Ctrl+C to stop)", opts.log_file, target.display_name)
+        logger.info("Following log file '{}' for {} (Ctrl+C to stop)", opts.log_filename, target.display_name)
         try:
             follow_log_file(
                 target=target,
-                log_file_name=opts.log_file,
+                log_file_name=opts.log_filename,
                 on_new_content=lambda content: sys.stdout.write(content),
                 tail_count=opts.tail,
             )
@@ -119,12 +119,12 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
 
     # Read and display the log file
     try:
-        content = read_log_content(target, opts.log_file)
+        content = read_log_content(target, opts.log_filename)
     except (MngrError, OSError) as e:
-        raise MngrError(f"Failed to read log file '{opts.log_file}': {e}") from e
+        raise MngrError(f"Failed to read log file '{opts.log_filename}': {e}") from e
 
     filtered_content = apply_head_or_tail(content, head_count=opts.head, tail_count=opts.tail)
-    _emit_log_content(filtered_content, opts.log_file, output_opts)
+    _emit_log_content(filtered_content, opts.log_filename, output_opts)
 
 
 def _emit_log_file_list(
@@ -141,14 +141,7 @@ def _emit_log_file_list(
                 logger.info("Log files for {}:", display_name)
                 for log_file in log_files:
                     logger.info("  {} ({} bytes)", log_file.name, log_file.size)
-        case OutputFormat.JSON:
-            emit_final_json(
-                {
-                    "target": display_name,
-                    "log_files": [{"name": lf.name, "size": lf.size} for lf in log_files],
-                }
-            )
-        case OutputFormat.JSONL:
+        case OutputFormat.JSON | OutputFormat.JSONL:
             emit_final_json(
                 {
                     "target": display_name,
@@ -171,14 +164,7 @@ def _emit_log_content(
             if content and not content.endswith("\n"):
                 sys.stdout.write("\n")
             sys.stdout.flush()
-        case OutputFormat.JSON:
-            emit_final_json(
-                {
-                    "log_file": log_file_name,
-                    "content": content,
-                }
-            )
-        case OutputFormat.JSONL:
+        case OutputFormat.JSON | OutputFormat.JSONL:
             emit_final_json(
                 {
                     "log_file": log_file_name,

@@ -1,13 +1,20 @@
+import json
+from pathlib import Path
+
 import pytest
 from inline_snapshot import snapshot
 
 from imbue.mngr.api.logs import LogsTarget
+from imbue.mngr.api.logs import _FollowState
+from imbue.mngr.api.logs import _check_for_new_content
 from imbue.mngr.api.logs import _extract_filename
 from imbue.mngr.api.logs import _find_agent_in_hosts
 from imbue.mngr.api.logs import _find_host_in_hosts
 from imbue.mngr.api.logs import apply_head_or_tail
 from imbue.mngr.api.logs import list_log_files
 from imbue.mngr.api.logs import read_log_content
+from imbue.mngr.api.logs import resolve_logs_target
+from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
@@ -195,3 +202,123 @@ def test_read_log_content_returns_file_contents(tmp_path) -> None:
     content = read_log_content(target, "test.log")
 
     assert content == snapshot("hello world\nsecond line\n")
+
+
+def test_resolve_logs_target_finds_agent(
+    temp_mngr_ctx: MngrContext,
+    local_provider,
+    temp_host_dir: Path,
+) -> None:
+    """Verify resolve_logs_target finds an agent and returns a scoped logs volume."""
+    # Create a host with an agent
+    host = local_provider.get_host(HostName("local"))
+
+    # Create a fake agent directory structure on the volume
+    host_volume = local_provider.get_volume_for_host(host.id)
+    assert host_volume is not None
+
+    # Create a dummy agent with logs
+    agent_id = AgentId.generate()
+    agent_name = AgentName("test-resolve-agent")
+
+    # Write agent data.json so it shows up in agent references
+    agents_dir = temp_host_dir / "agents"
+    agent_dir = agents_dir / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "id": str(agent_id),
+        "name": str(agent_name),
+        "type": "generic",
+        "command": "sleep 94817",
+        "work_dir": "/tmp/test",
+        "create_time": "2026-01-01T00:00:00+00:00",
+    }
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    # Create logs in the volume
+    volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
+    host_volume_dir = volumes_dir / str(host.id)
+    agent_logs_dir = host_volume_dir / "agents" / str(agent_id) / "logs"
+    agent_logs_dir.mkdir(parents=True, exist_ok=True)
+    (agent_logs_dir / "output.log").write_text("agent log content\n")
+
+    # Resolve should find the agent
+    target = resolve_logs_target(str(agent_name), temp_mngr_ctx)
+    assert "test-resolve-agent" in target.display_name
+
+    # Should be able to list and read log files
+    log_files = list_log_files(target)
+    assert len(log_files) == 1
+    assert log_files[0].name == "output.log"
+
+    content = read_log_content(target, "output.log")
+    assert content == "agent log content\n"
+
+
+def test_resolve_logs_target_raises_for_unknown_identifier(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    with pytest.raises(UserInputError, match="No agent or host found"):
+        resolve_logs_target("nonexistent-identifier-abc123", temp_mngr_ctx)
+
+
+def test_check_for_new_content_detects_appended_content(tmp_path) -> None:
+    """Verify _check_for_new_content detects new content appended to a log file."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    log_file = logs_dir / "test.log"
+    log_file.write_text("initial content\n")
+
+    volume = LocalVolume(root_path=logs_dir)
+    target = LogsTarget(volume=volume, display_name="test")
+
+    captured_content: list[str] = []
+    state = _FollowState(previous_length=len("initial content\n"))
+
+    # No new content yet
+    _check_for_new_content(target, "test.log", captured_content.append, state)
+    assert captured_content == []
+
+    # Append new content
+    log_file.write_text("initial content\nnew line\n")
+
+    _check_for_new_content(target, "test.log", captured_content.append, state)
+    assert len(captured_content) == 1
+    assert captured_content[0] == "new line\n"
+
+
+def test_check_for_new_content_handles_truncated_file(tmp_path) -> None:
+    """Verify _check_for_new_content handles file truncation."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    log_file = logs_dir / "test.log"
+    log_file.write_text("long content that will be truncated\n")
+
+    volume = LocalVolume(root_path=logs_dir)
+    target = LogsTarget(volume=volume, display_name="test")
+
+    captured_content: list[str] = []
+    state = _FollowState(previous_length=len("long content that will be truncated\n"))
+
+    # Truncate the file
+    log_file.write_text("short\n")
+
+    _check_for_new_content(target, "test.log", captured_content.append, state)
+    assert len(captured_content) == 1
+    assert captured_content[0] == "short\n"
+
+
+def test_follow_log_file_shows_initial_content_with_tail(tmp_path) -> None:
+    """Verify follow_log_file shows tail of initial content before polling."""
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    log_file = logs_dir / "test.log"
+    log_file.write_text("line1\nline2\nline3\nline4\nline5\n")
+
+    volume = LocalVolume(root_path=logs_dir)
+    target = LogsTarget(volume=volume, display_name="test")
+
+    # Verify the initial content with tail applied matches expected output
+    content = read_log_content(target, "test.log")
+    initial = apply_head_or_tail(content, head_count=None, tail_count=2)
+    assert initial == "line4\nline5\n"
