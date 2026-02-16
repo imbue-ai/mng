@@ -14,6 +14,7 @@ from imbue.mngr.conftest import ModalSubprocessTestEnv
 from imbue.mngr.utils.testing import create_test_agent_via_cli
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import tmux_session_cleanup
+from imbue.mngr.utils.testing import tmux_session_exists
 
 
 def test_provision_existing_agent(
@@ -375,6 +376,116 @@ def test_provision_stopped_agent_with_user_command(
         assert result.exit_code == 0, f"Provision stopped agent failed with: {result.output}"
         assert marker_file.exists(), "User command should have created the marker file"
         assert marker_file.read_text().strip() == "provisioned-while-stopped"
+
+
+def test_provision_running_agent_restarts_by_default(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that provisioning a running agent restarts it by default.
+
+    The agent should be stopped before provisioning and restarted after,
+    and should be running after provisioning completes.
+    """
+    agent_name = f"test-prov-restart-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Verify agent is running before provisioning
+        assert tmux_session_exists(session_name), "Agent should be running before provision"
+
+        # Provision with default settings (restart=True)
+        result = cli_runner.invoke(
+            provision,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"Provision failed with: {result.output}"
+
+        # Agent should still be running after provisioning (restarted)
+        assert tmux_session_exists(session_name), "Agent should be running after provision with restart"
+
+
+def test_provision_running_agent_no_restart_keeps_running(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --no-restart does not stop/restart a running agent."""
+    agent_name = f"test-prov-norestart-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Verify agent is running before provisioning
+        assert tmux_session_exists(session_name), "Agent should be running before provision"
+
+        # Provision with --no-restart
+        result = cli_runner.invoke(
+            provision,
+            [agent_name, "--no-restart"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"Provision failed with: {result.output}"
+
+        # Agent should still be running (was never stopped)
+        assert tmux_session_exists(session_name), "Agent should still be running after provision with --no-restart"
+
+
+def test_provision_stopped_agent_stays_stopped_with_restart(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that provisioning a stopped agent does not start it, even with restart enabled.
+
+    When is_restart=True, only agents that were running before provisioning should
+    be restarted. A stopped agent should remain stopped.
+    """
+    agent_name = f"test-prov-stopped-norestart-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        # Stop the agent
+        stop_result = cli_runner.invoke(
+            stop,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+        assert stop_result.exit_code == 0, f"Stop failed with: {stop_result.output}"
+
+        # Verify agent is stopped
+        assert not tmux_session_exists(session_name), "Agent should be stopped"
+
+        # Provision with default settings (restart=True)
+        result = cli_runner.invoke(
+            provision,
+            [agent_name],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"Provision failed with: {result.output}"
+
+        # Agent should still be stopped (it was not running when provision started)
+        assert not tmux_session_exists(session_name), "Stopped agent should remain stopped after provision"
 
 
 # =============================================================================

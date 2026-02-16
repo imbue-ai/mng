@@ -71,11 +71,11 @@ def provision_agent(
         environment=merged_environment,
     )
 
-    # Check if agent was running before provisioning (for restart logic)
-    is_was_running = is_restart and agent.is_running()
+    # Check if agent needs to be restarted around provisioning
+    is_restart_needed = is_restart and agent.is_running()
 
-    # Stop agent before provisioning if restart is requested and agent is running
-    if is_was_running:
+    # Stop agent before provisioning if it was running
+    if is_restart_needed:
         with log_span("Stopping agent {} before provisioning", agent.name):
             host.stop_agents([agent.id])
 
@@ -88,9 +88,10 @@ def provision_agent(
         if existing_env_content is not None:
             existing_env_local_path.unlink(missing_ok=True)
 
-    # Restart agent after provisioning if it was running before
-    if is_was_running:
-        with log_span("Restarting agent {} after provisioning", agent.name):
-            host.start_agents([agent.id])
+        # Restart agent after provisioning if it was running before,
+        # even if provisioning failed (to avoid leaving the agent stopped)
+        if is_restart_needed:
+            with log_span("Restarting agent {} after provisioning", agent.name):
+                host.start_agents([agent.id])
 
     logger.info("Provisioned agent: {}", agent.name)
