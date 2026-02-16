@@ -132,6 +132,7 @@ class BaseAgent(AgentInterface):
     # Interaction
     # =========================================================================
 
+    # FIXME: this is just wrong--just use lifecycle instead, make sure there are no other references to agent.pid
     def is_running(self) -> bool:
         """Check if the agent is currently running."""
         pid_path = self._get_agent_dir() / "agent.pid"

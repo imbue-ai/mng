@@ -56,6 +56,7 @@ def _is_streaming_eligible(
     Streaming requires: no watch mode (needs repeated full fetches), no explicit sort
     (needs all results before sorting), and no limit (needs sorted results for determinism).
     """
+    # FIXME: we don't need the "limit is None" condition--you could have a limit, and it would just be non-deterministic. Remove this, get the tests passing, and update this docstring and anything else required for that to work out
     return not is_watch and not is_sort_explicit and limit is None
 
 

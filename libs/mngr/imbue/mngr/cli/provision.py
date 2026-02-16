@@ -62,6 +62,8 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
             assert_never(unreachable)
 
 
+# FIXME: ensure that, by default, agents are restarted when you run provision (since provisioning often involves config and env var changes that require a restart),
+#  but add an option to skip the restart if desired (e.g. for non-disruptive changes like installing packages).
 @click.command(name="provision")
 @click.argument("agent", required=False, default=None)
 @optgroup.group("Target Selection")
