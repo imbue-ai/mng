@@ -104,6 +104,8 @@ class GcCliOptions(CommonCliOptions):
     help="Remove machine cache entries (per-provider) [future]",
 )
 @optgroup.group("Filtering")
+# FIXME: --include and --exclude make no sense for gc--garbage collection just has to happen, there cannot be any filters applied
+#  the only effective control is which providers/resource types to target, but more complex filters don't make sense
 @optgroup.option(
     "--include",
     multiple=True,
