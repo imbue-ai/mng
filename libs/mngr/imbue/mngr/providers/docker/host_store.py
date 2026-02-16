@@ -6,6 +6,7 @@ from pydantic import Field
 from pydantic import PrivateAttr
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostConfig
 from imbue.mngr.interfaces.data_types import VolumeFileType
@@ -116,7 +117,7 @@ class DockerHostStore(FrozenModel):
         path = self._host_record_path(host_id)
         try:
             self.volume.remove_file(path)
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError, MngrError):
             pass
 
         self._cache.pop(host_id, None)
@@ -182,7 +183,7 @@ class DockerHostStore(FrozenModel):
         path = self._agent_data_path(host_id, agent_id)
         try:
             self.volume.remove_file(path)
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError, MngrError):
             pass
         logger.trace("Removed agent data: {}", path)
 

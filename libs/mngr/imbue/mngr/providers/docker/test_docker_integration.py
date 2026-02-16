@@ -484,5 +484,5 @@ def test_docker_volume_remove_directory(docker_provider: DockerProviderInstance)
     volume = docker_provider._state_volume
     volume.write_files({"rmdir-test/sub/file.txt": b"data"})
     volume.remove_directory("rmdir-test")
-    entries = volume.listdir("rmdir-test")
-    assert entries == []
+    with pytest.raises(FileNotFoundError):
+        volume.listdir("rmdir-test")

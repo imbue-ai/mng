@@ -143,9 +143,9 @@ class DockerVolume(BaseVolume):
     def remove_file(self, path: str, *, recursive: bool = False) -> None:
         resolved = self._resolve(path)
         rm_flag = "-rf" if recursive else "-f"
-        exit_code, _ = self._exec(f"rm {rm_flag} '{resolved}'")
+        exit_code, output = self._exec(f"rm {rm_flag} '{resolved}'")
         if exit_code != 0:
-            raise FileNotFoundError(f"File not found on volume: {path}")
+            raise MngrError(f"Failed to remove '{path}' from volume: {output}")
 
     def remove_directory(self, path: str) -> None:
         """Recursively remove a directory and all its contents."""
