@@ -104,8 +104,11 @@ class GcCliOptions(CommonCliOptions):
     help="Remove machine cache entries (per-provider) [future]",
 )
 @optgroup.group("Filtering")
-# FIXME: --include and --exclude make no sense for gc--garbage collection just has to happen, there cannot be any filters applied
-#  the only effective control is which providers/resource types to target, but more complex filters don't make sense
+# FIXME: --include and --exclude logically make no sense for gc, and thus should be removed
+#  Conceptually, when doing garbage collection, it's just too complex to be trying to filter
+#  Instead, looking at an API like python's built-in gc module, the only "filtering" you can do is which generation to collect (0, 1, or 2)
+#  Here, the only effective control is which providers/resource types to target, but more complex filters don't really make sense
+#  Please remove these options (--include/--exclude) both from the CLI and from the gc API
 @optgroup.option(
     "--include",
     multiple=True,

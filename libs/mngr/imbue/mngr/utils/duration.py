@@ -9,6 +9,11 @@ _DURATION_PATTERN = re.compile(
 )
 
 
+# FIXME: we probably should just use a library for this. In particular, we should convert *all* places where we accept durations to use this function for converting from strings into a number of seconds
+#  and then we can be sure that we're consistent about how we parse durations across the board.  This means scanning across *all* of our CLI commands to find any arguments that refer to durations.
+#  Also, we probably want to support every sensible format, like "5s", "5 seconds", "5 sec", "5m", "5 minutes", "5 min", etc.
+#  As part of this fix, go find a nice 3rd-party library, and then convert this function to use that instead of the ad-hoc approach here
+#  to be clear--all of our *internal* durations should be in seconds (float), but we should be flexible about the durations we accept from users (e.g. in config files, command line arguments, etc) and allow those to be in any sane form.
 @pure
 def parse_duration_to_seconds(duration_str: str) -> float:
     """Parse a human-readable duration string into seconds.
