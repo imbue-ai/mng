@@ -19,7 +19,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 from imbue.mngr.providers.docker.testing import make_docker_provider
 
-pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
+pytestmark = [pytest.mark.docker, pytest.mark.acceptance, pytest.mark.timeout(120)]
 
 
 @pytest.fixture
@@ -281,7 +281,6 @@ def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tm
 # =========================================================================
 
 
-@pytest.mark.timeout(120)
 def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be persisted and listed for a host."""
     host = docker_provider.create_host(HostName("test-agent-data"))
@@ -296,7 +295,6 @@ def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) ->
     assert records[0]["name"] == "test-agent"
 
 
-@pytest.mark.timeout(120)
 def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be removed after persisting."""
     host = docker_provider.create_host(HostName("test-rm-agent"))
@@ -430,7 +428,6 @@ def test_multiple_hosts_isolated(
 
 
 @pytest.mark.release
-@pytest.mark.timeout(120)
 def test_persist_multiple_agents_for_same_host(docker_provider: DockerProviderInstance) -> None:
     """Verify multiple agent data records can be persisted for one host."""
     host = docker_provider.create_host(HostName("test-multi-agent"))
