@@ -115,6 +115,35 @@ def test_lifecycle_state_running_when_expected_process_exists(
         cleanup_tmux_session(session_name)
 
 
+def test_is_running_true_when_tmux_session_running(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that is_running returns True when tmux session exists with expected process and active file."""
+    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session and run the expected command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'sleep 847293'",
+        timeout_seconds=5.0,
+    )
+
+    # Create the active file in the agent's state directory (signals RUNNING)
+    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    active_file = agent_dir / "active"
+    active_file.write_text("")
+
+    try:
+        wait_for(
+            lambda: test_agent.is_running(),
+            error_message="Expected is_running() to return True for running agent",
+        )
+    finally:
+        cleanup_tmux_session(session_name)
+
+
 def test_lifecycle_state_replaced_when_different_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,

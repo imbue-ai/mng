@@ -169,6 +169,55 @@ def test_destroy_with_confirmation(
         assert "Are you sure you want to continue?" in destroy_result.output
 
 
+def test_destroy_blocks_running_agent_without_force(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that destroying a running agent without --force is blocked with expected message."""
+    agent_name = f"test-destroy-blocked-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 934827",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert create_result.exit_code == 0
+        assert tmux_session_exists(session_name)
+
+        # Attempt to destroy without --force (answer "y" to confirmation)
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [agent_name],
+            input="y\n",
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert destroy_result.exit_code == 0
+        assert "is running" in destroy_result.output
+        assert "--force" in destroy_result.output
+
+        # Agent should still be running (not destroyed)
+        assert tmux_session_exists(session_name)
+
+
 def test_destroy_nonexistent_agent(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
