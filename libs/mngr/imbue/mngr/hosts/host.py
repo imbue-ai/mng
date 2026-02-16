@@ -1396,6 +1396,8 @@ class Host(BaseHost, OnlineHostInterface):
             resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
+            # FIXME: actually, we should entirely remove this "events" folder--make sure nothing is using it, and make sure that no docs are referring to it
+            #  we can simply use the logs directory instead for anything that would have gone there (it's just about whether the log was created as jsonl, which we normally will do anyway)
             self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
