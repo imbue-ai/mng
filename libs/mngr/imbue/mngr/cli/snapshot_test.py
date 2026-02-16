@@ -10,12 +10,13 @@ from imbue.mngr.cli.snapshot import SnapshotListCliOptions
 def test_snapshot_create_cli_options_fields() -> None:
     """Test SnapshotCreateCliOptions has required fields."""
     opts = SnapshotCreateCliOptions(
-        agents=("agent1",),
+        identifiers=("agent1",),
         agent_list=("agent2",),
         hosts=("host1",),
         all_agents=False,
         name="my-snapshot",
         dry_run=True,
+        on_error="continue",
         include=(),
         exclude=(),
         stdin=False,
@@ -35,12 +36,13 @@ def test_snapshot_create_cli_options_fields() -> None:
         plugin=(),
         disable_plugin=(),
     )
-    assert opts.agents == ("agent1",)
+    assert opts.identifiers == ("agent1",)
     assert opts.agent_list == ("agent2",)
     assert opts.hosts == ("host1",)
     assert opts.all_agents is False
     assert opts.name == "my-snapshot"
     assert opts.dry_run is True
+    assert opts.on_error == "continue"
 
 
 def test_snapshot_list_cli_options_fields() -> None:

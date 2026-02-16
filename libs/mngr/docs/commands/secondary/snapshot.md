@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
+mngr [snapshot|snap] [create|list|destroy] [IDENTIFIERS...] [OPTIONS]
 ```
 
 
@@ -61,8 +61,10 @@ mngr snapshot [OPTIONS] COMMAND [ARGS]...
 
 Create a snapshot of agent host(s).
 
-Snapshots capture the complete filesystem state of a host. When multiple
-agents share a host, the host is snapshotted once (capturing all agents).
+Positional arguments can be agent names/IDs or host names/IDs. Each
+identifier is automatically resolved: if it matches a known agent, that
+agent's host is snapshotted; otherwise it is treated as a host identifier.
+Multiple identifiers that resolve to the same host are deduplicated.
 
 Examples:
 
@@ -72,10 +74,12 @@ Examples:
 
   mngr snapshot create --all --dry-run
 
+  mngr snapshot create agent1 agent2 --on-error continue
+
 **Usage:**
 
 ```text
-mngr snapshot create [OPTIONS] [AGENTS]...
+mngr snapshot create [OPTIONS] [IDENTIFIERS]...
 ```
 
 **Options:**
@@ -102,6 +106,12 @@ mngr snapshot create [OPTIONS] [AGENTS]...
 | `--restart-if-larger-than` | text | Restart host if snapshot exceeds size (e.g., 5G) [future] | None |
 | `--pause-during`, `--no-pause-during` | boolean | Pause agent during snapshot creation [future] | `True` |
 | `--wait`, `--no-wait` | boolean | Wait for snapshot to complete [future] | `True` |
+
+## Error Handling
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--on-error` | choice (`abort` &#x7C; `continue`) | What to do when errors occur: abort (stop immediately) or continue (keep going) | `continue` |
 
 ## Common
 
@@ -254,6 +264,12 @@ $ mngr snapshot create my-agent
 
 ```bash
 $ mngr snapshot create my-agent --name before-refactor
+```
+
+**Snapshot by host ID**
+
+```bash
+$ mngr snapshot create my-host-id --host my-host-id
 ```
 
 **List snapshots for an agent**

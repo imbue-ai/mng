@@ -7,6 +7,7 @@ from loguru import logger
 
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import group_agents_by_host
+from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -15,10 +16,12 @@ from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
+from imbue.mngr.cli.output_helpers import on_error
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import HostNotFoundError
@@ -26,6 +29,7 @@ from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import OutputFormat
@@ -41,12 +45,13 @@ from imbue.mngr.primitives import SnapshotName
 class SnapshotCreateCliOptions(CommonCliOptions):
     """Options for the snapshot create subcommand."""
 
-    agents: tuple[str, ...]
+    identifiers: tuple[str, ...]
     agent_list: tuple[str, ...]
     hosts: tuple[str, ...]
     all_agents: bool
     name: str | None
     dry_run: bool
+    on_error: str
     # Future options
     include: tuple[str, ...]
     exclude: tuple[str, ...]
@@ -109,6 +114,38 @@ def _find_host_across_providers(
         except (HostNotFoundError, ValueError):
             pass
     raise UserInputError(f"Host not found: {host_identifier}")
+
+
+def _classify_mixed_identifiers(
+    identifiers: list[str],
+    mngr_ctx: MngrContext,
+) -> tuple[list[str], list[str]]:
+    """Classify mixed identifiers into agent and host identifiers.
+
+    Each identifier is checked against known agent names and IDs.
+    If it matches an agent, it's treated as an agent identifier.
+    Otherwise, it's treated as a host identifier.
+
+    Returns (agent_identifiers, host_identifiers).
+    """
+    if not identifiers:
+        return [], []
+
+    all_agent_refs = list_agents(mngr_ctx, is_streaming=False, error_behavior=ErrorBehavior.CONTINUE).agents
+    known_names_and_ids: set[str] = set()
+    for agent_ref in all_agent_refs:
+        known_names_and_ids.add(str(agent_ref.name))
+        known_names_and_ids.add(str(agent_ref.id))
+
+    agent_ids: list[str] = []
+    host_ids: list[str] = []
+    for identifier in identifiers:
+        if identifier in known_names_and_ids:
+            agent_ids.append(identifier)
+        else:
+            host_ids.append(identifier)
+
+    return agent_ids, host_ids
 
 
 def _resolve_snapshot_hosts(
@@ -202,17 +239,27 @@ def _check_destroy_future_options(opts: SnapshotDestroyCliOptions) -> None:
 
 def _emit_create_result(
     created: list[dict[str, Any]],
+    errors: list[dict[str, Any]],
     output_opts: OutputOptions,
 ) -> None:
     """Emit final output for snapshot create."""
     match output_opts.output_format:
         case OutputFormat.JSON:
-            emit_final_json({"snapshots_created": created, "count": len(created)})
+            data: dict[str, Any] = {"snapshots_created": created, "count": len(created)}
+            if errors:
+                data["errors"] = errors
+                data["error_count"] = len(errors)
+            emit_final_json(data)
         case OutputFormat.JSONL:
-            emit_event("create_result", {"count": len(created)}, OutputFormat.JSONL)
+            event_data: dict[str, Any] = {"count": len(created)}
+            if errors:
+                event_data["error_count"] = len(errors)
+            emit_event("create_result", event_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if created:
                 logger.info("Created {} snapshot(s)", len(created))
+            if errors:
+                logger.warning("Failed to create {} snapshot(s)", len(errors))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -316,12 +363,7 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @snapshot.command(name="create")
-# FIXME: technically, this should take an arbitrary number of (agent|host) identifiers (eg, names/ids for either of those), and then consolidate them down to unique hosts internally.
-#  Please fix it to work this way, and update the docs to reflect this as well.
-#  Note that, as with all batch operations, you'll need an option for what to do when there is an error
-#  but here the default should probably be "wait for all of the snapshots to succeed or fail", because it should annoying to lose all progress if you have 10 snapshots and one of them fails at the end
-#  Also, we cannot easily "retry until success", because if it failed once, often it has actually just failed...
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("identifiers", nargs=-1, required=False)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",
@@ -396,13 +438,22 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
     default=True,
     help="Wait for snapshot to complete [future]",
 )
+@optgroup.group("Error Handling")
+@optgroup.option(
+    "--on-error",
+    type=click.Choice(["abort", "continue"], case_sensitive=False),
+    default="continue",
+    help="What to do when errors occur: abort (stop immediately) or continue (keep going)",
+)
 @add_common_options
 @click.pass_context
 def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
     """Create a snapshot of agent host(s).
 
-    Snapshots capture the complete filesystem state of a host. When multiple
-    agents share a host, the host is snapshotted once (capturing all agents).
+    Positional arguments can be agent names/IDs or host names/IDs. Each
+    identifier is automatically resolved: if it matches a known agent, that
+    agent's host is snapshotted; otherwise it is treated as a host identifier.
+    Multiple identifiers that resolve to the same host are deduplicated.
 
     \b
     Examples:
@@ -412,7 +463,18 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
       mngr snapshot create my-agent --name before-refactor
 
       mngr snapshot create --all --dry-run
+
+      mngr snapshot create agent1 agent2 --on-error continue
     """
+    try:
+        _snapshot_create_impl(ctx, **kwargs)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
+
+
+def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
+    """Implementation of snapshot create command (extracted for AbortError handling)."""
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="snapshot_create",
@@ -422,15 +484,20 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
 
     _check_create_future_options(opts)
 
-    # Validate inputs
-    agent_identifiers = list(opts.agents) + list(opts.agent_list)
-    host_identifiers = list(opts.hosts)
+    # Classify mixed positional identifiers as agents or hosts
+    mixed_agent_ids, mixed_host_ids = _classify_mixed_identifiers(list(opts.identifiers), mngr_ctx)
+
+    # Combine with explicit --agent and --host options
+    agent_identifiers = mixed_agent_ids + list(opts.agent_list)
+    host_identifiers = mixed_host_ids + list(opts.hosts)
 
     if not agent_identifiers and not host_identifiers and not opts.all_agents:
         raise click.UsageError("Must specify at least one agent, host, or use --all")
 
     if agent_identifiers and opts.all_agents:
-        raise click.UsageError("Cannot specify both agent names and --all")
+        raise click.UsageError("Cannot specify both agent/host names and --all")
+
+    error_behavior = ErrorBehavior(opts.on_error.upper())
 
     # Resolve targets to unique hosts
     targets = _resolve_snapshot_hosts(
@@ -459,31 +526,40 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
     # Create snapshots
     snapshot_name = SnapshotName(opts.name) if opts.name else None
     created: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
 
     for host_id_str, provider_name, agent_names in targets:
-        provider = get_provider_instance(provider_name, mngr_ctx)
-        if not provider.supports_snapshots:
-            raise SnapshotsNotSupportedError(provider_name)
+        try:
+            provider = get_provider_instance(provider_name, mngr_ctx)
+            if not provider.supports_snapshots:
+                raise SnapshotsNotSupportedError(provider_name)
 
-        host_id = HostId(host_id_str)
-        snapshot_id = provider.create_snapshot(host_id, name=snapshot_name)
+            host_id = HostId(host_id_str)
+            snapshot_id = provider.create_snapshot(host_id, name=snapshot_name)
 
-        result = {
-            "snapshot_id": str(snapshot_id),
-            "host_id": host_id_str,
-            "provider": str(provider_name),
-            "agent_names": agent_names,
-        }
-        created.append(result)
+            result = {
+                "snapshot_id": str(snapshot_id),
+                "host_id": host_id_str,
+                "provider": str(provider_name),
+                "agent_names": agent_names,
+            }
+            created.append(result)
 
-        agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
-        emit_event(
-            "snapshot_created",
-            {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
-            output_opts.output_format,
-        )
+            agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
+            emit_event(
+                "snapshot_created",
+                {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
+                output_opts.output_format,
+            )
+        except Exception as e:
+            error_msg = f"Failed to create snapshot for host {host_id_str}: {e}"
+            errors.append({"host_id": host_id_str, "error": str(e)})
+            on_error(error_msg, error_behavior, output_opts.output_format, exc=e)
 
-    _emit_create_result(created, output_opts)
+    _emit_create_result(created, errors, output_opts)
+
+    if errors:
+        ctx.exit(1)
 
 
 # =============================================================================
@@ -780,18 +856,23 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 _SNAPSHOT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-snapshot",
     one_line_description="Create, list, and destroy host snapshots",
-    synopsis="mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
+    synopsis="mngr [snapshot|snap] [create|list|destroy] [IDENTIFIERS...] [OPTIONS]",
     description="""Create, list, and destroy snapshots of agent hosts.
 
 Snapshots capture the complete filesystem state of a host, allowing it to be
 restored later. Because the snapshot is at the host level, the state of all
 agents on the host is saved.
 
+Positional arguments to 'create' can be agent names/IDs or host names/IDs.
+Each identifier is automatically resolved: if it matches a known agent, that
+agent's host is used; otherwise it is treated as a host identifier.
+
 Useful for checkpointing work, creating restore points, or managing disk space.""",
     aliases=("snap",),
     examples=(
         ("Create a snapshot of an agent's host", "mngr snapshot create my-agent"),
         ("Create a named snapshot", "mngr snapshot create my-agent --name before-refactor"),
+        ("Snapshot by host ID", "mngr snapshot create my-host-id --host my-host-id"),
         ("List snapshots for an agent", "mngr snapshot list my-agent"),
         ("Destroy all snapshots for an agent", "mngr snapshot destroy my-agent --all-snapshots --force"),
         ("Preview what would be destroyed", "mngr snapshot destroy my-agent --all-snapshots --dry-run"),
