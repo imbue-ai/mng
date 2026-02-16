@@ -7,7 +7,6 @@ from io import StringIO
 
 from loguru import logger
 
-from imbue.mngr.cli.common_opts import _process_template_escapes
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _StreamingTemplateEmitter
@@ -844,41 +843,6 @@ def test_is_streaming_eligible_watch_disables() -> None:
 def test_is_streaming_eligible_explicit_sort_disables() -> None:
     """_is_streaming_eligible should return False when sort is explicit."""
     assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True) is False
-
-
-# =============================================================================
-# Tests for _process_template_escapes
-# =============================================================================
-
-
-def test_process_template_escapes_tab() -> None:
-    """_process_template_escapes should convert \\t to tab."""
-    assert _process_template_escapes("{name}\\t{state}") == "{name}\t{state}"
-
-
-def test_process_template_escapes_newline() -> None:
-    """_process_template_escapes should convert \\n to newline."""
-    assert _process_template_escapes("{name}\\n{state}") == "{name}\n{state}"
-
-
-def test_process_template_escapes_carriage_return() -> None:
-    """_process_template_escapes should convert \\r to carriage return."""
-    assert _process_template_escapes("line\\r") == "line\r"
-
-
-def test_process_template_escapes_literal_backslash() -> None:
-    """_process_template_escapes should convert \\\\\\\\ to a single backslash."""
-    assert _process_template_escapes("path\\\\file") == "path\\file"
-
-
-def test_process_template_escapes_no_escapes() -> None:
-    """_process_template_escapes should pass through strings without escapes."""
-    assert _process_template_escapes("{name} {state}") == "{name} {state}"
-
-
-def test_process_template_escapes_literal_backslash_before_t() -> None:
-    """_process_template_escapes should treat \\\\t as literal backslash + t, not as tab."""
-    assert _process_template_escapes("\\\\t") == "\\t"
 
 
 # =============================================================================

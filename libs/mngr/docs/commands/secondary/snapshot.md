@@ -38,7 +38,7 @@ mngr snapshot [OPTIONS] COMMAND [ARGS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format: human, json, jsonl, or a template string (e.g. '{name}\t{state}') | `human` |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -107,7 +107,7 @@ mngr snapshot create [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format: human, json, jsonl, or a template string (e.g. '{name}\t{state}') | `human` |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -165,7 +165,7 @@ mngr snapshot list [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format: human, json, jsonl, or a template string (e.g. '{name}\t{state}') | `human` |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -224,7 +224,7 @@ mngr snapshot destroy [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format: human, json, jsonl, or a template string (e.g. '{name}\t{state}') | `human` |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |

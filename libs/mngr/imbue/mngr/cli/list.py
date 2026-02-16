@@ -207,6 +207,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         ctx=ctx,
         command_name="list",
         command_class=ListCliOptions,
+        is_format_template_supported=True,
     )
 
     # Format template is now resolved by the common option parsing infrastructure
