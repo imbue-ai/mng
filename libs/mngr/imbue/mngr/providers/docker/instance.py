@@ -1260,13 +1260,7 @@ kill -TERM 1
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a logical volume from the state volume."""
-        vol_path = f"volumes/{volume_id}"
-        try:
-            entries = self._state_volume.listdir(vol_path)
-            for entry in entries:
-                self._state_volume.remove_file(entry.path)
-        except (FileNotFoundError, OSError) as e:
-            logger.trace("No volume files to clean up for {}: {}", volume_id, e)
+        self._state_volume.remove_directory(f"volumes/{volume_id}")
 
     # =========================================================================
     # Tag Methods (immutable)
