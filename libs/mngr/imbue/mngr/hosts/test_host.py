@@ -741,13 +741,14 @@ def test_procps_ps_command_available() -> None:
         sys.stderr.write(f"stderr: {result.stderr}\n")
         sys.stderr.write("The procps package is likely not installed. Install with: apt-get install procps\n")
         sys.stderr.flush()
-        assert False, f"ps aux failed: {result.stderr}"
+        raise AssertionError(f"ps aux failed: {result.stderr}")
+
     # Verify we get reasonable output (should include at least our own process)
     if "PID" not in result.stdout and len(result.stdout.strip().split("\n")) <= 1:
         sys.stderr.write("PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
         sys.stderr.write(f"stdout: {result.stdout}\n")
         sys.stderr.flush()
-        assert False, "ps aux output invalid"
+        raise AssertionError("ps aux output invalid")
 
 
 @pytest.mark.nomodal
