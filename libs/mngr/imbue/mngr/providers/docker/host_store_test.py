@@ -10,6 +10,7 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.host_store import DockerHostStore
 from imbue.mngr.providers.docker.host_store import HostRecord
+from imbue.mngr.providers.local.volume import LocalVolume
 
 HOST_ID_A = "host-00000000000000000000000000000001"
 HOST_ID_B = "host-00000000000000000000000000000002"
@@ -42,7 +43,8 @@ def _make_host_record(
 
 @pytest.fixture
 def store(tmp_path: Path) -> DockerHostStore:
-    return DockerHostStore(base_dir=tmp_path / "docker-store")
+    volume = LocalVolume(root_path=tmp_path / "docker-store")
+    return DockerHostStore(volume=volume)
 
 
 def test_write_and_read_host_record(store: DockerHostStore) -> None:
@@ -108,12 +110,12 @@ def test_list_all_host_records_returns_all_records(store: DockerHostStore) -> No
     assert host_ids == {HOST_ID_A, HOST_ID_B}
 
 
-def test_list_all_host_records_skips_corrupt_files(store: DockerHostStore) -> None:
+def test_list_all_host_records_skips_corrupt_files(store: DockerHostStore, tmp_path: Path) -> None:
     record = _make_host_record(host_id=HOST_ID_A, host_name="valid")
     store.write_host_record(record)
 
-    corrupt_path = store.hosts_dir / f"{HOST_ID_B}.json"
-    corrupt_path.write_text("not valid json {{{")
+    # Write corrupt data directly via the volume
+    store.volume.write_files({f"host_state/{HOST_ID_B}.json": b"not valid json {{{"})
 
     results = store.list_all_host_records()
     assert len(results) == 1
@@ -161,24 +163,6 @@ def test_remove_persisted_agent_data(store: DockerHostStore) -> None:
 
 def test_remove_persisted_agent_data_nonexistent_is_noop(store: DockerHostStore) -> None:
     store.remove_persisted_agent_data(HostId(HOST_ID_A), AgentId(AGENT_ID_A))
-
-
-def test_host_record_store_directory_structure(store: DockerHostStore) -> None:
-    record = _make_host_record(host_id=HOST_ID_A)
-    store.write_host_record(record)
-
-    assert store.hosts_dir.exists()
-    assert (store.hosts_dir / f"{HOST_ID_A}.json").exists()
-
-
-def test_write_host_record_creates_parent_dirs(tmp_path: Path) -> None:
-    deep_path = tmp_path / "a" / "b" / "c" / "store"
-    store = DockerHostStore(base_dir=deep_path)
-
-    record = _make_host_record()
-    store.write_host_record(record)
-
-    assert (deep_path / "hosts" / f"{HOST_ID_A}.json").exists()
 
 
 def test_clear_cache(store: DockerHostStore) -> None:

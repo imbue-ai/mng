@@ -36,6 +36,7 @@ from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import SnapshotRecord
+from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import ActivitySource
@@ -52,6 +53,8 @@ from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.host_store import DockerHostStore
 from imbue.mngr.providers.docker.host_store import HostRecord
+from imbue.mngr.providers.docker.volume import DockerVolume
+from imbue.mngr.providers.docker.volume import ensure_state_container
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
@@ -164,7 +167,7 @@ class DockerProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
@@ -178,10 +181,17 @@ class DockerProviderInstance(BaseProviderInstance):
         return docker.from_env()
 
     @cached_property
+    def _state_volume(self) -> DockerVolume:
+        """Get the state volume backed by the singleton state container."""
+        user_id = str(self.mngr_ctx.get_profile_user_id())
+        prefix = self.mngr_ctx.config.prefix
+        state_container = ensure_state_container(self._docker_client, prefix, user_id)
+        return DockerVolume(container=state_container)
+
+    @cached_property
     def _host_store(self) -> DockerHostStore:
-        """Get the host record store for this provider instance."""
-        base_dir = self.mngr_ctx.profile_dir / "providers" / "docker" / str(self.name)
-        return DockerHostStore(base_dir=base_dir)
+        """Get the host record store backed by the state volume."""
+        return DockerHostStore(volume=self._state_volume)
 
     @property
     def _keys_dir(self) -> Path:
@@ -1229,10 +1239,31 @@ kill -TERM 1
     # =========================================================================
 
     def list_volumes(self) -> list[VolumeInfo]:
-        return []
+        """List logical volumes stored on the state volume."""
+        try:
+            entries = self._state_volume.listdir("volumes")
+        except (FileNotFoundError, OSError):
+            return []
+
+        volumes: list[VolumeInfo] = []
+        for entry in entries:
+            if entry.file_type == VolumeFileType.DIRECTORY:
+                vol_name = entry.path.rsplit("/", 1)[-1]
+                volumes.append(
+                    VolumeInfo(
+                        volume_id=VolumeId(vol_name),
+                        name=vol_name,
+                        size_bytes=0,
+                    )
+                )
+        return volumes
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError("Docker provider does not support volume management")
+        """Delete a logical volume from the state volume."""
+        vol_path = f"volumes/{volume_id}"
+        exit_code, _ = self._state_volume._exec(f"rm -rf '{self._state_volume._resolve(vol_path)}'")
+        if exit_code != 0:
+            raise MngrError(f"Failed to delete volume: {volume_id}")
 
     # =========================================================================
     # Tag Methods (immutable)

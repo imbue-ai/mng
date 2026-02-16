@@ -41,19 +41,14 @@ def test_docker_provider_supports_shutdown_hosts(temp_mngr_ctx: MngrContext) -> 
     assert provider.supports_shutdown_hosts is True
 
 
-def test_docker_provider_does_not_support_volumes(temp_mngr_ctx: MngrContext) -> None:
+def test_docker_provider_supports_volumes(temp_mngr_ctx: MngrContext) -> None:
     provider = make_docker_provider(temp_mngr_ctx)
-    assert provider.supports_volumes is False
+    assert provider.supports_volumes is True
 
 
 def test_docker_provider_does_not_support_mutable_tags(temp_mngr_ctx: MngrContext) -> None:
     provider = make_docker_provider(temp_mngr_ctx)
     assert provider.supports_mutable_tags is False
-
-
-def test_list_volumes_returns_empty_list(temp_mngr_ctx: MngrContext) -> None:
-    provider = make_docker_provider(temp_mngr_ctx)
-    assert provider.list_volumes() == []
 
 
 # =========================================================================

@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -9,6 +8,8 @@ from pydantic import PrivateAttr
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostConfig
+from imbue.mngr.interfaces.data_types import VolumeFileType
+from imbue.mngr.interfaces.volume import Volume
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 
@@ -27,10 +28,10 @@ class ContainerConfig(HostConfig):
 
 
 class HostRecord(FrozenModel):
-    """Host metadata stored in the local file store.
+    """Host metadata stored on the Docker state volume.
 
     This record contains all information needed to connect to and restore a host.
-    It is stored at hosts/<host_id>.json in the provider data directory.
+    It is stored at host_state/<host_id>.json on the state volume.
 
     For failed hosts (those that failed during creation), only certified_host_data
     is required. The SSH fields and config will be None since the host never started.
@@ -48,84 +49,93 @@ class HostRecord(FrozenModel):
 
 
 class DockerHostStore(FrozenModel):
-    """JSON file-based host record store for the Docker provider.
+    """Host record store backed by a Volume.
 
-    Directory layout::
+    Stores host records and agent data on the Docker state volume,
+    analogous to how Modal stores host records on a Modal Volume.
 
-        <base_dir>/
-            hosts/
-                <host_id>.json
-                <host_id>/
-                    <agent_id>.json
+    Directory layout on the volume::
+
+        host_state/
+            <host_id>.json
+            <host_id>/
+                <agent_id>.json
     """
 
-    base_dir: Path = Field(frozen=True, description="Root directory for the store")
+    volume: Volume = Field(frozen=True, description="Volume for storing host state")
     _cache: dict[HostId, HostRecord] = PrivateAttr(default_factory=dict)
 
-    @property
-    def hosts_dir(self) -> Path:
-        return self.base_dir / "hosts"
+    def _host_record_path(self, host_id: HostId) -> str:
+        return f"host_state/{host_id}.json"
 
-    def _host_record_path(self, host_id: HostId) -> Path:
-        return self.hosts_dir / f"{host_id}.json"
+    def _agent_data_dir(self, host_id: HostId) -> str:
+        return f"host_state/{host_id}"
 
-    def _agent_data_dir(self, host_id: HostId) -> Path:
-        return self.hosts_dir / str(host_id)
-
-    def _agent_data_path(self, host_id: HostId, agent_id: AgentId) -> Path:
-        return self._agent_data_dir(host_id) / f"{agent_id}.json"
+    def _agent_data_path(self, host_id: HostId, agent_id: AgentId) -> str:
+        return f"host_state/{host_id}/{agent_id}.json"
 
     def write_host_record(self, host_record: HostRecord) -> None:
-        """Write a host record to disk."""
+        """Write a host record to the volume."""
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._host_record_path(host_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = host_record.model_dump_json(indent=2)
-        path.write_text(data)
+        self.volume.write_files({path: data.encode("utf-8")})
         logger.trace("Wrote host record: {}", path)
         self._cache[host_id] = host_record
 
     def read_host_record(self, host_id: HostId, use_cache: bool = True) -> HostRecord | None:
-        """Read a host record from disk. Returns None if not found."""
+        """Read a host record from the volume. Returns None if not found."""
         if use_cache and host_id in self._cache:
             return self._cache[host_id]
 
         path = self._host_record_path(host_id)
-        if not path.exists():
-            return None
-
         try:
-            data = path.read_text()
+            data = self.volume.read_file(path)
             host_record = HostRecord.model_validate_json(data)
             self._cache[host_id] = host_record
             return host_record
+        except FileNotFoundError:
+            return None
         except (json.JSONDecodeError, ValueError) as e:
             logger.warning("Failed to read host record {}: {}", path, e)
             return None
 
     def delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record and associated agent data."""
+        """Delete a host record and associated agent data from the volume."""
+        # Delete agent data files
         agent_dir = self._agent_data_dir(host_id)
-        if agent_dir.exists():
-            for agent_file in agent_dir.iterdir():
-                agent_file.unlink()
-            agent_dir.rmdir()
+        try:
+            agent_entries = self.volume.listdir(agent_dir)
+            for entry in agent_entries:
+                if entry.file_type != VolumeFileType.DIRECTORY:
+                    self.volume.remove_file(entry.path)
+        except (FileNotFoundError, OSError) as e:
+            logger.trace("No agent data to clean up for {}: {}", host_id, e)
 
+        # Delete host record
         path = self._host_record_path(host_id)
-        if path.exists():
-            path.unlink()
+        try:
+            self.volume.remove_file(path)
+        except FileNotFoundError:
+            pass
 
         self._cache.pop(host_id, None)
         logger.trace("Deleted host record: {}", host_id)
 
     def list_all_host_records(self) -> list[HostRecord]:
-        """List all host records stored on disk."""
-        if not self.hosts_dir.exists():
+        """List all host records stored on the volume."""
+        records: list[HostRecord] = []
+        try:
+            entries = self.volume.listdir("host_state")
+        except (FileNotFoundError, OSError):
             return []
 
-        records: list[HostRecord] = []
-        for path in self.hosts_dir.glob("*.json"):
-            host_id_str = path.stem
+        for entry in entries:
+            if entry.file_type != VolumeFileType.FILE or not entry.path.endswith(".json"):
+                continue
+            # Extract host_id from filename
+            filename = entry.path.rsplit("/", 1)[-1]
+            host_id_str = filename.removesuffix(".json")
             host_id = HostId(host_id_str)
             record = self.read_host_record(host_id, use_cache=False)
             if record is not None:
@@ -141,25 +151,28 @@ class DockerHostStore(FrozenModel):
             return
 
         path = self._agent_data_path(host_id, AgentId(str(agent_id)))
-        path.parent.mkdir(parents=True, exist_ok=True)
         data = json.dumps(dict(agent_data), indent=2)
-        path.write_text(data)
+        self.volume.write_files({path: data.encode("utf-8")})
         logger.trace("Persisted agent data: {}", path)
 
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """Read persisted agent data for a host."""
         agent_dir = self._agent_data_dir(host_id)
-        if not agent_dir.exists():
+        try:
+            entries = self.volume.listdir(agent_dir)
+        except (FileNotFoundError, OSError):
             return []
 
         agent_records: list[dict[str, Any]] = []
-        for path in agent_dir.glob("*.json"):
+        for entry in entries:
+            if entry.file_type != VolumeFileType.FILE or not entry.path.endswith(".json"):
+                continue
             try:
-                content = path.read_text()
+                content = self.volume.read_file(entry.path)
                 agent_data = json.loads(content)
                 agent_records.append(agent_data)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.trace("Skipped invalid agent record file {}: {}", path, e)
+            except (json.JSONDecodeError, FileNotFoundError, OSError) as e:
+                logger.trace("Skipped invalid agent record {}: {}", entry.path, e)
                 continue
 
         return agent_records
@@ -167,8 +180,10 @@ class DockerHostStore(FrozenModel):
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
         """Remove persisted agent data."""
         path = self._agent_data_path(host_id, agent_id)
-        if path.exists():
-            path.unlink()
+        try:
+            self.volume.remove_file(path)
+        except FileNotFoundError:
+            pass
         logger.trace("Removed agent data: {}", path)
 
     def clear_cache(self) -> None:
