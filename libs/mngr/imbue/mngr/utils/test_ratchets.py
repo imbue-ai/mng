@@ -85,7 +85,7 @@ def _get_mngr_source_dir() -> Path:
 
 def test_prevent_todos() -> None:
     chunks = check_ratchet_rule(PREVENT_TODOS, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(3), PREVENT_TODOS.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_TODOS.format_failure(chunks)
 
 
 def test_prevent_exec_usage() -> None:
@@ -417,7 +417,7 @@ def test_prevent_pytest_mark_integration() -> None:
 
 def test_prevent_short_uuid_ids() -> None:
     chunks = check_ratchet_rule(PREVENT_SHORT_UUID_IDS, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(3), PREVENT_SHORT_UUID_IDS.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_SHORT_UUID_IDS.format_failure(chunks)
 
 
 def test_prevent_bash_without_strict_mode() -> None:
@@ -456,4 +456,15 @@ def test_prevent_bash_without_strict_mode() -> None:
 
     assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
         f"  - {v}" for v in violations
+    )
+
+
+def test_prevent_importlib_import_module() -> None:
+    pattern = RegexPattern(r"\bimport_module\b")
+    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
+
+    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
+        rule_name="importlib.import_module usage",
+        rule_description="Always use normal top-level imports instead of importlib.import_module",
+        chunks=chunks,
     )
