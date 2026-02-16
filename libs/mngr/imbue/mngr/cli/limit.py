@@ -141,12 +141,6 @@ def _build_updated_activity_config(
     )
 
 
-# FIXME: this is actually fine, *but*--we should update the docs to be clear about how our "permissions" work:
-#  they are simply lists of strings, and we know *nothing* about them
-#  if you want to revoke them, you must do an exact string match
-#  we don't know anything about the format, and in fact, support whatever format(s) you want!
-#  if you want these to be strings, fine, if you want json dicts, fine, serialize them as strings.
-#  the agents should be responsible for shuffling along the certified host data that includes these permissions so that the signature can be verified, and then everything will work out.
 @pure
 def _build_updated_permissions(
     current: Sequence[Permission],
