@@ -25,6 +25,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -155,7 +156,7 @@ def _emit_plugin_list(
 def _emit_plugin_list_human(plugins: list[PluginInfo], fields: tuple[str, ...]) -> None:
     """Emit plugin list in human-readable table format."""
     if not plugins:
-        logger.info("No plugins found.")
+        write_human_line("No plugins found.")
         return
 
     headers = [f.upper() for f in fields]
@@ -164,7 +165,7 @@ def _emit_plugin_list_human(plugins: list[PluginInfo], fields: tuple[str, ...]) 
         rows.append([_get_field_value(p, f) for f in fields])
 
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    logger.info("\n" + table)
+    write_human_line("\n" + table)
 
 
 def _emit_plugin_list_json(plugins: list[PluginInfo], fields: tuple[str, ...]) -> None:
@@ -406,7 +407,7 @@ def _emit_plugin_toggle_result(
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             action = "Enabled" if is_enabled else "Disabled"
-            logger.info("{} plugin '{}' in {} ({})", action, name, scope.value.lower(), config_path)
+            write_human_line("{} plugin '{}' in {} ({})", action, name, scope.value.lower(), config_path)
         case OutputFormat.JSON:
             emit_final_json(
                 {

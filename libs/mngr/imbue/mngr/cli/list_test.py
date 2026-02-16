@@ -5,8 +5,6 @@ from datetime import datetime
 from datetime import timezone
 from io import StringIO
 
-from loguru import logger
-
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
 from imbue.mngr.cli.list import _StreamingTemplateEmitter
@@ -646,21 +644,17 @@ def test_streaming_renderer_tty_shows_count_after_agent() -> None:
     assert "(1 found)" in output
 
 
-def test_streaming_renderer_finish_no_agents_shows_no_agents_found() -> None:
+def test_streaming_renderer_finish_no_agents_shows_no_agents_found(capsys) -> None:
     """Streaming renderer should indicate no agents when finishing with zero results."""
     captured = StringIO()
 
-    # Capture loguru output to the same StringIO by adding a temporary sink
-    sink_id = logger.add(captured, format="{message}", level="INFO")
-    try:
-        renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
-        renderer.start()
-        renderer.finish()
-    finally:
-        logger.remove(sink_id)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+    renderer.finish()
 
-    output = captured.getvalue()
-    assert "No agents found" in output
+    # write_human_line writes to sys.stdout, so check captured stdout
+    stdout_output = capsys.readouterr().out
+    assert "No agents found" in stdout_output
 
 
 def test_streaming_renderer_thread_safety() -> None:

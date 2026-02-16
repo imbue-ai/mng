@@ -28,6 +28,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -572,7 +573,7 @@ class _StreamingHumanRenderer(MutableModel):
                 self.output.flush()
 
             if self._count == 0:
-                logger.info("No agents found")
+                write_human_line("No agents found")
 
 
 @pure
@@ -678,7 +679,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
             # Template mode: silent empty output (consistent with scripting use)
             pass
         elif params.output_opts.output_format == OutputFormat.HUMAN:
-            logger.info("No agents found")
+            write_human_line("No agents found")
         elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
         else:
@@ -758,7 +759,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate table
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    logger.info("\n" + table)
+    write_human_line("\n" + table)
 
 
 def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:

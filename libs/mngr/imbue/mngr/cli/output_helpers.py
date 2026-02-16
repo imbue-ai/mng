@@ -24,6 +24,21 @@ def _write_json_line(data: Mapping[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def write_human_line(message: str, *args: Any) -> None:
+    """Write a human-readable output line to stdout.
+
+    Use this for actual command output (results, tables, status messages) in HUMAN format.
+    For log/diagnostic messages, use logger.* instead (which goes to stderr).
+    Accepts positional format args like loguru: write_human_line("Created {} items", count).
+    """
+    if args:
+        formatted = message.format(*args)
+    else:
+        formatted = message
+    sys.stdout.write(formatted + "\n")
+    sys.stdout.flush()
+
+
 @pure
 def format_size(size_bytes: int) -> str:
     """Format bytes into a human-readable size string."""
@@ -60,7 +75,7 @@ def emit_info(message: str, output_format: OutputFormat) -> None:
     """Emit an informational message in the appropriate format."""
     match output_format:
         case OutputFormat.HUMAN:
-            logger.info(message)
+            write_human_line(message)
         case OutputFormat.JSONL:
             event = {"event": "info", "message": message}
             _write_json_line(event)
@@ -82,7 +97,7 @@ def emit_event(
     match output_format:
         case OutputFormat.HUMAN:
             if "message" in data:
-                logger.info(data["message"])
+                write_human_line(str(data["message"]))
         case OutputFormat.JSONL:
             event = {"event": event_type, **data}
             _write_json_line(event)
@@ -151,9 +166,9 @@ def output_sync_files_result(
             emit_event(event_name, result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.is_dry_run:
-                logger.info("Dry run complete: {} files would be transferred", result.files_transferred)
+                write_human_line("Dry run complete: {} files would be transferred", result.files_transferred)
             else:
-                logger.info(
+                write_human_line(
                     "{} complete: {} files, {} bytes transferred",
                     mode_label,
                     result.files_transferred,
@@ -193,7 +208,7 @@ def output_sync_git_result(
             emit_event(event_name, result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.is_dry_run:
-                logger.info(
+                write_human_line(
                     "Dry run complete: would {} {} commits from {} {} {}",
                     verb,
                     result.commits_transferred,
@@ -202,7 +217,7 @@ def output_sync_git_result(
                     result.target_branch,
                 )
             else:
-                logger.info(
+                write_human_line(
                     "Git {} complete: {} {} commits from {} {} {}",
                     verb,
                     verb_past,
