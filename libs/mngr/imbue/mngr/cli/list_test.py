@@ -706,6 +706,48 @@ def test_streaming_renderer_custom_fields() -> None:
     assert "generic" in output
 
 
+def test_streaming_renderer_limit_caps_output() -> None:
+    """Streaming renderer with limit should stop displaying agents after limit is reached."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.limit = 2
+    renderer.start()
+
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+    renderer(make_test_agent_info(name="agent-4"))
+
+    renderer.finish()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line.strip()]
+    # 1 header + 2 agent rows (limit=2, agents 3 and 4 are dropped)
+    assert len(lines) == 3
+    assert "agent-1" in output
+    assert "agent-2" in output
+    assert "agent-3" not in output
+    assert "agent-4" not in output
+
+
+def test_streaming_renderer_no_limit_shows_all() -> None:
+    """Streaming renderer without limit should show all agents."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+
+    renderer.finish()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line.strip()]
+    # 1 header + 3 agent rows
+    assert len(lines) == 4
+
+
 def test_streaming_renderer_tty_erases_status_on_finish() -> None:
     """TTY streaming should erase the status line on finish."""
     captured = StringIO()
@@ -725,26 +767,24 @@ def test_streaming_renderer_tty_erases_status_on_finish() -> None:
 
 
 def test_should_use_streaming_mode_default_human() -> None:
-    """Default HUMAN format without watch/sort/limit should use streaming mode."""
+    """Default HUMAN format without watch/sort should use streaming mode."""
     assert (
         _should_use_streaming_mode(
             output_format=OutputFormat.HUMAN,
             is_watch=False,
             is_sort_explicit=False,
-            limit=None,
         )
         is True
     )
 
 
-def test_should_use_streaming_mode_with_limit_uses_batch() -> None:
-    """--limit should force batch mode for deterministic results."""
+def test_should_use_streaming_mode_json_with_explicit_sort_uses_batch() -> None:
+    """JSON format with explicit sort should use batch mode."""
     assert (
         _should_use_streaming_mode(
-            output_format=OutputFormat.HUMAN,
+            output_format=OutputFormat.JSON,
             is_watch=False,
-            is_sort_explicit=False,
-            limit=5,
+            is_sort_explicit=True,
         )
         is False
     )
@@ -757,7 +797,6 @@ def test_should_use_streaming_mode_with_explicit_sort_uses_batch() -> None:
             output_format=OutputFormat.HUMAN,
             is_watch=False,
             is_sort_explicit=True,
-            limit=None,
         )
         is False
     )
@@ -770,7 +809,6 @@ def test_should_use_streaming_mode_with_watch_uses_batch() -> None:
             output_format=OutputFormat.HUMAN,
             is_watch=True,
             is_sort_explicit=False,
-            limit=None,
         )
         is False
     )
@@ -783,7 +821,6 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
             output_format=OutputFormat.JSON,
             is_watch=False,
             is_sort_explicit=False,
-            limit=None,
         )
         is False
     )
@@ -795,23 +832,18 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
 
 
 def test_is_streaming_eligible_all_conditions_met() -> None:
-    """_is_streaming_eligible should return True when no watch, no sort, no limit."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=None) is True
+    """_is_streaming_eligible should return True when no watch, no sort."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False) is True
 
 
 def test_is_streaming_eligible_watch_disables() -> None:
     """_is_streaming_eligible should return False when watch is active."""
-    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False, limit=None) is False
+    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False) is False
 
 
 def test_is_streaming_eligible_explicit_sort_disables() -> None:
     """_is_streaming_eligible should return False when sort is explicit."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True, limit=None) is False
-
-
-def test_is_streaming_eligible_limit_disables() -> None:
-    """_is_streaming_eligible should return False when limit is set."""
-    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False, limit=5) is False
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True) is False
 
 
 # =============================================================================
@@ -983,6 +1015,21 @@ def test_streaming_template_emitter_multiple_agents() -> None:
     assert lines[0] == "agent-one"
     assert lines[1] == "agent-two"
     assert lines[2] == "agent-three"
+
+
+def test_streaming_template_emitter_limit_caps_output() -> None:
+    """_StreamingTemplateEmitter with limit should stop emitting after limit is reached."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured, limit=2)
+
+    emitter(make_test_agent_info(name="agent-one"))
+    emitter(make_test_agent_info(name="agent-two"))
+    emitter(make_test_agent_info(name="agent-three"))
+
+    lines = captured.getvalue().strip().split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "agent-one"
+    assert lines[1] == "agent-two"
 
 
 def test_streaming_template_emitter_thread_safety() -> None:

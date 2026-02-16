@@ -49,15 +49,14 @@ _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
 def _is_streaming_eligible(
     is_watch: bool,
     is_sort_explicit: bool,
-    limit: int | None,
 ) -> bool:
     """Whether the general conditions for streaming mode are met.
 
-    Streaming requires: no watch mode (needs repeated full fetches), no explicit sort
-    (needs all results before sorting), and no limit (needs sorted results for determinism).
+    Streaming requires: no watch mode (needs repeated full fetches) and no explicit sort
+    (needs all results before sorting). A limit is compatible with streaming -- it simply
+    caps output at the first N agents to arrive, which is non-deterministic.
     """
-    # FIXME: we don't need the "limit is None" condition--you could have a limit, and it would just be non-deterministic. Remove this, get the tests passing, and update this docstring and anything else required for that to work out
-    return not is_watch and not is_sort_explicit and limit is None
+    return not is_watch and not is_sort_explicit
 
 
 @pure
@@ -65,11 +64,10 @@ def _should_use_streaming_mode(
     output_format: OutputFormat,
     is_watch: bool,
     is_sort_explicit: bool,
-    limit: int | None,
 ) -> bool:
     """Determine whether to use streaming mode for human list output."""
     return output_format == OutputFormat.HUMAN and _is_streaming_eligible(
-        is_watch=is_watch, is_sort_explicit=is_sort_explicit, limit=limit
+        is_watch=is_watch, is_sort_explicit=is_sort_explicit
     )
 
 
@@ -321,9 +319,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     # Template output path: if --format-template is set, use streaming when possible, batch otherwise
     if format_template is not None:
-        is_streaming_template = _is_streaming_eligible(
-            is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
-        )
+        is_streaming_template = _is_streaming_eligible(is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit)
         if is_streaming_template:
             _list_streaming_template(
                 ctx,
@@ -333,6 +329,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
                 provider_names,
                 error_behavior,
                 format_template,
+                limit,
             )
             return
         # Fall through to batch path with format_template set
@@ -340,10 +337,9 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # Streaming mode trades sorted output for faster time-to-first-result: agents display
     # as each provider completes rather than waiting for all providers. Users who need sorted
     # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
-    # batch mode is required to get deterministic results (streaming would show whichever
-    # agents load first, since sorting is skipped).
+    # streaming still works but produces non-deterministic results (whichever agents arrive first).
     if format_template is None and _should_use_streaming_mode(
-        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
         _list_streaming_human(
@@ -354,6 +350,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             provider_names,
             error_behavior,
             display_fields,
+            limit,
         )
         return
 
@@ -425,9 +422,10 @@ def _list_streaming_human(
     provider_names: tuple[str, ...] | None,
     error_behavior: ErrorBehavior,
     fields: list[str],
+    limit: int | None,
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
-    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout)
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout, limit=limit)
     renderer.start()
     try:
         result = api_list_agents(
@@ -456,9 +454,10 @@ def _list_streaming_template(
     provider_names: tuple[str, ...] | None,
     error_behavior: ErrorBehavior,
     format_template: str,
+    limit: int | None,
 ) -> None:
     """Streaming template output path: write one template-expanded line per agent."""
-    emitter = _StreamingTemplateEmitter(format_template=format_template, output=sys.stdout)
+    emitter = _StreamingTemplateEmitter(format_template=format_template, output=sys.stdout, limit=limit)
 
     result = api_list_agents(
         mngr_ctx=mngr_ctx,
@@ -496,13 +495,18 @@ class _StreamingTemplateEmitter(MutableModel):
 
     format_template: str
     output: Any
+    limit: int | None = None
     _lock: Lock = PrivateAttr(default_factory=Lock)
+    _count: int = PrivateAttr(default=0)
 
     def __call__(self, agent: AgentInfo) -> None:
         line = _render_format_template(self.format_template, agent)
         with self._lock:
+            if self.limit is not None and self._count >= self.limit:
+                return
             self.output.write(line + "\n")
             self.output.flush()
+            self._count += 1
 
 
 # Minimum column widths for streaming output (left-justified, not truncated)
@@ -534,11 +538,15 @@ class _StreamingHumanRenderer(MutableModel):
     Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
     line ("Searching...") that gets replaced by data rows on TTY outputs. On non-TTY
     outputs (piped), skips status lines and ANSI codes entirely.
+
+    When limit is set, stops displaying agents after the limit is reached. Results
+    are non-deterministic since streaming does not sort.
     """
 
     fields: list[str]
     is_tty: bool
     output: Any
+    limit: int | None = None
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
@@ -557,6 +565,9 @@ class _StreamingHumanRenderer(MutableModel):
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
+            if self.limit is not None and self._count >= self.limit:
+                return
+
             if self.is_tty:
                 # Erase the current status line
                 self.output.write(_ANSI_ERASE_LINE)
