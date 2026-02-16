@@ -153,7 +153,6 @@ class HostLifecycleOptions(FrozenModel):
             idle_timeout_seconds=self.idle_timeout_seconds
             if self.idle_timeout_seconds is not None
             else default_idle_timeout_seconds,
-            idle_mode=resolved_idle_mode,
             activity_sources=resolved_activity_sources,
         )
 
@@ -236,6 +235,10 @@ class GcResult(MutableModel):
         default_factory=list,
         description="Work directories that were destroyed",
     )
+    machines_deleted: list[HostInfo] = Field(
+        default_factory=list,
+        description="Machines that were deleted (removing records of old destroyed hosts)",
+    )
     machines_destroyed: list[HostInfo] = Field(
         default_factory=list,
         description="Machines that were destroyed",
@@ -259,6 +262,23 @@ class GcResult(MutableModel):
     errors: list[str] = Field(
         default_factory=list,
         description="Errors encountered during garbage collection",
+    )
+
+
+class CleanupResult(MutableModel):
+    """Result of a cleanup operation."""
+
+    destroyed_agents: list[AgentName] = Field(
+        default_factory=list,
+        description="Names of agents that were destroyed",
+    )
+    stopped_agents: list[AgentName] = Field(
+        default_factory=list,
+        description="Names of agents that were stopped",
+    )
+    errors: list[str] = Field(
+        default_factory=list,
+        description="Errors encountered during cleanup",
     )
 
 

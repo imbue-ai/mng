@@ -1,5 +1,7 @@
 """Tests for logging utilities."""
 
+import io
+import sys
 from pathlib import Path
 
 from loguru import logger
@@ -457,8 +459,8 @@ def test_logging_suppressor_disable_is_idempotent() -> None:
 
 def test_buffered_message_tracks_stderr_destination() -> None:
     """BufferedMessage should track whether message goes to stderr."""
-    stdout_msg = BufferedMessage("stdout message", is_stderr=False)
-    stderr_msg = BufferedMessage("stderr message", is_stderr=True)
+    stdout_msg = BufferedMessage(formatted_message="stdout message", is_stderr=False)
+    stderr_msg = BufferedMessage(formatted_message="stderr message", is_stderr=True)
 
     assert not stdout_msg.is_stderr
     assert stderr_msg.is_stderr
@@ -510,3 +512,41 @@ def test_remove_console_handlers_when_no_handlers_exist() -> None:
     # Should not raise an error
     remove_console_handlers()
     assert len(_console_handler_ids) == 0
+
+
+# =============================================================================
+# Regression tests for dynamic sinks
+# =============================================================================
+
+
+def test_setup_logging_writes_to_current_stderr_after_stream_replacement(
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Loguru handlers should write to the current sys.stderr, not a stale reference.
+
+    This is a regression test for a bug where logger.add(sys.stderr) captured the
+    stream object at add time. If sys.stderr was later replaced (e.g., by pytest's
+    capture mechanism), the handler would write to the old (possibly closed) stream,
+    causing ValueError("I/O operation on closed file").
+    """
+    output_opts = OutputOptions(
+        output_format=OutputFormat.HUMAN,
+        console_level=LogLevel.INFO,
+        log_level=LogLevel.DEBUG,
+    )
+
+    setup_logging(output_opts, temp_mngr_ctx)
+
+    # Replace sys.stderr with a StringIO to simulate pytest's capture mechanism
+    original_stderr = sys.stderr
+    replacement_stderr = io.StringIO()
+    sys.stderr = replacement_stderr
+
+    try:
+        # Log a message -- this should write to the REPLACEMENT stderr, not the original
+        logger.info("dynamic sink regression test message")
+
+        captured_output = replacement_stderr.getvalue()
+        assert "dynamic sink regression test message" in captured_output
+    finally:
+        sys.stderr = original_stderr

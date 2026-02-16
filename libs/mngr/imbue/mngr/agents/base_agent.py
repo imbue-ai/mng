@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Callable
 from typing import Final
 from typing import Mapping
 from typing import Sequence
@@ -68,7 +69,7 @@ class BaseAgent(AgentInterface):
 
         parts = [base]
         if self.agent_config.cli_args:
-            parts.append(self.agent_config.cli_args)
+            parts.extend(self.agent_config.cli_args)
         if agent_args:
             parts.extend(agent_args)
 
@@ -132,18 +133,11 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def is_running(self) -> bool:
-        """Check if the agent is currently running."""
-        pid_path = self._get_agent_dir() / "agent.pid"
-        try:
-            content = self.host.read_text_file(pid_path)
-            pid = int(content.strip())
-            result = self.host.execute_command(f"ps -p {pid}", timeout_seconds=5.0)
-            is_running = result.success
-            logger.trace("Determined agent {} is_running={} (pid={})", self.name, is_running, pid)
-            return is_running
-        except (FileNotFoundError, ValueError):
-            logger.trace("Determined agent {} is_running=False (no pid file or invalid)", self.name)
-            return False
+        """Check if the agent is currently running by checking lifecycle state."""
+        state = self.get_lifecycle_state()
+        is_running = state in (AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING, AgentLifecycleState.REPLACED)
+        logger.trace("Determined agent {} is_running={} (lifecycle_state={})", self.name, is_running, state)
+        return is_running
 
     def get_lifecycle_state(self) -> AgentLifecycleState:
         """Get the lifecycle state of this agent using tmux format variables.
@@ -154,12 +148,12 @@ class BaseAgent(AgentInterface):
         try:
             session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-            # Get pane state and pid in one command using tmux format variables
+            # Get pane state and pid in one command using tmux format variables (for the main window, :0, where the agent is assumed to be running)
             # pane_dead: 0 if alive, 1 if dead
             # pane_current_command: basename of the foreground process
             # pane_pid: PID of the pane's shell process
             result = self.host.execute_command(
-                f"tmux list-panes -t '{session_name}' "
+                f"tmux list-panes -t '{session_name}:0' "
                 f"-F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1",
                 timeout_seconds=5.0,
             )
@@ -269,12 +263,13 @@ class BaseAgent(AgentInterface):
 
     def _check_waiting_state(self) -> AgentLifecycleState:
         """Check if the agent is waiting and return WAITING or RUNNING state."""
-        waiting_path = self._get_agent_dir() / "waiting"
-        if self._check_file_exists(waiting_path):
+        active_path = self._get_agent_dir() / "active"
+        if self._check_file_exists(active_path):
+            logger.trace("Determined agent {} lifecycle state: RUNNING", self.name)
+            return AgentLifecycleState.RUNNING
+        else:
             logger.trace("Determined agent {} lifecycle state: WAITING", self.name)
             return AgentLifecycleState.WAITING
-        logger.trace("Determined agent {} lifecycle state: RUNNING (no waiting file)", self.name)
-        return AgentLifecycleState.RUNNING
 
     def _command_basename_matches(self, current: str, expected: str) -> bool:
         """Check if current command basename matches expected command."""
@@ -302,6 +297,10 @@ class BaseAgent(AgentInterface):
         data = self._read_data()
         return data.get("ready_timeout_seconds", DEFAULT_AGENT_READY_TIMEOUT_SECONDS)
 
+    @property
+    def session_name(self) -> str:
+        return f"{self.mngr_ctx.config.prefix}{self.name}"
+
     def send_message(self, message: str) -> None:
         """Send a message to the running agent.
 
@@ -312,13 +311,11 @@ class BaseAgent(AgentInterface):
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
         """
-        session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
-
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
             if self.uses_marker_based_send_message():
-                self._send_message_with_marker(session_name, message)
+                self._send_message_with_marker(self.session_name, message)
             else:
-                self._send_message_simple(session_name, message)
+                self._send_message_simple(self.session_name, message)
 
     def uses_marker_based_send_message(self) -> bool:
         """Return True to use marker-based synchronization for send_message.
@@ -341,6 +338,26 @@ class BaseAgent(AgentInterface):
         Returns None by default (no TUI readiness check). Subclasses can override.
         """
         return None
+
+    def wait_for_ready_signal(
+        self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
+    ) -> None:
+        """Wait for the agent to become ready, executing start_action while listening.
+
+        Can be overridden by agent implementations that support signal-based readiness
+        detection (e.g., polling for a marker file). Default just runs start_action
+        without waiting for readiness confirmation.
+
+        Implementations that override this should raise AgentStartError if the agent
+        doesn't signal readiness within the timeout.
+        """
+        start_action()
+
+        if is_creating:
+            # Wait for TUI to be ready if an indicator is configured
+            tui_indicator = self.get_tui_ready_indicator()
+            if tui_indicator is not None:
+                self._wait_for_tui_ready(self.session_name, tui_indicator)
 
     def _send_message_simple(self, session_name: str, message: str) -> None:
         """Send a message without marker-based synchronization."""
@@ -366,10 +383,6 @@ class BaseAgent(AgentInterface):
         attempt cleanup because deleting text risks accidentally removing part of
         the user's message -- leaving stale marker text is safer than data loss.
         """
-        # Wait for TUI to be ready if an indicator is configured
-        tui_indicator = self.get_tui_ready_indicator()
-        if tui_indicator is not None:
-            self._wait_for_tui_ready(session_name, tui_indicator)
 
         # Generate a unique marker to detect when the message has been fully received
         # Using just the UUID without newlines - newlines are harder to reliably delete
@@ -447,9 +460,18 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, indicator),
                 timeout=_TUI_READY_TIMEOUT_SECONDS,
             ):
+                pane_content = self._capture_pane_content(session_name)
+                if pane_content is not None:
+                    logger.error(
+                        "TUI ready timeout -- remote pane content:\n{}",
+                        pane_content,
+                    )
+                else:
+                    logger.error("TUI ready timeout -- failed to capture remote pane content")
                 raise SendMessageError(
                     str(self.name),
-                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)"
+                    + (f"\nPane content:\n{pane_content}" if pane_content else ""),
                 )
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:

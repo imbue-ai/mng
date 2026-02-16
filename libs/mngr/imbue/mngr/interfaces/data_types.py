@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
+from enum import auto
+from functools import cached_property
 from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
+from typing import Final
 
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
+from pydantic import computed_field
+from pydantic import model_validator
 from pydantic_core import core_schema
 from pyinfra.api import Host as PyinfraHost
 
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.mngr.errors import InvalidRelativePathError
@@ -22,6 +30,62 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
+
+# Canonical mapping from IdleMode to the activity sources it enables.
+# This must stay in sync with get_activity_sources_for_idle_mode in hosts/common.py.
+_ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
+    IdleMode.IO: (
+        ActivitySource.USER,
+        ActivitySource.AGENT,
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    ),
+    IdleMode.USER: (
+        ActivitySource.USER,
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    ),
+    IdleMode.AGENT: (
+        ActivitySource.AGENT,
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    ),
+    IdleMode.SSH: (
+        ActivitySource.SSH,
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+    ),
+    IdleMode.CREATE: (ActivitySource.CREATE,),
+    IdleMode.BOOT: (ActivitySource.BOOT,),
+    IdleMode.START: (ActivitySource.START, ActivitySource.BOOT),
+    IdleMode.RUN: (
+        ActivitySource.CREATE,
+        ActivitySource.START,
+        ActivitySource.BOOT,
+        ActivitySource.PROCESS,
+    ),
+    IdleMode.DISABLED: (),
+}
+
+# Reverse mapping: frozenset of activity sources -> IdleMode
+_IDLE_MODE_BY_ACTIVITY_SOURCES: Final[dict[frozenset[ActivitySource], IdleMode]] = {
+    frozenset(sources): mode for mode, sources in _ACTIVITY_SOURCES_BY_IDLE_MODE.items()
+}
+
+
+def _get_idle_mode_for_activity_sources(activity_sources: tuple[ActivitySource, ...]) -> IdleMode:
+    """Derive the IdleMode from a set of activity sources.
+
+    Returns CUSTOM if the activity sources don't match any known IdleMode preset.
+    """
+    return _IDLE_MODE_BY_ACTIVITY_SOURCES.get(frozenset(activity_sources), IdleMode.CUSTOM)
 
 
 class PyinfraConnector:
@@ -159,12 +223,17 @@ class HostResources(FrozenModel):
 class ActivityConfig(FrozenModel):
     """Configuration for host activity detection and idle timeout."""
 
-    idle_mode: IdleMode = Field(description="Mode for determining when host is considered idle")
     idle_timeout_seconds: int = Field(description="Maximum idle time before stopping")
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default_factory=lambda: tuple(ActivitySource),
+        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
+
+    @computed_field
+    @cached_property
+    def idle_mode(self) -> IdleMode:
+        """Derived from activity_sources."""
+        return _get_idle_mode_for_activity_sources(self.activity_sources)
 
 
 class HostConfig(FrozenModel):
@@ -182,22 +251,41 @@ class SnapshotRecord(FrozenModel):
 class CertifiedHostData(FrozenModel):
     """Certified data stored in the host's data.json file."""
 
-    # FIXME: make this field a derived property--it's fully derivable from activity_sources
-    #  Once that is done, remove the idle_mode field from ActivytConfig as well (again, derivable)
-    #  The only place this mode was supposed to exist was at the interface layer, as a way of conveniently
-    #  allowing a user to specify common sets of activity types from the CLI. Nothing else should know about IdleMode
-    idle_mode: IdleMode = Field(
-        default=IdleMode.IO,
-        description="Mode for determining when host is considered idle",
-    )
     idle_timeout_seconds: int = Field(
         default=3600,
         description="Maximum idle time before stopping",
     )
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default_factory=lambda: tuple(ActivitySource),
+        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
+
+    created_at: datetime = Field(description="When this host data was first created (always UTC)")
+    updated_at: datetime = Field(description="When this host data was last updated (always UTC)")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _handle_backwards_compatibility(cls, data: Any) -> Any:
+        """Handle backward compatibility with old data.json files.
+
+        Strips deprecated idle_mode field and provides defaults for
+        created_at/updated_at when missing from old data.
+        """
+        if isinstance(data, dict):
+            data.pop("idle_mode", None)
+            now = datetime.now(timezone.utc)
+            if "created_at" not in data:
+                data["created_at"] = now - timedelta(weeks=1)
+            if "updated_at" not in data:
+                data["updated_at"] = now - timedelta(days=1)
+        return data
+
+    @computed_field
+    @cached_property
+    def idle_mode(self) -> IdleMode:
+        """Derived from activity_sources."""
+        return _get_idle_mode_for_activity_sources(self.activity_sources)
+
     max_host_age: int | None = Field(
         default=None,
         description="Maximum host age in seconds from boot before shutdown (used by providers with hard timeouts)",
@@ -252,13 +340,31 @@ class SnapshotInfo(FrozenModel):
     )
 
 
+class VolumeFileType(UpperCaseStrEnum):
+    """Type of entry in a volume listing."""
+
+    FILE = auto()
+    DIRECTORY = auto()
+
+
+class VolumeFile(FrozenModel):
+    """An entry listed from a volume directory."""
+
+    path: str = Field(description="Path of the entry within the volume")
+    file_type: VolumeFileType = Field(description="Whether this entry is a file or directory")
+    mtime: int = Field(description="Last modification time as Unix timestamp")
+    size: int = Field(description="Size in bytes")
+
+
 class VolumeInfo(FrozenModel):
     """Information about a volume."""
 
     volume_id: VolumeId = Field(description="Unique identifier")
     name: str = Field(description="Human-readable name")
     size_bytes: int = Field(description="Size in bytes")
-    created_at: datetime = Field(description="Creation timestamp")
+    created_at: datetime | None = Field(
+        default=None, description="Creation timestamp (None if provider doesn't report it)"
+    )
     host_id: HostId | None = Field(default=None, description="Associated host, if any")
     tags: dict[str, str] = Field(default_factory=dict, description="Provider tags")
 

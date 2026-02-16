@@ -19,11 +19,6 @@ class BaseProviderInstance(ProviderInstanceInterface):
     Useful because it communicates that the concrete Host class (not HostInterface) is returned from these methods.
     """
 
-    @property
-    def is_authorized(self) -> bool:
-        """Default implementation returns True - providers that need auth should override."""
-        return True
-
     def create_host(
         self,
         name: HostName,
@@ -51,8 +46,8 @@ class BaseProviderInstance(ProviderInstanceInterface):
 
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         raise NotImplementedError()
 
@@ -62,3 +57,11 @@ class BaseProviderInstance(ProviderInstanceInterface):
         name: HostName,
     ) -> HostInterface:
         raise NotImplementedError()
+
+    def get_max_destroyed_host_persisted_seconds(self) -> float:
+        # Check for a provider-level override first
+        provider_config = self.mngr_ctx.config.providers.get(self.name)
+        if provider_config is not None and provider_config.destroyed_host_persisted_seconds is not None:
+            return provider_config.destroyed_host_persisted_seconds
+        # Fall back to the global default
+        return self.mngr_ctx.config.default_destroyed_host_persisted_seconds

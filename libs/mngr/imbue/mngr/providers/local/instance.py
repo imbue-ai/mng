@@ -1,4 +1,8 @@
 import json
+import shutil
+import uuid
+from datetime import datetime
+from datetime import timezone
 from functools import cached_property
 from pathlib import Path
 from typing import Final
@@ -17,6 +21,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -25,6 +30,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -33,10 +39,35 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.local.volume import LocalVolume
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
+HOSTS_SUBDIR: Final[str] = "hosts"
+
+# Fixed namespace for deterministic VolumeId derivation from volume directory names.
+_LOCAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
+
+
+def get_or_create_local_host_id(base_dir: Path) -> HostId:
+    """Get the persistent host ID, creating it if it doesn't exist.
+
+    The host_id is stored at {base_dir}/host_id because it identifies
+    the local machine, not a particular profile.
+    """
+    base_dir.mkdir(parents=True, exist_ok=True)
+    host_id_path = base_dir / HOST_ID_FILENAME
+
+    if host_id_path.exists():
+        host_id = HostId(host_id_path.read_text().strip())
+        logger.trace("Loaded existing local host id={}", host_id)
+        return host_id
+
+    new_host_id = HostId.generate()
+    host_id_path.write_text(new_host_id)
+    logger.debug("Generated new local host id={}", new_host_id)
+    return new_host_id
 
 
 class LocalProviderInstance(BaseProviderInstance):
@@ -57,7 +88,7 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
@@ -68,43 +99,14 @@ class LocalProviderInstance(BaseProviderInstance):
         """Get the provider data directory path (not profile-specific, for tags etc)."""
         return self.mngr_ctx.config.default_host_dir.expanduser() / "providers" / LOCAL_PROVIDER_SUBDIR
 
-    @property
-    def _host_id_dir(self) -> Path:
-        """Get the directory for host_id (global, not profile-specific).
-
-        The host_id is stored at ~/.mngr/host_id because it identifies this local
-        machine, not a particular profile. Different profiles on the same machine
-        should share the same local host_id.
-        """
-        return self.mngr_ctx.config.default_host_dir.expanduser()
-
     def _ensure_provider_data_dir(self) -> None:
         """Ensure the provider data directory exists."""
         self._provider_data_dir.mkdir(parents=True, exist_ok=True)
 
     @cached_property
     def host_id(self) -> HostId:
-        return self._get_or_create_host_id()
-
-    def _get_or_create_host_id(self) -> HostId:
-        """Get the persistent host ID, creating it if it doesn't exist.
-
-        The host_id is stored globally at ~/.mngr/host_id (not per-profile)
-        because it identifies the local machine itself, not a profile.
-        """
-        host_id_dir = self._host_id_dir
-        host_id_dir.mkdir(parents=True, exist_ok=True)
-        host_id_path = host_id_dir / HOST_ID_FILENAME
-
-        if host_id_path.exists():
-            host_id = HostId(host_id_path.read_text().strip())
-            logger.trace("Loaded existing local host id={}", host_id)
-            return host_id
-
-        new_host_id = HostId.generate()
-        host_id_path.write_text(new_host_id)
-        logger.debug("Generated new local host id={}", new_host_id)
-        return new_host_id
+        base_dir = self.mngr_ctx.config.default_host_dir.expanduser()
+        return get_or_create_local_host_id(base_dir)
 
     def _get_tags_path(self) -> Path:
         """Get the path to the tags file."""
@@ -184,10 +186,8 @@ class LocalProviderInstance(BaseProviderInstance):
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
 
-        # FIXME: should probably remove this--there is no boot time for local host
-        #  (there's another instance below, remove that as well)
-        # Record BOOT activity for idle detection
-        host.record_activity(ActivitySource.BOOT)
+            # Record BOOT activity for consistency. In this case it represents when mngr first created the local host
+            host.record_activity(ActivitySource.BOOT)
 
         return host
 
@@ -216,22 +216,18 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         local_host = self._create_host(HostName("local"))
 
-        # Record BOOT activity for idle detection
-        local_host.record_activity(ActivitySource.BOOT)
-
         return local_host
 
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
+    def destroy_host(self, host: HostInterface | HostId) -> None:
         """Destroy the host.
 
         Always raises LocalHostNotDestroyableError because the local computer
         cannot be destroyed by mngr.
         """
         raise LocalHostNotDestroyableError()
+
+    def delete_host(self, host: HostInterface) -> None:
+        raise Exception("delete_host should not be called for LocalProviderInstance since hosts are never offline")
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass
@@ -261,8 +257,8 @@ class LocalProviderInstance(BaseProviderInstance):
 
     def list_hosts(
         self,
+        cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-        cg: ConcurrencyGroup | None = None,
     ) -> list[HostInterface]:
         """List all hosts managed by this provider.
 
@@ -316,19 +312,67 @@ class LocalProviderInstance(BaseProviderInstance):
     # Volume Methods
     # =========================================================================
 
-    def list_volumes(self) -> list[VolumeInfo]:
-        """List all volumes managed by this provider.
+    @staticmethod
+    def _volume_id_for_dir(dir_name: str) -> VolumeId:
+        """Create a deterministic VolumeId from a volume directory name.
 
-        Always returns empty list because the local provider does not support volumes.
+        Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
+        from any directory name.
         """
-        return []
+        derived = uuid.uuid5(_LOCAL_VOLUME_ID_NAMESPACE, dir_name)
+        return VolumeId(f"vol-{derived.hex}")
+
+    @property
+    def _hosts_dir(self) -> Path:
+        """Get the parent directory containing all host directories."""
+        return self.mngr_ctx.config.default_host_dir.expanduser() / HOSTS_SUBDIR
+
+    def list_volumes(self) -> list[VolumeInfo]:
+        """List all local volumes (subdirectories of ~/.mngr/hosts/)."""
+        hosts_dir = self._hosts_dir
+        if not hosts_dir.is_dir():
+            return []
+        results: list[VolumeInfo] = []
+        for subdir in sorted(hosts_dir.iterdir()):
+            if subdir.is_dir():
+                stat = subdir.stat()
+                host_id = None
+                if subdir.name.startswith("host-"):
+                    try:
+                        host_id = HostId(subdir.name)
+                    except ValueError:
+                        pass
+                results.append(
+                    VolumeInfo(
+                        volume_id=self._volume_id_for_dir(subdir.name),
+                        name=subdir.name,
+                        size_bytes=0,
+                        created_at=datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc),
+                        host_id=host_id,
+                    )
+                )
+        return results
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        """Delete a volume.
+        """Delete a local volume directory."""
+        hosts_dir = self._hosts_dir
+        if not hosts_dir.is_dir():
+            raise MngrError(f"Volume {volume_id} not found (no hosts directory)")
+        for subdir in hosts_dir.iterdir():
+            if subdir.is_dir() and self._volume_id_for_dir(subdir.name) == volume_id:
+                shutil.rmtree(subdir)
+                logger.debug("Deleted local volume: {}", subdir)
+                return
+        raise MngrError(f"Volume {volume_id} not found")
 
-        Always raises NotImplementedError because the local provider does not support volumes.
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
+        """Get the local volume for a host.
+
+        Returns a HostVolume backed by the host_dir (which is ~/.mngr/hosts/{host_id}/).
+        The directory is created if it doesn't exist.
         """
-        raise NotImplementedError("Local provider does not support volumes")
+        self.host_dir.mkdir(parents=True, exist_ok=True)
+        return HostVolume(volume=LocalVolume(root_path=self.host_dir))
 
     # =========================================================================
     # Host Mutation Methods

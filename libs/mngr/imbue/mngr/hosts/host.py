@@ -24,6 +24,11 @@ from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
+from tenacity import retry
+from tenacity import retry_if_exception
+from tenacity import stop_after_attempt
+from tenacity import wait_chain
+from tenacity import wait_fixed
 
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.errors import SwitchError
@@ -44,7 +49,6 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.common import LOCAL_CONNECTOR_NAME
-from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.hosts.offline_host import BaseHost
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CertifiedHostData
@@ -77,6 +81,27 @@ def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
         return True
     except BlockingIOError:
         return False
+
+
+@pure
+def _is_socket_closed_os_error(exception: BaseException) -> bool:
+    return isinstance(exception, OSError) and "Socket is closed" in str(exception)
+
+
+# Shared retry decorator for file operations that encounter intermittent
+# "Socket is closed" errors.  Retries after (0, 1, 3, 6) seconds for a
+# total backoff window of ~10 seconds.
+_retry_on_socket_closed = retry(
+    retry=retry_if_exception(_is_socket_closed_os_error),
+    stop=stop_after_attempt(5),
+    wait=wait_chain(
+        wait_fixed(0),
+        wait_fixed(1),
+        wait_fixed(3),
+        wait_fixed(6),
+    ),
+    reraise=True,
+)
 
 
 class HostLocation(FrozenModel):
@@ -132,6 +157,19 @@ class Host(BaseHost, OnlineHostInterface):
             self.connector.host.disconnect()
             logger.trace("Disconnected pyinfra host {}", self.id)
 
+    @contextmanager
+    def _notify_on_connection_error(self) -> Iterator[None]:
+        """Context manager that calls on_connection_error when HostConnectionError is raised.
+
+        Wraps operations that may raise HostConnectionError. When one is raised, this
+        notifies the provider instance before re-raising the exception.
+        """
+        try:
+            yield
+        except HostConnectionError:
+            self.provider_instance.on_connection_error(self.id)
+            raise
+
     def _run_shell_command(
         self,
         command: StringCommand,
@@ -168,43 +206,39 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using execute_command() instead whenever possible.
         """
-        try:
-            self._ensure_connected()
-            return self.connector.host.run_shell_command(
-                command,
-                _timeout=_timeout,
-                _success_exit_codes=_success_exit_codes,
-                _env=_env,
-                _chdir=_chdir,
-                _shell_executable=_shell_executable,
-                _su_user=_su_user,
-                _use_su_login=_use_su_login,
-                _su_shell=_su_shell,
-                _preserve_su_env=_preserve_su_env,
-                _sudo=_sudo,
-                _sudo_user=_sudo_user,
-                _use_sudo_login=_use_sudo_login,
-                _sudo_password=_sudo_password,
-                _sudo_askpass_path=_sudo_askpass_path,
-                _preserve_sudo_env=_preserve_sudo_env,
-                _doas=_doas,
-                _doas_user=_doas_user,
-                _retries=_retries,
-                _retry_delay=_retry_delay,
-                _retry_until=_retry_until,
-            )
-        except OSError as e:
-            if "Socket is closed" in str(e):
-                # FIXME: these two lines are duplicated everywhere (on_connection_error and raise HostConnectionError)
-                #  Please instead refactor this so that we simply raise, and each of these 3 methods that are raising have
-                #  a decorator that handles the calling of on_connection_error automatically
-                self.provider_instance.on_connection_error(self.id)
-                raise HostConnectionError("Connection was closed while running command") from e
-            else:
-                raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not execute command due to connection error") from e
+        with self._notify_on_connection_error():
+            try:
+                self._ensure_connected()
+                return self.connector.host.run_shell_command(
+                    command,
+                    _timeout=_timeout,
+                    _success_exit_codes=_success_exit_codes,
+                    _env=_env,
+                    _chdir=_chdir,
+                    _shell_executable=_shell_executable,
+                    _su_user=_su_user,
+                    _use_su_login=_use_su_login,
+                    _su_shell=_su_shell,
+                    _preserve_su_env=_preserve_su_env,
+                    _sudo=_sudo,
+                    _sudo_user=_sudo_user,
+                    _use_sudo_login=_use_sudo_login,
+                    _sudo_password=_sudo_password,
+                    _sudo_askpass_path=_sudo_askpass_path,
+                    _preserve_sudo_env=_preserve_sudo_env,
+                    _doas=_doas,
+                    _doas_user=_doas_user,
+                    _retries=_retries,
+                    _retry_delay=_retry_delay,
+                    _retry_until=_retry_until,
+                )
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while running command") from e
+                else:
+                    raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not execute command due to connection error") from e
 
     def _get_file(
         self,
@@ -220,44 +254,45 @@ class Host(BaseHost, OnlineHostInterface):
 
         Raises FileNotFoundError if the remote file does not exist.
         """
-        try:
-            self._ensure_connected()
+        with self._notify_on_connection_error():
             try:
-                return self.connector.host.get_file(
-                    remote_filename,
-                    filename_or_io,
-                    remote_temp_filename=remote_temp_filename,
-                )
+                return self._get_file_with_socket_retry(remote_filename, filename_or_io, remote_temp_filename)
             except OSError as e:
-                # pyinfra raises OSError for missing files - convert to FileNotFoundError
-                error_msg = str(e)
-                if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                    raise FileNotFoundError(f"File not found: {remote_filename}") from e
-                elif "Socket is closed" in str(e):
-                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                    try:
-                        self.connector.host.disconnect()
-                        self._ensure_connected()
-                        _result = self.connector.host.get_file(
-                            remote_filename,
-                            filename_or_io,
-                            remote_temp_filename=remote_temp_filename,
-                        )
-                    except Exception as retry_exception:
-                        self.provider_instance.on_connection_error(self.id)
-                        raise HostConnectionError(
-                            "Connection was closed while reading file (and our retry failed)"
-                        ) from retry_exception
-                    else:
-                        self.provider_instance.on_connection_error(self.id)
-                        raise HostConnectionError(
-                            "Connection was closed while reading file (but the retry worked!)"
-                        ) from e
-                else:
-                    raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not read file due to connection error") from e
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while reading file") from e
+                raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not read file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _get_file_with_socket_retry(
+        self,
+        remote_filename: str,
+        filename_or_io: str | IO[bytes],
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset output IO for retry attempts (clear any partial data from a failed attempt)
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
+            filename_or_io.truncate(0)
+        try:
+            return self.connector.host.get_file(
+                remote_filename,
+                filename_or_io,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            # pyinfra raises OSError for missing files - convert to FileNotFoundError
+            error_msg = str(e)
+            if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                raise FileNotFoundError(f"File not found: {remote_filename}") from e
+            elif "Socket is closed" in error_msg:
+                logger.debug("Socket closed while reading {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
+            else:
+                raise
 
     def _put_file(
         self,
@@ -271,8 +306,28 @@ class Host(BaseHost, OnlineHostInterface):
 
         Prefer using write_file() or write_text_file() instead whenever possible.
         """
+        with self._notify_on_connection_error():
+            try:
+                return self._put_file_with_socket_retry(filename_or_io, remote_filename, remote_temp_filename)
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while writing file") from e
+                raise
+            except (EOFError, SSHException) as e:
+                raise HostConnectionError("Could not write file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _put_file_with_socket_retry(
+        self,
+        filename_or_io: str | IO[str] | IO[bytes],
+        remote_filename: str,
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset input IO position for retry attempts
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
         try:
-            self._ensure_connected()
             return self.connector.host.put_file(
                 filename_or_io,
                 remote_filename,
@@ -280,30 +335,11 @@ class Host(BaseHost, OnlineHostInterface):
             )
         except OSError as e:
             if "Socket is closed" in str(e):
-                # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                try:
-                    self.connector.host.disconnect()
-                    self._ensure_connected()
-                    _result = self.connector.host.put_file(
-                        filename_or_io,
-                        remote_filename,
-                        remote_temp_filename=remote_temp_filename,
-                    )
-                except Exception as retry_exception:
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError(
-                        "Connection was closed while writing file (and our retry failed)"
-                    ) from retry_exception
-                else:
-                    self.provider_instance.on_connection_error(self.id)
-                    raise HostConnectionError(
-                        "Connection was closed while writing file (but the retry worked!)"
-                    ) from e
+                logger.debug("Socket closed while writing {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
             else:
                 raise
-        except (EOFError, SSHException) as e:
-            self.provider_instance.on_connection_error(self.id)
-            raise HostConnectionError("Could not write file due to connection error") from e
 
     # =========================================================================
     # Convenience methods (built on core primitives)
@@ -531,7 +567,7 @@ class Host(BaseHost, OnlineHostInterface):
             # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
             self.write_text_file(lock_file_path, str(time.time()))
             yield
-            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            self.execute_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -561,6 +597,28 @@ class Host(BaseHost, OnlineHostInterface):
         lock_path = self.host_dir / "host_lock"
         return self._get_file_mtime(lock_path)
 
+    def is_lock_held(self) -> bool:
+        """Check whether the host lock is currently held.
+
+        For local hosts, attempts a non-blocking flock to test if the lock is held by another
+        process (the lock file persists after release, so file existence alone is insufficient).
+        For remote hosts, checks whether the lock file exists (it is deleted on release).
+        """
+        lock_path = self.host_dir / "host_lock"
+
+        if self.is_local:
+            if not lock_path.exists():
+                return False
+            try:
+                with open(str(lock_path), "r") as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                return False
+            except (BlockingIOError, OSError):
+                return True
+        else:
+            return self.get_reported_lock_time() is not None
+
     # =========================================================================
     # Certified Data
     # =========================================================================
@@ -573,20 +631,27 @@ class Host(BaseHost, OnlineHostInterface):
             data = json.loads(content)
             return CertifiedHostData(**data)
         except FileNotFoundError:
+            now = datetime.now(timezone.utc)
             return CertifiedHostData(
                 host_id=str(self.id),
                 host_name=str(self.get_name()),
+                created_at=now,
+                updated_at=now,
             )
         except ValidationError as e:
             raise HostDataSchemaError(str(data_path), str(e)) from e
 
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
+        # Always stamp updated_at with the current time when writing
+        stamped_data = data.model_copy_update(
+            to_update(data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
         data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(data.model_dump(by_alias=True), indent=2))
+        self.write_text_file(data_path, json.dumps(stamped_data.model_dump(by_alias=True, mode="json"), indent=2))
         # Notify the provider so it can update any external storage (e.g., Modal volume)
         if self.on_updated_host_data:
-            self.on_updated_host_data(self.id, data)
+            self.on_updated_host_data(self.id, stamped_data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
@@ -692,29 +757,19 @@ class Host(BaseHost, OnlineHostInterface):
         """Return the host last stop time as a datetime, or None if unknown."""
         return None
 
-    # FIXME: both this and the below method will be broken if we ever have remote hosts that are OSX
-    #  instead of this, we should, for each of them, make a single command that does the platform check before dispatching to the resulting platform-dependent logic
     def get_uptime_seconds(self) -> float:
         """Get host uptime in seconds."""
-        if is_macos() and self.is_local:
-            # macOS: use sysctl kern.boottime to get boot time, then compute uptime
-            # Output format: { sec = 1234567890, usec = 123456 } ...
-            # Use awk to reliably extract the sec value (not usec)
-            result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s"
-            )
-            if result.success:
-                output_lines = result.stdout.strip().split("\n")
-                if len(output_lines) == 2:
-                    boot_time = int(output_lines[0])
-                    current_time = int(output_lines[1])
-                    return float(current_time - boot_time)
-        else:
-            # Linux: use /proc/uptime
-            result = self.execute_command("cat /proc/uptime 2>/dev/null")
-            if result.success:
-                uptime_str = result.stdout.split()[0]
-                return float(uptime_str)
+        # Single command that detects the platform on the host and dispatches accordingly,
+        # so it works for both local and remote hosts regardless of OS
+        result = self.execute_command(
+            'if [ "$(uname -s)" = "Darwin" ]; then '
+            "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}' && date +%s; "
+            "else "
+            "cat /proc/uptime 2>/dev/null; "
+            "fi"
+        )
+        if result.success:
+            return _parse_uptime_output(result.stdout)
 
         return 0.0
 
@@ -724,28 +779,17 @@ class Host(BaseHost, OnlineHostInterface):
         Returns the actual boot time from the OS, not computed from uptime,
         to avoid timing inconsistencies.
         """
-        if is_macos() and self.is_local:
-            # macOS: use sysctl kern.boottime which gives boot time directly
-            # Output format: { sec = 1234567890, usec = 123456 } ...
-            # Use awk to reliably extract the sec value (not usec)
-            result = self.execute_command(
-                "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'"
-            )
-            if result.success:
-                try:
-                    boot_timestamp = int(result.stdout.strip())
-                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-                except (ValueError, OSError):
-                    pass
-        else:
-            # Linux: use /proc/stat which has btime (boot time as Unix timestamp)
-            result = self.execute_command("grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'")
-            if result.success:
-                try:
-                    boot_timestamp = int(result.stdout.strip())
-                    return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
-                except (ValueError, OSError):
-                    pass
+        # Single command that detects the platform on the host and dispatches accordingly,
+        # so it works for both local and remote hosts regardless of OS
+        result = self.execute_command(
+            'if [ "$(uname -s)" = "Darwin" ]; then '
+            "sysctl -n kern.boottime 2>/dev/null | awk -F'[ ,=]+' '{for(i=1;i<=NF;i++) if($i==\"sec\") print $(i+1)}'; "
+            "else "
+            "grep '^btime ' /proc/stat 2>/dev/null | awk '{print $2}'; "
+            "fi"
+        )
+        if result.success:
+            return _parse_boot_time_output(result.stdout)
 
         return None
 
@@ -951,7 +995,7 @@ class Host(BaseHost, OnlineHostInterface):
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
         elif source_host.is_local:
-            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.cg) or "main"
+            base_branch_name = get_current_git_branch(source_path, self.mngr_ctx.concurrency_group) or "main"
         else:
             result = source_host.execute_command(
                 "git rev-parse --abbrev-ref HEAD",
@@ -961,7 +1005,7 @@ class Host(BaseHost, OnlineHostInterface):
 
         # Get git author info from source repo
         if source_host.is_local:
-            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.cg)
+            git_author_name, git_author_email = get_git_author_info(source_path, self.mngr_ctx.concurrency_group)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1014,8 +1058,6 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngrError(f"Failed to configure git repo on target: {result.stderr}")
 
-    # FIXME: we should probably warn if we detect any submodules (eg, .git folders inside of here)
-    #  Submodules are *not* supported right now, and we wouldn't want the user thinking they were
     def _git_push_to_target(
         self,
         source_host: OnlineHostInterface,
@@ -1023,6 +1065,7 @@ class Host(BaseHost, OnlineHostInterface):
         target_path: Path,
     ) -> None:
         """Push git repo from source to target using git push --mirror."""
+        self._warn_if_submodules_detected(source_host, source_path)
         target_ssh_info = self._get_ssh_connection_info()
 
         if target_ssh_info is None:
@@ -1038,7 +1081,7 @@ class Host(BaseHost, OnlineHostInterface):
                     env = {"GIT_SSH_COMMAND": git_ssh_cmd}
                     remote_url = f"ssh://{user}@{hostname}:{port}{source_path}/.git"
                     try:
-                        self.mngr_ctx.cg.run_process_to_completion(
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(
                             ["git", "clone", "--mirror", remote_url, str(target_path / ".git")],
                             env={**os.environ, **env},
                         )
@@ -1049,44 +1092,62 @@ class Host(BaseHost, OnlineHostInterface):
             user, hostname, port, key_path = target_ssh_info
             git_url = f"ssh://{user}@{hostname}:{port}{target_path}/.git"
 
-        # FIXME: this whole block is a bit duplicated. Refactor to do the same thing, but assemble the args a bit more coherently
-        #  For example, the reason we need --no-verify is to skip any hooks, since they can sometimes fail
-        if source_host.is_local:
-            with log_span("Pushing git repo to target: {}", git_url):
-                env: dict[str, str] = {}
-                if target_ssh_info is not None:
-                    user, hostname, port, key_path = target_ssh_info
-                    git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                    env["GIT_SSH_COMMAND"] = git_ssh_cmd
+        # Build the environment and command for git push --mirror.
+        # --no-verify skips hooks, since they can sometimes fail on mirror pushes.
+        env: dict[str, str] = {}
+        if target_ssh_info is not None:
+            user, hostname, port, key_path = target_ssh_info
+            git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+            env["GIT_SSH_COMMAND"] = git_ssh_cmd
 
-                # don't bother pushing LFS objects - they can be transferred later as needed,
-                # and without this, it can take a ridiculously long time.
-                env["GIT_LFS_SKIP_PUSH"] = "1"
+        # Don't bother pushing LFS objects - they can be transferred later as needed,
+        # and without this, it can take a ridiculously long time.
+        env["GIT_LFS_SKIP_PUSH"] = "1"
 
+        with log_span("Pushing git repo to target: {}", git_url):
+            if source_host.is_local:
                 command_args = ["git", "-C", str(source_path), "push", "--no-verify", "--mirror", git_url]
                 try:
-                    self.mngr_ctx.cg.run_process_to_completion(
+                    self.mngr_ctx.concurrency_group.run_process_to_completion(
                         command_args,
-                        env={**os.environ, **env} if env else None,
+                        env={**os.environ, **env},
                     )
                 except ProcessError as e:
                     raise MngrError(f"Failed to push git repo: {e.stderr}") from e
                 logger.trace("Ran git push --mirror from local source to target: {}", " ".join(command_args))
-        else:
-            if target_ssh_info is not None:
-                user, hostname, port, key_path = target_ssh_info
-                git_ssh_cmd = f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
-                result = source_host.execute_command(
-                    f"GIT_SSH_COMMAND={shlex.quote(git_ssh_cmd)} git push --no-verify --mirror {shlex.quote(git_url)}",
-                    cwd=source_path,
-                )
             else:
-                result = source_host.execute_command(
-                    f"git push --no-verify --mirror {shlex.quote(git_url)}",
+                env_prefix = " ".join(f"{k}={shlex.quote(v)}" for k, v in env.items())
+                push_cmd = f"{env_prefix} git push --no-verify --mirror {shlex.quote(git_url)}"
+                result = source_host.execute_command(push_cmd, cwd=source_path)
+                if not result.success:
+                    raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+
+    def _warn_if_submodules_detected(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+    ) -> None:
+        """Warn the user if git submodules are detected in the source repo."""
+        try:
+            if source_host.is_local:
+                result_obj = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "submodule", "status"],
                     cwd=source_path,
+                    timeout=10,
                 )
-            if not result.success:
-                raise MngrError(f"Failed to push git repo from remote source: {result.stderr}")
+                submodule_output = result_obj.stdout.strip()
+            else:
+                result = source_host.execute_command("git submodule status", cwd=source_path, timeout_seconds=10)
+                submodule_output = result.stdout.strip() if result.success else ""
+        except (ProcessError, Exception):
+            # If we can't check for submodules, just skip the warning
+            return
+
+        if submodule_output:
+            logger.warning(
+                "Detected git submodules in source repository. "
+                "Submodules are not supported and will not be transferred correctly."
+            )
 
     def _transfer_extra_files(
         self,
@@ -1101,19 +1162,16 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.cg.run_process_to_completion(
-                        ["git", "-C", str(source_path), "status", "--porcelain"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
-                            filename = line[3:]
-                            if " -> " in filename:
-                                filename = filename.split(" -> ")[1]
-                            files_to_include.append(filename)
-                except ProcessError as e:
-                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                        filename = line[3:]
+                        if " -> " in filename:
+                            filename = filename.split(" -> ")[1]
+                        files_to_include.append(filename)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1128,15 +1186,12 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.cg.run_process_to_completion(
-                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            files_to_include.append(line)
-                except ProcessError as e:
-                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        files_to_include.append(line)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",
@@ -1176,9 +1231,11 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> None:
         """Run rsync to transfer files from source to target.
 
-        Always runs rsync from the source host, which simplifies the logic:
-        - If source is local, run rsync locally (pushing to target via SSH if remote)
-        - If source is remote, run rsync on source host (pushing to target via SSH if different host)
+        - If both are local, run rsync locally
+        - If source is local, push to target via SSH
+        - If target is local, pull from source via SSH
+        - If both are remote, sync via a local temp directory as intermediary
+          (pull from source, then push to target)
         """
 
         # Build rsync arguments
@@ -1214,15 +1271,61 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_args.extend([f"{user}@{hostname}:{source_path_str}", target_path_str])
             rsync_description = f"rsync: remote to local {user}@{hostname}:{port}"
         else:
-            # FIXME: we could implement this, but would need to support a few options:
-            #  1. slow, safe: sync locally, then sync to target
-            #  2. fast, safe: rsync directly between two remote hosts (requires both hosts to have SSH access to each other)
-            #  3. fast, unsafe: forward SSH auth from source to target (requires SSH agent forwarding), then sync between them
-            raise NotImplementedError("rsync between two remote hosts is not supported right now")
+            # Remote to remote: sync via local temp directory as intermediary
+            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            assert source_ssh_info is not None
+            target_ssh_info = self._get_ssh_connection_info()
+            assert target_ssh_info is not None
+
+            src_user, src_hostname, src_port, src_key_path = source_ssh_info
+            tgt_user, tgt_hostname, tgt_port, tgt_key_path = target_ssh_info
+
+            with tempfile.TemporaryDirectory(prefix="mngr-rsync-") as temp_dir:
+                temp_path_str = temp_dir.rstrip("/") + "/"
+
+                with log_span(
+                    "rsync: remote-to-remote via local intermediary ({}@{}:{} -> {}@{}:{})",
+                    src_user,
+                    src_hostname,
+                    src_port,
+                    tgt_user,
+                    tgt_hostname,
+                    tgt_port,
+                ):
+                    # Step 1: pull from source remote to local temp
+                    pull_args = list(rsync_args)
+                    pull_args.extend(
+                        ["-e", f"ssh -i {shlex.quote(str(src_key_path))} -p {src_port} -o StrictHostKeyChecking=no"]
+                    )
+                    pull_args.extend([f"{src_user}@{src_hostname}:{source_path_str}", temp_path_str])
+                    try:
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(pull_args)
+                    except ProcessError as e:
+                        raise MngrError(f"rsync failed (pull from source): {e.stderr}") from e
+                    logger.trace("Ran rsync pull command: {}", " ".join(pull_args))
+
+                    # Step 2: push from local temp to target remote
+                    # Rebuild base args without files_from since the temp dir already contains only the desired files
+                    push_args = ["rsync", "-rlpt"]
+                    if exclude_git:
+                        push_args.extend(["--exclude", ".git"])
+                    if extra_args:
+                        push_args.extend(shlex.split(extra_args))
+                    push_args.extend(
+                        ["-e", f"ssh -i {shlex.quote(str(tgt_key_path))} -p {tgt_port} -o StrictHostKeyChecking=no"]
+                    )
+                    push_args.extend([temp_path_str, f"{tgt_user}@{tgt_hostname}:{target_path_str}"])
+                    try:
+                        self.mngr_ctx.concurrency_group.run_process_to_completion(push_args)
+                    except ProcessError as e:
+                        raise MngrError(f"rsync failed (push to target): {e.stderr}") from e
+                    logger.trace("Ran rsync push command: {}", " ".join(push_args))
+
+            return
 
         with log_span("{}", rsync_description):
             try:
-                self.mngr_ctx.cg.run_process_to_completion(rsync_args)
+                self.mngr_ctx.concurrency_group.run_process_to_completion(rsync_args)
             except ProcessError as e:
                 raise MngrError(f"rsync failed: {e.stderr}") from e
             logger.trace("Ran rsync command: {}", " ".join(rsync_args))
@@ -1293,7 +1396,7 @@ class Host(BaseHost, OnlineHostInterface):
             resolved = resolve_agent_type(agent_type, self.mngr_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
-            self._mkdirs([state_dir, state_dir / "logs", state_dir / "events"])
+            self._mkdirs([state_dir, state_dir / "logs"])
 
             create_time = datetime.now(timezone.utc)
 
@@ -1349,7 +1452,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Get the state directory for an agent."""
         return self.host_dir / "agents" / str(agent.id)
 
-    def _get_agent_env_path(self, agent: AgentInterface) -> Path:
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
         """Get the path to the agent's environment file."""
         return self._get_agent_state_dir(agent) / "env"
 
@@ -1401,7 +1504,7 @@ class Host(BaseHost, OnlineHostInterface):
         if not env_vars:
             return
 
-        env_path = self._get_agent_env_path(agent)
+        env_path = self.get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
         logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
@@ -1418,7 +1521,7 @@ class Host(BaseHost, OnlineHostInterface):
         The caller is responsible for joining these appropriately.
         """
         host_env_path = self.host_dir / "env"
-        agent_env_path = self._get_agent_env_path(agent)
+        agent_env_path = self.get_agent_env_path(agent)
 
         return [
             "set -a",
@@ -1593,6 +1696,54 @@ class Host(BaseHost, OnlineHostInterface):
             success=success,
         )
 
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object.
+
+        The operation is idempotent: if interrupted mid-rename, re-running
+        will complete it. This works because data.json (the "commit point")
+        is updated last, while tmux and env changes are applied first and
+        are safe to repeat.
+        """
+        with log_span("Renaming agent", agent_id=str(agent.id), old_name=str(agent.name), new_name=str(new_name)):
+            old_name = agent.name
+            data_path = self._get_agent_state_dir(agent) / "data.json"
+
+            # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
+            old_session_name = f"{self.mngr_ctx.config.prefix}{old_name}"
+            new_session_name = f"{self.mngr_ctx.config.prefix}{new_name}"
+            result = self.execute_command(
+                f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
+                f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true"
+            )
+            logger.debug("Tmux rename result: success={}, stdout={}", result.success, result.stdout.strip())
+
+            # Update the MNGR_AGENT_NAME env var in the agent's env file
+            env_path = self.get_agent_env_path(agent)
+            try:
+                env_content = self.read_text_file(env_path)
+                updated_lines: list[str] = []
+                for line in env_content.splitlines():
+                    if line.startswith("MNGR_AGENT_NAME="):
+                        updated_lines.append(f"MNGR_AGENT_NAME={new_name}")
+                    else:
+                        updated_lines.append(line)
+                self.write_text_file(env_path, "\n".join(updated_lines) + "\n")
+            except FileNotFoundError:
+                logger.debug("No env file found for agent {}, skipping env update", agent.id)
+
+            # Update data.json last (the "commit point" for the rename)
+            content = self.read_text_file(data_path)
+            data = json.loads(content)
+            data["name"] = str(new_name)
+            self.write_text_file(data_path, json.dumps(data, indent=2))
+            self.save_agent_data(agent.id, data)
+
+            # Reload and return the updated agent
+            updated_agent = self._load_agent_from_dir(self._get_agent_state_dir(agent))
+            if updated_agent is None:
+                raise AgentNotFoundOnHostError(agent.id, self.id)
+            return updated_agent
+
     def destroy_agent(self, agent: AgentInterface) -> None:
         """Destroy an agent and clean up its resources."""
         with log_span("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name)):
@@ -1607,13 +1758,17 @@ class Host(BaseHost, OnlineHostInterface):
                 self.provider_instance.remove_persisted_agent_data(self.id, agent.id)
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
-        """Build a shell command that sources env files and then execs bash.
+        """Build a shell command that sources env files and then execs into a shell.
 
-        This is used as the shell-command for tmux new-session/new-window, so the
-        resulting shell has all environment variables properly set.
+        Uses MNGR_SAVED_DEFAULT_TMUX_COMMAND if set (the user's original
+        default-command, saved via tmux set-environment during session creation),
+        falling back to bash otherwise. This means agent windows created before
+        the variable is set get bash, while user-created windows (via
+        default-command) get the user's shell.
         """
         commands = self._build_source_env_commands(agent)
-        commands.append("exec bash")
+        # Note: no quotes, because the saved command may have multiple words
+        commands.append("exec ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}")
         return "bash -c " + shlex.quote("; ".join(commands))
 
     def _get_host_tmux_config_path(self) -> Path:
@@ -1686,15 +1841,6 @@ class Host(BaseHost, OnlineHostInterface):
                 ]
             )
 
-        lines.extend(
-            [
-                "",
-                # FIXME: this should really be handled by the agent plugin instead! It will need to append to the tmux conf as part of its setup (if this line doesnt already exist, then remove it from here)
-                "# Automatically signal claude to tell it to resize on client attach",
-                """set-hook -g client-attached 'run-shell "pkill -SIGWINCH -f claude"'""",
-                "",
-            ]
-        )
         config_content = "\n".join(lines)
 
         self.write_text_file(config_path, config_content)
@@ -1713,7 +1859,10 @@ class Host(BaseHost, OnlineHostInterface):
         same session for each additional command.
 
         Environment variables from the host and agent env files are sourced
-        when creating the tmux session, so all shells in the session inherit them.
+        when creating the tmux session and its agent windows. The session's
+        default-command is set to source env files and exec into the user's
+        original default-command (queried via tmux show-option), so that
+        user-created windows get both the env vars and the user's shell.
 
         A custom tmux config is used that:
         - Sources the user's default ~/.tmux.conf if it exists
@@ -1751,7 +1900,7 @@ class Host(BaseHost, OnlineHostInterface):
                         unset_vars=self.mngr_ctx.config.unset_vars,
                         host_dir=self.host_dir,
                     )
-                    result = self.execute_command(combined_command)
+                    result = self.execute_command(combined_command, cwd=agent.work_dir)
                     if not result.success:
                         raise AgentStartError(str(agent.name), result.stderr)
 
@@ -1965,8 +2114,20 @@ def _build_start_agent_shell_command(
         f" {shlex.quote(env_shell_cmd)}"
     )
 
-    # Set the session's default-command so new windows/panes inherit env vars
-    steps.append(f"tmux set-option -t {shlex.quote(session_name)} default-command {shlex.quote(env_shell_cmd)}")
+    # Save the user's original default-command (from their ~/.tmux.conf) into
+    # the tmux session environment, then set default-command to env_shell_cmd.
+    # Because env_shell_cmd uses ${MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash}, the
+    # initial agent window (created above, before this variable exists) gets
+    # bash, while user-created windows get the user's shell.
+    quoted_session = shlex.quote(session_name)
+    save_user_shell_script = (
+        f"U=$(tmux show-option -t {quoted_session} -Aqv default-command 2>/dev/null); "
+        f'[ -z "$U" ] && U=$(tmux show-option -t {quoted_session} -Aqv default-shell 2>/dev/null) || true; '
+        '[ -z "$U" ] && U=bash; '
+        f'tmux set-environment -t {quoted_session} MNGR_SAVED_DEFAULT_TMUX_COMMAND "$U"'
+    )
+    steps.append("bash -c " + shlex.quote(save_user_shell_script))
+    steps.append(f"tmux set-option -t {quoted_session} default-command {shlex.quote(env_shell_cmd)}")
 
     # Send the agent command as literal keys, then Enter to execute
     steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
@@ -2004,12 +2165,21 @@ def _build_start_agent_shell_command(
     )
     steps.append(activity_printf_cmd)
 
-    # Build the process activity monitor script (runs in the background)
-    # FIXME: this script really ought to wait for up to X seconds for the PANE_PID to appear (since it can take a little bit)
+    # Build the process activity monitor script (runs in the background, inspects window :0 where the agent is assumed to be running)
+    # Wait up to 10 seconds for the PANE_PID to appear (tmux can take a moment to start)
+    max_wait_seconds = 10
+    tmux_list_panes_cmd = (
+        f"tmux list-panes -t {shlex.quote(session_name) + ':0'} -F '#{{pane_pid}}' 2>/dev/null | head -n 1"
+    )
     process_activity_path = activity_dir / ActivitySource.PROCESS.value.lower()
     monitor_script = (
-        f"PANE_PID=$(tmux list-panes -t {shlex.quote(session_name)}"
-        " -F '#{pane_pid}' 2>/dev/null | head -n 1); "
+        f"PANE_PID=$({tmux_list_panes_cmd}); "
+        f"TRIES=0; "
+        f'while [ -z "$PANE_PID" ] && [ "$TRIES" -lt {max_wait_seconds} ]; do '
+        f"sleep 1; "
+        f"TRIES=$((TRIES + 1)); "
+        f"PANE_PID=$({tmux_list_panes_cmd}); "
+        f"done; "
         'if [ -z "$PANE_PID" ]; then exit 0; fi; '
         f"ACTIVITY_PATH={shlex.quote(str(process_activity_path))}; "
         f"AGENT_ID={shlex.quote(str(agent.id))}; "
@@ -2028,6 +2198,45 @@ def _build_start_agent_shell_command(
     steps.append(monitor_cmd)
 
     return guard + "; " + " && ".join(steps)
+
+
+@pure
+def _parse_uptime_output(stdout: str) -> float:
+    """Parse the output of the cross-platform uptime command.
+
+    Handles two formats:
+    - macOS: two lines (boot timestamp, current timestamp) from sysctl + date
+    - Linux: single line from /proc/uptime (uptime_seconds idle_seconds)
+    """
+    output = stdout.strip()
+    output_lines = output.split("\n")
+    try:
+        if len(output_lines) == 2:
+            # macOS: two lines -- boot time and current time
+            boot_time = int(output_lines[0])
+            current_time = int(output_lines[1])
+            return float(current_time - boot_time)
+        elif len(output_lines) == 1 and output:
+            # Linux: single line from /proc/uptime
+            uptime_str = output.split()[0]
+            return float(uptime_str)
+        else:
+            return 0.0
+    except (ValueError, OSError):
+        return 0.0
+
+
+@pure
+def _parse_boot_time_output(stdout: str) -> datetime | None:
+    """Parse the output of the cross-platform boot time command.
+
+    Both macOS (sysctl) and Linux (btime) produce a single Unix timestamp.
+    """
+    try:
+        boot_timestamp = int(stdout.strip())
+        return datetime.fromtimestamp(boot_timestamp, tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
 
 
 @pure

@@ -1,10 +1,14 @@
+import json
+import os
 from collections.abc import Callable
 from collections.abc import Sequence
+from concurrent.futures import Future
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -14,7 +18,7 @@ from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.thread_utils import ObservableThread
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
@@ -30,6 +34,7 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
@@ -229,7 +234,38 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _write_completion_cache(mngr_ctx, result)
+
     return result
+
+
+COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
+
+
+def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:
+    """Write agent names to the completion cache file (best-effort).
+
+    Writes a JSON file with all agent names from the list result so that
+    shell completion can read it without importing the mngr config system.
+    The cache file is written to {host_dir}/.completion_cache.json.
+
+    This function never raises -- cache write failures must not break list_agents().
+    """
+    try:
+        env_host_dir = os.environ.get("MNGR_HOST_DIR")
+        host_dir = Path(env_host_dir) if env_host_dir else mngr_ctx.config.default_host_dir.expanduser()
+
+        names = sorted({str(agent.name) for agent in result.agents})
+        cache_data = {
+            "names": names,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        cache_path = host_dir / COMPLETION_CACHE_FILENAME
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache_data))
+    except OSError:
+        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(
@@ -246,12 +282,10 @@ def _list_agents_batch(
     logger.trace("Found {} hosts with agents", len(agents_by_host))
 
     # Process each host and its agents in parallel
-    with (
-        mngr_ctx.concurrency_group.make_concurrency_group("list_agents_process_hosts")
-        if mngr_ctx.concurrency_group is not None
-        else ConcurrencyGroup(name="list_agents_process_hosts")
-    ) as cg:
-        threads: list[ObservableThread] = []
+    futures: list[Future[None]] = []
+    with ConcurrencyGroupExecutor(
+        parent_cg=mngr_ctx.concurrency_group, name="list_agents_process_hosts", max_workers=32
+    ) as executor:
         for host_ref, agent_refs in agents_by_host.items():
             if not agent_refs:
                 continue
@@ -268,15 +302,21 @@ def _list_agents_batch(
                     params.on_error(error_info)
                 continue
 
-            threads.append(
-                cg.start_new_thread(
-                    target=_process_host_for_agent_listing,
-                    args=(host_ref, agent_refs, provider, params, result, results_lock),
-                    name=f"list_agents_{host_ref.host_id}",
+            futures.append(
+                executor.submit(
+                    _process_host_for_agent_listing,
+                    host_ref,
+                    agent_refs,
+                    provider,
+                    params,
+                    result,
+                    results_lock,
                 )
             )
-        for thread in threads:
-            thread.join()
+
+    # Re-raise any thread exceptions (e.g. abort-mode errors)
+    for future in futures:
+        future.result()
 
 
 def _list_agents_streaming(
@@ -294,22 +334,25 @@ def _list_agents_streaming(
         providers = get_all_provider_instances(mngr_ctx, provider_names)
         logger.trace("Found {} provider instances", len(providers))
 
-        with (
-            mngr_ctx.concurrency_group.make_concurrency_group("list_agents_streaming")
-            if mngr_ctx.concurrency_group is not None
-            else ConcurrencyGroup(name="list_agents_streaming")
-        ) as cg:
-            threads: list[ObservableThread] = []
+        with ConcurrencyGroupExecutor(
+            parent_cg=mngr_ctx.concurrency_group, name="list_agents_streaming", max_workers=32
+        ) as executor:
+            streaming_futures: list[Future[None]] = []
             for provider in providers:
-                threads.append(
-                    cg.start_new_thread(
-                        target=_process_provider_streaming,
-                        args=(provider, params, result, results_lock, cg),
-                        name=f"stream_provider_{provider.name}",
+                streaming_futures.append(
+                    executor.submit(
+                        _process_provider_streaming,
+                        provider,
+                        params,
+                        result,
+                        results_lock,
+                        mngr_ctx.concurrency_group,
                     )
                 )
-            for thread in threads:
-                thread.join()
+
+        # Re-raise any thread exceptions
+        for future in streaming_futures:
+            future.result()
 
 
 def _process_provider_streaming(
@@ -330,21 +373,27 @@ def _process_provider_streaming(
         provider_results = _load_agent_refs_from_provider(provider, include_destroyed=True, cg=cg)
 
         # Phase 2: immediately process hosts (fire on_agent for this provider)
-        host_threads: list[ObservableThread] = []
-        for host_ref, agent_refs in provider_results.items():
-            if not agent_refs:
-                continue
+        host_futures: list[Future[None]] = []
+        with ConcurrencyGroupExecutor(parent_cg=cg, name=f"stream_hosts_{provider.name}", max_workers=32) as executor:
+            for host_ref, agent_refs in provider_results.items():
+                if not agent_refs:
+                    continue
 
-            host_threads.append(
-                cg.start_new_thread(
-                    target=_process_host_for_agent_listing,
-                    args=(host_ref, agent_refs, provider, params, result, results_lock),
-                    name=f"list_agents_{host_ref.host_id}",
+                host_futures.append(
+                    executor.submit(
+                        _process_host_for_agent_listing,
+                        host_ref,
+                        agent_refs,
+                        provider,
+                        params,
+                        result,
+                        results_lock,
+                    )
                 )
-            )
 
-        for thread in host_threads:
-            thread.join()
+        # Re-raise any thread exceptions
+        for future in host_futures:
+            future.result()
 
     except MngrError as e:
         if params.error_behavior == ErrorBehavior.ABORT:
@@ -378,6 +427,8 @@ def _assemble_host_info(
     ssh_info: SSHInfo | None = None
 
     # Host is the implementation of OnlineHostInterface, ie, this host is online
+    is_locked: bool | None = None
+    locked_time: datetime | None = None
     if isinstance(host, Host):
         ssh_connection = host._get_ssh_connection_info()
         if ssh_connection is not None:
@@ -392,12 +443,17 @@ def _assemble_host_info(
         boot_time = host.get_boot_time()
         uptime_seconds = host.get_uptime_seconds()
         resource = host.get_provider_resources()
+        is_locked = host.is_lock_held()
+        # Only fetch locked_time when the lock is held to avoid a redundant
+        # SSH stat command on remote hosts (is_lock_held already checked existence).
+        locked_time = host.get_reported_lock_time() if is_locked else None
     else:
         boot_time = None
         uptime_seconds = None
         resource = None
 
     # make the host data
+    host_plugin_data = host.get_certified_data().plugin
     host_info = HostInfo(
         id=host.id,
         name=str(host.get_name()),
@@ -410,6 +466,9 @@ def _assemble_host_info(
         resource=resource,
         ssh=ssh_info,
         snapshots=host.get_snapshots(),
+        is_locked=is_locked,
+        locked_time=locked_time,
+        plugin=host_plugin_data,
         failure_reason=host.get_failure_reason(),
         build_log=host.get_build_log(),
     )
@@ -623,25 +682,17 @@ def _load_agent_refs_from_provider(
     hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
     logger.trace("Loaded hosts from provider {}", provider.name)
 
-    threads: list[ObservableThread] = []
-    provider_results: dict[HostReference, list[AgentReference]] = {}
-    for host in hosts:
-        host_ref = HostReference(
-            host_id=host.id,
-            host_name=host.get_name(),
-            provider_name=provider.name,
-        )
-        thread = cg.start_new_thread(
-            target=_store_result_from_callable,
-            args=(provider_results, host_ref, lambda x=host: _get_agent_refs_robustly(x, provider)),
-            name="fetch_host_records",
-        )
-        threads.append(thread)
+    future_by_host_ref: dict[HostReference, Future[list[AgentReference]]] = {}
+    with ConcurrencyGroupExecutor(parent_cg=cg, name=f"load_agents_{provider.name}", max_workers=32) as executor:
+        for host in hosts:
+            host_ref = HostReference(
+                host_id=host.id,
+                host_name=host.get_name(),
+                provider_name=provider.name,
+            )
+            future_by_host_ref[host_ref] = executor.submit(_get_agent_refs_robustly, host, provider)
 
-    for thread in threads:
-        thread.join()
-
-    return provider_results
+    return {host_ref: future.result() for host_ref, future in future_by_host_ref.items()}
 
 
 def _process_provider_for_host_listing(
@@ -663,20 +714,8 @@ def _process_provider_for_host_listing(
         agents_by_host.update(provider_results)
 
 
-def _store_result_from_callable(
-    result_dict: dict[str, Any],
-    key: str,
-    callable_fn: Callable[[], Any],
-) -> None:
-    """Helper function for storing callable results in a thread-safe manner.
-
-    Used by list_hosts to run parallel fetches with ConcurrencyGroup.
-    """
-    result_dict[key] = callable_fn()
-
-
 # retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host, provider):
+def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
     try:
         return host.get_agent_references()
     # retry once when there is a host connection error (the second time we'll probably end up
@@ -701,22 +740,25 @@ def load_all_agents_grouped_by_host(
         providers = get_all_provider_instances(mngr_ctx, provider_names)
         logger.trace("Found {} provider instances", len(providers))
 
-        # Process all providers in parallel using ConcurrencyGroup
-        with (
-            mngr_ctx.concurrency_group.make_concurrency_group("load_all_agents_grouped_by_host")
-            if mngr_ctx.concurrency_group is not None
-            else ConcurrencyGroup(name="load_all_agents_grouped_by_host")
-        ) as cg:
-            threads: list[ObservableThread] = []
+        # Process all providers in parallel using ConcurrencyGroupExecutor
+        futures: list[Future[None]] = []
+        with ConcurrencyGroupExecutor(
+            parent_cg=mngr_ctx.concurrency_group, name="load_all_agents_grouped_by_host", max_workers=32
+        ) as executor:
             for provider in providers:
-                threads.append(
-                    cg.start_new_thread(
-                        target=_process_provider_for_host_listing,
-                        args=(provider, agents_by_host, include_destroyed, results_lock, cg),
-                        name=f"load_hosts_{provider.name}",
+                futures.append(
+                    executor.submit(
+                        _process_provider_for_host_listing,
+                        provider,
+                        agents_by_host,
+                        include_destroyed,
+                        results_lock,
+                        mngr_ctx.concurrency_group,
                     )
                 )
-            for thread in threads:
-                thread.join()
+
+        # Re-raise any thread exceptions
+        for future in futures:
+            future.result()
 
         return (agents_by_host, providers)

@@ -907,10 +907,6 @@ with log_span("Creating agent work directory from source {}", source_path, host=
 
 
 # === Example block 46 ===
-logger.debug("Source and target are the same path, no file transfer needed")
-
-
-# === Example block 47 ===
 
 
 # In CLI code - info is appropriate
@@ -926,7 +922,7 @@ def create_todo(title: str) -> TodoItem:
     return todo
 
 
-# === Example block 48 ===
+# === Example block 47 ===
 
 
 class TodoStorageError(TodoAppError):
@@ -946,7 +942,7 @@ class TodoNotificationService(MutableModel):
             raise
 
 
-# === Example block 49 ===
+# === Example block 48 ===
 
 
 def main() -> None:
@@ -955,7 +951,7 @@ def main() -> None:
 
 
 
-# === Example block 50 ===
+# === Example block 49 ===
 
 
 
@@ -1008,7 +1004,7 @@ def load_todo_app_configuration() -> TodoAppConfiguration:
     return TodoAppConfiguration.model_validate(raw_config)
 
 
-# === Example block 51 ===
+# === Example block 50 ===
 
 
 
@@ -1061,7 +1057,31 @@ def list_todos(
     run_list_todos(arguments)
 
 
+# === Example block 51 ===
+class MockTodoRepository(TodoRepositoryInterface):
+    """In-memory implementation for testing."""
+
+    mock_todos: dict[TodoId, TodoItem] = Field(default_factory=dict)
+
+    def save_todo(self, todo_item: TodoItem) -> None:
+        self.mock_todos[todo_item.todo_id] = todo_item
+
+    def get_todo_by_id(self, todo_id: TodoId) -> TodoItem | None:
+        return self.mock_todos.get(todo_id)
+
+    def delete_todo(self, todo_id: TodoId) -> None:
+        del self.mock_todos[todo_id]
+
+
 # === Example block 52 ===
+class FailingSaveMockRepository(MockTodoRepository):
+    """Mock that raises on save for error path testing."""
+
+    def save_todo(self, todo_item: TodoItem) -> None:
+        raise TodoStorageError("Simulated save failure")
+
+
+# === Example block 53 ===
 
 
 def test_format_todo_for_display_shows_checkbox_and_title() -> None:
@@ -1088,7 +1108,7 @@ def test_format_todo_for_display_shows_completed_marker_when_done() -> None:
     assert formatted_output == snapshot("[x] Send email")
 
 
-# === Example block 53 ===
+# === Example block 54 ===
 
 
 
@@ -1128,7 +1148,7 @@ def test_export_large_todo_dataset_to_json_produces_expected_output() -> None:
     )
 
 
-# === Example block 54 ===
+# === Example block 55 ===
 def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     todo_list = TodoList(list_id=TodoListId.generate(), todos=())
     new_todo = create_test_todo(title="New task")
@@ -1139,7 +1159,7 @@ def test_add_todo_to_list_appends_todo_to_end_of_list() -> None:
     assert updated_list.todos[0] == new_todo
 
 
-# === Example block 55 ===
+# === Example block 56 ===
 
 
 
@@ -1182,7 +1202,7 @@ def test_sync_todo_list_to_remote_server_handles_response_correctly(
     assert sync_response.synced_count == snapshot(1)
 
 
-# === Example block 56 ===
+# === Example block 57 ===
 
 
 @pytest.mark.acceptance
@@ -1192,7 +1212,7 @@ def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
     ...
 
 
-# === Example block 57 ===
+# === Example block 58 ===
 
 
 @pytest.mark.release
@@ -1202,7 +1222,7 @@ def test_full_end_to_end_workflow_with_all_providers() -> None:
     ...
 
 
-# === Example block 58 ===
+# === Example block 59 ===
 
 
 class TodoSyncError(TodoAppError):

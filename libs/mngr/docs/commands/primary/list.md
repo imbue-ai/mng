@@ -50,7 +50,6 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
 | `--sort` | text | Sort by field (supports nested fields like host.name); enables sorted (non-streaming) output [default: create_time] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
@@ -72,7 +71,9 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--json` | boolean | Alias for --format json | `False` |
+| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
@@ -151,7 +152,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.name` - Host name
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
-- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
@@ -172,6 +173,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
   - `host.ssh.user` - SSH username
   - `host.ssh.key_path` - Path to SSH private key
 - `host.snapshots` - List of available snapshots
+- `host.is_locked` - Whether the host is currently locked for an operation
+- `host.locked_time` - When the host was locked
 - `host.plugin.$PLUGIN_NAME.*` - Host plugin fields (e.g., `host.plugin.aws.iam_user`)
 
 **Notes:**

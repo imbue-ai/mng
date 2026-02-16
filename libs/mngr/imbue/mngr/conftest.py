@@ -1,12 +1,11 @@
-"""Shared pytest fixtures for mngr tests."""
-
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Generator
-from typing import NamedTuple
 from uuid import uuid4
 
 import pluggy
@@ -14,17 +13,22 @@ import psutil
 import pytest
 import toml
 from click.testing import CliRunner
+from pydantic import Field
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.agents.agent_registry import reset_agent_registry
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
+from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
@@ -142,6 +146,64 @@ def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
     yield tmp_path
 
 
+@pytest.fixture
+def _isolate_tmux_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Generator[None, None, None]:
+    """Give each test its own isolated tmux server.
+
+    This fixture:
+    - Creates a per-test TMUX_TMPDIR under /tmp so each test gets its own
+      tmux server socket, preventing xdist workers from racing on the shared
+      default tmux server.
+    - Unsets TMUX so tmux commands connect to the isolated server (via
+      TMUX_TMPDIR) rather than the real server.
+    - On teardown, kills the isolated tmux server and cleans up the tmpdir.
+
+    IMPORTANT: We use /tmp directly instead of pytest's tmp_path because
+    tmux sockets are Unix domain sockets, which have a ~104-byte path
+    length limit on macOS. Pytest's tmp_path lives under
+    /private/var/folders/.../pytest-of-.../... which is already ~80+ bytes,
+    leaving no room for tmux's tmux-$UID/default suffix. When the path
+    exceeds the limit, tmux silently falls back to the default socket,
+    defeating isolation entirely (and potentially killing production
+    tmux servers during test cleanup).
+    """
+    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mngr-tmux-", dir="/tmp"))
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
+    # Unset TMUX so tmux commands during the test connect to the isolated
+    # server (via TMUX_TMPDIR) rather than the real server. When TMUX is
+    # set (because we're running inside a tmux session), tmux uses it to
+    # find the current server, overriding TMUX_TMPDIR.
+    monkeypatch.delenv("TMUX", raising=False)
+
+    yield
+
+    # Kill the test's isolated tmux server to clean up any leaked sessions
+    # or processes. We must use -S with the explicit socket path because:
+    # 1. The TMUX env var (set when running inside tmux) tells tmux to
+    #    connect to the CURRENT server, overriding TMUX_TMPDIR entirely.
+    #    Without -S, kill-server would kill the real tmux server.
+    # 2. We also unset TMUX in the env as a belt-and-suspenders measure.
+    tmux_tmpdir_str = str(tmux_tmpdir)
+    assert tmux_tmpdir_str.startswith("/tmp/mngr-tmux-"), (
+        f"TMUX_TMPDIR safety check failed! Expected /tmp/mngr-tmux-* path but got: {tmux_tmpdir_str}. "
+        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
+    )
+    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
+    kill_env = os.environ.copy()
+    kill_env.pop("TMUX", None)
+    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
+    subprocess.run(
+        ["tmux", "-S", str(socket_path), "kill-server"],
+        capture_output=True,
+        env=kill_env,
+    )
+
+    # Clean up the tmpdir we created outside of pytest's tmp_path.
+    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True)
 def setup_test_mngr_env(
     tmp_home_dir: Path,
@@ -149,7 +211,8 @@ def setup_test_mngr_env(
     mngr_test_prefix: str,
     mngr_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
+    _isolate_tmux_server: None,
+) -> Generator[None, None, None]:
     """Set up environment variables for all tests.
 
     This autouse fixture ensures:
@@ -157,6 +220,7 @@ def setup_test_mngr_env(
     - MNGR_HOST_DIR points to tmp_path/.mngr (not ~/.mngr)
     - MNGR_PREFIX uses a unique test ID for isolation
     - MNGR_ROOT_NAME prevents loading project config (.mngr/settings.toml)
+    - TMUX_TMPDIR gives each test its own tmux server (via _isolate_tmux_server)
 
     By setting HOME to tmp_path, tests cannot accidentally read or modify
     files in the real home directory. This protects files like ~/.claude.json.
@@ -192,6 +256,8 @@ def setup_test_mngr_env(
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     assert_home_is_temp_directory()
+
+    yield
 
 
 @pytest.fixture
@@ -259,7 +325,8 @@ def make_mngr_ctx(
     profile_dir: Path,
     *,
     is_interactive: bool = False,
-    concurrency_group: ConcurrencyGroup | None = None,
+    is_auto_approve: bool = False,
+    concurrency_group: ConcurrencyGroup,
 ) -> MngrContext:
     """Create a MngrContext with the given parameters.
 
@@ -271,6 +338,7 @@ def make_mngr_ctx(
         pm=pm,
         profile_dir=profile_dir,
         is_interactive=is_interactive,
+        is_auto_approve=is_auto_approve,
         concurrency_group=concurrency_group,
     )
 
@@ -303,12 +371,28 @@ def interactive_mngr_ctx(
 
 @pytest.fixture
 def local_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> LocalProviderInstance:
-    """Create a LocalProviderInstance with a temporary host directory."""
+    """Create a LocalProviderInstance with a per-host temporary directory."""
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    per_host_dir = temp_host_dir / "hosts" / str(host_id)
+    per_host_dir.mkdir(parents=True, exist_ok=True)
     return LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=temp_mngr_ctx,
     )
+
+
+@pytest.fixture
+def per_host_dir(temp_host_dir: Path) -> Path:
+    """Get the per-host directory for the local provider.
+
+    This is the directory where host-scoped data lives: agents/, data.json,
+    activity/, etc. Located at {temp_host_dir}/hosts/{host_id}/.
+    """
+    host_id = get_or_create_local_host_id(temp_host_dir)
+    result = temp_host_dir / "hosts" / str(host_id)
+    result.mkdir(parents=True, exist_ok=True)
+    return result
 
 
 @pytest.fixture
@@ -334,8 +418,9 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset the module-level plugin manager singleton before each test
     imbue.mngr.main.reset_plugin_manager()
 
-    # Clear the backend registry to ensure clean state
+    # Clear the registries to ensure clean state
     reset_backend_registry()
+    reset_agent_registry()
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -354,6 +439,7 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset after the test as well
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
+    reset_agent_registry()
 
     # Clean up Modal app contexts to prevent async cleanup errors
     ModalProviderBackend.reset_app_registry()
@@ -469,12 +555,12 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-class ModalSubprocessTestEnv(NamedTuple):
+class ModalSubprocessTestEnv(FrozenModel):
     """Environment configuration for Modal subprocess tests."""
 
-    env: dict[str, str]
-    prefix: str
-    host_dir: Path
+    env: dict[str, str] = Field(description="Environment variables for the subprocess")
+    prefix: str = Field(description="The mngr prefix for test isolation")
+    host_dir: Path = Field(description="Path to the temporary host directory")
 
 
 @pytest.fixture(scope="session")
@@ -501,7 +587,7 @@ def modal_test_session_host_dir(tmp_path_factory: pytest.TempPathFactory) -> Pat
 
 
 @pytest.fixture(scope="session")
-def modal_test_session_user_id() -> str:
+def modal_test_session_user_id() -> UserId:
     """Generate a deterministic user ID for the test session.
 
     This user ID is shared across all subprocess Modal tests in a session
@@ -509,13 +595,13 @@ def modal_test_session_user_id() -> str:
     the cleanup fixture can construct the exact environment name without
     needing to find the user_id file in the profile directory structure.
     """
-    return uuid4().hex
+    return UserId(uuid4().hex)
 
 
 @pytest.fixture(scope="session")
 def modal_test_session_cleanup(
     modal_test_session_env_name: str,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[None, None, None]:
     """Session-scoped fixture that cleans up the Modal environment at session end.
 
@@ -545,7 +631,7 @@ def modal_subprocess_env(
     modal_test_session_env_name: str,
     modal_test_session_host_dir: Path,
     modal_test_session_cleanup: None,
-    modal_test_session_user_id: str,
+    modal_test_session_user_id: UserId,
 ) -> Generator[ModalSubprocessTestEnv, None, None]:
     """Create a subprocess test environment with session-scoped Modal environment.
 
@@ -800,7 +886,11 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should clean up spawned processes before completing.\n" + "\n".join(proc_info)
         )
 
-    # 2. Check for leftover tmux sessions from this worker's tests
+    # 2. Check for leftover tmux sessions from this worker's tests.
+    # Note: Each test gets its own tmux server via TMUX_TMPDIR, and the
+    # per-test fixture kills that server on teardown. This check queries
+    # the default tmux server as a fallback safety net -- it would only
+    # catch leaks if a test somehow bypassed the per-test TMUX_TMPDIR.
     leftover_sessions: list[str] = []
     for test_id in _worker_test_ids:
         prefix = f"mngr_{test_id}-"

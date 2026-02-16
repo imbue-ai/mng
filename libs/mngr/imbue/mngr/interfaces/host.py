@@ -162,6 +162,8 @@ class HostInterface(MutableModel, ABC):
 
 
 class OnlineHostInterface(HostInterface, ABC):
+    """Interface for hosts that are currently online and accessible for operations."""
+
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     # =========================================================================
@@ -259,6 +261,11 @@ class OnlineHostInterface(HostInterface, ABC):
     @abstractmethod
     def get_reported_lock_time(self) -> datetime | None:
         """Return the last modification time of the host lock file, or None if not locked."""
+        ...
+
+    @abstractmethod
+    def is_lock_held(self) -> bool:
+        """Check whether the host lock is currently held."""
         ...
 
     # =========================================================================
@@ -378,6 +385,11 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
+        """Get the path to the agent's environment file."""
+        ...
+
+    @abstractmethod
     def get_agents(self) -> list[AgentInterface]:
         """Return a list of all agents running on this host."""
         ...
@@ -409,6 +421,11 @@ class OnlineHostInterface(HostInterface, ABC):
         mngr_ctx: MngrContext,
     ) -> None:
         """Install packages, create config files, and set up an agent."""
+        ...
+
+    @abstractmethod
+    def rename_agent(self, agent: AgentInterface, new_name: AgentName) -> AgentInterface:
+        """Rename an agent and return the updated agent object."""
         ...
 
     @abstractmethod

@@ -12,6 +12,7 @@ from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -47,7 +48,7 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target_pos", default=None, required=False, metavar="TARGET")
+@click.argument("target_pos", default=None, required=False, metavar="TARGET", shell_complete=complete_agent_name)
 @click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")
@@ -138,7 +139,6 @@ def push(ctx: click.Context, **kwargs) -> None:
         command_name="push",
         command_class=PushCliOptions,
     )
-    logger.debug("Running push command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_target = opts.target if opts.target is not None else opts.target_pos
@@ -220,7 +220,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
             is_mirror=opts.mirror,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -248,7 +248,7 @@ def push(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

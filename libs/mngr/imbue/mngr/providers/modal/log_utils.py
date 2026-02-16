@@ -65,7 +65,7 @@ def _create_multi_writer(files: Sequence[Any]) -> _MultiWriter:
     return writer
 
 
-class _ModalLoguruWriter:
+class ModalLoguruWriter:
     """Writer that sends Modal output to loguru with structured metadata.
 
     Supports setting app_id and app_name for structured logging.
@@ -79,7 +79,15 @@ class _ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        logger.log(LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
+        try:
+            logger.log(
+                LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name
+            )
+        except ValueError as e:
+            if "I/O operation on closed file" in str(e):
+                pass
+            else:
+                raise
         return len(text)
 
     def flush(self) -> None:
@@ -99,9 +107,9 @@ class _ModalLoguruWriter:
         return False
 
 
-def _create_modal_loguru_writer() -> _ModalLoguruWriter:
+def _create_modal_loguru_writer() -> ModalLoguruWriter:
     """Create a new Modal loguru writer instance."""
-    writer = _ModalLoguruWriter()
+    writer = ModalLoguruWriter()
     writer.app_id = None
     writer.app_name = None
     return writer
@@ -162,7 +170,7 @@ class _QuietOutputManager(OutputManager):
 @contextlib.contextmanager
 def enable_modal_output_capture(
     is_logging_to_loguru: bool = True,
-) -> Generator[tuple[StringIO, _ModalLoguruWriter | None], None, None]:
+) -> Generator[tuple[StringIO, ModalLoguruWriter | None], None, None]:
     """Context manager for capturing Modal app output.
 
     Intercepts Modal's output system and routes it to a StringIO buffer for
@@ -177,7 +185,7 @@ def enable_modal_output_capture(
     None if is_logging_to_loguru is False.
     """
     output_buffer = StringIO()
-    loguru_writer: _ModalLoguruWriter | None = _create_modal_loguru_writer() if is_logging_to_loguru else None
+    loguru_writer: ModalLoguruWriter | None = _create_modal_loguru_writer() if is_logging_to_loguru else None
 
     # Build list of writers to tee output to
     writers: list[Any] = [output_buffer]

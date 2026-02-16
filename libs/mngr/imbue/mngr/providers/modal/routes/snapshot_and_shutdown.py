@@ -1,4 +1,5 @@
-"""Modal function to snapshot and shut down a host.
+"""
+Modal function to snapshot and shut down a host.
 
 This function is deployed as a Modal web endpoint and can be invoked to:
 1. Snapshot a running Modal sandbox
@@ -9,6 +10,8 @@ All code is self-contained in this file - no imports from the mngr codebase.
 
 Required environment variable (must be set when deploying):
 - MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
+
+(note: do NOT remove this module docstring--this is a fully standalone script)
 """
 
 import json
@@ -31,16 +34,21 @@ if modal.is_local():
     APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
     if APP_NAME is None:
         raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
-    output_app_name_file = Path(".mngr/dev/build/app_name")
+    APP_BUILD_PATH = os.environ.get("MNGR_MODAL_APP_BUILD_PATH")
+    if APP_BUILD_PATH is None:
+        raise ConfigurationError("MNGR_MODAL_APP_BUILD_PATH environment variable must be set")
+    output_app_name_file = Path(APP_BUILD_PATH) / "app_name"
     output_app_name_file.parent.mkdir(parents=True, exist_ok=True)
     output_app_name_file.write_text(APP_NAME)
+    (Path(APP_BUILD_PATH) / "app_build_path").write_text(APP_BUILD_PATH)
 else:
     APP_NAME = Path("/deployment/app_name").read_text().strip()
+    APP_BUILD_PATH = Path("/deployment/app_build_path").read_text().strip()
 
 image = (
     modal.Image.debian_slim()
     .uv_pip_install("fastapi[standard]")
-    .add_local_file(".mngr/dev/build/app_name", "/deployment/app_name", copy=True)
+    .add_local_dir(str(Path(APP_BUILD_PATH)), "/deployment/", copy=True)
 )
 
 app = modal.App(name=APP_NAME, image=image)
@@ -108,6 +116,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
     logger = logging.getLogger("snapshot_and_shutdown")
+    were_snapshots_missing = False
 
     try:
         try:
@@ -124,6 +133,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Verify host record exists BEFORE creating snapshot to avoid orphaned images
             host_record = _read_host_record(host_id)
+            host_record_for_debugging = str(host_record)
             if host_record is None:
                 raise HTTPException(
                     status_code=404,
@@ -157,10 +167,12 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             certified_data = host_record.get("certified_host_data", {})
             if "snapshots" not in certified_data:
                 certified_data["snapshots"] = []
+                were_snapshots_missing = True
             certified_data["snapshots"].append(new_snapshot)
 
             # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
             certified_data["stop_reason"] = stop_reason
+            certified_data["updated_at"] = datetime.now(timezone.utc).isoformat()
             host_record["certified_host_data"] = certified_data
 
             # Write updated host record
@@ -172,12 +184,21 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
             # Terminate the sandbox
             sandbox.terminate()
 
+            if were_snapshots_missing:
+                raise HTTPException(
+                    status_code=500,
+                    detail=(
+                        f"Host record was missing 'snapshots' field. Original data was: {host_record_for_debugging}"
+                    ),
+                )
+
             return {
                 "success": True,
                 "snapshot_id": snapshot_id,
                 "snapshot_name": snapshot_name,
             }
 
+        # note: do NOT change this--this is just here temporarily while we are debugging intermittent failures during snapshotting
         except BaseException as e:
             logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
             raise

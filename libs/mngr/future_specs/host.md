@@ -4,7 +4,7 @@
 
 Most host data is queried from the provider (Docker, Modal, local, etc.) at runtime.
 
-Some data (e.g. from plugins, events, logs, etc.) is stored in the host directory at `$MNGR_HOST_DIR/`.  By convention, it should include subdirectories for `logs/` and `events/`.
+Some data (e.g. from plugins, logs, etc.) is stored in the host directory at `$MNGR_HOST_DIR/`.  By convention, it should include a subdirectory for `logs/`.
 
 The host directory should also include a `env` file with the environment variables for agents running on the host.
 

@@ -21,9 +21,35 @@ from imbue.mngr.main import BUILTIN_COMMANDS
 from imbue.mngr.main import cli
 
 # Commands categorized by their documentation location
-PRIMARY_COMMANDS = {"connect", "create", "destroy", "list", "pair", "pull", "push", "start", "stop"}
-SECONDARY_COMMANDS = {"config", "gc", "message"}
-ALIAS_COMMANDS = {"clone", "migrate"}
+PRIMARY_COMMANDS = {
+    "connect",
+    "create",
+    "destroy",
+    "exec",
+    "list",
+    "pair",
+    "pull",
+    "push",
+    "rename",
+    "start",
+    "stop",
+}
+SECONDARY_COMMANDS = {
+    "ask",
+    "cleanup",
+    "config",
+    "gc",
+    "limit",
+    "logs",
+    "message",
+    "provision",
+    "plugin",
+    "snapshot",
+}
+ALIAS_COMMANDS = {
+    "clone",
+    "migrate",
+}
 
 
 def fix_sentinel_defaults(content: str) -> str:

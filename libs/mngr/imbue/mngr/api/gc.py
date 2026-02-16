@@ -5,6 +5,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import assert_never
 
 from loguru import logger
 
@@ -24,6 +25,7 @@ from imbue.mngr.interfaces.data_types import WorkDirInfo
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ErrorBehavior
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
@@ -141,7 +143,7 @@ def gc_work_dirs(
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider_instance in providers:
-        for host in provider_instance.list_hosts():
+        for host in provider_instance.list_hosts(cg=mngr_ctx.concurrency_group):
             if not isinstance(host, OnlineHostInterface):
                 # Skip offline hosts - can't query them
                 logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
@@ -180,29 +182,15 @@ def gc_machines(
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
-    """Garbage collect idle machines with no agents."""
+    """Garbage collect idle machines and delete old offline host records."""
     compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
 
     for provider in providers:
         try:
-            hosts = provider.list_hosts(include_destroyed=False)
+            hosts = provider.list_hosts(include_destroyed=True, cg=provider.mngr_ctx.concurrency_group)
 
             for host in hosts:
                 try:
-                    # Skip offline hosts - can't query them
-                    if not isinstance(host, OnlineHostInterface):
-                        continue
-
-                    # Skip local hosts - they cannot be destroyed
-                    if host.is_local:
-                        continue
-
-                    agent_refs = host.get_agent_references()
-
-                    # Only consider hosts with no agents
-                    if len(agent_refs) > 0:
-                        continue
-
                     host_info = HostInfo(
                         id=host.id,
                         name=str(host.id),
@@ -223,8 +211,44 @@ def gc_machines(
                         ):
                             continue
 
+                    # Handle offline hosts
+                    # all we care about is that they have no agents (or is failed/crashed/destroyed),
+                    # and that they're sufficiently old
+                    # if so, then we permanently delete the associated data (to prevent data from accumulating)
+                    if not isinstance(host, OnlineHostInterface):
+                        seconds_since_stopped = host.get_seconds_since_stopped()
+                        if (
+                            seconds_since_stopped is not None
+                            and seconds_since_stopped > provider.get_max_destroyed_host_persisted_seconds()
+                        ):
+                            if len(host.get_agent_references()) == 0 or host.get_state() in (
+                                HostState.FAILED,
+                                HostState.CRASHED,
+                                HostState.DESTROYED,
+                            ):
+                                # permanently delete the host's data
+                                if not dry_run:
+                                    # FOLLOWUP: when there are multiple instance of gc running concurrently on different hosts
+                                    #  there's a risk of getting into a screwy situation here--if we delete this right as
+                                    #  someone else starts it, you might have a host that is running but is untracked
+                                    #  This can be easily fixed by adding some host-id-keyed locking at the provider level (which both create/start/delete would acquire)
+                                    provider.delete_host(host)
+                                result.machines_deleted.append(host_info)
+                        # no matter what we're done--the rest of the logic only applies to online hosts
+                        continue
+
+                    # Skip local hosts - they cannot be destroyed
+                    if host.is_local:
+                        continue
+
+                    agent_refs = host.get_agent_references()
+
+                    # Only consider hosts with no agents
+                    if len(agent_refs) > 0:
+                        continue
+
                     if not dry_run:
-                        provider.destroy_host(host, delete_snapshots=False)
+                        provider.destroy_host(host)
 
                     result.machines_destroyed.append(host_info)
 
@@ -256,7 +280,7 @@ def gc_snapshots(
             continue
 
         try:
-            hosts = provider.list_hosts(include_destroyed=False)
+            hosts = provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group)
 
             for host in hosts:
                 try:
@@ -320,7 +344,7 @@ def gc_volumes(
 
             # Get volumes that are currently attached to hosts
             active_volume_ids = set()
-            for host in provider.list_hosts(include_destroyed=False):
+            for host in provider.list_hosts(include_destroyed=False, cg=provider.mngr_ctx.concurrency_group):
                 for volume in all_volumes:
                     if volume.host_id == host.id:
                         active_volume_ids.add(volume.volume_id)
@@ -568,9 +592,7 @@ def _remove_work_dir_from_certified_data(host: OnlineHostInterface, work_dir_pat
         to_update(certified_data.field_ref().generated_work_dirs, tuple(sorted(existing_dirs))),
     )
 
-    data_json = updated_data.model_dump_json(by_alias=True, indent=2)
-    data_path = host.host_dir / "data.json"
-    host.write_text_file(data_path, data_json)
+    host.set_certified_data(updated_data)
 
 
 def _remove_directory(host: OnlineHostInterface, path: Path) -> None:
@@ -649,13 +671,15 @@ def _apply_cel_filters(
 
 def _handle_error(error_msg: str, error_behavior: ErrorBehavior, exc: Exception | None = None) -> None:
     """Handle an error according to the specified error behavior."""
-    if error_behavior == ErrorBehavior.ABORT:
-        if exc:
-            raise exc
-        raise MngrError(error_msg)
-    else:
-        # CONTINUE - just log the error
-        if exc:
-            logger.exception(exc)
-        else:
-            logger.error(error_msg)
+    match error_behavior:
+        case ErrorBehavior.ABORT:
+            if exc:
+                raise exc
+            raise MngrError(error_msg)
+        case ErrorBehavior.CONTINUE:
+            if exc:
+                logger.exception(exc)
+            else:
+                logger.error(error_msg)
+        case _ as unreachable:
+            assert_never(unreachable)

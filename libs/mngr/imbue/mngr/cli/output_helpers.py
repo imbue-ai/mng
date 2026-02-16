@@ -1,10 +1,12 @@
 import json
 import sys
+from collections.abc import Mapping
 from typing import Any
 from typing import assert_never
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.primitives import ErrorBehavior
@@ -12,7 +14,7 @@ from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import SyncMode
 
 
-def _write_json_line(data: dict[str, Any]) -> None:
+def _write_json_line(data: Mapping[str, Any]) -> None:
     """Write a JSON object as a line to stdout.
 
     This is used for JSON and JSONL output formats where we need raw JSON
@@ -20,6 +22,20 @@ def _write_json_line(data: dict[str, Any]) -> None:
     """
     sys.stdout.write(json.dumps(data) + "\n")
     sys.stdout.flush()
+
+
+@pure
+def format_size(size_bytes: int) -> str:
+    """Format bytes into a human-readable size string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024**2:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024**3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    if size_bytes < 1024**4:
+        return f"{size_bytes / 1024**3:.2f} GB"
+    return f"{size_bytes / 1024**4:.2f} TB"
 
 
 class AbortError(BaseException):
@@ -59,7 +75,7 @@ def emit_event(
     # The type of event (e.g., "destroyed", "created")
     event_type: str,
     # Event data dictionary. For HUMAN format, should include "message" key.
-    data: dict[str, Any],
+    data: Mapping[str, Any],
     output_format: OutputFormat,
 ) -> None:
     """Emit an event in the appropriate format."""
@@ -104,7 +120,7 @@ def on_error(
         raise AbortError(error_msg, original_exception=exc)
 
 
-def emit_final_json(data: dict[str, Any]) -> None:
+def emit_final_json(data: Mapping[str, Any]) -> None:
     """Emit final JSON output (for JSON format only)."""
     _write_json_line(data)
 

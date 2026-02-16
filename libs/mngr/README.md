@@ -57,11 +57,11 @@ mngr create example-task --in modal
 # you (or your agent) can do whatever bad ideas you want in that container without fear
 mngr exec example-task "rm -rf /"
 
-# you can even completely block internet access...
-mngr create --in modal --build-arg "--block-network"
+# you can block all outgoing internet access
+mngr create --in modal -b offline
 
-# or only allow access to certain IPs
-mngr create --in modal --build-arg "--cidr-allowlist 203.0.113.0/24"
+# or restrict outgoing traffic to certain IPs
+mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 ```
 
 **mngr is powerful and composable:**
@@ -129,6 +129,27 @@ git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages 
 # curl -fsSL https://imbue.com/mngr/install.sh | bash
 ```
 
+## Shell Completion
+
+`mngr` supports tab completion for commands and agent names in bash, zsh, and fish.
+
+**Zsh** (add to `~/.zshrc`):
+```bash
+eval "$(_MNGR_COMPLETE=zsh_source mngr)"
+```
+
+**Bash** (add to `~/.bashrc`):
+```bash
+eval "$(_MNGR_COMPLETE=bash_source mngr)"
+```
+
+**Fish** (run once):
+```bash
+_MNGR_COMPLETE=fish_source mngr > ~/.config/fish/completions/mngr.fish
+```
+
+Note: `mngr` must be installed on your PATH for completion to work (not invoked via `uv run`).
+
 ## Commands
 
 ```bash
@@ -149,9 +170,11 @@ mngr <command> [options]
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
 - [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
+- [`exec`](docs/commands/primary/exec.md): Execute a shell command on an agent's host
+- [`rename`](docs/commands/primary/rename.md): Rename an agent
 - [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
 - [`migrate`](docs/commands/aliases/migrate.md): Move an agent to a different host
-- [`limit`](docs/commands/secondary/limit.md) [future]: (Re)set resource limits for an agent
+- [`limit`](docs/commands/secondary/limit.md): Configure limits for agents and hosts
 
 ### For moving data in and out:
 
@@ -159,11 +182,11 @@ mngr <command> [options]
 - [`push`](docs/commands/primary/push.md): Push data to agent
 - [`pair`](docs/commands/primary/pair.md): Continually sync data with an agent
 - [`message`](docs/commands/secondary/message.md): Send a message to an agent
-- [`provision`](docs/commands/secondary/provision.md) [future]: Re-run provisioning on an agent (useful for syncing config and auth)
+- [`provision`](docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
 
 ### For managing mngr itself:
 
-- [`ask`](docs/commands/secondary/ask.md) [future]: Chat with mngr for help
+- [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
 - [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
 
@@ -190,7 +213,7 @@ You can interact with `mngr` either via:
 `mngr` stores very little state (beyond configuration and local caches for performance), and instead relies on conventions:
 
 - any process running in window 0 of a `mngr-` prefixed tmux sessions is considered an agent
-- agents store their status, events, and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
+- agents store their status and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
 - all hosts are accessed via SSH--if you can SSH into it, it can be a host
 - ...[and more](./docs/conventions.md)
 

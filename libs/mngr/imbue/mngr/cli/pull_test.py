@@ -218,3 +218,75 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches(
             find_and_maybe_start_agent_by_name_or_id(str(agent_name), agents_by_host, temp_mngr_ctx, "test")
     finally:
         local_host.stop_agents([agent1.id, agent2.id])
+
+
+def _create_stopped_agent_with_references(
+    local_provider: LocalProviderInstance,
+    temp_work_dir: Path,
+    agent_name: AgentName,
+    command: CommandString,
+) -> tuple[OnlineHostInterface, AgentReference, dict[HostReference, list[AgentReference]]]:
+    """Create an agent, stop it, and return the host, agent ref, and agents_by_host mapping."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+
+    agent = local_host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            agent_type=AgentTypeName("generic"),
+            name=agent_name,
+            command=command,
+        ),
+    )
+
+    # Stop the agent so it's in STOPPED state
+    local_host.stop_agents([agent.id])
+
+    host_ref = HostReference(
+        provider_name=ProviderInstanceName("local"),
+        host_id=local_host.id,
+        host_name=local_host.get_name(),
+    )
+    agent_ref = AgentReference(
+        agent_id=agent.id,
+        agent_name=agent.name,
+        host_id=local_host.id,
+        provider_name=ProviderInstanceName("local"),
+    )
+    agents_by_host = {host_ref: [agent_ref]}
+
+    return local_host, agent_ref, agents_by_host
+
+
+def test_find_agent_with_skip_agent_state_check_succeeds_for_stopped_agent(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test that skip_agent_state_check=True allows finding a stopped agent without error."""
+    agent_name = AgentName("stopped-find-test-agent")
+    local_host, agent_ref, agents_by_host = _create_stopped_agent_with_references(
+        local_provider, temp_work_dir, agent_name, CommandString("sleep 47293")
+    )
+
+    # With skip_agent_state_check=True, should succeed even though agent is stopped
+    found_agent, found_host = find_and_maybe_start_agent_by_name_or_id(
+        str(agent_name), agents_by_host, temp_mngr_ctx, "test", skip_agent_state_check=True
+    )
+    assert found_agent.id == agent_ref.agent_id
+    assert found_host.id == local_host.id
+
+
+def test_find_agent_without_skip_raises_for_stopped_agent(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test that without skip_agent_state_check, a stopped agent raises UserInputError."""
+    agent_name = AgentName("stopped-find-test-agent-2")
+    _local_host, _agent_ref, agents_by_host = _create_stopped_agent_with_references(
+        local_provider, temp_work_dir, agent_name, CommandString("sleep 47294")
+    )
+
+    # Without skip_agent_state_check, should raise for stopped agent
+    with pytest.raises(UserInputError, match="stopped and automatic starting is disabled"):
+        find_and_maybe_start_agent_by_name_or_id(str(agent_name), agents_by_host, temp_mngr_ctx, "test")

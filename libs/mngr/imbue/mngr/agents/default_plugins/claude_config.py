@@ -241,39 +241,35 @@ def remove_claude_trust_for_path(path: Path) -> bool:
     """
     path = path.resolve()
 
-    try:
-        with _claude_config_lock() as config_path:
+    with _claude_config_lock() as config_path:
+        try:
             config = _read_claude_config(config_path)
-            if not config:
-                return False
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to remove Claude trust entry for {}: {}", path, e)
+            return False
+        if not config:
+            return False
 
-            projects = config.get("projects", {})
+        projects = config.get("projects", {})
 
-            path_str = str(path)
-            if path_str not in projects:
-                logger.trace("Failed to find Claude trust entry for {}", path)
-                return False
+        path_str = str(path)
+        if path_str not in projects:
+            logger.trace("Failed to find Claude trust entry for {}", path)
+            return False
 
-            # Only remove entries created by mngr to avoid removing user-created trust
-            project_config = projects[path_str]
-            if not project_config.get("_mngrCreated", False):
-                logger.trace("Skipped removal of non-mngr trust entry for {}", path)
-                return False
+        # Only remove entries created by mngr to avoid removing user-created trust
+        project_config = projects[path_str]
+        if not project_config.get("_mngrCreated", False):
+            logger.trace("Skipped removal of non-mngr trust entry for {}", path)
+            return False
 
-            del projects[path_str]
-            config["projects"] = projects
+        del projects[path_str]
+        config["projects"] = projects
 
-            _write_claude_config_atomic(config_path, config)
+        _write_claude_config_atomic(config_path, config)
 
-        logger.trace("Removed Claude trust entry for {}", path)
-        return True
-    except (OSError, json.JSONDecodeError, KeyError) as e:
-        logger.warning(
-            "Failed to remove Claude trust entry for {}: {}",
-            path,
-            e,
-        )
-        return False
+    logger.trace("Removed Claude trust entry for {}", path)
+    return True
 
 
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
@@ -310,18 +306,21 @@ def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, A
 
 @pure
 def build_readiness_hooks_config() -> dict[str, Any]:
-    """Build the hooks configuration for readiness signaling.
+    """Build the hooks configuration for readiness signaling and session tracking.
 
     These hooks use the MNGR_AGENT_STATE_DIR environment variable to create/remove
     files that signal agent state.
 
-    - SessionStart: creates 'session_started' file (Claude Code has started)
-    - UserPromptSubmit: removes 'waiting' file AND signals tmux wait-for channel
-    - Stop: creates 'waiting' file (Claude finished processing, waiting for input)
+    - SessionStart: creates 'session_started' file AND tracks the current session ID
+      (writes to claude_session_id and appends to claude_session_id_history)
+    - UserPromptSubmit: creates 'active' file AND signals tmux wait-for channel
+    - Notification (idle_prompt): removes 'active' file (Claude finished processing, waiting for input)
 
     File semantics:
     - session_started: Claude Code session has started (for initial message timing)
-    - waiting: Claude is waiting for user input (WAITING lifecycle state)
+    - claude_session_id: current session UUID (atomically written via .tmp + mv)
+    - claude_session_id_history: append-only log of all session UUIDs (one per line)
+    - active: Claude is processing user input (RUNNING lifecycle state, WAITING otherwise)
 
     The tmux wait-for signal on UserPromptSubmit allows instant detection of
     message submission without polling.
@@ -335,6 +334,20 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                             "type": "command",
                             "command": 'touch "$MNGR_AGENT_STATE_DIR/session_started"',
                         },
+                        {
+                            "type": "command",
+                            "command": (
+                                "_MNGR_HOOK_INPUT=$(cat);"
+                                ' _MNGR_NEW_SID=$(echo "$_MNGR_HOOK_INPUT" | jq -r ".session_id // empty");'
+                                ' if [ -z "$_MNGR_NEW_SID" ]; then'
+                                ' echo "mngr: SessionStart hook failed to extract session_id from hook input: $_MNGR_HOOK_INPUT" >&2;'
+                                " exit 1;"
+                                " fi;"
+                                ' echo "$_MNGR_NEW_SID" > "$MNGR_AGENT_STATE_DIR/claude_session_id.tmp"'
+                                ' && mv "$MNGR_AGENT_STATE_DIR/claude_session_id.tmp" "$MNGR_AGENT_STATE_DIR/claude_session_id";'
+                                ' echo "$_MNGR_NEW_SID" >> "$MNGR_AGENT_STATE_DIR/claude_session_id_history"'
+                            ),
+                        },
                     ]
                 }
             ],
@@ -343,7 +356,7 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/waiting"',
+                            "command": 'touch "$MNGR_AGENT_STATE_DIR/active"',
                         },
                         {
                             "type": "command",
@@ -352,14 +365,15 @@ def build_readiness_hooks_config() -> dict[str, Any]:
                     ]
                 }
             ],
-            "Stop": [
+            "Notification": [
                 {
+                    "matcher": "idle_prompt",
                     "hooks": [
                         {
                             "type": "command",
-                            "command": 'touch "$MNGR_AGENT_STATE_DIR/waiting"',
-                        }
-                    ]
+                            "command": 'rm -f "$MNGR_AGENT_STATE_DIR/active"',
+                        },
+                    ],
                 }
             ],
         }

@@ -12,6 +12,7 @@ from imbue.mngr.cli.agent_utils import stop_agent_after_sync
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -64,7 +65,7 @@ class PullCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE", shell_complete=complete_agent_name)
 @click.argument("destination_pos", default=None, required=False, metavar="DESTINATION")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
@@ -194,7 +195,6 @@ def pull(ctx: click.Context, **kwargs) -> None:
         command_name="pull",
         command_class=PullCliOptions,
     )
-    logger.debug("started pull command")
 
     # Merge positional and named arguments (named option takes precedence)
     effective_source = opts.source if opts.source is not None else opts.source_pos
@@ -309,7 +309,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             target_branch=opts.target_branch,
             is_dry_run=opts.dry_run,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_git_result(git_result, output_opts.output_format)
@@ -337,7 +337,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
             is_dry_run=opts.dry_run,
             is_delete=opts.delete,
             uncommitted_changes=uncommitted_changes_mode,
-            cg=mngr_ctx.cg,
+            cg=mngr_ctx.concurrency_group,
         )
 
         output_sync_files_result(files_result, output_opts.output_format)

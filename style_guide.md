@@ -576,7 +576,7 @@ Always create docstrings for classes. The docstring for a class should contain *
 
 Never include the attributes of a class in the class docstring
 
-Never create docstrings for modules
+Never create docstrings for modules (unless they are completely standalone scripts).
 
 # Comments
 
@@ -653,7 +653,7 @@ Public function, class, and variable names should be globally unique (within the
 
 Avoid abbreviations (except for the very most common like "max" or "len")
 
-Always prefix booleans with `is_` (unless they are part of eg a user-facing CLI, or attributes of an object that directly correspond to those args)
+Always prefix *internal boolean variables* with `is_`. Variables that are part of 3rd-party libraries, or which are user-facing configuration (eg, settings or CLI args) do *not* need to follow that convention, but all *internal* variables should (eg, when we convert from the settings to our internal representation, we should convert the names)
 
 ```python
 class TodoFilter(FrozenModel):
@@ -1522,7 +1522,36 @@ Always write tests carefully to avoid race conditions and flaky tests. This mean
 - ALWAYS use `uuid4().hex` to generate unique IDs for any test data that needs an ID or name
 - Make every constant globally unique (ex: if running "sleep N" on the command line, use `sleep 36284` instead of something like `sleep 30` to reduce the chances of collisions between test that, for example, check whether this process is still running)
 
-NEVER use mocks for any testing unless explicitly instructed to do so (they end up making tests more brittle and less reliable)
+### Testing without mocks
+
+Never use `unittest.mock` (`Mock`, `MagicMock`, `patch`, `create_autospec`, etc.) in tests. These constructs make tests brittle and disconnected from real behavior. They test implementation details rather than actual behavior, and silently pass when the real interface changes.
+
+Never use `monkeypatch.setattr` to replace attributes or functions at runtime. This has the same problems as `unittest.mock` -- it fakes out real objects and breaks the connection between tests and actual behavior.
+
+**Always prefer using real classes and implementations.** Whenever possible, try to break code apart to be functional and testable without needing to mock anything. As a last resport when a real implementation is not feasible in a test (e.g., it requires network access or expensive infrastructure), create a concrete mock implementation of the interface instead.
+
+#### Creating mock implementations
+
+Create concrete mock implementations of interfaces in `mock_*_test.py` files in the same directory as the interface definition.
+
+Mock implementations should:
+- Inherit from the interface class (not from `Mock` or `MagicMock`)
+- Provide configurable behavior through pydantic `Field` attributes
+- Be shared across all test files that need to test against that interface
+- Be overridden by specific test files if needed
+
+#### What IS allowed in tests
+
+- `monkeypatch.setenv` / `monkeypatch.delenv` / `monkeypatch.chdir` -- setting environment variables and changing directories is fine since these modify the test environment, not object behavior
+- Occasional sparing use of `types.SimpleNamespace` to create a lightweight attribute holder when a full mock implementation would be overkill (e.g., simulating a single boolean property). This should be rare -- prefer real mock implementations
+- Using real classes and real implementations whenever possible. Most tests should exercise real code paths
+
+#### What is NOT allowed in tests
+
+- `from unittest.mock import Mock, MagicMock, patch, create_autospec` or any other import from `unittest.mock`
+- `monkeypatch.setattr` to replace attributes, methods, or functions on real objects
+- `@patch` decorators
+- `patch.object()` context managers
 
 ### Snapshot testing
 

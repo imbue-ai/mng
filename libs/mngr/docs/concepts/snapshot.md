@@ -4,15 +4,15 @@ Snapshots capture the complete filesystem state of a [host](./hosts.md). They en
 
 - **Stop/start**: State is saved when stopping, restored when starting
 - **Backups**: Create manual checkpoints via `mngr snapshot`
-- **Forking**: Create a new agent from an existing one via `mngr copy`
+- **Forking**: Create a new agent from an existing one via `mngr clone` (snapshots the source first for remote agents)
 
 ## Creating Snapshots
 
 `mngr` creates snapshots automatically when stopping an agent. You can also create them manually:
 
 ```bash
-mngr snapshot create --agent my-agent  # [future]
-mngr snapshot create --agent my-agent --name "before-refactor"  # [future]
+mngr snapshot create my-agent
+mngr snapshot create my-agent --name "before-refactor"
 ```
 
 ## Using Snapshots
@@ -22,14 +22,13 @@ Snapshots are restored automatically when starting a stopped agent. You can also
 ```bash
 mngr start --snapshot <id>                          # Start from specific snapshot [future]
 mngr create --from-agent my-agent --snapshot <id>   # New agent from snapshot [future]
-mngr copy my-agent new-agent                           # Fork from latest snapshot [future]
 ```
 
 ## Consistency
 
 Snapshot semantics are "hard power off": in-flight writes may not be captured. For databases or other stateful applications, this is usually fine since they're designed to survive power loss.
 
-By default, hosts are stopped during snapshotting to improve consistency. This can be disabled via the `--no-stop-during` flag [future], but doing so may lead to corrupted files in the snapshot.
+By default, hosts are paused during snapshotting to improve consistency. This can be disabled via the `--no-pause-during` flag [future], but doing so may lead to corrupted files in the snapshot.
 
 ## Provider Support
 
@@ -44,8 +43,8 @@ Snapshot support varies by [provider](./providers.md):
 List and clean up snapshots:
 
 ```bash
-mngr snapshot list --agent my-agent  # [future]
-mngr snapshot destroy --agent my-agent --snapshot-id <id>  # [future]
+mngr snapshot list my-agent
+mngr snapshot destroy my-agent --snapshot <id> --force
 ```
 
 See [`mngr snapshot`](../commands/secondary/snapshot.md) for all options.

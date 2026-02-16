@@ -1,42 +1,132 @@
-# mngr cleanup [future] - CLI Options Reference
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-Destroy or stop agents and hosts in order to free up resources.
+# mngr cleanup
 
-When running in a pty, defaults to providing an interactive interface for reviewing running agents and hosts and selecting which ones to destroy or stop.
+**Synopsis:**
 
-When running in a non-interactive setting (or if `--yes` or `--no-interactive` is provided), will destroy all selected agents/hosts without prompting.
-
-For automatic garbage collection of unused resources without interaction, see `mngr gc`.
-
-**Alias:** `clean`
-
-## Usage
-
+```text
+mngr [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] [--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]
 ```
-mngr cleanup
+
+
+Destroy or stop agents and hosts to free up resources.
+
+When running interactively, provides an interactive interface for reviewing
+and selecting agents. Use --yes to skip prompts.
+
+Examples:
+
+  mngr cleanup
+
+  mngr cleanup --dry-run --yes
+
+  mngr cleanup --older-than 7d --yes
+
+  mngr cleanup --stop --idle-for 1h --yes
+
+  mngr cleanup --provider docker --yes
+
+**Usage:**
+
+```text
+mngr cleanup [OPTIONS]
 ```
+
+**Options:**
 
 ## General
 
-- `-f, --force, --yes`: Skip confirmation prompts
-- `--dry-run`: Show what would be destroyed or stopped without executing
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-f`, `--force`, `--yes` | boolean | Skip confirmation prompts | `False` |
+| `--dry-run` | boolean | Show what would be destroyed or stopped without executing | `False` |
 
 ## Filtering
 
-- `--include FILTER`: Include only agents/hosts matching this filter
-- `--exclude FILTER`: Exclude agents/hosts matching this filter
-- `--older-than DURATION`: Select agents/hosts older than specified (e.g., `7d`, `24h`)
-- `--idle-for DURATION`: Select agents idle for at least this duration
-- `--tag TAG`: Select agents/hosts with this tag [repeatable]
-- `--provider PROVIDER`: Select hosts from this provider [repeatable]
-- `--agent-type AGENT`: Select this agent type (e.g., `claude`, `codex`) [repeatable]
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--include` | text | Include only agents matching this CEL filter (repeatable) | None |
+| `--exclude` | text | Exclude agents matching this CEL filter (repeatable) | None |
+| `--older-than` | text | Select agents older than specified duration (e.g., 7d, 24h) | None |
+| `--idle-for` | text | Select agents idle for at least this duration (e.g., 1h, 30m) | None |
+| `--tag` | text | Select agents/hosts with this tag (repeatable) | None |
+| `--provider` | text | Select hosts from this provider (repeatable) | None |
+| `--agent-type` | text | Select this agent type, e.g., claude, codex (repeatable) | None |
 
 ## Actions
 
-- `--destroy`: Destroy selected agents/hosts (default)
-- `--stop`: Stop selected agents/hosts instead of destroying
-- `--snapshot-before`: Create snapshots before destroying or stopping. When destroying, only makes sense with --keep-snapshots
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--action` | choice (`destroy` &#x7C; `stop`) | Action to perform on selected agents | `destroy` |
+| `--destroy` | boolean | Destroy selected agents/hosts (default) | None |
+| `--stop` | boolean | Stop selected agents instead of destroying | None |
+| `--snapshot-before` | boolean | Create snapshots before destroying or stopping [future] | `False` |
 
-## Resource Cleanup
+## Common
 
-See [resource cleanup options](../generic/resource_cleanup.md) to control which associated resources are also destroyed (defaults to all).
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--json` | boolean | Alias for --format json | `False` |
+| `--jsonl` | boolean | Alias for --format jsonl | `False` |
+| `-q`, `--quiet` | boolean | Suppress all console output | `False` |
+| `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
+| `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
+| `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
+| `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
+| `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
+| `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
+| `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
+| `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+## See Also
+
+- [mngr destroy](../primary/destroy.md) - Destroy specific agents by name
+- [mngr stop](../primary/stop.md) - Stop specific agents by name
+- [mngr gc](./gc.md) - Garbage collect orphaned resources
+- [mngr list](../primary/list.md) - List agents with filtering
+
+## Examples
+
+**Interactive cleanup (default)**
+
+```bash
+$ mngr cleanup
+```
+
+**Preview what would be destroyed**
+
+```bash
+$ mngr cleanup --dry-run --yes
+```
+
+**Destroy agents older than 7 days**
+
+```bash
+$ mngr cleanup --older-than 7d --yes
+```
+
+**Stop idle agents**
+
+```bash
+$ mngr cleanup --stop --idle-for 1h --yes
+```
+
+**Destroy Docker agents only**
+
+```bash
+$ mngr cleanup --provider docker --yes
+```
+
+**Destroy by agent type**
+
+```bash
+$ mngr cleanup --agent-type codex --yes
+```

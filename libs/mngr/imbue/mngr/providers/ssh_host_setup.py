@@ -1,10 +1,3 @@
-"""SSH host setup utilities for providers.
-
-Contains shell command builders for setting up SSH access on host containers/VMs.
-These utilities are designed to be reusable across different providers (Modal, Docker, etc.)
-that need to configure SSH access on newly created hosts.
-"""
-
 import importlib.resources
 from pathlib import Path
 from typing import Final
@@ -29,71 +22,64 @@ def get_user_ssh_dir(user: str) -> Path:
 
 
 @pure
+def _build_package_check_snippet(binary: str, package: str, check_cmd: str | None) -> str:
+    """Build a shell snippet that checks for a binary and adds its package to the install list.
+
+    If check_cmd is provided, it is used as the existence check (e.g. "test -x /usr/sbin/sshd").
+    Otherwise, "command -v <binary> >/dev/null 2>&1" is used.
+    """
+    check = check_cmd if check_cmd is not None else f"command -v {binary} >/dev/null 2>&1"
+    return (
+        f"if ! {check}; then "
+        f"echo '{WARNING_PREFIX}{package} is not pre-installed in the base image. "
+        f"Installing at runtime. For faster startup, consider using an image with {package} pre-installed.'; "
+        f'PKGS_TO_INSTALL="$PKGS_TO_INSTALL {package}"; '
+        "fi"
+    )
+
+
+@pure
 def build_check_and_install_packages_command(
     mngr_host_dir: str,
+    host_volume_mount_path: str | None = None,
 ) -> str:
     """Build a single shell command that checks for and installs required packages.
 
     This command:
-    1. Checks for each required package (sshd, tmux, curl, rsync, git)
+    1. Checks for each required package (sshd, tmux, curl, rsync, git, jq)
     2. Echoes a prefixed warning for each missing package
     3. Installs all missing packages in a single apt-get call
     4. Creates the sshd run directory (/run/sshd)
-    5. Creates the mngr host directory
+    5. Sets up the mngr host directory (either via mkdir or symlink to volume)
 
-    The warning prefix (MNGR_WARN:) can be parsed from the output to display
-    warnings to the user about missing packages.
+    When host_volume_mount_path is provided, the host directory is created as
+    a symlink to the volume mount path instead of as a regular directory. This
+    causes all data written to host_dir to persist on the volume.
 
     Returns a shell command string that can be executed via sh -c.
     """
-    # Build a shell script that does everything in one command
-    # Using semicolons to separate commands so it runs as a single shell invocation
     script_lines = [
-        # Initialize the list of packages to install
         "PKGS_TO_INSTALL=''",
-        # Check for sshd
-        "if ! test -x /usr/sbin/sshd; then "
-        f"echo '{WARNING_PREFIX}openssh-server is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with openssh-server pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL openssh-server"; '
-        "fi",
-        # Check for tmux
-        "if ! command -v tmux >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}tmux is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with tmux pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"; '
-        "fi",
-        # Check for curl
-        "if ! command -v curl >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}curl is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with curl pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL curl"; '
-        "fi",
-        # Check for rsync
-        "if ! command -v rsync >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}rsync is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with rsync pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL rsync"; '
-        "fi",
-        # Check for git
-        "if ! command -v git >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}git is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with git pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL git"; '
-        "fi",
-        # Check for jq (required for activity_watcher.sh to read data.json)
-        "if ! command -v jq >/dev/null 2>&1; then "
-        f"echo '{WARNING_PREFIX}jq is not pre-installed in the base image. "
-        "Installing at runtime. For faster startup, consider using an image with jq pre-installed.'; "
-        'PKGS_TO_INSTALL="$PKGS_TO_INSTALL jq"; '
-        "fi",
+        _build_package_check_snippet(binary="sshd", package="openssh-server", check_cmd="test -x /usr/sbin/sshd"),
+        _build_package_check_snippet(binary="tmux", package="tmux", check_cmd=None),
+        _build_package_check_snippet(binary="curl", package="curl", check_cmd=None),
+        _build_package_check_snippet(binary="rsync", package="rsync", check_cmd=None),
+        _build_package_check_snippet(binary="git", package="git", check_cmd=None),
+        _build_package_check_snippet(binary="jq", package="jq", check_cmd=None),
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
         "mkdir -p /run/sshd",
-        # Create mngr host directory
-        f"mkdir -p {mngr_host_dir}",
     ]
+
+    if host_volume_mount_path is not None:
+        # Remove any existing directory (e.g., from a pre-volume snapshot) before
+        # creating the symlink. ln -sfn alone won't replace an existing directory.
+        script_lines.append(
+            f"[ -L {mngr_host_dir} ] || rm -rf {mngr_host_dir}; ln -sfn {host_volume_mount_path} {mngr_host_dir}"
+        )
+    else:
+        script_lines.append(f"mkdir -p {mngr_host_dir}")
 
     return "; ".join(script_lines)
 
@@ -202,12 +188,42 @@ def parse_warnings_from_output(output: str) -> list[str]:
     return warnings
 
 
-def _load_activity_watcher_script() -> str:
-    """Load the activity watcher script from resources."""
+def load_resource_script(filename: str) -> str:
+    """Load a shell script from the mngr resources package."""
     resource_files = importlib.resources.files(resources)
-    # FIXME: update this script so that it has set -euo pipefail (and will still work properly)
-    script_path = resource_files.joinpath("activity_watcher.sh")
+    script_path = resource_files.joinpath(filename)
     return script_path.read_text()
+
+
+@pure
+def build_start_volume_sync_command(
+    volume_mount_path: str,
+    mngr_host_dir: str,
+) -> str:
+    """Build a shell command that starts a background loop to sync the host volume.
+
+    The sync loop runs every 60 seconds and calls 'sync' on the volume mount
+    path to flush any pending writes. This ensures data is persisted to the
+    volume even if the sandbox is terminated without a clean shutdown.
+
+    Returns a shell command string that can be executed via sh -c.
+    """
+    script_path = f"{mngr_host_dir}/commands/volume_sync.sh"
+    log_path = f"{mngr_host_dir}/logs/volume_sync.log"
+
+    # The sync script content (simple loop)
+    sync_script = f"#!/bin/sh\nwhile true; do sync {volume_mount_path} 2>/dev/null; sleep 60; done\n"
+    escaped_script = sync_script.replace("'", "'\"'\"'")
+
+    script_lines = [
+        f"mkdir -p '{mngr_host_dir}/commands'",
+        f"mkdir -p '{mngr_host_dir}/logs'",
+        f"printf '%s' '{escaped_script}' > '{script_path}'",
+        f"chmod +x '{script_path}'",
+        f"nohup '{script_path}' > '{log_path}' 2>&1 &",
+    ]
+
+    return "; ".join(script_lines)
 
 
 @pure
@@ -228,7 +244,7 @@ def build_start_activity_watcher_command(
 
     Returns a shell command string that can be executed via sh -c.
     """
-    script_content = _load_activity_watcher_script()
+    script_content = load_resource_script("activity_watcher.sh")
 
     # Escape single quotes in script content
     escaped_script = script_content.replace("'", "'\"'\"'")

@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Mapping
+from collections.abc import Sequence
 from pathlib import Path
 from typing import assert_never
 
@@ -119,7 +120,7 @@ def determine_resolved_path(
 @pure
 def resolve_host_reference(
     host_identifier: str | None,
-    all_hosts: list[HostReference],
+    all_hosts: Sequence[HostReference],
 ) -> HostReference | None:
     """Resolve a host identifier (ID or name) to a HostReference.
 
@@ -146,7 +147,7 @@ def resolve_host_reference(
 def resolve_agent_reference(
     agent_identifier: str | None,
     resolved_host: HostReference | None,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
 ) -> tuple[HostReference, AgentReference] | None:
     """Resolve an agent identifier (ID or name) to host and agent references.
 
@@ -186,8 +187,10 @@ def resolve_source_location(
     source_agent: str | None,
     source_host: str | None,
     source_path: str | None,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     mngr_ctx: MngrContext,
+    *,
+    is_start_desired: bool = True,
 ) -> HostLocation:
     """Parse and resolve source location to a concrete host and path.
 
@@ -196,7 +199,8 @@ def resolve_source_location(
     Everything after the first ':' is treated as the path (to handle colons in paths).
     HOST can optionally include .PROVIDER suffix (e.g., myhost.docker).
 
-    If the resolved host is offline, it will be automatically started.
+    If the resolved host is offline, it will be started if is_start_desired is True (the default).
+    If is_start_desired is False and the host is offline, raises UserInputError.
 
     This is useful because it allows the user to specify the source agent / location in a maximally flexible way.
     This is important for making the CLI easy to use in a variety of scenarios.
@@ -229,7 +233,9 @@ def resolve_source_location(
 
     # Ensure host is online for file operations (starts the host if needed)
     if not isinstance(host_interface, OnlineHostInterface):
-        online_host, _was_started = ensure_host_started(host_interface, is_start_desired=True, provider=provider)
+        online_host, _was_started = ensure_host_started(
+            host_interface, is_start_desired=is_start_desired, provider=provider
+        )
     else:
         online_host = host_interface
 
@@ -254,7 +260,7 @@ def resolve_source_location(
 
 
 @pure
-def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) -> HostReference | None:
+def get_host_from_list_by_id(host_id: HostId, all_hosts: Sequence[HostReference]) -> HostReference | None:
     for host in all_hosts:
         if host.host_id == host_id:
             return host
@@ -262,7 +268,7 @@ def get_host_from_list_by_id(host_id: HostId, all_hosts: list[HostReference]) ->
 
 
 @pure
-def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: list[HostReference]) -> HostReference | None:
+def get_unique_host_from_list_by_name(host_name: HostName, all_hosts: Sequence[HostReference]) -> HostReference | None:
     matching_hosts = [host for host in all_hosts if host.host_name == host_name]
     if len(matching_hosts) == 1:
         return matching_hosts[0]
@@ -293,7 +299,8 @@ def ensure_host_started(
                 return started_host, True
             else:
                 raise UserInputError(
-                    f"Host '{offline_host.id}' is offline and --no-start was specified. Use --start to automatically start the host."
+                    f"Host '{offline_host.id}' is offline and automatic starting is disabled. "
+                    "Enable automatic host starting to proceed."
                 )
         case _ as unreachable:
             assert_never(unreachable)
@@ -310,32 +317,40 @@ def ensure_agent_started(agent: AgentInterface, host: OnlineHostInterface, is_st
     if lifecycle_state not in (AgentLifecycleState.RUNNING, AgentLifecycleState.REPLACED, AgentLifecycleState.WAITING):
         if is_start_desired:
             logger.info("Agent {} is stopped, starting it", agent.name)
-            host.start_agents([agent.id])
+            agent.wait_for_ready_signal(
+                is_creating=False,
+                start_action=lambda: host.start_agents([agent.id]),
+                timeout=10.0,
+            )
         else:
             raise UserInputError(
-                f"Agent '{agent.name}' is stopped and --no-start was specified. "
-                "Use --start to automatically start the agent."
+                f"Agent '{agent.name}' is stopped and automatic starting is disabled. "
+                "Enable automatic agent starting to proceed."
             )
 
 
 @log_call
 def find_and_maybe_start_agent_by_name_or_id(
     agent_str: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     mngr_ctx: MngrContext,
     command_name: str,
     is_start_desired: bool = False,
-    get_provider: Callable[[ProviderInstanceName, MngrContext], BaseProviderInstance] | None = None,
+    skip_agent_state_check: bool = False,
 ) -> tuple[AgentInterface, OnlineHostInterface]:
     """Find an agent by name or ID and return the agent and host interfaces.
 
     This function resolves an agent identifier to the actual agent and host objects,
     which is needed by CLI commands that need to interact with the agent.
 
+    is_start_desired: if True, start both the host and the agent when they are stopped.
+    skip_agent_state_check: if True, skip the agent lifecycle state check entirely
+        (useful for commands like provision that need the host online but don't care
+        whether the agent process is running).
+
     Raises AgentNotFoundError if the agent cannot be found by ID.
     Raises UserInputError if the agent cannot be found by name or if multiple agents match.
     """
-    resolve_provider = get_provider if get_provider is not None else get_provider_instance
 
     # Try parsing as an AgentId first
     try:
@@ -347,12 +362,15 @@ def find_and_maybe_start_agent_by_name_or_id(
         for host_ref, agent_refs in agents_by_host.items():
             for agent_ref in agent_refs:
                 if agent_ref.agent_id == agent_id:
-                    provider = resolve_provider(host_ref.provider_name, mngr_ctx)
+                    provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                     host = provider.get_host(host_ref.host_id)
-                    online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
+                    online_host, _was_started = ensure_host_started(
+                        host, is_start_desired=is_start_desired, provider=provider
+                    )
                     for agent in online_host.get_agents():
                         if agent.id == agent_id:
-                            ensure_agent_started(agent, online_host, is_start_desired)
+                            if not skip_agent_state_check:
+                                ensure_agent_started(agent, online_host, is_start_desired=is_start_desired)
                             return agent, online_host
         raise AgentNotFoundError(agent_id)
 
@@ -363,9 +381,11 @@ def find_and_maybe_start_agent_by_name_or_id(
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             if agent_ref.agent_name == agent_name:
-                provider = resolve_provider(host_ref.provider_name, mngr_ctx)
+                provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
                 host = provider.get_host(host_ref.host_id)
-                online_host, _was_started = ensure_host_started(host, is_start_desired, provider)
+                online_host, _was_started = ensure_host_started(
+                    host, is_start_desired=is_start_desired, provider=provider
+                )
                 # Find the specific agent by ID (not name, to avoid duplicates)
                 for agent in online_host.get_agents():
                     if agent.id == agent_ref.agent_id:
@@ -388,7 +408,8 @@ def find_and_maybe_start_agent_by_name_or_id(
 
     # make sure the agent is started
     agent, host = matching[0]
-    ensure_agent_started(agent, host, is_start_desired)
+    if not skip_agent_state_check:
+        ensure_agent_started(agent, host, is_start_desired=is_start_desired)
 
     return agent, host
 
@@ -396,22 +417,23 @@ def find_and_maybe_start_agent_by_name_or_id(
 class AgentMatch(FrozenModel):
     """Information about an agent that matched a search query."""
 
-    agent_id: AgentId
-    agent_name: AgentName
-    host_id: HostId
-    provider_name: ProviderInstanceName
+    agent_id: AgentId = Field(description="Unique identifier for the matched agent")
+    agent_name: AgentName = Field(description="Human-readable name of the matched agent")
+    host_id: HostId = Field(description="Unique identifier for the host the agent runs on")
+    provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
 @pure
 def find_agents_by_identifiers_or_state(
-    agent_identifiers: list[str],
+    agent_identifiers: Sequence[str],
     filter_all: bool,
-    target_state: AgentLifecycleState,
+    target_state: AgentLifecycleState | None,
     mngr_ctx: MngrContext,
 ) -> list[AgentMatch]:
     """Find agents matching identifiers or a target lifecycle state.
 
-    When filter_all is True, returns all agents in the target_state.
+    When filter_all is True, returns all agents in the target_state
+    (or all agents if target_state is None).
     When filter_all is False, returns agents matching the given identifiers
     (by name or ID).
 
@@ -424,7 +446,7 @@ def find_agents_by_identifiers_or_state(
     for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
         should_include: bool
         if filter_all:
-            should_include = agent_ref.state == target_state
+            should_include = target_state is None or agent_ref.state == target_state
         elif agent_identifiers:
             agent_name_str = str(agent_ref.name)
             agent_id_str = str(agent_ref.id)
@@ -458,7 +480,7 @@ def find_agents_by_identifiers_or_state(
 
 
 @pure
-def group_agents_by_host(agents: list[AgentMatch]) -> dict[str, list[AgentMatch]]:
+def group_agents_by_host(agents: Sequence[AgentMatch]) -> dict[str, list[AgentMatch]]:
     """Group a list of AgentMatch objects by their host.
 
     Returns a dictionary where keys are "{host_id}:{provider_name}" and

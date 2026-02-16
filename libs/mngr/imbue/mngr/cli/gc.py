@@ -21,6 +21,7 @@ from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -102,10 +103,12 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove machine cache entries (per-provider) [future]",
 )
-# FIXME: When "mngr cleanup" is implemented, add a cross-reference in the gc command's
-# help text pointing users to it for interactive cleanup. See the spec at:
-# docs/commands/secondary/cleanup.md
 @optgroup.group("Filtering")
+# FIXME: --include and --exclude logically make no sense for gc, and thus should be removed
+#  Conceptually, when doing garbage collection, it's just too complex to be trying to filter
+#  Instead, looking at an API like python's built-in gc module, the only "filtering" you can do is which generation to collect (0, 1, or 2)
+#  Here, the only effective control is which providers/resource types to target, but more complex filters don't really make sense
+#  Please remove these options (--include/--exclude) both from the CLI and from the gc API
 @optgroup.option(
     "--include",
     multiple=True,
@@ -179,7 +182,6 @@ def _gc_impl(ctx: click.Context, **kwargs) -> None:
         command_name="gc",
         command_class=GcCliOptions,
     )
-    logger.debug("Started gc command")
 
     # Remove machine cache entries (per-provider)
     # Wire this through to the API when implemented
@@ -276,6 +278,8 @@ def _run_gc_iteration(mngr_ctx: MngrContext, opts: GcCliOptions, output_opts: Ou
         _emit_destroyed("work_dir", work_dir, output_opts.output_format, opts.dry_run)
     for machine in result.machines_destroyed:
         _emit_destroyed("machine", machine, output_opts.output_format, opts.dry_run)
+    for machine in result.machines_deleted:
+        _emit_destroyed("machine_record", machine, output_opts.output_format, opts.dry_run)
     for snapshot in result.snapshots_destroyed:
         _emit_destroyed("snapshot", snapshot, output_opts.output_format, opts.dry_run)
     for volume in result.volumes_destroyed:
@@ -343,6 +347,7 @@ def _emit_json_summary(result: GcResult, dry_run: bool) -> None:
     output_data = {
         "work_dirs_destroyed": [wd.model_dump(mode="json") for wd in result.work_dirs_destroyed],
         "machines_destroyed": [m.model_dump(mode="json") for m in result.machines_destroyed],
+        "machines_deleted": [m.model_dump(mode="json") for m in result.machines_deleted],
         "snapshots_destroyed": [s.model_dump(mode="json") for s in result.snapshots_destroyed],
         "volumes_destroyed": [v.model_dump(mode="json") for v in result.volumes_destroyed],
         "logs_destroyed": [log.model_dump(mode="json") for log in result.logs_destroyed],
@@ -370,13 +375,17 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
         local_size = sum(wd.size_bytes for wd in local_work_dirs)
         total_count_str = f"Work directories: {len(result.work_dirs_destroyed)}"
         if local_count > 0:
-            total_count_str += f" ({local_count} local, freed {_format_size(local_size)})"
+            total_count_str += f" ({local_count} local, freed {format_size(local_size)})"
         logger.info("\n{}", total_count_str)
         total_count += len(result.work_dirs_destroyed)
 
     if result.machines_destroyed:
         logger.info("\nMachines: {}", len(result.machines_destroyed))
         total_count += len(result.machines_destroyed)
+
+    if result.machines_deleted:
+        logger.info("\nMachine records deleted: {}", len(result.machines_deleted))
+        total_count += len(result.machines_deleted)
 
     if result.snapshots_destroyed:
         logger.info("\nSnapshots: {}", len(result.snapshots_destroyed))
@@ -388,13 +397,13 @@ def _emit_human_summary(result: GcResult, dry_run: bool) -> None:
 
     if result.logs_destroyed:
         logs_size_bytes = sum(log.size_bytes for log in result.logs_destroyed)
-        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), _format_size(logs_size_bytes))
+        logger.info("\nLogs: {} (freed {})", len(result.logs_destroyed), format_size(logs_size_bytes))
         total_count += len(result.logs_destroyed)
 
     if result.build_cache_destroyed:
         build_cache_size_bytes = sum(cache.size_bytes for cache in result.build_cache_destroyed)
         logger.info(
-            "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), _format_size(build_cache_size_bytes)
+            "\nBuild cache: {} (freed {})", len(result.build_cache_destroyed), format_size(build_cache_size_bytes)
         )
         total_count += len(result.build_cache_destroyed)
 
@@ -423,6 +432,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
     total_count = (
         len(result.work_dirs_destroyed)
         + len(result.machines_destroyed)
+        + len(result.machines_deleted)
         + len(result.snapshots_destroyed)
         + len(result.volumes_destroyed)
         + len(result.logs_destroyed)
@@ -435,6 +445,7 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
         "total_size_bytes": total_size_bytes,
         "work_dirs_count": len(result.work_dirs_destroyed),
         "machines_count": len(result.machines_destroyed),
+        "machine_record_count": len(result.machines_deleted),
         "snapshots_count": len(result.snapshots_destroyed),
         "volumes_count": len(result.volumes_destroyed),
         "logs_count": len(result.logs_destroyed),
@@ -444,20 +455,6 @@ def _emit_jsonl_summary(result: GcResult, dry_run: bool) -> None:
         "dry_run": dry_run,
     }
     emit_event("summary", event, OutputFormat.JSONL)
-
-
-@pure
-def _format_size(size_bytes: int) -> str:
-    """Format bytes into human-readable size string."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    if size_bytes < 1024**2:
-        return f"{size_bytes / 1024:.1f} KB"
-    if size_bytes < 1024**3:
-        return f"{size_bytes / 1024**2:.1f} MB"
-    if size_bytes < 1024**4:
-        return f"{size_bytes / 1024**3:.2f} GB"
-    return f"{size_bytes / 1024**4:.2f} TB"
 
 
 def _get_selected_providers(mngr_ctx: MngrContext, opts: GcCliOptions) -> list[ProviderInstanceInterface]:
@@ -511,6 +508,7 @@ resources at any time.""",
         ),
     ),
     see_also=(
+        ("cleanup", "Interactive cleanup of agents and hosts"),
         ("destroy", "Destroy agents (includes automatic GC)"),
         ("list", "List agents to find unused resources"),
     ),

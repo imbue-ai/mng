@@ -1,8 +1,3 @@
-"""SSH utilities for Modal provider.
-
-Handles SSH key generation and management for Modal sandbox access.
-"""
-
 import fcntl
 import os
 from pathlib import Path

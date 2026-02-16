@@ -55,14 +55,15 @@ def test_cli_create_with_echo_command(
         assert "Done." in result.output
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist in temp dir"
+        # Agents live under hosts/{host_id}/agents/
+        hosts_dir = temp_host_dir / "hosts"
+        assert hosts_dir.exists(), "hosts directory should exist in temp dir"
+        host_subdirs = list(hosts_dir.iterdir())
+        assert len(host_subdirs) == 1, "should have exactly one host directory"
+        agents_dir = host_subdirs[0] / "agents"
+        assert agents_dir.exists(), "agents directory should exist under host dir"
 
 
-# FIXME: This test is flaky under xdist parallel execution. It spawns a subprocess that calls
-# `uv run mngr create`, which causes resource contention with other xdist workers accessing
-# the same tmux server. Multiple workers may race to create/destroy tmux sessions simultaneously,
-# leading to worker crashes. Consider using worker-specific tmux socket paths or marking as serial.
 def test_cli_create_via_subprocess(
     temp_work_dir: Path,
     temp_host_dir: Path,
@@ -111,8 +112,9 @@ def test_cli_create_via_subprocess(
         assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
-        agents_dir = temp_host_dir / "agents"
-        assert agents_dir.exists(), "agents directory should exist in temp dir"
+        # Agents live under hosts/{host_id}/agents/
+        hosts_dir = temp_host_dir / "hosts"
+        assert hosts_dir.exists(), "hosts directory should exist in temp dir"
 
 
 def test_connect_flag_calls_tmux_attach_for_local_agent(
@@ -384,8 +386,6 @@ def test_single_line_message_uses_echo(
         )
 
 
-# FIXME: This test has been observed to be flaky - it failed once during a test run
-# but passed when re-run individually. Investigate the root cause.
 def test_no_await_ready_creates_agent_in_background(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -419,8 +419,14 @@ def test_no_await_ready_creates_agent_in_background(
         assert "Agent creation started in background" in result.output
         assert agent_name in result.output
 
+        # Use a longer timeout than the default 5s because --no-await-ready forks a
+        # child process that runs api_create() asynchronously. On loaded CI systems
+        # the forked process may need more time to set up the tmux session.
+        background_timeout = 15.0
+
         wait_for(
             lambda: tmux_session_exists(session_name),
+            timeout=background_timeout,
             error_message=f"Expected tmux session {session_name} to exist",
         )
 
@@ -430,7 +436,11 @@ def test_no_await_ready_creates_agent_in_background(
             pane_content = capture_tmux_pane_contents(session_name)
             return "sleep" in pane_content
 
-        wait_for(command_is_running, error_message="Expected sleep command to be running")
+        wait_for(
+            command_is_running,
+            timeout=background_timeout,
+            error_message="Expected sleep command to be running",
+        )
 
 
 def test_add_command_with_named_window(
@@ -995,3 +1005,81 @@ no_copy_work_dir = true
     assert result.exit_code != 0
     assert "Template 'nonexistent' not found" in result.output
     assert "existing" in result.output
+
+
+# =============================================================================
+# Tests for ensure-clean behavior with --base-branch
+# =============================================================================
+
+
+def test_ensure_clean_rejects_dirty_worktree_by_default(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Creating an agent from a dirty git repo fails when ensure-clean is enabled (the default)."""
+    # Make the repo dirty by creating an untracked file
+    (temp_git_repo / "dirty.txt").write_text("uncommitted change")
+
+    result = cli_runner.invoke(
+        create,
+        [
+            "--name",
+            "test-dirty",
+            "--agent-cmd",
+            "sleep 1",
+            "--source",
+            str(temp_git_repo),
+            "--no-connect",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "uncommitted changes" in result.output
+
+
+def test_ensure_clean_skipped_for_worktree_with_explicit_base_branch(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Creating a worktree agent with --base-branch skips the ensure-clean check."""
+    # Create a second branch to use as base
+    subprocess.run(
+        ["git", "branch", "other-branch"],
+        cwd=temp_git_repo,
+        check=True,
+        capture_output=True,
+    )
+
+    # Make the repo dirty
+    (temp_git_repo / "dirty.txt").write_text("uncommitted change")
+
+    agent_name = f"test-base-branch-clean-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 847192",
+                "--source",
+                str(temp_git_repo),
+                "--base-branch",
+                "other-branch",
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0, f"CLI failed with: {result.output}"
+        assert "uncommitted changes" not in result.output
