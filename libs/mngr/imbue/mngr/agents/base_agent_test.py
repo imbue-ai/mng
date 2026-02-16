@@ -83,18 +83,24 @@ def test_lifecycle_state_stopped_when_no_tmux_session(
     assert state == AgentLifecycleState.STOPPED
 
 
-def test_lifecycle_state_running_when_expected_process_exists(
+def _create_running_agent(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
-) -> None:
-    """Test that agent is RUNNING when tmux session exists with expected process and active file."""
+    # unique sleep duration to avoid collisions with other tests
+    sleep_duration: int,
+) -> tuple[BaseAgent, str]:
+    """Create an agent with a running tmux session and active file.
+
+    Returns the agent and its tmux session name. Caller must clean up
+    the session (e.g. with cleanup_tmux_session).
+    """
     test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
     test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
+        f"tmux new-session -d -s '{session_name}' 'sleep {sleep_duration}'",
         timeout_seconds=5.0,
     )
 
@@ -103,15 +109,23 @@ def test_lifecycle_state_running_when_expected_process_exists(
     active_file = agent_dir / "active"
     active_file.write_text("")
 
+    return test_agent, session_name
+
+
+def test_lifecycle_state_running_when_expected_process_exists(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that agent is RUNNING when tmux session exists with expected process and active file."""
+    test_agent, session_name = _create_running_agent(local_provider, temp_host_dir, temp_work_dir, 847291)
+
     try:
-        # Poll for up to 5 seconds for the state to become RUNNING
-        # There's a race condition where the process might not be fully started yet
         wait_for(
             lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
             error_message="Expected agent lifecycle state to be RUNNING",
         )
     finally:
-        # Clean up tmux session and all its processes
         cleanup_tmux_session(session_name)
 
 
@@ -121,19 +135,7 @@ def test_is_running_true_when_tmux_session_running(
     temp_work_dir: Path,
 ) -> None:
     """Test that is_running returns True when tmux session exists with expected process and active file."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
-
-    # Create a tmux session and run the expected command
-    test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 847293'",
-        timeout_seconds=5.0,
-    )
-
-    # Create the active file in the agent's state directory (signals RUNNING)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
-    active_file = agent_dir / "active"
-    active_file.write_text("")
+    test_agent, session_name = _create_running_agent(local_provider, temp_host_dir, temp_work_dir, 847293)
 
     try:
         wait_for(
