@@ -1233,7 +1233,7 @@ def test_remove_persisted_agent_data_removes_file(
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
     expected_path = f"/{host_id}/{agent_id}.json"
-    mock_volume.remove_file.assert_called_once_with(expected_path)
+    mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
 def test_remove_persisted_agent_data_handles_file_not_found(
@@ -1251,4 +1251,4 @@ def test_remove_persisted_agent_data_handles_file_not_found(
 
     # Verify the method was called
     expected_path = f"/{host_id}/{agent_id}.json"
-    mock_volume.remove_file.assert_called_once_with(expected_path)
+    mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)

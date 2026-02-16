@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from typing import Mapping
 
@@ -51,9 +52,12 @@ class LocalVolume(BaseVolume):
         resolved = self._resolve(path)
         return resolved.read_bytes()
 
-    def remove_file(self, path: str) -> None:
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
         resolved = self._resolve(path)
-        resolved.unlink()
+        if recursive and resolved.is_dir():
+            shutil.rmtree(resolved)
+        else:
+            resolved.unlink()
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         for file_path, data in file_contents_by_path.items():

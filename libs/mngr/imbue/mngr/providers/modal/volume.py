@@ -36,9 +36,9 @@ def _modal_volume_read_file(volume: modal.Volume, path: str) -> bytes:
 
 
 @retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _modal_volume_remove_file(volume: modal.Volume, path: str) -> None:
-    """Remove a file from a Modal volume with retry on transient errors."""
-    volume.remove_file(path)
+def _modal_volume_remove_file(volume: modal.Volume, path: str, *, recursive: bool = False) -> None:
+    """Remove a file or directory from a Modal volume with retry on transient errors."""
+    volume.remove_file(path, recursive=recursive)
 
 
 @retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
@@ -84,8 +84,8 @@ class ModalVolume(BaseVolume):
     def read_file(self, path: str) -> bytes:
         return _modal_volume_read_file(self.modal_volume, path)
 
-    def remove_file(self, path: str) -> None:
-        _modal_volume_remove_file(self.modal_volume, path)
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
+        _modal_volume_remove_file(self.modal_volume, path, recursive=recursive)
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         _modal_volume_write_files(self.modal_volume, file_contents_by_path)

@@ -32,10 +32,18 @@ class InMemoryVolume(BaseVolume):
             raise FileNotFoundError(path)
         return self.files[path]
 
-    def remove_file(self, path: str) -> None:
-        if path not in self.files:
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
+        if not recursive:
+            if path not in self.files:
+                raise FileNotFoundError(path)
+            del self.files[path]
+            return
+        prefix = path.rstrip("/") + "/"
+        to_delete = [k for k in self.files if k == path or k.startswith(prefix)]
+        if not to_delete:
             raise FileNotFoundError(path)
-        del self.files[path]
+        for k in to_delete:
+            del self.files[k]
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         self.files.update(file_contents_by_path)

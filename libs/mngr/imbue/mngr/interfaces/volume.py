@@ -36,8 +36,11 @@ class Volume(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def remove_file(self, path: str) -> None:
-        """Remove a file from the volume."""
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
+        """Remove a file or directory from the volume.
+
+        If recursive is True, removes the path and all its contents.
+        """
         ...
 
     @abstractmethod
@@ -102,8 +105,8 @@ class ScopedVolume(BaseVolume):
     def read_file(self, path: str) -> bytes:
         return self.delegate.read_file(_scoped_path(self.prefix, path))
 
-    def remove_file(self, path: str) -> None:
-        self.delegate.remove_file(_scoped_path(self.prefix, path))
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
+        self.delegate.remove_file(_scoped_path(self.prefix, path), recursive=recursive)
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         scoped = {_scoped_path(self.prefix, p): data for p, data in file_contents_by_path.items()}
