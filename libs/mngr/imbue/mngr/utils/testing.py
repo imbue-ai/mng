@@ -26,6 +26,7 @@ from imbue.mngr.config.data_types import PROFILES_DIRNAME
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 from imbue.mngr.utils.polling import wait_for
 
 # Prefix used for test environments
@@ -257,6 +258,9 @@ def make_local_provider(
 
     If profile_dir is not provided, a new one is created. To share state between
     multiple provider instances, pass the same profile_dir to each call.
+
+    The host_dir is treated as the base mngr directory. The actual per-host
+    directory is computed as {host_dir}/hosts/{host_id}/.
     """
     pm = pluggy.PluginManager("mngr")
     # Create a profile directory in the host_dir if not provided
@@ -264,9 +268,15 @@ def make_local_provider(
         profile_dir = host_dir / PROFILES_DIRNAME / uuid4().hex
     profile_dir.mkdir(parents=True, exist_ok=True)
     mngr_ctx = MngrContext(config=config, pm=pm, profile_dir=profile_dir)
+
+    # Compute the per-host directory
+    host_id = get_or_create_local_host_id(host_dir)
+    per_host_dir = host_dir / "hosts" / str(host_id)
+    per_host_dir.mkdir(parents=True, exist_ok=True)
+
     return LocalProviderInstance(
         name=ProviderInstanceName(name),
-        host_dir=host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
 

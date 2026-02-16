@@ -632,7 +632,9 @@ def test_list_command_with_running_filter_alias(
         data = json.loads(json_result.output)
         agents = data["agents"]
         agent_id = next(a["id"] for a in agents if a["name"] == agent_name)
-        active_file = host_dir / "agents" / agent_id / "active"
+        # Find the per-host directory under hosts/
+        hosts_subdir = list((host_dir / "hosts").iterdir())[0]
+        active_file = hosts_subdir / "agents" / agent_id / "active"
         active_file.write_text("")
 
         # List with --running should show the agent
