@@ -117,6 +117,75 @@ def test_snapshot_create_nonexistent_agent_errors(
     assert result.exit_code != 0
 
 
+def test_snapshot_create_on_error_continue_reports_failure(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --on-error continue reports the error and exits 1 (doesn't crash)."""
+    agent_name = f"test-snap-onerror-cont-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        result = cli_runner.invoke(
+            snapshot,
+            ["create", agent_name, "--on-error", "continue"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "does not support snapshots" in result.output or "Failed to create" in result.output
+
+
+def test_snapshot_create_on_error_abort_reports_failure(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mngr_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --on-error abort also fails (with abort message)."""
+    agent_name = f"test-snap-onerror-abort-{int(time.time())}"
+    session_name = f"{mngr_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(cli_runner, temp_work_dir, mngr_test_prefix, plugin_manager, agent_name)
+
+        result = cli_runner.invoke(
+            snapshot,
+            ["create", agent_name, "--on-error", "abort"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "Aborted" in result.output or "does not support" in result.output
+
+
+def test_snapshot_create_mixed_identifier_classified_as_host(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that a positional arg not matching any agent is treated as a host identifier.
+
+    In the test env, the local provider resolves any name to its default host, which
+    doesn't support snapshots, so we get an error about unsupported snapshots.
+    """
+    result = cli_runner.invoke(
+        snapshot,
+        ["create", "not-an-agent-or-host-99999"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    # The identifier is classified as a host (no agent match), resolved by the local
+    # provider, then fails because local doesn't support snapshots
+    assert result.exit_code != 0
+    assert "does not support snapshots" in result.output or "Failed to create" in result.output
+
+
 def test_snapshot_list_nonexistent_agent_errors(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

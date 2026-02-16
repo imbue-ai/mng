@@ -495,7 +495,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
     if not agent_identifiers and not host_identifiers and not opts.all_agents:
         raise click.UsageError("Must specify at least one agent, host, or use --all")
 
-    if agent_identifiers and opts.all_agents:
+    if (agent_identifiers or host_identifiers) and opts.all_agents:
         raise click.UsageError("Cannot specify both agent/host names and --all")
 
     error_behavior = ErrorBehavior(opts.on_error.upper())
@@ -857,7 +857,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 _SNAPSHOT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-snapshot",
     one_line_description="Create, list, and destroy host snapshots",
-    synopsis="mngr [snapshot|snap] [create|list|destroy] [IDENTIFIERS...] [OPTIONS]",
+    synopsis="mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
     description="""Create, list, and destroy snapshots of agent hosts.
 
 Snapshots capture the complete filesystem state of a host, allowing it to be
@@ -873,7 +873,7 @@ Useful for checkpointing work, creating restore points, or managing disk space."
     examples=(
         ("Create a snapshot of an agent's host", "mngr snapshot create my-agent"),
         ("Create a named snapshot", "mngr snapshot create my-agent --name before-refactor"),
-        ("Snapshot by host ID", "mngr snapshot create my-host-id --host my-host-id"),
+        ("Snapshot by host ID", "mngr snapshot create my-host-id"),
         ("List snapshots for an agent", "mngr snapshot list my-agent"),
         ("Destroy all snapshots for an agent", "mngr snapshot destroy my-agent --all-snapshots --force"),
         ("Preview what would be destroyed", "mngr snapshot destroy my-agent --all-snapshots --dry-run"),

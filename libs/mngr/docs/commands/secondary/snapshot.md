@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [snapshot|snap] [create|list|destroy] [IDENTIFIERS...] [OPTIONS]
+mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
 
@@ -269,7 +269,7 @@ $ mngr snapshot create my-agent --name before-refactor
 **Snapshot by host ID**
 
 ```bash
-$ mngr snapshot create my-host-id --host my-host-id
+$ mngr snapshot create my-host-id
 ```
 
 **List snapshots for an agent**
