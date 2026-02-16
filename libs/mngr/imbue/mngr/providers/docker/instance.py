@@ -1035,8 +1035,12 @@ kill -TERM 1
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
 
-        containers = self._list_containers()
-        all_host_records = self._host_store.list_all_host_records()
+        try:
+            containers = self._list_containers()
+            all_host_records = self._host_store.list_all_host_records()
+        except (MngrError, docker.errors.DockerException) as e:
+            logger.warning("Cannot list Docker hosts (Docker daemon unavailable?): {}", e)
+            return []
 
         # Map running containers by host_id
         container_by_host_id: dict[HostId, docker.models.containers.Container] = {}
