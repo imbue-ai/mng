@@ -6,6 +6,7 @@ from pydantic import Field
 from pydantic import PrivateAttr
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostConfig
@@ -49,7 +50,7 @@ class HostRecord(FrozenModel):
     container_id: str | None = Field(default=None, description="Docker container ID for reconnection")
 
 
-class DockerHostStore(FrozenModel):
+class DockerHostStore(MutableModel):
     """Host record store backed by a Volume.
 
     Stores host records and agent data on the Docker state volume,

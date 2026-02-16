@@ -53,6 +53,7 @@ from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.host_store import ContainerConfig
 from imbue.mngr.providers.docker.host_store import DockerHostStore
 from imbue.mngr.providers.docker.host_store import HostRecord
+from imbue.mngr.providers.docker.volume import CONTAINER_ENTRYPOINT_CMD
 from imbue.mngr.providers.docker.volume import DockerVolume
 from imbue.mngr.providers.docker.volume import ensure_state_container
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
@@ -66,11 +67,8 @@ from imbue.mngr.providers.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.ssh_utils import load_or_create_ssh_keypair
 from imbue.mngr.providers.ssh_utils import wait_for_sshd
 
-# Shell command that keeps PID 1 alive and responds to SIGTERM
-CONTAINER_ENTRYPOINT_CMD: Final[str] = "trap 'exit 0' TERM; tail -f /dev/null & wait"
-
-# Container entrypoint as SDK-style command list (used by tests)
-CONTAINER_ENTRYPOINT: Final[list[str]] = ["sh", "-c", CONTAINER_ENTRYPOINT_CMD]
+# Container entrypoint as SDK-style command tuple (used by tests)
+CONTAINER_ENTRYPOINT: Final[tuple[str, ...]] = ("sh", "-c", CONTAINER_ENTRYPOINT_CMD)
 
 # Default image used when no image is specified
 DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"

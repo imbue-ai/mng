@@ -1,5 +1,6 @@
 import io
 import tarfile
+from typing import Final
 from typing import Mapping
 
 import docker
@@ -14,10 +15,13 @@ from imbue.mngr.interfaces.data_types import VolumeFile
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.volume import BaseVolume
 
+# Shell command that keeps PID 1 alive and responds to SIGTERM.
+# Shared between host containers and the state container.
+CONTAINER_ENTRYPOINT_CMD: Final[str] = "trap 'exit 0' TERM; tail -f /dev/null & wait"
+
 # Name and configuration for the singleton state container
-STATE_CONTAINER_IMAGE = "alpine:latest"
-STATE_CONTAINER_ENTRYPOINT = ["sh", "-c", "trap 'exit 0' TERM; tail -f /dev/null & wait"]
-STATE_VOLUME_MOUNT_PATH = "/mngr-state"
+STATE_CONTAINER_IMAGE: Final[str] = "alpine:latest"
+STATE_VOLUME_MOUNT_PATH: Final[str] = "/mngr-state"
 
 
 def _state_container_name(prefix: str, user_id: str) -> str:
@@ -60,7 +64,7 @@ def ensure_state_container(
     container = client.containers.run(
         image=STATE_CONTAINER_IMAGE,
         name=container_name,
-        command=STATE_CONTAINER_ENTRYPOINT,
+        command=["sh", "-c", CONTAINER_ENTRYPOINT_CMD],
         detach=True,
         volumes={volume_name: {"bind": STATE_VOLUME_MOUNT_PATH, "mode": "rw"}},
         labels={"com.imbue.mngr.type": "state-container"},

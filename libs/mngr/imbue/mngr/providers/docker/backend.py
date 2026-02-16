@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from typing import Final
 
 from loguru import logger
 
@@ -14,7 +15,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.docker.config import DockerProviderConfig
 from imbue.mngr.providers.docker.instance import DockerProviderInstance
 
-DOCKER_BACKEND_NAME = ProviderBackendName("docker")
+DOCKER_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("docker")
 
 
 def _get_docker_cli_help(subcommand: str) -> str:
