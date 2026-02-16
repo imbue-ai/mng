@@ -39,6 +39,12 @@ class LogsCliOptions(CommonCliOptions):
     head: int | None
 
 
+def _write_and_flush_stdout(content: str) -> None:
+    """Write content to stdout and flush immediately for piped output."""
+    sys.stdout.write(content)
+    sys.stdout.flush()
+
+
 @click.command(name="logs")
 @click.argument("target", shell_complete=complete_agent_name)
 @click.argument("log_filename", required=False, default=None)
@@ -108,7 +114,7 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
             follow_log_file(
                 target=target,
                 log_file_name=opts.log_filename,
-                on_new_content=lambda content: (sys.stdout.write(content), sys.stdout.flush()),
+                on_new_content=_write_and_flush_stdout,
                 tail_count=opts.tail,
             )
         except KeyboardInterrupt:

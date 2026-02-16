@@ -8,6 +8,8 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
+from imbue.mngr.api.find import resolve_agent_reference
+from imbue.mngr.api.find import resolve_host_reference
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
@@ -15,12 +17,6 @@ from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.volume import Volume
-from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentName
-from imbue.mngr.primitives import AgentReference
-from imbue.mngr.primitives import HostId
-from imbue.mngr.primitives import HostName
-from imbue.mngr.primitives import HostReference
 from imbue.mngr.utils.polling import poll_until
 
 FOLLOW_POLL_INTERVAL_SECONDS: Final[float] = 1.0
@@ -42,69 +38,6 @@ class LogFileEntry(FrozenModel):
     size: int = Field(description="File size in bytes")
 
 
-@pure
-def _find_agent_in_hosts(
-    identifier: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
-) -> tuple[HostReference, AgentReference] | None:
-    """Find an agent by name or ID across all hosts.
-
-    Returns (host_ref, agent_ref) or None if not found.
-    """
-    # Try as AgentId first
-    try:
-        agent_id = AgentId(identifier)
-        for host_ref, agent_refs in agents_by_host.items():
-            for agent_ref in agent_refs:
-                if agent_ref.agent_id == agent_id:
-                    return host_ref, agent_ref
-    except ValueError:
-        pass
-
-    # Try as AgentName
-    agent_name = AgentName(identifier)
-    matches: list[tuple[HostReference, AgentReference]] = []
-    for host_ref, agent_refs in agents_by_host.items():
-        for agent_ref in agent_refs:
-            if agent_ref.agent_name == agent_name:
-                matches.append((host_ref, agent_ref))
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        raise UserInputError(f"Multiple agents found with name '{identifier}'. Please use the agent ID instead.")
-    else:
-        return None
-
-
-@pure
-def _find_host_in_hosts(
-    identifier: str,
-    agents_by_host: dict[HostReference, list[AgentReference]],
-) -> HostReference | None:
-    """Find a host by name or ID.
-
-    Returns the HostReference or None if not found.
-    """
-    # Try as HostId first
-    try:
-        host_id = HostId(identifier)
-        for host_ref in agents_by_host:
-            if host_ref.host_id == host_id:
-                return host_ref
-    except ValueError:
-        pass
-
-    # Try as HostName
-    host_name = HostName(identifier)
-    matches = [host_ref for host_ref in agents_by_host if host_ref.host_name == host_name]
-    if len(matches) == 1:
-        return matches[0]
-    elif len(matches) > 1:
-        raise UserInputError(f"Multiple hosts found with name '{identifier}'. Please use the host ID instead.")
-    else:
-        return None
-
-
 def resolve_logs_target(
     identifier: str,
     mngr_ctx: MngrContext,
@@ -113,12 +46,19 @@ def resolve_logs_target(
 
     First tries to find an agent with the given identifier.
     If no agent is found, tries to find a host.
+    Uses resolve_agent_reference and resolve_host_reference from api/find.py.
     """
     with log_span("Loading agents and hosts"):
         agents_by_host, _providers = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
 
-    # Try finding as an agent first
-    agent_result = _find_agent_in_hosts(identifier, agents_by_host)
+    all_hosts = list(agents_by_host.keys())
+
+    # Try finding as an agent first (returns None-not-found rather than raising)
+    try:
+        agent_result = resolve_agent_reference(identifier, None, agents_by_host)
+    except UserInputError:
+        agent_result = None
+
     if agent_result is not None:
         host_ref, agent_ref = agent_result
         with log_span("Getting volume for agent {}", agent_ref.agent_name):
@@ -136,7 +76,11 @@ def resolve_logs_target(
         )
 
     # Try finding as a host
-    host_ref = _find_host_in_hosts(identifier, agents_by_host)
+    try:
+        host_ref = resolve_host_reference(identifier, all_hosts)
+    except UserInputError:
+        host_ref = None
+
     if host_ref is not None:
         with log_span("Getting volume for host {}", host_ref.host_name):
             provider = get_provider_instance(host_ref.provider_name, mngr_ctx)
@@ -190,10 +134,10 @@ def apply_head_or_tail(
     lines = content.splitlines(keepends=True)
     if head_count is not None:
         lines = lines[:head_count]
-    elif tail_count is not None:
-        lines = lines[-tail_count:]
     else:
-        pass
+        # tail_count is guaranteed non-None here (early return above handles both-None case)
+        assert tail_count is not None
+        lines = lines[-tail_count:]
     return "".join(lines)
 
 
