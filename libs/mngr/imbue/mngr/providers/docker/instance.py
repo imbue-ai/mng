@@ -146,7 +146,7 @@ def _parse_resources_from_start_args(start_args: Sequence[str]) -> tuple[float, 
 
 
 def _parse_memory_string(mem_str: str) -> float:
-    """Parse a Docker memory string (e.g., '4g', '512m', '2048') into GB."""
+    """Parse a Docker memory string (e.g., '4g', '512m', '1073741824b', '2048') into GB."""
     mem_str = mem_str.strip().lower()
     if mem_str.endswith("g"):
         return float(mem_str[:-1])
@@ -154,7 +154,9 @@ def _parse_memory_string(mem_str: str) -> float:
         return float(mem_str[:-1]) / 1024.0
     if mem_str.endswith("k"):
         return float(mem_str[:-1]) / (1024.0 * 1024.0)
-    # Assume bytes
+    if mem_str.endswith("b"):
+        return float(mem_str[:-1]) / (1024.0 * 1024.0 * 1024.0)
+    # Bare number, assume bytes
     return float(mem_str) / (1024.0 * 1024.0 * 1024.0)
 
 

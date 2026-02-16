@@ -281,7 +281,6 @@ def test_create_host_with_dockerfile(docker_provider: DockerProviderInstance, tm
 # =========================================================================
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be persisted and listed for a host."""
@@ -297,7 +296,6 @@ def test_persist_and_list_agent_data(docker_provider: DockerProviderInstance) ->
     assert records[0]["name"] == "test-agent"
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_remove_persisted_agent_data(docker_provider: DockerProviderInstance) -> None:
     """Verify agent data can be removed after persisting."""
@@ -403,7 +401,7 @@ def test_create_host_with_bad_image_fails(docker_provider: DockerProviderInstanc
     with pytest.raises(MngrError):
         docker_provider.create_host(
             HostName("test-bad-image"),
-            build_args=["--image=nonexistent-image-does-not-exist:99999"],
+            image=ImageReference("nonexistent-image-does-not-exist:99999"),
         )
 
 

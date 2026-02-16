@@ -29,7 +29,6 @@ def temp_source_dir(tmp_path: Path) -> Path:
     return source_dir
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_mngr_create_echo_command_on_docker(
     temp_source_dir: Path,
@@ -67,7 +66,6 @@ def test_mngr_create_echo_command_on_docker(
     assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_mngr_create_with_start_args_on_docker(
     temp_source_dir: Path,
@@ -109,7 +107,6 @@ def test_mngr_create_with_start_args_on_docker(
     assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_mngr_create_with_tags_on_docker(
     temp_source_dir: Path,
@@ -149,7 +146,6 @@ def test_mngr_create_with_tags_on_docker(
     assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(120)
 def test_mngr_create_with_dockerfile_on_docker(
     temp_source_dir: Path,
