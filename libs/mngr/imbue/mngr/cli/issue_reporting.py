@@ -218,6 +218,8 @@ def handle_not_implemented_error(error: NotImplementedError) -> NoReturn:
     raise SystemExit(1)
 
 
+# FIXME: actually, to make this sane, we want to search just for the type of error being raised, and the function it is being raised from (the lowest level one in the traceback that is actually from one of our libraries)
+#  otherwise we're likely to end up missing existing issues, esp if there is anything random or dynamic in the error message (e.g. memory addresses, random IDs, etc.) that would prevent matching against existing issues.
 @pure
 def build_unexpected_error_issue_title(error: Exception) -> str:
     """Build a GitHub issue title from an unexpected error."""
