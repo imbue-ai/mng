@@ -24,6 +24,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import ConfigKeyNotFoundError
@@ -242,6 +243,9 @@ def config_list(ctx: click.Context, **kwargs: Any) -> None:
     Shows all configuration settings from the specified scope, or from the
     merged configuration if no scope is specified.
 
+    Supports custom format templates via --format. Available fields:
+    key, value.
+
     Examples:
 
       mngr config list
@@ -249,6 +253,8 @@ def config_list(ctx: click.Context, **kwargs: Any) -> None:
       mngr config list --scope user
 
       mngr config list --format json
+
+      mngr config list --format '{key}={value}'
     """
     try:
         _config_list_impl(ctx, **kwargs)
@@ -263,6 +269,7 @@ def _config_list_impl(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="config",
         command_class=ConfigCliOptions,
+        is_format_template_supported=True,
     )
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
@@ -286,6 +293,11 @@ def _emit_config_list(
     config_path: Path | None,
 ) -> None:
     """Emit the config list output in the appropriate format."""
+    if output_opts.format_template is not None:
+        flattened = _flatten_config(config_data)
+        items = [{"key": key, "value": _format_value_for_display(value)} for key, value in sorted(flattened)]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             output = {"config": config_data}

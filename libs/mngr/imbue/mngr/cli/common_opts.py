@@ -134,7 +134,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "output_format",
         default="human",
         show_default=True,
-        help="Output format (human, json, jsonl); some commands also accept a template string",
+        help="Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\\t{state}')",
     )(command)
     # Start the "Common" option group - applied last since decorators run in reverse order
     command = optgroup.group(COMMON_OPTIONS_GROUP_NAME)(command)
@@ -155,7 +155,7 @@ def setup_command_context(
     set up logging, and load plugin backends.
 
     Set is_format_template_supported=True for commands that handle
-    output_opts.format_template (currently only the list command).
+    output_opts.format_template.
     """
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)

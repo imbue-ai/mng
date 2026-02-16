@@ -34,7 +34,7 @@ mngr plugin [OPTIONS] COMMAND [ARGS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -60,6 +60,9 @@ List discovered plugins.
 Shows all plugins registered with mngr, including built-in plugins
 and any externally installed plugins.
 
+Supports custom format templates via --format. Available fields:
+name, version, description, enabled.
+
 Examples:
 
   mngr plugin list
@@ -69,6 +72,8 @@ Examples:
   mngr plugin list --format json
 
   mngr plugin list --fields name,enabled
+
+  mngr plugin list --format '{name}\t{enabled}'
 
 **Usage:**
 
@@ -82,7 +87,7 @@ mngr plugin list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -118,7 +123,7 @@ mngr plugin add [OPTIONS] NAME
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -147,7 +152,7 @@ mngr plugin remove [OPTIONS] NAME
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -187,7 +192,7 @@ mngr plugin enable [OPTIONS] NAME
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -233,7 +238,7 @@ mngr plugin disable [OPTIONS] NAME
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl); many commands also accept a template string (e.g. '{name}\t{state}') | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
