@@ -651,7 +651,7 @@ def test_procps_ps_command_available() -> None:
         assert False, f"ps aux failed: {result.stderr}"
     # Verify we get reasonable output (should include at least our own process)
     if "PID" not in result.stdout and len(result.stdout.strip().split("\n")) <= 1:
-        sys.stderr.write(f"PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
+        sys.stderr.write("PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
         sys.stderr.write(f"stdout: {result.stdout}\n")
         sys.stderr.flush()
         assert False, "ps aux output invalid"

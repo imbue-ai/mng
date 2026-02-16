@@ -98,6 +98,11 @@ select = [
 ]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Allow `assert False` in tests (B011)
+"*_test.py" = ["B011"]
+"test_*.py" = ["B011"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
