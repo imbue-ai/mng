@@ -24,6 +24,7 @@ from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.errors import UserInputError
@@ -551,7 +552,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
                 {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
                 output_opts.output_format,
             )
-        except Exception as e:
+        except (BaseMngrError, OSError) as e:
             error_msg = f"Failed to create snapshot for host {host_id_str}: {e}"
             errors.append({"host_id": host_id_str, "error": str(e)})
             on_error(error_msg, error_behavior, output_opts.output_format, exc=e)
