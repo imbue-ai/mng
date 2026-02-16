@@ -117,11 +117,12 @@ class DockerHostStore(FrozenModel):
         path = self._host_record_path(host_id)
         try:
             self.volume.remove_file(path)
-        except (FileNotFoundError, OSError, MngrError):
+        except FileNotFoundError:
             pass
+        except (OSError, MngrError) as e:
+            logger.warning("Failed to delete host record {}: {}", host_id, e)
 
         self._cache.pop(host_id, None)
-        logger.trace("Deleted host record: {}", host_id)
 
     def list_all_host_records(self) -> list[HostRecord]:
         """List all host records stored on the volume."""
@@ -183,9 +184,10 @@ class DockerHostStore(FrozenModel):
         path = self._agent_data_path(host_id, agent_id)
         try:
             self.volume.remove_file(path)
-        except (FileNotFoundError, OSError, MngrError):
+        except FileNotFoundError:
             pass
-        logger.trace("Removed agent data: {}", path)
+        except (OSError, MngrError) as e:
+            logger.warning("Failed to remove agent data {}: {}", path, e)
 
     def clear_cache(self) -> None:
         """Clear the in-memory cache."""

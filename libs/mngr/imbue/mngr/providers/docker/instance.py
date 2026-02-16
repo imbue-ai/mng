@@ -728,15 +728,32 @@ kill -TERM 1
             updated_at=now,
         )
 
-        host, ssh_host, ssh_port, host_public_key = self._setup_container_ssh_and_create_host(
-            container=container,
-            host_id=host_id,
-            host_name=name,
-            user_tags=tags,
-            config=config,
-            host_data=host_data,
-            known_hosts=known_hosts,
-        )
+        try:
+            host, ssh_host, ssh_port, host_public_key = self._setup_container_ssh_and_create_host(
+                container=container,
+                host_id=host_id,
+                host_name=name,
+                user_tags=tags,
+                config=config,
+                host_data=host_data,
+                known_hosts=known_hosts,
+            )
+        except (MngrError, docker.errors.DockerException, OSError) as e:
+            # Clean up the container on SSH setup failure to avoid orphans
+            logger.warning("SSH setup failed, removing container: {}", e)
+            try:
+                container.remove(force=True)
+            except docker.errors.DockerException:
+                pass
+            self._container_cache_by_id.pop(host_id, None)
+            self._save_failed_host_record(
+                host_id=host_id,
+                host_name=name,
+                tags=tags,
+                failure_reason=str(e),
+                build_log="",
+            )
+            raise MngrError(f"SSH setup failed for container {host_id}: {e}") from e
 
         return host
 
@@ -926,7 +943,7 @@ kill -TERM 1
                 labels=labels,
                 start_args=effective_start_args,
             )
-        except docker.errors.APIError as e:
+        except (MngrError, docker.errors.DockerException) as e:
             raise MngrError(f"Failed to create container from snapshot: {e}") from e
 
         self._container_cache_by_id[host_id] = new_container

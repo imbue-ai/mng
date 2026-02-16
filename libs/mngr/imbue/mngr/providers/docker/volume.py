@@ -150,9 +150,9 @@ class DockerVolume(BaseVolume):
     def remove_directory(self, path: str) -> None:
         """Recursively remove a directory and all its contents."""
         resolved = self._resolve(path)
-        exit_code, _ = self._exec(f"rm -rf '{resolved}'")
+        exit_code, output = self._exec(f"rm -rf '{resolved}'")
         if exit_code != 0:
-            logger.warning("Failed to remove directory from volume: {}", path)
+            raise MngrError(f"Failed to remove directory '{path}' from volume: {output}")
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         """Write files to the volume using docker put_archive for binary safety."""
