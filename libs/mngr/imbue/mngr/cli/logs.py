@@ -114,6 +114,13 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
         _emit_log_file_list(log_files, target.display_name, output_opts)
         return
 
+    # Format templates only apply to file listing, not to viewing file content
+    if output_opts.format_template is not None:
+        raise UserInputError(
+            "Format template strings are only supported when listing log files (without a filename argument). "
+            "Use --format human, --format json, or --format jsonl when viewing log content."
+        )
+
     if opts.follow:
         # Follow mode: poll and print new content
         logger.info("Following log file '{}' for {} (Ctrl+C to stop)", opts.log_filename, target.display_name)
