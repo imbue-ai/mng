@@ -244,7 +244,9 @@ class DockerProviderInstance(BaseProviderInstance):
     ) -> None:
         """Check for required packages and install if missing, with warnings."""
         check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
-        _, output = self._exec_in_container(container, check_install_cmd)
+        exit_code, output = self._exec_in_container(container, check_install_cmd)
+        if exit_code != 0:
+            raise MngrError(f"Failed to install required packages (exit code {exit_code}): {output}")
         warnings = parse_warnings_from_output(output)
         for warning in warnings:
             logger.warning(warning)
@@ -268,7 +270,9 @@ class DockerProviderInstance(BaseProviderInstance):
                 host_private_key=host_private_key,
                 host_public_key=host_public_key,
             )
-            self._exec_in_container(container, configure_ssh_cmd)
+            exit_code, output = self._exec_in_container(container, configure_ssh_cmd)
+            if exit_code != 0:
+                raise MngrError(f"Failed to configure SSH (exit code {exit_code}): {output}")
 
         if known_hosts:
             add_known_hosts_cmd = build_add_known_hosts_command(ssh_user, tuple(known_hosts))
