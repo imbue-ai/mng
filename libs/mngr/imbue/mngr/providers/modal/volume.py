@@ -88,7 +88,7 @@ class ModalVolume(BaseVolume):
         _modal_volume_remove_file(self.modal_volume, path, recursive=recursive)
 
     def remove_directory(self, path: str) -> None:
-        _modal_volume_remove_file(self.modal_volume, path)
+        _modal_volume_remove_file(self.modal_volume, path, recursive=True)
 
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         _modal_volume_write_files(self.modal_volume, file_contents_by_path)

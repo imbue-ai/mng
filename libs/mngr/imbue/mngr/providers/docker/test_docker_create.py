@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mngr.utils.testing import generate_test_environment_name
 from imbue.mngr.utils.testing import get_short_random_string
 from imbue.mngr.utils.testing import get_subprocess_test_env
 
@@ -14,8 +15,10 @@ def docker_subprocess_env(tmp_path: Path) -> dict[str, str]:
     """Create a subprocess test environment for Docker tests."""
     host_dir = tmp_path / "docker-test-hosts"
     host_dir.mkdir()
+    prefix = f"{generate_test_environment_name()}-"
     return get_subprocess_test_env(
         root_name="mngr-docker-test",
+        prefix=prefix,
         host_dir=host_dir,
     )
 
