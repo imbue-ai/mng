@@ -374,7 +374,7 @@ def _pytest_terminal_summary(
     exitstatus: int,
     config: pytest.Config,
 ) -> None:
-    """Write slow tests to file if the option is enabled."""
+    """Handle end-of-session output: slow tests file, coverage file, and CI duration printing."""
     # Only run on the controller process (not xdist workers)
     if _is_xdist_worker():
         return
@@ -394,25 +394,32 @@ def _pytest_terminal_summary(
     _print_test_durations_for_ci(terminalreporter)
 
 
+def _collect_test_durations(
+    terminalreporter: "pytest.TerminalReporter",
+) -> dict[str, float]:
+    """Collect test durations from the terminal reporter's stats.
+
+    Returns a dict mapping test node IDs to their call-phase durations.
+    Works with xdist because the controller aggregates results from workers.
+    """
+    durations: dict[str, float] = {}
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            if hasattr(report, "duration") and hasattr(report, "nodeid"):
+                if getattr(report, "when", None) == "call":
+                    durations[report.nodeid] = report.duration
+    return durations
+
+
 def _write_slow_tests_to_file(
     terminalreporter: "pytest.TerminalReporter",
     config: pytest.Config,
 ) -> None:
     """Write the slow tests report to a file."""
-    # Get durations from the terminal reporter's stats (aggregated from all workers)
-    # This works with xdist because the controller aggregates results from workers
-    durations: list[tuple[float, str]] = []
-
-    # Collect durations from test reports in the stats
-    for reports in terminalreporter.stats.values():
-        for report in reports:
-            if hasattr(report, "duration") and hasattr(report, "nodeid"):
-                # Only count the "call" phase (not setup/teardown)
-                if getattr(report, "when", None) == "call":
-                    durations.append((report.duration, report.nodeid))
+    all_durations = _collect_test_durations(terminalreporter)
 
     # Sort by duration (slowest first)
-    durations = sorted(durations, reverse=True)
+    durations = sorted(all_durations.items(), key=lambda x: x[1], reverse=True)
 
     # Get the original durations count (saved before we suppressed terminal output)
     durations_count = getattr(config, "_original_durations", 0)
@@ -427,7 +434,7 @@ def _write_slow_tests_to_file(
 
     # Write the report
     lines = [f"slowest {len(durations)} durations", ""]
-    for duration, nodeid in durations:
+    for nodeid, duration in durations:
         lines.append(f"{duration:.4f}s {nodeid}")
 
     output_file.write_text("\n".join(lines))
@@ -488,13 +495,7 @@ def _print_test_durations_for_ci(
     if "CI" not in os.environ:
         return
 
-    durations: dict[str, float] = {}
-    for reports in terminalreporter.stats.values():
-        for report in reports:
-            if hasattr(report, "duration") and hasattr(report, "nodeid"):
-                if getattr(report, "when", None) == "call":
-                    durations[report.nodeid] = report.duration
-
+    durations = _collect_test_durations(terminalreporter)
     if not durations:
         return
 
