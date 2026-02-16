@@ -36,7 +36,7 @@ from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import Permission
-from imbue.mngr.utils.time_utils import parse_duration_seconds
+from imbue.mngr.utils.duration import parse_duration_to_seconds
 
 
 class LimitCliOptions(CommonCliOptions):
@@ -117,7 +117,9 @@ def _build_updated_activity_config(
     via get_activity_sources_for_idle_mode.
     """
     new_idle_timeout = (
-        parse_duration_seconds(idle_timeout_str) if idle_timeout_str is not None else current.idle_timeout_seconds
+        int(parse_duration_to_seconds(idle_timeout_str))
+        if idle_timeout_str is not None
+        else current.idle_timeout_seconds
     )
 
     if activity_sources_str is not None:

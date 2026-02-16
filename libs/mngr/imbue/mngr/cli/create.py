@@ -81,6 +81,7 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.duration import parse_duration_to_seconds
 from imbue.mngr.utils.editor import EditorSession
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
@@ -90,7 +91,6 @@ from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
-from imbue.mngr.utils.time_utils import parse_duration_seconds
 
 
 class _CachedAgentHostLoader(MutableModel):
@@ -1334,7 +1334,7 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
         if opts.activity_sources
         else None
     )
-    parsed_idle_timeout = parse_duration_seconds(opts.idle_timeout) if opts.idle_timeout is not None else None
+    parsed_idle_timeout = int(parse_duration_to_seconds(opts.idle_timeout)) if opts.idle_timeout is not None else None
     return HostLifecycleOptions(
         idle_timeout_seconds=parsed_idle_timeout,
         idle_mode=parsed_idle_mode,

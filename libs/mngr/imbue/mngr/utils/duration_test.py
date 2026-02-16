@@ -58,6 +58,21 @@ def test_parse_duration_zero_raises() -> None:
         parse_duration_to_seconds("0d")
 
 
-def test_parse_duration_just_number_raises() -> None:
-    with pytest.raises(UserInputError, match="Invalid duration"):
-        parse_duration_to_seconds("42")
+def test_parse_duration_plain_integer_treated_as_seconds() -> None:
+    assert parse_duration_to_seconds("300") == 300.0
+    assert parse_duration_to_seconds("42") == 42.0
+    assert parse_duration_to_seconds("1") == 1.0
+
+
+def test_parse_duration_plain_integer_with_whitespace() -> None:
+    assert parse_duration_to_seconds("  300  ") == 300.0
+
+
+def test_parse_duration_plain_zero_raises() -> None:
+    with pytest.raises(UserInputError, match="greater than zero"):
+        parse_duration_to_seconds("0")
+
+
+def test_parse_duration_negative_integer_raises() -> None:
+    with pytest.raises(UserInputError, match="greater than zero"):
+        parse_duration_to_seconds("-5")

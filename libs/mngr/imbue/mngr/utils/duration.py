@@ -13,17 +13,27 @@ _DURATION_PATTERN = re.compile(
 def parse_duration_to_seconds(duration_str: str) -> float:
     """Parse a human-readable duration string into seconds.
 
-    Supports combinations of days (d), hours (h), minutes (m), seconds (s).
-    Examples: '7d', '24h', '30m', '1h30m', '90s', '1d12h'.
+    Supports plain integers (treated as seconds) and combinations of
+    days (d), hours (h), minutes (m), seconds (s).
+    Examples: '300', '7d', '24h', '30m', '1h30m', '90s', '1d12h'.
     """
     stripped = duration_str.strip()
     if not stripped:
         raise UserInputError(f"Invalid duration: '{duration_str}' (empty string)")
 
+    # Plain integer is treated as seconds
+    try:
+        plain_seconds = int(stripped)
+        if plain_seconds <= 0:
+            raise UserInputError(f"Invalid duration: '{duration_str}'. Duration must be greater than zero.")
+        return float(plain_seconds)
+    except ValueError:
+        pass
+
     match = _DURATION_PATTERN.match(stripped)
     if match is None or match.group(0) == "":
         raise UserInputError(
-            f"Invalid duration: '{duration_str}'. Expected format like '7d', '24h', '30m', '90s', '1h30m', '1d12h'."
+            f"Invalid duration: '{duration_str}'. Expected format like '300', '7d', '24h', '30m', '90s', '1h30m', '1d12h'."
         )
 
     days = int(match.group(1)) if match.group(1) else 0
