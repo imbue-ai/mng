@@ -22,6 +22,7 @@ from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.help_formatter import get_help_metadata
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
+from imbue.mngr.cli.issue_reporting import handle_unexpected_error
 from imbue.mngr.cli.limit import limit
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.logs import logs
@@ -36,6 +37,7 @@ from imbue.mngr.cli.rename import rename
 from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
+from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import get_all_provider_args_help_sections
 from imbue.mngr.providers.registry import load_all_registries
@@ -78,6 +80,12 @@ class AliasAwareGroup(click.Group):
             return super().invoke(ctx)
         except NotImplementedError as e:
             handle_not_implemented_error(e)
+        except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngrError):
+            raise
+        except Exception as e:
+            if ctx.meta.get("is_error_reporting_enabled", False):
+                handle_unexpected_error(e)
+            raise
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
