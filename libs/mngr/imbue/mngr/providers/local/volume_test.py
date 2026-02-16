@@ -62,6 +62,16 @@ def test_remove_nonexistent_raises(volume: LocalVolume) -> None:
         volume.remove_file("no_such_file.txt")
 
 
+def test_remove_file_recursive(volume: LocalVolume) -> None:
+    volume.write_files({"sub/a.txt": b"a", "sub/b.txt": b"b", "keep.txt": b"keep"})
+    volume.remove_file("sub", recursive=True)
+    with pytest.raises(FileNotFoundError):
+        volume.read_file("sub/a.txt")
+    with pytest.raises(FileNotFoundError):
+        volume.read_file("sub/b.txt")
+    assert volume.read_file("keep.txt") == b"keep"
+
+
 def test_scoped_volume(volume: LocalVolume) -> None:
     volume.write_files({"agents/a1/data.json": b'{"id":"a1"}'})
     scoped = volume.scoped("agents/a1")

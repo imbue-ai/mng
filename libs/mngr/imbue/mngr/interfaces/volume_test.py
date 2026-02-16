@@ -124,6 +124,36 @@ def test_scoped_volume_remove_file(volume_with_files: InMemoryVolume) -> None:
     assert "/host/data.json" not in volume_with_files.files
 
 
+def test_scoped_volume_remove_file_recursive(volume_with_files: InMemoryVolume) -> None:
+    scoped = volume_with_files.scoped("/host")
+    scoped.remove_file("agents", recursive=True)
+    assert "/host/agents/a1.json" not in volume_with_files.files
+    assert "/host/agents/a2.json" not in volume_with_files.files
+    # non-agents files should remain
+    assert "/host/data.json" in volume_with_files.files
+    assert "/other/file.txt" in volume_with_files.files
+
+
+def test_remove_file_recursive_deletes_path_and_children() -> None:
+    vol = InMemoryVolume(
+        files={
+            "/host/agent1.json": b"a1",
+            "/host/agent2.json": b"a2",
+            "/other.json": b"other",
+        }
+    )
+    vol.remove_file("/host", recursive=True)
+    assert "/host/agent1.json" not in vol.files
+    assert "/host/agent2.json" not in vol.files
+    assert "/other.json" in vol.files
+
+
+def test_remove_file_recursive_nonexistent_raises() -> None:
+    vol = InMemoryVolume(files={"/existing.json": b"data"})
+    with pytest.raises(FileNotFoundError):
+        vol.remove_file("/nonexistent", recursive=True)
+
+
 def test_scoped_volume_listdir(volume_with_files: InMemoryVolume) -> None:
     scoped = volume_with_files.scoped("/host")
     entries = scoped.listdir("agents")
