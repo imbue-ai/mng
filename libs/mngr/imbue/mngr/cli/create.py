@@ -2,7 +2,6 @@ import os
 import shlex
 import sys
 from collections.abc import Callable
-from functools import lru_cache
 from pathlib import Path
 from typing import assert_never
 from typing import cast
@@ -15,6 +14,8 @@ from pydantic import Field
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
 from imbue.mngr.api.create import create as api_create
@@ -35,12 +36,12 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.env_utils import resolve_env_vars
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import EnvVar
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -89,6 +90,21 @@ from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
 from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
+from imbue.mngr.utils.time_utils import parse_duration_seconds
+
+
+class _CachedAgentHostLoader(MutableModel):
+    """Lazy loader that caches agents grouped by host on first access."""
+
+    mngr_ctx: MngrContext = Field(frozen=True, description="Manager context for loading agents")
+    cached_result: dict[HostReference, list[AgentReference]] | None = Field(
+        default=None, description="Cached loading result"
+    )
+
+    def __call__(self) -> dict[HostReference, list[AgentReference]]:
+        if self.cached_result is None:
+            self.cached_result = load_all_agents_grouped_by_host(self.mngr_ctx)[0]
+        return self.cached_result
 
 
 @pure
@@ -198,7 +214,7 @@ class CreateCliOptions(CommonCliOptions):
     retry: int
     retry_delay: str
     attach_command: str | None
-    idle_timeout: int | None
+    idle_timeout: str | None
     idle_mode: str | None
     activity_sources: str | None
     start_on_boot: bool | None
@@ -211,6 +227,7 @@ class CreateCliOptions(CommonCliOptions):
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
     ready_timeout: float
+    yes: bool
 
 
 @click.command()
@@ -438,7 +455,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("-s", "--start", "--start-arg", "start_arg", multiple=True, help="Argument for start [repeatable]")
 @optgroup.option("--start-args", help="Space-separated start arguments (alternative to -s)")
 @optgroup.group("New Host Lifecycle")
-@optgroup.option("--idle-timeout", type=int, help="Shutdown after idle for N seconds [default: none]")
+@optgroup.option(
+    "--idle-timeout",
+    type=str,
+    help="Shutdown after idle for specified duration (e.g., 30s, 5m, 1h, or plain seconds) [default: none]",
+)
 @optgroup.option(
     "--idle-mode",
     type=click.Choice(_make_idle_mode_choices(), case_sensitive=False),
@@ -479,6 +500,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.group("Automation")
+@optgroup.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Auto-approve all prompts (e.g., skill installation) without asking",
+)
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
@@ -498,6 +527,12 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_class=CreateCliOptions,
     )
 
+    # Apply --yes flag to auto-approve prompts (e.g., skill installation)
+    if opts.yes:
+        mngr_ctx = mngr_ctx.model_copy_update(
+            to_update(mngr_ctx.field_ref().is_auto_approve, True),
+        )
+
     result = _handle_create(mngr_ctx, output_opts, opts)
     if result is None:
         return
@@ -505,7 +540,11 @@ def create(ctx: click.Context, **kwargs) -> None:
     _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
 
 
-def _handle_create(mngr_ctx, output_opts, opts):
+def _handle_create(
+    mngr_ctx: MngrContext,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngrContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -576,10 +615,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
         initial_message = initial_message_content
 
     # Create a lazy loader for agents grouped by host (only loads if needed)
-    @lru_cache
-    def agent_and_host_loader() -> dict[HostReference, list[AgentReference]]:
-        """Lazily load all agents grouped by host, caching the result."""
-        return load_all_agents_grouped_by_host(mngr_ctx)[0]
+    agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
 
     # figure out where the source data is coming from
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
@@ -682,19 +718,18 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # create work_dir immediately (if necessary)
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
-    final_source_location: HostLocation
     is_work_dir_created: bool
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
-        final_source_location = HostLocation(
-            host=source_location.host,
-            path=work_dir_path,
+        # Record the actual work_dir path in agent_opts so the API uses it
+        # (the path may have been auto-generated, e.g. for worktrees)
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().target_path, work_dir_path),
         )
         is_work_dir_created = True
     else:
-        final_source_location = source_location
         if snapshot is None:
             is_work_dir_created = False
         else:
@@ -715,7 +750,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
         _create_agent_in_background(
-            final_source_location,
+            source_location,
             resolved_target_host,
             agent_opts,
             mngr_ctx,
@@ -728,7 +763,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # Wrap in try/finally to ensure editor cleanup on failure
     try:
         create_result = api_create(
-            source_location=final_source_location,
+            source_location=source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mngr_ctx=mngr_ctx,
@@ -752,7 +787,13 @@ def _handle_create(mngr_ctx, output_opts, opts):
     return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
-def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
+def _post_create(
+    create_result: CreateAgentResult,
+    connection_opts: ConnectionOptions,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+    mngr_ctx: MngrContext,
+) -> None:
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
@@ -1082,29 +1123,6 @@ def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext
     return get_current_git_branch(source_location.path, mngr_ctx.concurrency_group)
 
 
-def _resolve_env_vars(
-    pass_env_var_names: tuple[str, ...],
-    explicit_env_var_strings: tuple[str, ...],
-) -> tuple[EnvVar, ...]:
-    """Resolve and merge environment variables.
-
-    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
-    Explicit env vars take precedence over pass-through values.
-    """
-    # Start with pass-through env vars from current shell
-    merged: dict[str, str] = {}
-    for var_name in pass_env_var_names:
-        if var_name in os.environ:
-            merged[var_name] = os.environ[var_name]
-
-    # Explicit env vars override pass-through values
-    for env_str in explicit_env_var_strings:
-        env_var = EnvVar.from_string(env_str)
-        merged[env_var.key] = env_var.value
-
-    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
-
-
 def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
     return find_git_worktree_root(path, cg) is not None
@@ -1211,7 +1229,7 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
+    env_vars = resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
@@ -1321,8 +1339,9 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
         if opts.activity_sources
         else None
     )
+    parsed_idle_timeout = parse_duration_seconds(opts.idle_timeout) if opts.idle_timeout is not None else None
     return HostLifecycleOptions(
-        idle_timeout_seconds=opts.idle_timeout,
+        idle_timeout_seconds=parsed_idle_timeout,
         idle_mode=parsed_idle_mode,
         activity_sources=parsed_activity_sources,
     )
@@ -1371,7 +1390,7 @@ def _parse_target_host(
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = _resolve_env_vars(opts.pass_host_env, opts.host_env)
+        host_env_vars = resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options

@@ -1,20 +1,10 @@
-"""Modal provider instance implementation.
-
-Manages Modal sandboxes as hosts with SSH access via pyinfra.
-
-Host metadata (SSH info, config, snapshots) is stored on a Modal Volume rather
-than in sandbox tags. This allows multiple mngr instances to share state and
-enables restoration from snapshots even after the original sandbox is gone.
-Only host_id and host_name are stored as sandbox tags for discovery purposes.
-"""
-
 import argparse
-import io
 import json
 import os
 import socket
 import tempfile
 import time
+import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from datetime import datetime
@@ -35,7 +25,6 @@ from dockerfile_parse import DockerfileParser
 from loguru import logger
 from modal.exception import NotFoundError
 from modal.stream_type import StreamType
-from modal.volume import FileEntry
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import PrivateAttr
@@ -43,10 +32,6 @@ from pyinfra.api import Host as PyinfraHost
 from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 from pyinfra.connectors.sshuserclient.client import get_host_keys
-from tenacity import retry
-from tenacity import retry_if_exception_type
-from tenacity import stop_after_attempt
-from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -72,6 +57,7 @@ from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -88,18 +74,20 @@ from imbue.mngr.providers.modal.routes.deployment import deploy_function
 from imbue.mngr.providers.modal.ssh_utils import add_host_to_known_hosts
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mngr.providers.modal.ssh_utils import load_or_create_ssh_keypair
+from imbue.mngr.providers.modal.volume import ModalVolume
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
+from imbue.mngr.providers.ssh_host_setup import build_start_volume_sync_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
-CONTAINER_SSH_PORT = 22
+CONTAINER_SSH_PORT: Final[int] = 22
 # 2 minutes default sandbox lifetime (so that we don't just leave tons of them running--we're not doing a good job of cleaning them up yet)
-DEFAULT_SANDBOX_TIMEOUT = 2 * 60
+DEFAULT_SANDBOX_TIMEOUT: Final[int] = 2 * 60
 # Seconds to wait for sshd to be ready
-SSH_CONNECT_TIMEOUT = 60
+SSH_CONNECT_TIMEOUT: Final[int] = 60
 
 # Tag key constants for sandbox metadata stored in Modal tags.
 # Only host_id and host_name are stored as tags (for discovery). All other
@@ -108,40 +96,23 @@ TAG_HOST_ID: Final[str] = "mngr_host_id"
 TAG_HOST_NAME: Final[str] = "mngr_host_name"
 TAG_USER_PREFIX: Final[str] = "mngr_user_"
 
+# Mount path for the persistent host volume inside the sandbox.
+# The host_dir (e.g., /mngr) is symlinked to this path so all data
+# written to host_dir persists on the volume.
+HOST_VOLUME_MOUNT_PATH: Final[str] = "/host_volume"
+
+# Infix between the mngr config prefix and the host hex in volume names.
+# The full volume name is {config.prefix}vol-{host_id_hex} (e.g., "mngr-vol-abc123def...").
+HOST_VOLUME_INFIX: Final[str] = "vol-"
+
+# Maximum length for Modal volume names.
+MODAL_VOLUME_NAME_MAX_LENGTH: Final[int] = 64
+
+# Fixed namespace for deterministic VolumeId derivation from Modal volume names.
+_MODAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f1a2b3-d4e5-6789-abcd-ef0123456789")
+
 P = ParamSpec("P")
 T = TypeVar("T")
-
-# Retry parameters for Modal volume operations.
-# modal.exception.InternalError (e.g. "could not start volume metadata engine")
-# is transient and typically resolves on retry.
-_VOLUME_RETRY_PARAMS = retry_if_exception_type(modal.exception.InternalError)
-_VOLUME_STOP_PARAMS = stop_after_attempt(3)
-_VOLUME_WAIT_PARAMS = wait_exponential(multiplier=1, min=1, max=3)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_listdir(volume: modal.Volume, path: str) -> list[FileEntry]:
-    """List directory contents on a Modal volume with retry on transient errors."""
-    return volume.listdir(path)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_read_file(volume: modal.Volume, path: str) -> bytes:
-    """Read a file from a Modal volume with retry on transient errors."""
-    return b"".join(volume.read_file(path))
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_remove_file(volume: modal.Volume, path: str) -> None:
-    """Remove a file from a Modal volume with retry on transient errors."""
-    volume.remove_file(path)
-
-
-@retry(retry=_VOLUME_RETRY_PARAMS, stop=_VOLUME_STOP_PARAMS, wait=_VOLUME_WAIT_PARAMS, reraise=True)
-def _volume_batch_upload_file(volume: modal.Volume, file_data: bytes, path: str) -> None:
-    """Upload a single file to a Modal volume with retry on transient errors."""
-    with volume.batch_upload(force=True) as batch:
-        batch.put_file(io.BytesIO(file_data), path)
 
 
 def _parse_volume_spec(spec: str) -> tuple[str, str]:
@@ -243,10 +214,29 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Environment variable names to pass as secrets during image build",
     )
+    cidr_allowlist: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="CIDR ranges to restrict network access to",
+    )
+    offline: bool = False
     volumes: tuple[tuple[str, str], ...] = Field(
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
     )
+
+    @property
+    def effective_cidr_allowlist(self) -> list[str] | None:
+        """Compute the cidr_allowlist to pass to Modal.
+
+        Returns None (allow all) when neither --offline nor --cidr-allowlist is set.
+        Returns [] (block all) when --offline is set without explicit CIDRs.
+        Returns the explicit list when --cidr-allowlist is provided.
+        """
+        if self.cidr_allowlist:
+            return list(self.cidr_allowlist)
+        if self.offline:
+            return []
+        return None
 
 
 class HostRecord(FrozenModel):
@@ -340,7 +330,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
@@ -379,29 +369,81 @@ class ModalProviderInstance(BaseProviderInstance):
         return self._keys_dir / "known_hosts"
 
     # =========================================================================
+    # Host Volume Methods
+    # =========================================================================
+
+    @property
+    def _host_volume_prefix(self) -> str:
+        """The prefix used for host volume names on Modal."""
+        return f"{self.mngr_ctx.config.prefix}{HOST_VOLUME_INFIX}"
+
+    def _get_host_volume_name(self, host_id: HostId) -> str:
+        """Derive the Modal volume name for a host's persistent volume.
+
+        Uses the mngr config prefix and the HostId hex part to produce a name
+        like "mngr-vol-abc123def...". Truncates to fit Modal's 64-char limit.
+        """
+        host_hex = str(host_id)[len("host-") :]
+        name = f"{self._host_volume_prefix}{host_hex}"
+        return name[:MODAL_VOLUME_NAME_MAX_LENGTH]
+
+    def _build_host_volume(self, host_id: HostId) -> modal.Volume:
+        """Get or create the persistent host volume for a sandbox."""
+        volume_name = self._get_host_volume_name(host_id)
+        return modal.Volume.from_name(
+            volume_name,
+            create_if_missing=True,
+            environment_name=self.environment_name,
+        )
+
+    @handle_modal_auth_error
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
+        """Get the host volume for reading data written by the sandbox.
+
+        Returns a HostVolume wrapping the persistent volume mounted inside
+        the sandbox. Returns None if the volume does not exist.
+
+        Probes the volume with a listdir to verify it actually exists, since
+        modal.Volume.from_name returns a lazy reference that doesn't fail
+        for deleted volumes.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+        volume_name = self._get_host_volume_name(host_id)
+        try:
+            modal_vol = modal.Volume.from_name(volume_name, environment_name=self.environment_name)
+            # Probe the volume to verify it exists (from_name returns lazy references)
+            modal_vol.listdir("/")
+            modal_volume = ModalVolume.model_construct(modal_volume=modal_vol)
+            return HostVolume.model_construct(volume=modal_volume)
+        except (NotFoundError, modal.exception.InvalidError):
+            return None
+
+    # =========================================================================
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def _get_volume(self) -> modal.Volume:
-        """Get the Modal volume for state storage.
+    def _get_state_volume(self) -> ModalVolume:
+        """Get the state volume for persisting host records and agent data.
 
-        The volume is used to persist host records (including snapshots) across
-        sandbox termination. This allows multiple mngr instances to share state.
+        This volume is used to persist host records (including snapshots) across
+        sandbox termination. It is NOT the same as the host volume (which is
+        mounted inside sandboxes and writable by untrusted code). The state
+        volume is only accessed by mngr itself and contains trusted data.
         """
-        return self.modal_app.volume
+        return ModalVolume.model_construct(modal_volume=self.modal_app.volume)
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
         return f"/{host_id}.json"
 
     def _write_host_record(self, host_record: HostRecord) -> None:
-        """Write a host record to the volume."""
-        volume = self._get_volume()
+        """Write a host record to the state volume."""
+        volume = self._get_state_volume()
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
 
-        _volume_batch_upload_file(volume, data.encode("utf-8"), path)
+        volume.write_files({path: data.encode("utf-8")})
         logger.trace("Wrote host record to volume: {}", path, host_data=data)
 
         # Update the cache with the new host record
@@ -420,6 +462,7 @@ class ModalProviderInstance(BaseProviderInstance):
         This allows the failed host to be visible in 'mngr list' so users can see
         what went wrong and debug build failures.
         """
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             host_id=str(host_id),
             host_name=str(host_name),
@@ -427,6 +470,8 @@ class ModalProviderInstance(BaseProviderInstance):
             snapshots=[],
             failure_reason=failure_reason,
             build_log=build_log,
+            created_at=now,
+            updated_at=now,
         )
 
         host_record = HostRecord(
@@ -448,11 +493,11 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         path = self._get_host_record_path(host_id)
 
         try:
-            data = _volume_read_file(volume, path)
+            data = volume.read_file(path)
             host_record = HostRecord.model_validate_json(data)
             logger.trace("Read host record from volume: {}", path, host_data=data.decode("utf-8"))
             # Cache the result
@@ -461,28 +506,39 @@ class ModalProviderInstance(BaseProviderInstance):
         except (NotFoundError, FileNotFoundError):
             return None
 
-    def _delete_host_record(self, host_id: HostId) -> None:
-        """Delete a host record from the volume and clear caches."""
-        volume = self._get_volume()
+    def _destroy_agents_on_host(self, host_id: HostId) -> None:
+        """Remove the agents for this host from the state volume."""
+        volume = self._get_state_volume()
 
-        # first delete all agent records for this host
+        # FIXME: this would actually probably be faster if we called "modal volume rm -r -e env_name volume_name /host_id"
+        #  because that would automatically be able to handle the recursion and parallelism
+        # delete all agent records for this host
         host_dir = f"/{host_id}"
         try:
-            entries = _volume_listdir(volume, host_dir)
+            entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
             pass
         else:
             for entry in entries:
                 filename = entry.path
                 agent_path = filename.lstrip("/")
-                _volume_remove_file(volume, agent_path)
+                volume.remove_file(agent_path)
             # then finally remove the empty host directory
-            _volume_remove_file(volume, host_dir)
+            volume.remove_file(host_dir)
+        logger.trace("Deleted agent records from state volume dir: {}", host_dir)
+
+        # Clear cache entries for this host
+        self._host_by_id_cache.pop(host_id, None)
+        self._host_record_cache_by_id.pop(host_id, None)
+
+    def _delete_host_record(self, host_id: HostId) -> None:
+        """Delete a host record from the state volume and clear caches."""
+        volume = self._get_state_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
         try:
-            _volume_remove_file(volume, path)
+            volume.remove_file(path)
         except (NotFoundError, FileNotFoundError):
             pass
         logger.trace("Deleted host record from volume: {}", path)
@@ -492,17 +548,17 @@ class ModalProviderInstance(BaseProviderInstance):
         self._host_record_cache_by_id.pop(host_id, None)
 
     def _list_all_host_records(self, cg: ConcurrencyGroup) -> list[HostRecord]:
-        """List all host records stored on the volume.
+        """List all host records stored on the state volume.
 
         Returns a list of all HostRecord objects found on the volume.
         Host records are stored at /<host_id>.json.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
 
         futures: list[Future[HostRecord | None]] = []
         with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
             # List files at the root of the volume
-            for entry in _volume_listdir(volume, "/"):
+            for entry in volume.listdir("/"):
                 filename = entry.path
                 # Host records are stored as <host_id>.json
                 if filename.endswith(".json"):
@@ -518,66 +574,74 @@ class ModalProviderInstance(BaseProviderInstance):
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
-        Agent records are stored at /{host_id}/{agent_id}.json on the volume.
+        Agent records are stored at /{host_id}/{agent_id}.json on the state volume.
         These are persisted when a host shuts down so that mngr list can
         show agents on stopped hosts.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/{host_id}"
         try:
-            for entry in _volume_listdir(volume, host_dir):
-                filename = entry.path
-                if filename.endswith(".json"):
-                    # Read the agent record
-                    agent_path = filename.lstrip("/")
-                    try:
-                        content = _volume_read_file(volume, agent_path).decode("utf-8")
-                        agent_data = json.loads(content)
-                        agent_records.append(agent_data)
-                    except (OSError, IOError, json.JSONDecodeError) as e:
-                        logger.trace("Skipped invalid agent record file {}: {}", agent_path, e)
-                        continue
-        except (OSError, IOError, modal.exception.Error) as e:
-            # Host directory might not exist yet (no agents persisted)
-            logger.trace("Failed to find agent records for host {}: {}", host_id, e)
+            entries = volume.listdir(host_dir)
+        except (NotFoundError, FileNotFoundError):
+            # Host directory doesn't exist yet (no agents persisted for this host)
+            return agent_records
+
+        for entry in entries:
+            filename = entry.path
+            if filename.endswith(".json"):
+                # Read the agent record
+                agent_path = filename.lstrip("/")
+                try:
+                    content = volume.read_file(agent_path)
+                except (NotFoundError, FileNotFoundError):
+                    # File was deleted between listdir and read (TOCTOU race on distributed volume)
+                    continue
+                try:
+                    agent_data = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                    # Corrupted or partially written file. Log and skip it.
+                    logger.warning("Skipped invalid agent record file {}: {}", agent_path, e)
+                    continue
+                else:
+                    agent_records.append(agent_data)
 
         logger.trace("Listed agent records for host {} from volume", host_id)
         return agent_records
 
     def persist_agent_data(self, host_id: HostId, agent_data: Mapping[str, object]) -> None:
-        """Persist agent data to the Modal volume.
+        """Persist agent data to the state volume.
 
         Called when an agent is created or its data.json is updated. Writes
-        the agent data to /{host_id}/{agent_id}.json on the volume.
+        the agent data to /{host_id}/{agent_id}.json on the state volume.
         """
         agent_id = agent_data.get("id")
         if not agent_id:
             logger.warning("Cannot persist agent data without id field")
             return
 
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         host_dir = f"/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
         # Serialize the agent data to JSON
         data = json.dumps(dict(agent_data), indent=2)
 
-        _volume_batch_upload_file(volume, data.encode("utf-8"), agent_path)
+        volume.write_files({agent_path: data.encode("utf-8")})
         logger.trace("Persisted agent data to volume: {}", agent_path)
 
     def remove_persisted_agent_data(self, host_id: HostId, agent_id: AgentId) -> None:
-        """Remove persisted agent data from the Modal volume.
+        """Remove persisted agent data from the state volume.
 
         Called when an agent is destroyed. Removes the agent data file from
-        /{host_id}/{agent_id}.json on the volume.
+        /{host_id}/{agent_id}.json on the state volume.
         """
-        volume = self._get_volume()
+        volume = self._get_state_volume()
         agent_path = f"/{host_id}/{agent_id}.json"
 
         try:
-            _volume_remove_file(volume, agent_path)
+            volume.remove_file(agent_path)
         except FileNotFoundError:
             # File doesn't exist, nothing to remove
             pass
@@ -596,7 +660,7 @@ class ModalProviderInstance(BaseProviderInstance):
         with log_span("Updating certified host data on volume", host_id=str(host_id)):
             host_record = self._read_host_record(host_id, use_cache=False)
             if host_record is None:
-                raise Exception(f"Host record not found on volume for {host_id}")
+                raise MngrError(f"Host record not found on volume for {host_id}")
             updated_host_record = host_record.model_copy_update(
                 to_update(host_record.field_ref().certified_host_data, certified_data),
             )
@@ -661,8 +725,12 @@ class ModalProviderInstance(BaseProviderInstance):
         and installs via apt. This allows users to pre-configure their base images
         for faster startup while supporting images without these tools.
         """
-        # Build and execute the combined check-and-install command
-        check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
+        # Build and execute the combined check-and-install command.
+        # Pass the host volume mount path so host_dir is symlinked to the volume.
+        check_install_cmd = build_check_and_install_packages_command(
+            str(self.host_dir),
+            host_volume_mount_path=HOST_VOLUME_MOUNT_PATH,
+        )
         process = sandbox.exec("sh", "-c", check_install_cmd)
 
         # Read output (implicitly waits for completion)
@@ -869,6 +937,11 @@ class ModalProviderInstance(BaseProviderInstance):
             start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
             sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
+        # Start periodic volume sync to flush writes to the host volume
+        with log_span("Starting volume sync in sandbox"):
+            volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
+            sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+
         return host, ssh_host, ssh_port, host_public_key
 
     def _create_shutdown_script(
@@ -948,6 +1021,10 @@ log "Gathering agents..."
 AGENTS=$(gather_agents)
 log "Agents: $AGENTS"
 
+# Sync the host volume to ensure all data is flushed before snapshot
+log "Syncing host volume before shutdown..."
+sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"
+
 # Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
@@ -986,11 +1063,18 @@ log "=== Shutdown script completed ==="
         Both formats can be mixed. Unknown arguments raise an error.
         """
 
-        # Normalize arguments: convert "key=value" to "--key=value"
+        # Boolean flags that can be passed as bare words (e.g. -b offline)
+        boolean_flags = {"offline"}
+
+        # Normalize arguments: convert "key=value" to "--key=value" and
+        # bare boolean flag names like "offline" to "--offline"
         normalized_args: list[str] = []
         for arg in build_args or []:
             if "=" in arg and not arg.startswith("-"):
-                # Simple key=value format, convert to --key=value
+                # Key-value format: gpu=h100 -> --gpu=h100
+                normalized_args.append(f"--{arg}")
+            elif not arg.startswith("-") and arg in boolean_flags:
+                # Bare boolean flag: offline -> --offline
                 normalized_args.append(f"--{arg}")
             else:
                 normalized_args.append(arg)
@@ -1010,6 +1094,8 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
         parser.add_argument("--secret", type=str, action="append", default=[])
+        parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
+        parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
 
         try:
@@ -1030,6 +1116,8 @@ log "=== Shutdown script completed ==="
             region=parsed.region,
             context_dir=parsed.context_dir,
             secrets=tuple(parsed.secret),
+            cidr_allowlist=tuple(parsed.cidr_allowlist),
+            offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
         )
 
@@ -1320,6 +1408,10 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from build args
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
+            # Add the persistent host volume so all host_dir data is preserved
+            with log_span("Ensuring host volume for {}", host_id):
+                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+
             with log_span(
                 "Creating Modal sandbox",
                 timeout=config.timeout,
@@ -1341,6 +1433,7 @@ log "=== Shutdown script completed ==="
                     unencrypted_ports=[CONTAINER_SSH_PORT],
                     gpu=config.gpu,
                     region=config.region,
+                    cidr_allowlist=config.effective_cidr_allowlist,
                     volumes=sandbox_volumes,
                 )
                 logger.trace("Created Modal sandbox", sandbox_id=sandbox.object_id)
@@ -1374,6 +1467,7 @@ log "=== Shutdown script completed ==="
         # Store full host metadata on the volume for persistence
         # Note: max_host_age is the sandbox timeout (without the buffer we added to modal_timeout)
         # so the activity watcher can trigger a clean shutdown before Modal's hard kill
+        now = datetime.now(timezone.utc)
         host_data = CertifiedHostData(
             idle_timeout_seconds=activity_config.idle_timeout_seconds,
             activity_sources=activity_config.activity_sources,
@@ -1383,6 +1477,8 @@ log "=== Shutdown script completed ==="
             user_tags=dict(tags) if tags else {},
             snapshots=[],
             tmux_session_prefix=self.mngr_ctx.config.prefix,
+            created_at=now,
+            updated_at=now,
         )
 
         # Set up SSH and create host object using shared helper
@@ -1450,7 +1546,7 @@ log "=== Shutdown script completed ==="
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("Failed to fins sandbox (may already be terminated)", host_id=str(host_id))
+            logger.debug("Failed to find sandbox (may already be terminated)", host_id=str(host_id))
 
         # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
         # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here
@@ -1461,6 +1557,7 @@ log "=== Shutdown script completed ==="
         if host_record is not None:
             updated_certified_data = host_record.certified_host_data.model_copy_update(
                 to_update(host_record.certified_host_data.field_ref().stop_reason, HostState.STOPPED.value),
+                to_update(host_record.certified_host_data.field_ref().updated_at, datetime.now(timezone.utc)),
             )
             self._write_host_record(
                 host_record.model_copy_update(
@@ -1584,6 +1681,9 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from the stored config
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
+            # Re-attach the persistent host volume
+            sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
                 app=app,
@@ -1595,6 +1695,7 @@ log "=== Shutdown script completed ==="
                 unencrypted_ports=[CONTAINER_SSH_PORT],
                 gpu=config.gpu,
                 region=config.region,
+                cidr_allowlist=config.effective_cidr_allowlist,
                 volumes=sandbox_volumes,
             )
         logger.info("Created sandbox from snapshot", sandbox_id=new_sandbox.object_id)
@@ -1620,20 +1721,31 @@ log "=== Shutdown script completed ==="
         return restored_host
 
     @handle_modal_auth_error
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
-        """Destroy a Modal sandbox permanently.
-
-        If delete_snapshots is True, also deletes the host record from the volume.
-        """
-        host_id = host.id if isinstance(host, HostInterface) else host
+    def destroy_host(self, host: HostInterface | HostId) -> None:
+        """Destroy a Modal sandbox permanently."""
         self.stop_host(host)
+        host_id = host.id if isinstance(host, HostInterface) else host
+        self._destroy_agents_on_host(host_id)
+        # FIXME: we should also delete the snapshots here (from the host record)
+        # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
+        self._delete_host_volume(host_id)
 
-        if delete_snapshots:
-            self._delete_host_record(host_id)
+    @handle_modal_auth_error
+    def delete_host(self, host: HostInterface) -> None:
+        self._destroy_agents_on_host(host.id)
+        self._delete_host_record(host.id)
+        self._delete_host_volume(host.id)
+
+    def _delete_host_volume(self, host_id: HostId) -> None:
+        """Delete the persistent host volume, logging but not raising on failure."""
+        host_volume_name = self._get_host_volume_name(host_id)
+        try:
+            modal.Volume.objects.delete(host_volume_name, environment_name=self.environment_name)
+            logger.debug("Deleted host volume: {}", host_volume_name)
+        except NotFoundError:
+            logger.trace("Host volume {} already deleted", host_volume_name)
+        except (modal.exception.InvalidError, modal.exception.InternalError) as e:
+            logger.warning("Failed to delete host volume {}: {}", host_volume_name, e)
 
     def on_connection_error(self, host_id: HostId) -> None:
         """Remove all caches if we notice a connection to the host fail"""
@@ -1670,7 +1782,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             if host_obj is None:
                 # No sandbox or couldn't connect - try host record (for stopped hosts)
@@ -1684,7 +1796,7 @@ log "=== Shutdown script completed ==="
                 try:
                     host_obj = self._create_host_from_sandbox(sandbox)
                 except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}: {}", host, e)
+                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             # No sandbox or couldn't connect - search host records by name (for stopped hosts)
             if host_obj is None:
@@ -2003,14 +2115,63 @@ log "=== Shutdown script completed ==="
         logger.info("Deleted snapshot", snapshot_id=str(snapshot_id))
 
     # =========================================================================
-    # Volume Methods (not supported)
+    # Volume Methods
     # =========================================================================
 
-    def list_volumes(self) -> list[VolumeInfo]:
-        return []
+    @staticmethod
+    def _volume_id_for_name(modal_volume_name: str) -> VolumeId:
+        """Derive a deterministic VolumeId from a Modal volume name.
 
+        Uses uuid5 with a fixed namespace to produce a valid VolumeId
+        (vol-<32hex>) from any Modal volume name string.
+        """
+        derived = uuid.uuid5(_MODAL_VOLUME_ID_NAMESPACE, modal_volume_name)
+        return VolumeId(f"vol-{derived.hex}")
+
+    @handle_modal_auth_error
+    def list_volumes(self) -> list[VolumeInfo]:
+        """List all mngr-managed host volumes on Modal.
+
+        Returns volumes whose names start with this instance's host volume prefix.
+        """
+        prefix = self._host_volume_prefix
+        results: list[VolumeInfo] = []
+        for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
+            vol_name = modal_vol.name
+            if vol_name is not None and vol_name.startswith(prefix):
+                host_hex = vol_name[len(prefix) :]
+                host_id = None
+                try:
+                    host_id = HostId(f"host-{host_hex}")
+                except ValueError:
+                    pass
+                results.append(
+                    VolumeInfo(
+                        volume_id=self._volume_id_for_name(vol_name),
+                        name=vol_name,
+                        size_bytes=0,
+                        host_id=host_id,
+                    )
+                )
+        return results
+
+    @handle_modal_auth_error
     def delete_volume(self, volume_id: VolumeId) -> None:
-        raise NotImplementedError("Modal provider does not support volumes")
+        """Delete a Modal host volume.
+
+        Finds the Modal volume whose derived VolumeId matches, then deletes
+        it by its Modal name.
+        """
+        for modal_vol in modal.Volume.objects.list(environment_name=self.environment_name):
+            vol_name = modal_vol.name
+            if vol_name is not None and self._volume_id_for_name(vol_name) == volume_id:
+                try:
+                    modal.Volume.objects.delete(vol_name, environment_name=self.environment_name)
+                    logger.debug("Deleted Modal volume: {}", vol_name)
+                except NotFoundError:
+                    pass
+                return
+        raise MngrError(f"Volume {volume_id} not found")
 
     # =========================================================================
     # Host Mutation Methods

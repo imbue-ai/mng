@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
@@ -15,6 +16,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -51,7 +53,7 @@ def _output(message: str, output_opts: OutputOptions) -> None:
         logger.info(message)
 
 
-def _output_result(started_agents: list[str], output_opts: OutputOptions) -> None:
+def _output_result(started_agents: Sequence[str], output_opts: OutputOptions) -> None:
     """Output the final result."""
     result_data = {"started_agents": started_agents, "count": len(started_agents)}
     match output_opts.output_format:
@@ -95,7 +97,7 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
 
 
 @click.command(name="start")
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("agents", nargs=-1, required=False, shell_complete=complete_agent_name)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",

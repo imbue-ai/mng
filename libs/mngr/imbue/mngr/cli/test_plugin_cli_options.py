@@ -4,7 +4,6 @@ from collections.abc import Generator
 from collections.abc import Mapping
 from collections.abc import Sequence
 from contextlib import contextmanager
-from functools import partial
 from typing import Any
 from typing import Callable
 
@@ -670,5 +669,4 @@ def test_apply_plugin_option_overrides_function() -> None:
 
 def with_plugin_cli_options(command_name: str) -> Callable[[TCommand], TCommand]:
     """Decorator to apply plugin-registered CLI options to a click command."""
-    # Use partial to bind command_name without creating an inline function
-    return partial(apply_plugin_cli_options, command_name=command_name)
+    return lambda cmd: apply_plugin_cli_options(cmd, command_name=command_name)

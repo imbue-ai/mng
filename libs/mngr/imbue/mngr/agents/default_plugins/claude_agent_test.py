@@ -240,11 +240,11 @@ def test_claude_agent_assemble_command_with_no_args(
     uuid = agent.id.get_uuid()
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    activity_cmd = agent._build_activity_updater_command(session_name)
+    background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f'{background_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -259,10 +259,10 @@ def test_claude_agent_assemble_command_with_agent_args(
     uuid = agent.id.get_uuid()
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    activity_cmd = agent._build_activity_updater_command(session_name)
+    background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
     )
 
 
@@ -282,10 +282,10 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     uuid = agent.id.get_uuid()
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    activity_cmd = agent._build_activity_updater_command(session_name)
+    background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
     )
 
 
@@ -304,10 +304,10 @@ def test_claude_agent_assemble_command_with_command_override(
     uuid = agent.id.get_uuid()
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    activity_cmd = agent._build_activity_updater_command(session_name)
+    background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{activity_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
+        f'{background_cmd} {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
     )
 
 
@@ -343,11 +343,11 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     uuid = agent.id.get_uuid()
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    activity_cmd = agent._build_activity_updater_command(session_name)
+    background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f'{activity_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f'{background_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
     )
 
 
@@ -356,38 +356,25 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
 # =============================================================================
 
 
-def test_build_activity_updater_command(
+def test_build_background_tasks_command(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mngr_ctx: MngrContext
 ) -> None:
-    """_build_activity_updater_command should generate a background activity updater."""
+    """_build_background_tasks_command should launch the provisioned background script."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mngr_ctx)
 
     prefix = temp_mngr_ctx.config.prefix
     session_name = f"{prefix}test-agent"
-    cmd = agent._build_activity_updater_command(session_name)
+    cmd = agent._build_background_tasks_command(session_name)
 
     # Should be a background subshell
     assert cmd.startswith("(")
     assert cmd.endswith(") &")
 
-    # Should use the correct session name for tmux check
-    assert f"tmux has-session -t '{session_name}'" in cmd
+    # Should reference the provisioned script
+    assert "claude_background_tasks.sh" in cmd
 
-    # Should use a pidfile for deduplication
-    assert f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid" in cmd
-
-    # Should update the activity file
-    assert "MNGR_AGENT_STATE_DIR/activity/agent" in cmd
-
-    # Should only update activity when $MNGR_AGENT_STATE_DIR/active exists
-    assert "MNGR_AGENT_STATE_DIR/active" in cmd
-
-    # Should check for existing instances via pidfile
-    assert "kill -0" in cmd
-    assert "exit 0" in cmd
-
-    # Should set a trap for cleanup
-    assert "trap" in cmd
+    # Should pass the session name as argument
+    assert session_name in cmd
 
 
 # =============================================================================

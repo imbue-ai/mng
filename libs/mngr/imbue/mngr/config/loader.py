@@ -3,6 +3,7 @@ import tomllib
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Sequence
 from uuid import uuid4
 
@@ -46,7 +47,7 @@ from imbue.mngr.utils.git_utils import find_git_worktree_root
 #   - command="foo_bar", param="baz"
 #
 # Any future plugins that register custom commands must follow this single-word rule.
-_ENV_COMMANDS_PREFIX = "MNGR_COMMANDS_"
+_ENV_COMMANDS_PREFIX: Final[str] = "MNGR_COMMANDS_"
 
 
 def load_config(
@@ -177,6 +178,7 @@ def load_config(
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
+    config_dict["default_destroyed_host_persisted_seconds"] = config.default_destroyed_host_persisted_seconds
 
     # Allow plugins to modify config_dict before validation
     pm.hook.on_load_config(config_dict=config_dict)
@@ -502,6 +504,7 @@ def _parse_config(raw: dict[str, Any]) -> MngrConfig:
     )
     kwargs["is_allowed_in_pytest"] = raw.pop("is_allowed_in_pytest", {}) if "is_allowed_in_pytest" in raw else None
     kwargs["pre_command_scripts"] = raw.pop("pre_command_scripts", {}) if "pre_command_scripts" in raw else None
+    kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:
         raise ConfigParseError(f"Unknown configuration fields: {list(raw.keys())}")

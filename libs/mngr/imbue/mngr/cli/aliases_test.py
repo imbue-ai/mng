@@ -1,6 +1,15 @@
 """Tests for CLI command aliases."""
 
+import click
+
 from imbue.mngr.main import cli
+
+
+def _complete_names(incomplete: str) -> list[str]:
+    """Return the completion values for a given incomplete command prefix."""
+    ctx = click.Context(cli)
+    completions = cli.shell_complete(ctx, incomplete)
+    return [item.value for item in completions]
 
 
 def test_ls_alias_exists() -> None:
@@ -37,3 +46,43 @@ def test_rm_alias_exists() -> None:
     """The 'rm' command should be an alias for 'destroy'."""
     assert "rm" in cli.commands
     assert cli.commands["rm"] is cli.commands["destroy"]
+
+
+def test_lim_alias_exists() -> None:
+    """The 'lim' command should be an alias for 'limit'."""
+    assert "lim" in cli.commands
+    assert cli.commands["lim"] is cli.commands["limit"]
+
+
+def test_shell_complete_drops_alias_when_canonical_present() -> None:
+    """Completing 'con' should return 'connect' and 'config', not 'conn'."""
+    names = _complete_names("con")
+    assert "connect" in names
+    assert "config" in names
+    assert "conn" not in names
+
+
+def test_shell_complete_drops_all_aliases_for_broad_prefix() -> None:
+    """Completing 'c' should return canonical names only, no aliases."""
+    names = _complete_names("c")
+    assert "config" in names
+    assert "connect" in names
+    assert "create" in names
+    assert "clone" in names
+    # aliases should be dropped
+    assert "c" not in names
+    assert "cfg" not in names
+    assert "conn" not in names
+
+
+def test_shell_complete_returns_all_commands_for_empty_prefix() -> None:
+    """Completing '' should return all canonical commands, no aliases."""
+    names = _complete_names("")
+    # spot-check some canonical names
+    assert "list" in names
+    assert "destroy" in names
+    assert "message" in names
+    # aliases should be dropped
+    assert "ls" not in names
+    assert "rm" not in names
+    assert "msg" not in names

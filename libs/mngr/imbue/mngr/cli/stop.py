@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
@@ -11,6 +12,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.destroy import get_agent_name_from_session
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
@@ -50,7 +52,7 @@ def _output(message: str, output_opts: OutputOptions) -> None:
         logger.info(message)
 
 
-def _output_result(stopped_agents: list[str], output_opts: OutputOptions) -> None:
+def _output_result(stopped_agents: Sequence[str], output_opts: OutputOptions) -> None:
     """Output the final result."""
     result_data = {"stopped_agents": stopped_agents, "count": len(stopped_agents)}
     match output_opts.output_format:
@@ -66,7 +68,7 @@ def _output_result(stopped_agents: list[str], output_opts: OutputOptions) -> Non
 
 
 @click.command(name="stop")
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("agents", nargs=-1, required=False, shell_complete=complete_agent_name)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",

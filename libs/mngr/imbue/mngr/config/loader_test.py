@@ -555,6 +555,32 @@ def test_parse_config_raises_on_unknown_nested_field() -> None:
         _parse_config(raw)
 
 
+def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
+    """_parse_config should parse default_destroyed_host_persisted_seconds from config."""
+    raw = {"default_destroyed_host_persisted_seconds": 86400.0}
+    result = _parse_config(raw)
+    assert result.default_destroyed_host_persisted_seconds == 86400.0
+
+
+def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
+    """_parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
+    result = _parse_config({})
+    assert result.default_destroyed_host_persisted_seconds is None
+
+
+def test_parse_providers_accepts_destroyed_host_persisted_seconds() -> None:
+    """_parse_providers should accept destroyed_host_persisted_seconds on any provider config."""
+    raw_providers = {
+        "my-local": {
+            "backend": "local",
+            "destroyed_host_persisted_seconds": 172800.0,
+        },
+    }
+    result = _parse_providers(raw_providers)
+    provider_config = result[ProviderInstanceName("my-local")]
+    assert provider_config.destroyed_host_persisted_seconds == 172800.0
+
+
 # =============================================================================
 # Tests for on_load_config hook
 # =============================================================================
@@ -828,3 +854,33 @@ def test_get_or_create_user_id_returns_same_id_on_subsequent_calls(tmp_path: Pat
     result2 = get_or_create_user_id(profile_dir)
 
     assert result1 == result2
+
+
+# =============================================================================
+# Tests for default_destroyed_host_persisted_seconds via load_config
+# =============================================================================
+
+
+def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cg: ConcurrencyGroup
+) -> None:
+    """load_config should forward default_destroyed_host_persisted_seconds from TOML to the final config."""
+    pm = pluggy.PluginManager("mngr")
+    pm.add_hookspecs(hookspecs)
+    load_all_registries(pm)
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("MNGR_PREFIX", raising=False)
+    monkeypatch.delenv("MNGR_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNGR_ROOT_NAME", raising=False)
+
+    # Write a user config with custom default_destroyed_host_persisted_seconds
+    mngr_dir = tmp_path / ".mngr"
+    mngr_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir = get_or_create_profile_dir(mngr_dir)
+    settings_path = profile_dir / "settings.toml"
+    settings_path.write_text("default_destroyed_host_persisted_seconds = 86400.0\n")
+
+    mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+
+    assert mngr_ctx.config.default_destroyed_host_persisted_seconds == 86400.0

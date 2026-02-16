@@ -2,9 +2,11 @@ from typing import Any
 
 import click
 import pluggy
+from click.shell_completion import CompletionItem
 from click_option_group import OptionGroup
 
 from imbue.mngr.cli.ask import ask
+from imbue.mngr.cli.cleanup import cleanup
 from imbue.mngr.cli.clone import clone
 from imbue.mngr.cli.common_opts import TCommand
 from imbue.mngr.cli.common_opts import create_group_title_option
@@ -14,12 +16,16 @@ from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.destroy import destroy
+from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
 from imbue.mngr.cli.issue_reporting import handle_not_implemented_error
+from imbue.mngr.cli.limit import limit
 from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
 from imbue.mngr.cli.pair import pair
+from imbue.mngr.cli.plugin import plugin as plugin_command
+from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
 from imbue.mngr.cli.rename import rename
@@ -36,12 +42,17 @@ _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
 # This is used by the help formatter to display aliases
 COMMAND_ALIASES: dict[str, list[str]] = {
     "create": ["c"],
+    "cleanup": ["clean"],
     "config": ["cfg"],
     "destroy": ["rm"],
+    "exec": ["x"],
     "message": ["msg"],
     "list": ["ls"],
     "connect": ["conn"],
+    "provision": ["prov"],
     "stop": ["s"],
+    "plugin": ["plug"],
+    "limit": ["lim"],
     "rename": ["mv"],
 }
 
@@ -91,6 +102,15 @@ class AliasAwareGroup(click.Group):
         if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
+
+    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
+        completions = super().shell_complete(ctx, incomplete)
+        completed_names = {item.value for item in completions}
+        return [
+            item
+            for item in completions
+            if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
+        ]
 
 
 @click.command(cls=AliasAwareGroup)
@@ -230,18 +250,23 @@ def reset_plugin_manager() -> None:
 BUILTIN_COMMANDS: list[click.Command] = [
     ask,
     create,
+    cleanup,
     destroy,
+    exec_command,
     list_command,
     connect,
     message,
     pair,
+    provision,
     pull,
     push,
     rename,
     start,
     stop,
+    limit,
     config,
     gc,
+    plugin_command,
 ]
 
 for cmd in BUILTIN_COMMANDS:
@@ -249,11 +274,16 @@ for cmd in BUILTIN_COMMANDS:
 
 # Add command aliases
 cli.add_command(create, name="c")
+cli.add_command(cleanup, name="clean")
 cli.add_command(config, name="cfg")
 cli.add_command(destroy, name="rm")
+cli.add_command(exec_command, name="x")
 cli.add_command(message, name="msg")
 cli.add_command(list_command, name="ls")
 cli.add_command(connect, name="conn")
+cli.add_command(plugin_command, name="plug")
+cli.add_command(provision, name="prov")
+cli.add_command(limit, name="lim")
 cli.add_command(rename, name="mv")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses

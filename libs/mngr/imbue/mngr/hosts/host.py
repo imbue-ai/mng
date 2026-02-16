@@ -24,6 +24,11 @@ from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
 from pyinfra.connectors.util import CommandOutput
+from tenacity import retry
+from tenacity import retry_if_exception
+from tenacity import stop_after_attempt
+from tenacity import wait_chain
+from tenacity import wait_fixed
 
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.errors import SwitchError
@@ -76,6 +81,27 @@ def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
         return True
     except BlockingIOError:
         return False
+
+
+@pure
+def _is_socket_closed_os_error(exception: BaseException) -> bool:
+    return isinstance(exception, OSError) and "Socket is closed" in str(exception)
+
+
+# Shared retry decorator for file operations that encounter intermittent
+# "Socket is closed" errors.  Retries after (0, 1, 3, 6) seconds for a
+# total backoff window of ~10 seconds.
+_retry_on_socket_closed = retry(
+    retry=retry_if_exception(_is_socket_closed_os_error),
+    stop=stop_after_attempt(5),
+    wait=wait_chain(
+        wait_fixed(0),
+        wait_fixed(1),
+        wait_fixed(3),
+        wait_fixed(6),
+    ),
+    reraise=True,
+)
 
 
 class HostLocation(FrozenModel):
@@ -230,40 +256,43 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with self._notify_on_connection_error():
             try:
-                self._ensure_connected()
-                try:
-                    return self.connector.host.get_file(
-                        remote_filename,
-                        filename_or_io,
-                        remote_temp_filename=remote_temp_filename,
-                    )
-                except OSError as e:
-                    # pyinfra raises OSError for missing files - convert to FileNotFoundError
-                    error_msg = str(e)
-                    if "No such file or directory" in error_msg or "cannot stat" in error_msg:
-                        raise FileNotFoundError(f"File not found: {remote_filename}") from e
-                    elif "Socket is closed" in str(e):
-                        # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                        try:
-                            self.connector.host.disconnect()
-                            self._ensure_connected()
-                            _result = self.connector.host.get_file(
-                                remote_filename,
-                                filename_or_io,
-                                remote_temp_filename=remote_temp_filename,
-                            )
-                        except Exception as retry_exception:
-                            raise HostConnectionError(
-                                "Connection was closed while reading file (and our retry failed)"
-                            ) from retry_exception
-                        else:
-                            raise HostConnectionError(
-                                "Connection was closed while reading file (but the retry worked!)"
-                            ) from e
-                    else:
-                        raise
+                return self._get_file_with_socket_retry(remote_filename, filename_or_io, remote_temp_filename)
+            except OSError as e:
+                if "Socket is closed" in str(e):
+                    raise HostConnectionError("Connection was closed while reading file") from e
+                raise
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not read file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _get_file_with_socket_retry(
+        self,
+        remote_filename: str,
+        filename_or_io: str | IO[bytes],
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset output IO for retry attempts (clear any partial data from a failed attempt)
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
+            filename_or_io.truncate(0)
+        try:
+            return self.connector.host.get_file(
+                remote_filename,
+                filename_or_io,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            # pyinfra raises OSError for missing files - convert to FileNotFoundError
+            error_msg = str(e)
+            if "No such file or directory" in error_msg or "cannot stat" in error_msg:
+                raise FileNotFoundError(f"File not found: {remote_filename}") from e
+            elif "Socket is closed" in error_msg:
+                logger.debug("Socket closed while reading {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
+            else:
+                raise
 
     def _put_file(
         self,
@@ -279,35 +308,38 @@ class Host(BaseHost, OnlineHostInterface):
         """
         with self._notify_on_connection_error():
             try:
-                self._ensure_connected()
-                return self.connector.host.put_file(
-                    filename_or_io,
-                    remote_filename,
-                    remote_temp_filename=remote_temp_filename,
-                )
+                return self._put_file_with_socket_retry(filename_or_io, remote_filename, remote_temp_filename)
             except OSError as e:
                 if "Socket is closed" in str(e):
-                    # this appears to be failing very intermittently in tests. Let's gather some extra information--does the operation fail if we simply retry?
-                    try:
-                        self.connector.host.disconnect()
-                        self._ensure_connected()
-                        _result = self.connector.host.put_file(
-                            filename_or_io,
-                            remote_filename,
-                            remote_temp_filename=remote_temp_filename,
-                        )
-                    except Exception as retry_exception:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (and our retry failed)"
-                        ) from retry_exception
-                    else:
-                        raise HostConnectionError(
-                            "Connection was closed while writing file (but the retry worked!)"
-                        ) from e
-                else:
-                    raise
+                    raise HostConnectionError("Connection was closed while writing file") from e
+                raise
             except (EOFError, SSHException) as e:
                 raise HostConnectionError("Could not write file due to connection error") from e
+
+    @_retry_on_socket_closed
+    def _put_file_with_socket_retry(
+        self,
+        filename_or_io: str | IO[str] | IO[bytes],
+        remote_filename: str,
+        remote_temp_filename: str | None,
+    ) -> bool:
+        self._ensure_connected()
+        # Reset input IO position for retry attempts
+        if not isinstance(filename_or_io, str):
+            filename_or_io.seek(0)
+        try:
+            return self.connector.host.put_file(
+                filename_or_io,
+                remote_filename,
+                remote_temp_filename=remote_temp_filename,
+            )
+        except OSError as e:
+            if "Socket is closed" in str(e):
+                logger.debug("Socket closed while writing {}, disconnecting for retry", remote_filename)
+                self.connector.host.disconnect()
+                raise
+            else:
+                raise
 
     # =========================================================================
     # Convenience methods (built on core primitives)
@@ -535,7 +567,7 @@ class Host(BaseHost, OnlineHostInterface):
             # this is obviously not yet right--we're just making the host lock so that the shutdown script doesnt trigger while creating a host
             self.write_text_file(lock_file_path, str(time.time()))
             yield
-            self.execute_command("rm -f '{}'".format(str(lock_file_path)))
+            self.execute_command(f"rm -f '{lock_file_path}'")
             return
 
         lock_file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -599,20 +631,27 @@ class Host(BaseHost, OnlineHostInterface):
             data = json.loads(content)
             return CertifiedHostData(**data)
         except FileNotFoundError:
+            now = datetime.now(timezone.utc)
             return CertifiedHostData(
                 host_id=str(self.id),
                 host_name=str(self.get_name()),
+                created_at=now,
+                updated_at=now,
             )
         except ValidationError as e:
             raise HostDataSchemaError(str(data_path), str(e)) from e
 
     def set_certified_data(self, data: CertifiedHostData) -> None:
         """Save certified data to data.json and notify the provider."""
+        # Always stamp updated_at with the current time when writing
+        stamped_data = data.model_copy_update(
+            to_update(data.field_ref().updated_at, datetime.now(timezone.utc)),
+        )
         data_path = self.host_dir / "data.json"
-        self.write_text_file(data_path, json.dumps(data.model_dump(by_alias=True), indent=2))
+        self.write_text_file(data_path, json.dumps(stamped_data.model_dump(by_alias=True, mode="json"), indent=2))
         # Notify the provider so it can update any external storage (e.g., Modal volume)
         if self.on_updated_host_data:
-            self.on_updated_host_data(self.id, data)
+            self.on_updated_host_data(self.id, stamped_data)
 
     def _add_generated_work_dir(self, work_dir: Path) -> None:
         """Add a work directory to the list of generated work directories."""
@@ -1123,19 +1162,16 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_unclean = options.git.is_include_unclean if options.git else True
         if is_include_unclean:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "status", "--porcelain"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            # git status --porcelain format: "XY filename" (2 status chars + space + filename)
-                            filename = line[3:]
-                            if " -> " in filename:
-                                filename = filename.split(" -> ")[1]
-                            files_to_include.append(filename)
-                except ProcessError as e:
-                    logger.trace("git status --porcelain failed, skipping unclean files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "status", "--porcelain"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        # git status --porcelain format: "XY filename" (2 status chars + space + filename)
+                        filename = line[3:]
+                        if " -> " in filename:
+                            filename = filename.split(" -> ")[1]
+                        files_to_include.append(filename)
             else:
                 result = source_host.execute_command("git status --porcelain", cwd=source_path)
                 if result.success:
@@ -1150,15 +1186,12 @@ class Host(BaseHost, OnlineHostInterface):
         is_include_gitignored = options.git.is_include_gitignored if options.git else False
         if is_include_gitignored:
             if source_host.is_local:
-                try:
-                    result = self.mngr_ctx.concurrency_group.run_process_to_completion(
-                        ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
-                    )
-                    for line in result.stdout.split("\n"):
-                        if line:
-                            files_to_include.append(line)
-                except ProcessError as e:
-                    logger.trace("git ls-files failed, skipping gitignored files: {}", e)
+                result = self.mngr_ctx.concurrency_group.run_process_to_completion(
+                    ["git", "-C", str(source_path), "ls-files", "--others", "--ignored", "--exclude-standard"],
+                )
+                for line in result.stdout.split("\n"):
+                    if line:
+                        files_to_include.append(line)
             else:
                 result = source_host.execute_command(
                     "git ls-files --others --ignored --exclude-standard",
@@ -1419,7 +1452,7 @@ class Host(BaseHost, OnlineHostInterface):
         """Get the state directory for an agent."""
         return self.host_dir / "agents" / str(agent.id)
 
-    def _get_agent_env_path(self, agent: AgentInterface) -> Path:
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
         """Get the path to the agent's environment file."""
         return self._get_agent_state_dir(agent) / "env"
 
@@ -1471,7 +1504,7 @@ class Host(BaseHost, OnlineHostInterface):
         if not env_vars:
             return
 
-        env_path = self._get_agent_env_path(agent)
+        env_path = self.get_agent_env_path(agent)
         content = _format_env_file(env_vars)
         self.write_text_file(env_path, content)
         logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
@@ -1488,7 +1521,7 @@ class Host(BaseHost, OnlineHostInterface):
         The caller is responsible for joining these appropriately.
         """
         host_env_path = self.host_dir / "env"
-        agent_env_path = self._get_agent_env_path(agent)
+        agent_env_path = self.get_agent_env_path(agent)
 
         return [
             "set -a",
@@ -1685,7 +1718,7 @@ class Host(BaseHost, OnlineHostInterface):
             logger.debug("Tmux rename result: success={}, stdout={}", result.success, result.stdout.strip())
 
             # Update the MNGR_AGENT_NAME env var in the agent's env file
-            env_path = self._get_agent_env_path(agent)
+            env_path = self.get_agent_env_path(agent)
             try:
                 env_content = self.read_text_file(env_path)
                 updated_lines: list[str] = []
@@ -1868,7 +1901,7 @@ class Host(BaseHost, OnlineHostInterface):
                         unset_vars=self.mngr_ctx.config.unset_vars,
                         host_dir=self.host_dir,
                     )
-                    result = self.execute_command(combined_command)
+                    result = self.execute_command(combined_command, cwd=agent.work_dir)
                     if not result.success:
                         raise AgentStartError(str(agent.name), result.stderr)
 

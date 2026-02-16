@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pluggy
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -9,6 +10,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins import claude_agent
+from imbue.mngr.agents.default_plugins import code_guardian_agent
 from imbue.mngr.agents.default_plugins import codex_agent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
@@ -26,14 +28,25 @@ _agent_config_registry: dict[AgentTypeName, type[AgentTypeConfig]] = {}
 _registry_state: dict[str, bool] = {"agents_loaded": False}
 
 
-def load_agents_from_plugins(pm) -> None:
+def reset_agent_registry() -> None:
+    """Reset the agent registry to its initial state.
+
+    This is primarily used for test isolation to ensure a clean state between tests.
+    """
+    _agent_class_registry.clear()
+    _agent_config_registry.clear()
+    _registry_state["agents_loaded"] = False
+
+
+def load_agents_from_plugins(pm: pluggy.PluginManager) -> None:
     """Load agent types from plugins via the register_agent_type hook."""
     if _registry_state["agents_loaded"]:
         return
 
     # Register built-in agent type classes (each has a hookimpl static method)
-    pm.register(claude_agent)
-    pm.register(codex_agent)
+    pm.register(claude_agent, name="claude")
+    pm.register(code_guardian_agent, name="code_guardian")
+    pm.register(codex_agent, name="codex")
 
     # Call the hook to get all agent type registrations
     # Each implementation returns a single tuple

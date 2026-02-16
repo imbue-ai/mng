@@ -46,12 +46,11 @@ def compile_cel_filters(
 def _convert_to_cel_value(value: Any) -> Any:
     """Convert a Python value to a CEL-compatible value.
 
-    Nested dictionaries are converted using celpy.json_to_cel() to enable
-    dot notation access (e.g., host.provider instead of flattened host_provider).
+    All values are converted using celpy.json_to_cel() so that CEL string methods
+    (contains, startsWith, endsWith) work correctly on string values, and nested
+    dicts support dot notation access.
     """
-    if isinstance(value, dict):
-        return celpy.json_to_cel(value)
-    return value
+    return celpy.json_to_cel(value)
 
 
 def apply_cel_filters_to_context(

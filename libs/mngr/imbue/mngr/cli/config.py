@@ -56,7 +56,7 @@ class ConfigCliOptions(CommonCliOptions):
     value: str | None = None
 
 
-def _get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: ConcurrencyGroup) -> Path:
+def get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: ConcurrencyGroup) -> Path:
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
@@ -86,7 +86,7 @@ def _load_config_file(path: Path) -> dict[str, Any]:
         return tomllib.load(f)
 
 
-def _load_config_file_tomlkit(path: Path) -> tomlkit.TOMLDocument:
+def load_config_file_tomlkit(path: Path) -> tomlkit.TOMLDocument:
     """Load a TOML config file using tomlkit for preservation of formatting."""
     if not path.exists():
         return tomlkit.document()
@@ -94,7 +94,7 @@ def _load_config_file_tomlkit(path: Path) -> tomlkit.TOMLDocument:
         return tomlkit.load(f)
 
 
-def _save_config_file(path: Path, doc: tomlkit.TOMLDocument) -> None:
+def save_config_file(path: Path, doc: tomlkit.TOMLDocument) -> None:
     """Save a TOML config file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
@@ -112,7 +112,7 @@ def _get_nested_value(data: dict[str, Any], key_path: str) -> Any:
     return current
 
 
-def _set_nested_value(doc: tomlkit.TOMLDocument, key_path: str, value: Any) -> None:
+def set_nested_value(doc: tomlkit.TOMLDocument, key_path: str, value: Any) -> None:
     """Set a value in nested tomlkit document using dot-separated key path.
 
     Works with tomlkit's TOMLDocument and Table types, which both behave like
@@ -218,10 +218,13 @@ def config(ctx: click.Context, **kwargs: Any) -> None:
 
       mngr config edit --scope user
     """
-    # FIXME: passing None means the user's pager config setting is not respected;
-    # config is not yet loaded at the group level (ctx.obj is the PluginManager).
     if ctx.invoked_subcommand is None:
-        show_help_with_pager(ctx, ctx.command, None)
+        mngr_ctx, _, _ = setup_command_context(
+            ctx=ctx,
+            command_name="config",
+            command_class=ConfigCliOptions,
+        )
+        show_help_with_pager(ctx, ctx.command, mngr_ctx.config)
 
 
 @config.command(name="list")
@@ -266,7 +269,7 @@ def _config_list_impl(ctx: click.Context, **kwargs: Any) -> None:
     if opts.scope:
         # List config from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+        config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
         config_data = _load_config_file(config_path)
         _emit_config_list(config_data, output_opts, scope, config_path)
     else:
@@ -356,7 +359,7 @@ def _config_get_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
     if opts.scope:
         # Get from specific scope
         scope = ConfigScope(opts.scope.upper())
-        config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+        config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
         config_data = _load_config_file(config_path)
     else:
         # Get from merged config
@@ -442,17 +445,17 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+    config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     # Load existing config
-    doc = _load_config_file_tomlkit(config_path)
+    doc = load_config_file_tomlkit(config_path)
 
     # Parse and set the value
     parsed_value = _parse_value(value)
-    _set_nested_value(doc, key, parsed_value)
+    set_nested_value(doc, key, parsed_value)
 
     # Save the config
-    _save_config_file(config_path, doc)
+    save_config_file(config_path, doc)
 
     _emit_config_set_result(key, parsed_value, scope, config_path, output_opts)
 
@@ -533,19 +536,19 @@ def _config_unset_impl(ctx: click.Context, key: str, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+    config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     if not config_path.exists():
         _emit_key_not_found(key, output_opts)
         ctx.exit(1)
 
     # Load existing config
-    doc = _load_config_file_tomlkit(config_path)
+    doc = load_config_file_tomlkit(config_path)
 
     # Remove the value
     if _unset_nested_value(doc, key):
         # Save the config
-        _save_config_file(config_path, doc)
+        save_config_file(config_path, doc)
         _emit_config_unset_result(key, scope, config_path, output_opts)
     else:
         _emit_key_not_found(key, output_opts)
@@ -626,7 +629,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
     scope = ConfigScope((opts.scope or "project").upper())
-    config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+    config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
 
     # Create the config file if it doesn't exist
     if not config_path.exists():
@@ -751,7 +754,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         # Show specific scope
         scope = ConfigScope(opts.scope.upper())
         try:
-            config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+            config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
             _emit_single_path(scope, config_path, output_opts)
         except ConfigNotFoundError as e:
             match output_opts.output_format:
@@ -769,7 +772,7 @@ def _config_path_impl(ctx: click.Context, **kwargs: Any) -> None:
         paths: list[dict[str, Any]] = []
         for scope in ConfigScope:
             try:
-                config_path = _get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
+                config_path = get_config_path(scope, root_name, mngr_ctx.profile_dir, mngr_ctx.concurrency_group)
                 paths.append(
                     {
                         "scope": scope.value.lower(),

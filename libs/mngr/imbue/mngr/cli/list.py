@@ -1,5 +1,6 @@
 import re
 import shutil
+import string
 import sys
 from collections.abc import Sequence
 from enum import Enum
@@ -34,17 +35,28 @@ from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
-_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = ("name", "host", "provider", "host.state", "state", "status")
+_DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
+    "name",
+    "host.name",
+    "host.provider_name",
+    "host.state",
+    "state",
+    "status",
+)
 
-# FIXME: remove this entirely--just use the unaliased names everywhere necessary, and then remove this, and anything that uses it
-# Display field aliases: map user-facing shorthand field names to their actual
-# data model paths. Used by both _get_field_value and _get_sortable_value so that
-# --fields and --sort accept the same shorthand names.
-_FIELD_ALIASES: Final[dict[str, str]] = {
-    "host": "host.name",
-    "provider": "host.provider_name",
-    "host.provider": "host.provider_name",
-}
+
+@pure
+def _is_streaming_eligible(
+    is_watch: bool,
+    is_sort_explicit: bool,
+    limit: int | None,
+) -> bool:
+    """Whether the general conditions for streaming mode are met.
+
+    Streaming requires: no watch mode (needs repeated full fetches), no explicit sort
+    (needs all results before sorting), and no limit (needs sorted results for determinism).
+    """
+    return not is_watch and not is_sort_explicit and limit is None
 
 
 @pure
@@ -54,8 +66,10 @@ def _should_use_streaming_mode(
     is_sort_explicit: bool,
     limit: int | None,
 ) -> bool:
-    """Determine whether to use streaming mode for list output."""
-    return output_format == OutputFormat.HUMAN and not is_watch and not is_sort_explicit and limit is None
+    """Determine whether to use streaming mode for human list output."""
+    return output_format == OutputFormat.HUMAN and _is_streaming_eligible(
+        is_watch=is_watch, is_sort_explicit=is_sort_explicit, limit=limit
+    )
 
 
 class ListCliOptions(CommonCliOptions):
@@ -130,10 +144,17 @@ class ListCliOptions(CommonCliOptions):
     help="Read agent and host IDs or names from stdin (one per line)",
 )
 @optgroup.group("Output Format")
+# FIXME: --format-template should be replaced with:
+#             --format (json|jsonl|human|FORMAT), where the last one is the format string functionality from --format-template
+#             --json, just an alias for "--format json"
+#             --jsonl, just an alias for "--format jsonl"
+#             note: --human isn't needed because it is the default
+#   and all docs should be updated to take this into consideration / properly describe how our formatting options work across all commands
+#   and all commands should be updated to do this in the same way and to use the nice formatting functionality that we added here to list (which should be factored out into shared methods)
 @optgroup.option(
     "--format-template",
     "format_template",
-    help="Output format as a string template (mutually exclusive with --format) [future]",
+    help="Output format as a string template (mutually exclusive with --format)",
 )
 @optgroup.option(
     "--fields",
@@ -204,8 +225,22 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
 
     # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
     # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
-    if opts.format_template:
-        raise NotImplementedError("Custom format templates not implemented yet")
+    format_template: str | None = None
+    if opts.format_template is not None:
+        # Mutual exclusivity: if --format was explicitly provided, error out
+        format_source = ctx.get_parameter_source("output_format")
+        is_format_explicit = format_source is not None and format_source != click.core.ParameterSource.DEFAULT
+        if is_format_explicit:
+            raise click.UsageError("--format-template is mutually exclusive with --format")
+
+        # Validate template syntax early
+        try:
+            list(string.Formatter().parse(opts.format_template))
+        except (ValueError, KeyError) as e:
+            raise click.UsageError(f"Invalid format template: {e}") from None
+
+        # Interpret shell escape sequences (\t -> tab, \n -> newline, etc.)
+        format_template = _process_template_escapes(opts.format_template)
 
     # Parse fields if provided
     fields = None
@@ -283,12 +318,30 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
     )
 
+    # Template output path: if --format-template is set, use streaming when possible, batch otherwise
+    if format_template is not None:
+        is_streaming_template = _is_streaming_eligible(
+            is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+        )
+        if is_streaming_template:
+            _list_streaming_template(
+                ctx,
+                mngr_ctx,
+                include_filters_tuple,
+                exclude_filters_tuple,
+                provider_names,
+                error_behavior,
+                format_template,
+            )
+            return
+        # Fall through to batch path with format_template set
+
     # Streaming mode trades sorted output for faster time-to-first-result: agents display
     # as each provider completes rather than waiting for all providers. Users who need sorted
     # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
     # batch mode is required to get deterministic results (streaming would show whichever
     # agents load first, since sorting is skipped).
-    if _should_use_streaming_mode(
+    if format_template is None and _should_use_streaming_mode(
         output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
@@ -315,6 +368,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_reverse=sort_reverse,
         limit=limit,
         fields=fields,
+        format_template=format_template,
     )
 
     if opts.watch:
@@ -372,7 +426,7 @@ def _list_streaming_human(
     fields: list[str],
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
-    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout)
     renderer.start()
     try:
         result = api_list_agents(
@@ -386,6 +440,34 @@ def _list_streaming_human(
         )
     finally:
         renderer.finish()
+
+    if result.errors:
+        for error in result.errors:
+            logger.warning("{}: {}", error.exception_type, error.message)
+        ctx.exit(1)
+
+
+def _list_streaming_template(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    format_template: str,
+) -> None:
+    """Streaming template output path: write one template-expanded line per agent."""
+    emitter = _StreamingTemplateEmitter(format_template=format_template, output=sys.stdout)
+
+    result = api_list_agents(
+        mngr_ctx=mngr_ctx,
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+        provider_names=provider_names,
+        error_behavior=error_behavior,
+        on_agent=emitter,
+        is_streaming=True,
+    )
 
     if result.errors:
         for error in result.errors:
@@ -408,20 +490,34 @@ class _LimitedJsonlEmitter(MutableModel):
             self.count += 1
 
 
+class _StreamingTemplateEmitter(MutableModel):
+    """Callable that writes one template-expanded line per agent."""
+
+    format_template: str
+    output: Any
+    _lock: Lock = PrivateAttr(default_factory=Lock)
+
+    def __call__(self, agent: AgentInfo) -> None:
+        line = _render_format_template(self.format_template, agent)
+        with self._lock:
+            self.output.write(line + "\n")
+            self.output.flush()
+
+
 # Minimum column widths for streaming output (left-justified, not truncated)
 _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "name": 20,
-    "host": 15,
-    "provider": 10,
+    "host.name": 15,
+    "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
     "status": 30,
 }
 _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host"}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.name"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host": 20,
+    "host.name": 20,
 }
 _COLUMN_SEPARATOR: Final[str] = "  "
 
@@ -441,6 +537,7 @@ class _StreamingHumanRenderer(MutableModel):
 
     fields: list[str]
     is_tty: bool
+    output: Any
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
@@ -453,41 +550,41 @@ class _StreamingHumanRenderer(MutableModel):
 
         if self.is_tty:
             status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
-            sys.stdout.write(status)
-            sys.stdout.flush()
+            self.output.write(status)
+            self.output.flush()
 
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
             if self.is_tty:
                 # Erase the current status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
+                self.output.write(_ANSI_ERASE_LINE)
 
             # Write header on first agent
             if not self._is_header_written:
                 header_line = _format_streaming_header_row(self.fields, self._column_widths)
-                sys.stdout.write(header_line + "\n")
+                self.output.write(header_line + "\n")
                 self._is_header_written = True
 
             # Write the agent row
             row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
-            sys.stdout.write(row_line + "\n")
+            self.output.write(row_line + "\n")
             self._count += 1
 
             if self.is_tty:
                 # Write updated status line
                 status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
-                sys.stdout.write(status)
+                self.output.write(status)
 
-            sys.stdout.flush()
+            self.output.flush()
 
     def finish(self) -> None:
         """Clean up the status line after all providers have completed."""
         with self._lock:
             if self.is_tty:
                 # Erase the final status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
-                sys.stdout.flush()
+                self.output.write(_ANSI_ERASE_LINE)
+                self.output.flush()
 
             if self._count == 0:
                 logger.info("No agents found")
@@ -566,6 +663,7 @@ class _ListIterationParams(BaseModel):
     sort_reverse: bool
     limit: int | None
     fields: list[str] | None
+    format_template: str | None = None
 
 
 def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
@@ -591,7 +689,10 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
         agents_to_display = agents_to_display[: params.limit]
 
     if not agents_to_display:
-        if params.output_opts.output_format == OutputFormat.HUMAN:
+        if params.format_template is not None:
+            # Template mode: silent empty output (consistent with scripting use)
+            pass
+        elif params.output_opts.output_format == OutputFormat.HUMAN:
             logger.info("No agents found")
         elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
@@ -603,7 +704,10 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
             ctx.exit(1)
         return
 
-    if params.output_opts.output_format == OutputFormat.HUMAN:
+    # Template output takes precedence over format-based dispatch
+    if params.format_template is not None:
+        _emit_template_output(agents_to_display, params.format_template, output=sys.stdout)
+    elif params.output_opts.output_format == OutputFormat.HUMAN:
         _emit_human_output(agents_to_display, params.fields)
     elif params.output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(agents_to_display, result.errors)
@@ -672,6 +776,14 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
     logger.info("\n" + table)
 
 
+def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:
+    """Emit template-formatted output, one line per agent."""
+    for agent in agents:
+        line = _render_format_template(template, agent)
+        output.write(line + "\n")
+    output.flush()
+
+
 def _parse_slice_spec(spec: str) -> int | slice | None:
     """Parse a bracket slice specification like '0', '-1', ':3', '1:3', or '1:'.
 
@@ -732,12 +844,8 @@ def _get_sortable_value(agent: AgentInfo, field: str) -> Any:
     """Extract a field value from an AgentInfo object for sorting.
 
     Returns the raw value (not string-formatted) for proper sorting behavior.
-    Supports nested fields like "host.name" and field aliases.
+    Supports nested fields like "host.name".
     """
-    # Apply display field alias if it exists
-    if field in _FIELD_ALIASES:
-        field = _FIELD_ALIASES[field]
-
     # Handle nested fields (e.g., "host.name")
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
@@ -782,13 +890,9 @@ def _sort_agents(agents: list[AgentInfo], sort_field: str, reverse: bool) -> lis
 def _get_field_value(agent: AgentInfo, field: str) -> str:
     """Extract a field value from an AgentInfo object and return as string.
 
-    Supports nested fields like "host.name", handles field aliases, and supports
-    list slicing syntax like "host.snapshots[0]" or "host.snapshots[:3]".
+    Supports nested fields like "host.name" and list slicing syntax like
+    "host.snapshots[0]" or "host.snapshots[:3]".
     """
-    # Apply display field alias if it exists
-    if field in _FIELD_ALIASES:
-        field = _FIELD_ALIASES[field]
-
     # Handle nested fields (e.g., "host.name") with optional bracket notation
     # Also supports dict key access for plugin fields (e.g., "host.plugin.aws.iam_user")
     parts = field.split(".")
@@ -836,6 +940,65 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         return _format_value_as_string(value)
     except (AttributeError, KeyError):
         return ""
+
+
+@pure
+def _process_template_escapes(template: str) -> str:
+    """Interpret common backslash escape sequences in a template string.
+
+    The shell passes \\t, \\n, etc. as literal characters. This function converts
+    them to actual tab, newline, etc. -- matching the behavior of tools like awk
+    and printf. Uses a single-pass scanner to correctly handle sequences like
+    \\\\t (literal backslash + t) without re-processing.
+    """
+    escape_map = {"t": "\t", "n": "\n", "r": "\r", "\\": "\\"}
+    result: list[str] = []
+    idx = 0
+    while idx < len(template):
+        char = template[idx]
+        if char == "\\" and idx + 1 < len(template):
+            next_char = template[idx + 1]
+            if next_char in escape_map:
+                result.append(escape_map[next_char])
+                idx += 2
+                continue
+        result.append(char)
+        idx += 1
+    return "".join(result)
+
+
+@pure
+def _render_format_template(template: str, agent: AgentInfo) -> str:
+    """Expand a str.format()-style template using agent field values.
+
+    Uses string.Formatter().parse() to extract field names, resolves each via
+    _get_field_value(), then assembles the output. This avoids str.format_map()
+    because Python's format machinery interprets dots as attribute access, but
+    our field names use dots as part of the field path (e.g. "host.name").
+    """
+    parts: list[str] = []
+    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(template):
+        parts.append(literal_text)
+        if field_name is None:
+            continue
+        # Resolve the field value
+        value = _get_field_value(agent, field_name)
+        # Apply conversion (!s, !r, !a)
+        if conversion is None:
+            pass
+        elif conversion == "s":
+            value = str(value)
+        elif conversion == "r":
+            value = repr(value)
+        elif conversion == "a":
+            value = ascii(value)
+        else:
+            raise AssertionError(f"Unknown conversion: {conversion!r}")
+        # Apply format spec (e.g. ">20")
+        if format_spec:
+            value = format(value, format_spec)
+        parts.append(value)
+    return "".join(parts)
 
 
 # Register help metadata for git-style help formatting
@@ -917,7 +1080,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.name` - Host name
 - `host.id` - Host ID
 - `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
-- `host.provider` - Host provider (local, docker, modal, etc.)
+- `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host

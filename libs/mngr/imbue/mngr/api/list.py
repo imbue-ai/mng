@@ -1,3 +1,5 @@
+import json
+import os
 from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -6,6 +8,7 @@ from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -31,6 +34,7 @@ from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
@@ -230,7 +234,38 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _write_completion_cache(mngr_ctx, result)
+
     return result
+
+
+COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
+
+
+def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:
+    """Write agent names to the completion cache file (best-effort).
+
+    Writes a JSON file with all agent names from the list result so that
+    shell completion can read it without importing the mngr config system.
+    The cache file is written to {host_dir}/.completion_cache.json.
+
+    This function never raises -- cache write failures must not break list_agents().
+    """
+    try:
+        env_host_dir = os.environ.get("MNGR_HOST_DIR")
+        host_dir = Path(env_host_dir) if env_host_dir else mngr_ctx.config.default_host_dir.expanduser()
+
+        names = sorted({str(agent.name) for agent in result.agents})
+        cache_data = {
+            "names": names,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        cache_path = host_dir / COMPLETION_CACHE_FILENAME
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache_data))
+    except OSError:
+        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(
@@ -680,7 +715,7 @@ def _process_provider_for_host_listing(
 
 
 # retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host, provider):
+def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
     try:
         return host.get_agent_references()
     # retry once when there is a host connection error (the second time we'll probably end up

@@ -2,8 +2,8 @@ from imbue.mngr.errors import MngrError
 
 
 class ModalMngrError(MngrError):
-    pass
+    """Base error for Modal provider operations."""
 
 
 class NoSnapshotsModalMngrError(ModalMngrError):
-    pass
+    """Raised when a Modal host has no snapshots available."""

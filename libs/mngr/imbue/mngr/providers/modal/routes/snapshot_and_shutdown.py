@@ -1,4 +1,5 @@
-"""Modal function to snapshot and shut down a host.
+"""
+Modal function to snapshot and shut down a host.
 
 This function is deployed as a Modal web endpoint and can be invoked to:
 1. Snapshot a running Modal sandbox
@@ -9,6 +10,8 @@ All code is self-contained in this file - no imports from the mngr codebase.
 
 Required environment variable (must be set when deploying):
 - MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
+
+(note: do NOT remove this module docstring--this is a fully standalone script)
 """
 
 import json
@@ -164,6 +167,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
             certified_data["stop_reason"] = stop_reason
+            certified_data["updated_at"] = datetime.now(timezone.utc).isoformat()
             host_record["certified_host_data"] = certified_data
 
             # Write updated host record
@@ -189,6 +193,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
                 "snapshot_name": snapshot_name,
             }
 
+        # note: do NOT change this--this is just here temporarily while we are debugging intermittent failures during snapshotting
         except BaseException as e:
             logger.error("Error in snapshot_and_shutdown: " + str(e), exc_info=True)
             raise

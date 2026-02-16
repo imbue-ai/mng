@@ -7,12 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import Final
-from typing import NamedTuple
 from typing import TextIO
 from typing import cast
 
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -67,6 +68,27 @@ CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 _console_handler_ids: dict[str, int] = {}
 
 
+def _dynamic_stdout_sink(message: Any) -> None:
+    """Loguru sink that always writes to the current sys.stdout.
+
+    When loguru receives a stream via logger.add(sys.stdout), it captures the object
+    reference at that moment. If the stream is later replaced (e.g., by pytest's capture
+    mechanism) or closed, the handler writes to a stale/closed object, causing
+    ValueError("I/O operation on closed file").
+
+    This callable sink solves the problem by resolving sys.stdout at write time, so it
+    always writes to whatever sys.stdout currently points to.
+    """
+    sys.stdout.write(str(message))
+    sys.stdout.flush()
+
+
+def _dynamic_stderr_sink(message: Any) -> None:
+    """Loguru sink that always writes to the current sys.stderr."""
+    sys.stderr.write(str(message))
+    sys.stderr.flush()
+
+
 def _format_user_message(record: Any) -> str:
     """Format user-facing log messages, adding colored prefixes for warnings and errors.
 
@@ -87,7 +109,7 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
-def suppress_warnings():
+def suppress_warnings() -> None:
     # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
     # and logs warnings during file upload retries (e.g., when the remote directory
     # doesn't exist). Mngr already handles these cases gracefully, so the warnings
@@ -131,9 +153,11 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
 
     # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
     # We set colorize=False because we handle colors manually in _format_user_message.
+    # Use callable sinks so the handler always writes to the current sys.stdout/stderr,
+    # even if they get replaced (e.g., by pytest's capture mechanism).
     if output_opts.console_level != LogLevel.NONE:
         handler_id = logger.add(
-            sys.stdout,
+            _dynamic_stdout_sink,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
@@ -146,7 +170,7 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     if output_opts.log_level != LogLevel.NONE:
         console_level = level_map[output_opts.log_level]
         handler_id = logger.add(
-            sys.stderr,
+            _dynamic_stderr_sink,
             level=console_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
@@ -229,11 +253,11 @@ def _rotate_old_logs(log_dir: Path, max_files: int) -> None:
                 pass
 
 
-class BufferedMessage(NamedTuple):
+class BufferedMessage(FrozenModel):
     """A buffered log message with its formatted output and destination."""
 
-    formatted_message: str
-    is_stderr: bool
+    formatted_message: str = Field(description="The formatted log message text")
+    is_stderr: bool = Field(description="Whether this message should go to stderr")
 
 
 class BufferingStreamWrapper(io.TextIOBase):
@@ -269,7 +293,7 @@ class BufferingStreamWrapper(io.TextIOBase):
     def write(self, s: str) -> int:
         """Buffer the write instead of passing it to the original stream."""
         if s:
-            self._buffer.append(BufferedMessage(s, self._is_stderr))
+            self._buffer.append(BufferedMessage(formatted_message=s, is_stderr=self._is_stderr))
         return len(s)
 
     def flush(self) -> None:
@@ -398,12 +422,12 @@ class LoggingSuppressor:
     @classmethod
     def _buffered_stdout_sink(cls, message: Any) -> None:
         """Sink function that buffers messages intended for stdout."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=False))
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=False))
 
     @classmethod
     def _buffered_stderr_sink(cls, message: Any) -> None:
         """Sink function that buffers messages intended for stderr."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=True))
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=True))
 
     @classmethod
     def disable_and_replay(cls, clear_screen: bool = True) -> None:
@@ -454,11 +478,12 @@ class LoggingSuppressor:
         # Clear the buffer
         cls._buffer.clear()
 
-        # Re-add the normal console handlers and store their IDs
+        # Re-add the normal console handlers and store their IDs.
+        # Use callable sinks so the handler always writes to the current stream.
         if output_opts is not None:
             if output_opts.console_level != LogLevel.NONE:
                 handler_id = logger.add(
-                    sys.stdout,
+                    _dynamic_stdout_sink,
                     level=output_opts.console_level,
                     format=_format_user_message,
                     colorize=False,
@@ -477,7 +502,7 @@ class LoggingSuppressor:
                     LogLevel.NONE: "CRITICAL",
                 }
                 handler_id = logger.add(
-                    sys.stderr,
+                    _dynamic_stderr_sink,
                     level=level_map[output_opts.log_level],
                     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
                     colorize=True,

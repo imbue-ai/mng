@@ -1,4 +1,8 @@
 import json
+import shutil
+import uuid
+from datetime import datetime
+from datetime import timezone
 from functools import cached_property
 from pathlib import Path
 from typing import Final
@@ -17,6 +21,7 @@ from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -25,6 +30,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -33,8 +39,13 @@ from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
+from imbue.mngr.providers.local.volume import LocalVolume
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
+VOLUMES_SUBDIR: Final[str] = "volumes"
+
+# Fixed namespace for deterministic VolumeId derivation from volume directory names.
+_LOCAL_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("b7e3d4a1-2f5c-4890-abcd-123456789abc")
 HOST_ID_FILENAME: Final[str] = "host_id"
 TAGS_FILENAME: Final[str] = "labels.json"
 
@@ -57,11 +68,16 @@ class LocalProviderInstance(BaseProviderInstance):
 
     @property
     def supports_volumes(self) -> bool:
-        return False
+        return True
 
     @property
     def supports_mutable_tags(self) -> bool:
         return True
+
+    @property
+    def _volumes_dir(self) -> Path:
+        """Get the directory for local volumes."""
+        return self.mngr_ctx.config.default_host_dir.expanduser() / VOLUMES_SUBDIR
 
     @property
     def _provider_data_dir(self) -> Path:
@@ -216,17 +232,16 @@ class LocalProviderInstance(BaseProviderInstance):
 
         return local_host
 
-    def destroy_host(
-        self,
-        host: HostInterface | HostId,
-        delete_snapshots: bool = True,
-    ) -> None:
+    def destroy_host(self, host: HostInterface | HostId) -> None:
         """Destroy the host.
 
         Always raises LocalHostNotDestroyableError because the local computer
         cannot be destroyed by mngr.
         """
         raise LocalHostNotDestroyableError()
+
+    def delete_host(self, host: HostInterface) -> None:
+        raise Exception("delete_host should not be called for LocalProviderInstance since hosts are never offline")
 
     def on_connection_error(self, host_id: HostId) -> None:
         pass
@@ -311,19 +326,64 @@ class LocalProviderInstance(BaseProviderInstance):
     # Volume Methods
     # =========================================================================
 
-    def list_volumes(self) -> list[VolumeInfo]:
-        """List all volumes managed by this provider.
+    @staticmethod
+    def _volume_id_for_dir(dir_name: str) -> VolumeId:
+        """Create a deterministic VolumeId from a volume directory name.
 
-        Always returns empty list because the local provider does not support volumes.
+        Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
+        from any directory name.
         """
-        return []
+        derived = uuid.uuid5(_LOCAL_VOLUME_ID_NAMESPACE, dir_name)
+        return VolumeId(f"vol-{derived.hex}")
+
+    def list_volumes(self) -> list[VolumeInfo]:
+        """List all local volumes (subdirectories of ~/.mngr/volumes/)."""
+        volumes_dir = self._volumes_dir
+        if not volumes_dir.is_dir():
+            return []
+        results: list[VolumeInfo] = []
+        for subdir in sorted(volumes_dir.iterdir()):
+            if subdir.is_dir():
+                stat = subdir.stat()
+                host_id = None
+                if subdir.name.startswith("host-"):
+                    try:
+                        host_id = HostId(subdir.name)
+                    except ValueError:
+                        pass
+                results.append(
+                    VolumeInfo(
+                        volume_id=self._volume_id_for_dir(subdir.name),
+                        name=subdir.name,
+                        size_bytes=0,
+                        created_at=datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc),
+                        host_id=host_id,
+                    )
+                )
+        return results
 
     def delete_volume(self, volume_id: VolumeId) -> None:
-        """Delete a volume.
+        """Delete a local volume directory."""
+        volumes_dir = self._volumes_dir
+        if not volumes_dir.is_dir():
+            raise MngrError(f"Volume {volume_id} not found (no volumes directory)")
+        for subdir in volumes_dir.iterdir():
+            if subdir.is_dir() and self._volume_id_for_dir(subdir.name) == volume_id:
+                shutil.rmtree(subdir)
+                logger.debug("Deleted local volume: {}", subdir)
+                return
+        raise MngrError(f"Volume {volume_id} not found")
 
-        Always raises NotImplementedError because the local provider does not support volumes.
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
+        """Get the local volume for a host.
+
+        Returns a HostVolume backed by ~/.mngr/volumes/{host_id}/.
+        The directory is created if it doesn't exist.
         """
-        raise NotImplementedError("Local provider does not support volumes")
+        host_id = host.id if isinstance(host, HostInterface) else host
+        volume_dir = self._volumes_dir / str(host_id)
+        volume_dir.mkdir(parents=True, exist_ok=True)
+        return HostVolume(volume=LocalVolume(root_path=volume_dir))
 
     # =========================================================================
     # Host Mutation Methods

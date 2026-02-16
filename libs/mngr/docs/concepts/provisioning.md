@@ -4,7 +4,7 @@ Provisioning sets up a [host](./hosts.md) before an [agent](./agents.md) starts:
 
 ```bash
 mngr create my-agent claude     # Provisioning runs automatically
-mngr provision --agent my-agent # Re-run provisioning manually [future]
+mngr provision --agent my-agent # Re-run provisioning manually
 ```
 
 ## Step Sources

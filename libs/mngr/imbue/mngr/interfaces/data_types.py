@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
+from enum import auto
 from functools import cached_property
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -14,6 +17,7 @@ from pydantic import model_validator
 from pydantic_core import core_schema
 from pyinfra.api import Host as PyinfraHost
 
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.mngr.errors import InvalidRelativePathError
@@ -256,12 +260,24 @@ class CertifiedHostData(FrozenModel):
         description="Activity sources that count toward keeping host active",
     )
 
+    created_at: datetime = Field(description="When this host data was first created (always UTC)")
+    updated_at: datetime = Field(description="When this host data was last updated (always UTC)")
+
     @model_validator(mode="before")
     @classmethod
-    def _strip_deprecated_idle_mode(cls, data: Any) -> Any:
-        """Strip idle_mode from input for backward compatibility with old data.json files."""
+    def _handle_backwards_compatibility(cls, data: Any) -> Any:
+        """Handle backward compatibility with old data.json files.
+
+        Strips deprecated idle_mode field and provides defaults for
+        created_at/updated_at when missing from old data.
+        """
         if isinstance(data, dict):
             data.pop("idle_mode", None)
+            now = datetime.now(timezone.utc)
+            if "created_at" not in data:
+                data["created_at"] = now - timedelta(weeks=1)
+            if "updated_at" not in data:
+                data["updated_at"] = now - timedelta(days=1)
         return data
 
     @computed_field
@@ -324,13 +340,31 @@ class SnapshotInfo(FrozenModel):
     )
 
 
+class VolumeFileType(UpperCaseStrEnum):
+    """Type of entry in a volume listing."""
+
+    FILE = auto()
+    DIRECTORY = auto()
+
+
+class VolumeFile(FrozenModel):
+    """An entry listed from a volume directory."""
+
+    path: str = Field(description="Path of the entry within the volume")
+    file_type: VolumeFileType = Field(description="Whether this entry is a file or directory")
+    mtime: int = Field(description="Last modification time as Unix timestamp")
+    size: int = Field(description="Size in bytes")
+
+
 class VolumeInfo(FrozenModel):
     """Information about a volume."""
 
     volume_id: VolumeId = Field(description="Unique identifier")
     name: str = Field(description="Human-readable name")
     size_bytes: int = Field(description="Size in bytes")
-    created_at: datetime = Field(description="Creation timestamp")
+    created_at: datetime | None = Field(
+        default=None, description="Creation timestamp (None if provider doesn't report it)"
+    )
     host_id: HostId | None = Field(default=None, description="Associated host, if any")
     tags: dict[str, str] = Field(default_factory=dict, description="Provider tags")
 

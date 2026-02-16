@@ -11,6 +11,7 @@ from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.completion import complete_agent_name
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -74,7 +75,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 
 
 @click.command()
-@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE", shell_complete=complete_agent_name)
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")

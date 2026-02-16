@@ -162,6 +162,8 @@ class HostInterface(MutableModel, ABC):
 
 
 class OnlineHostInterface(HostInterface, ABC):
+    """Interface for hosts that are currently online and accessible for operations."""
+
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     # =========================================================================
@@ -381,6 +383,11 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
     # Agent Information
     # =========================================================================
+
+    @abstractmethod
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
+        """Get the path to the agent's environment file."""
+        ...
 
     @abstractmethod
     def get_agents(self) -> list[AgentInterface]:
