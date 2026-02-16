@@ -148,12 +148,12 @@ def test_base_agent_set_is_start_on_boot(
     assert agent.get_is_start_on_boot() is True
 
 
-def test_base_agent_is_running_false_no_pid(
+def test_base_agent_is_running_false_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test is_running returns False when no PID file exists."""
+    """Test is_running returns False when no tmux session exists (lifecycle state is STOPPED)."""
     agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-not-running", temp_work_dir)
 
     result = agent.is_running()

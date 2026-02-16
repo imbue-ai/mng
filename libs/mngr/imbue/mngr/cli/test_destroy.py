@@ -1,5 +1,6 @@
 """Tests for the destroy CLI command."""
 
+import subprocess
 import time
 from contextlib import ExitStack
 from pathlib import Path
@@ -118,7 +119,11 @@ def test_destroy_with_confirmation(
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test destroying an agent with confirmation prompt."""
+    """Test destroying a stopped agent with confirmation prompt.
+
+    Stops the tmux session before calling destroy so the agent is not running,
+    since non-force destroy blocks running agents.
+    """
     agent_name = f"test-destroy-confirm-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
 
@@ -144,6 +149,14 @@ def test_destroy_with_confirmation(
         assert create_result.exit_code == 0
         assert tmux_session_exists(session_name)
 
+        # Stop the tmux session so the agent is not running (lifecycle state: STOPPED)
+        subprocess.run(["tmux", "kill-session", "-t", session_name], check=True)
+        wait_for(
+            lambda: not tmux_session_exists(session_name),
+            timeout=5.0,
+            error_message="Expected tmux session to be killed before destroy",
+        )
+
         destroy_result = cli_runner.invoke(
             destroy,
             [agent_name],
@@ -154,11 +167,6 @@ def test_destroy_with_confirmation(
 
         assert destroy_result.exit_code == 0
         assert "Are you sure you want to continue?" in destroy_result.output
-
-        wait_for(
-            lambda: not tmux_session_exists(session_name),
-            error_message=f"Expected tmux session {session_name} to be destroyed",
-        )
 
 
 def test_destroy_nonexistent_agent(

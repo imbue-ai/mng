@@ -132,20 +132,12 @@ class BaseAgent(AgentInterface):
     # Interaction
     # =========================================================================
 
-    # FIXME: this is just wrong--just use lifecycle instead, make sure there are no other references to agent.pid
     def is_running(self) -> bool:
-        """Check if the agent is currently running."""
-        pid_path = self._get_agent_dir() / "agent.pid"
-        try:
-            content = self.host.read_text_file(pid_path)
-            pid = int(content.strip())
-            result = self.host.execute_command(f"ps -p {pid}", timeout_seconds=5.0)
-            is_running = result.success
-            logger.trace("Determined agent {} is_running={} (pid={})", self.name, is_running, pid)
-            return is_running
-        except (FileNotFoundError, ValueError):
-            logger.trace("Determined agent {} is_running=False (no pid file or invalid)", self.name)
-            return False
+        """Check if the agent is currently running by checking lifecycle state."""
+        state = self.get_lifecycle_state()
+        is_running = state in (AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING, AgentLifecycleState.REPLACED)
+        logger.trace("Determined agent {} is_running={} (lifecycle_state={})", self.name, is_running, state)
+        return is_running
 
     def get_lifecycle_state(self) -> AgentLifecycleState:
         """Get the lifecycle state of this agent using tmux format variables.
