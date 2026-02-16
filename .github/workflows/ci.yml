@@ -40,6 +40,14 @@ jobs:
       - name: Run tests
         run: uv run pytest -n 0 --timeout 10 --cov-fail-under=0 -v --tb=short --splits 4 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-integration-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 90
+
       - name: List coverage files
         run: |
           echo "Coverage files created:"
@@ -199,6 +207,14 @@ jobs:
       - name: Run acceptance tests
         run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "not release"' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-acceptance-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 90
+
   # Release tests - runs only on main branch pushes
   test-release:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -234,3 +250,11 @@ jobs:
 
       - name: Run release tests
         run: export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-release-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 90
