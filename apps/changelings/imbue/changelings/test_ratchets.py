@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -16,12 +15,14 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BUILTIN_E
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CAST_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CLICK_ECHO
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DATACLASSES_IMPORT
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DIRECT_SUBPROCESS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORT_DATETIME
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_DOCSTRINGS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_IN_NON_EXCEPTION_CLASSES
@@ -48,9 +49,14 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRU
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
+from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
+from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
+from imbue.imbue_common.ratchet_testing.ratchets import check_no_type_errors
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
+from imbue.imbue_common.ratchet_testing.ratchets import find_bash_scripts_without_strict_mode
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
+from imbue.imbue_common.ratchet_testing.ratchets import find_code_in_init_files
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
 from imbue.imbue_common.ratchet_testing.ratchets import find_init_methods_in_non_exception_classes
 from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
@@ -149,6 +155,11 @@ def test_prevent_relative_imports() -> None:
 def test_prevent_import_datetime() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORT_DATETIME, _get_changelings_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IMPORT_DATETIME.format_failure(chunks)
+
+
+def test_prevent_importlib_import_module() -> None:
+    chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_changelings_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
 
 
 # --- Banned libraries and patterns ---
@@ -285,6 +296,18 @@ def test_prevent_pytest_mark_integration() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_PYTEST_MARK_INTEGRATION.format_failure(chunks)
 
 
+# --- Process management ---
+
+
+def test_prevent_direct_subprocess_usage() -> None:
+    """Prevent direct usage of subprocess and os process-spawning functions.
+
+    Test files are excluded from this check.
+    """
+    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_changelings_source_dir(), TEST_FILE_PATTERNS)
+    assert len(chunks) <= snapshot(8), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+
+
 # --- AST-based ratchets ---
 
 
@@ -323,39 +346,26 @@ def test_prevent_assert_isinstance_usage() -> None:
 
 def test_prevent_code_in_init_files() -> None:
     """Ensure all __init__.py files are empty (per style guide)."""
-    source_dir = _get_changelings_source_dir()
-    init_files = list(source_dir.rglob("__init__.py"))
-
-    violations: list[str] = []
-    for init_file in init_files:
-        content = init_file.read_text().strip()
-        if content:
-            violations.append(f"{init_file}: should be empty but contains: {content[:100]}...")
-
+    violations = find_code_in_init_files(_get_changelings_source_dir())
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
         + "\n".join(f"  - {v}" for v in violations)
     )
 
 
+def test_no_type_errors() -> None:
+    """Ensure the codebase has zero type errors."""
+    check_no_type_errors(Path(__file__).parent.parent.parent)
+
+
 def test_no_ruff_errors() -> None:
     """Ensure the codebase has zero ruff linting errors."""
-    project_root = Path(__file__).parent.parent.parent
-    result = subprocess.run(
-        ["uv", "run", "ruff", "check"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
+    check_no_ruff_errors(Path(__file__).parent.parent.parent)
+
+
+def test_prevent_bash_without_strict_mode() -> None:
+    """Ensure all bash scripts use 'set -euo pipefail' for strict error handling."""
+    violations = find_bash_scripts_without_strict_mode(Path(__file__).parent)
+    assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
+        f"  - {v}" for v in violations
     )
-
-    if result.returncode != 0:
-        failure_message = [
-            "Ruff linter found errors:",
-            "",
-            "Full ruff output:",
-            "=" * 80,
-            result.stdout,
-            "=" * 80,
-        ]
-
-        raise AssertionError("\n".join(failure_message))
