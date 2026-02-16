@@ -101,10 +101,7 @@ def build_ssh_base_args(
         ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
         ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
     else:
-        raise MngrError(
-            "You must specify a known_hosts file to connect to this host securely. "
-            "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
-        )
+        raise MngrError("No known_hosts file is configured for this host. Cannot establish a secure SSH connection.")
 
     target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
     ssh_args.append(target)

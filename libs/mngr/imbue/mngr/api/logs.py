@@ -368,13 +368,22 @@ def follow_log_file(
     """
     # Prefer host-based tail -f for real-time streaming
     if target.online_host is not None and target.logs_path is not None:
-        _follow_log_file_via_host(
-            target.online_host,
-            target.logs_path / log_file_name,
-            on_new_content,
-            tail_count,
-        )
-        return
+        try:
+            _follow_log_file_via_host(
+                target.online_host,
+                target.logs_path / log_file_name,
+                on_new_content,
+                tail_count,
+            )
+            return
+        except KeyboardInterrupt:
+            raise
+        except MngrError as e:
+            # If host-based follow fails and we have a volume, fall back to polling
+            if target.volume is not None:
+                logger.debug("Host-based follow failed, falling back to volume polling: {}", e)
+            else:
+                raise
 
     # Fall back to volume-based polling
     if target.volume is not None:
