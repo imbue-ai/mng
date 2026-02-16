@@ -552,7 +552,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
                 {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
                 output_opts.output_format,
             )
-        except (BaseMngrError, OSError) as e:
+        except BaseMngrError as e:
             error_msg = f"Failed to create snapshot for host {host_id_str}: {e}"
             errors.append({"host_id": host_id_str, "error": str(e)})
             on_error(error_msg, error_behavior, output_opts.output_format, exc=e)
