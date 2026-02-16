@@ -34,16 +34,21 @@ if modal.is_local():
     APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
     if APP_NAME is None:
         raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
-    output_app_name_file = Path(".mngr/dev/build/app_name")
+    APP_BUILD_PATH = os.environ.get("MNGR_MODAL_APP_BUILD_PATH")
+    if APP_BUILD_PATH is None:
+        raise ConfigurationError("MNGR_MODAL_APP_BUILD_PATH environment variable must be set")
+    output_app_name_file = Path(APP_BUILD_PATH) / "app_name"
     output_app_name_file.parent.mkdir(parents=True, exist_ok=True)
     output_app_name_file.write_text(APP_NAME)
+    (Path(APP_BUILD_PATH) / "app_build_path").write_text(APP_BUILD_PATH)
 else:
     APP_NAME = Path("/deployment/app_name").read_text().strip()
+    APP_BUILD_PATH = Path("/deployment/app_build_path").read_text().strip()
 
 image = (
     modal.Image.debian_slim()
     .uv_pip_install("fastapi[standard]")
-    .add_local_file(".mngr/dev/build/app_name", "/deployment/app_name", copy=True)
+    .add_local_dir(str(Path(APP_BUILD_PATH)), "/deployment/", copy=True)
 )
 
 app = modal.App(name=APP_NAME, image=image)
