@@ -1010,14 +1010,22 @@ kill -TERM 1
                 if host_record is not None:
                     host_obj = self._create_host_from_host_record(host_record)
         else:
+            # Try container label lookup first (fast path)
             container = self._find_container_by_name(host)
             if container is not None and self._is_container_running(container):
                 host_obj = self._create_host_from_container(container)
 
+            # Fall back to host records (handles renamed hosts where label has old name)
             if host_obj is None:
                 for host_record in self._host_store.list_all_host_records():
                     if host_record.certified_host_data.host_name == str(host):
-                        host_obj = self._create_host_from_host_record(host_record)
+                        record_host_id = HostId(host_record.certified_host_data.host_id)
+                        # Check if the container is running (rename only changes the record, not labels)
+                        record_container = self._find_container_by_host_id(record_host_id)
+                        if record_container is not None and self._is_container_running(record_container):
+                            host_obj = self._create_host_from_container(record_container)
+                        else:
+                            host_obj = self._create_host_from_host_record(host_record)
                         break
 
         if host_obj is not None:

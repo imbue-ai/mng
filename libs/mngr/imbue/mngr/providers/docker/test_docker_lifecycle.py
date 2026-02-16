@@ -179,8 +179,13 @@ def test_rename_host(docker_provider: DockerProviderInstance) -> None:
     host = docker_provider.create_host(HostName("test-rename"))
     docker_provider.rename_host(host, HostName("renamed-host"))
 
-    found = docker_provider.get_host(host.id)
-    assert found.get_certified_data().host_name == "renamed-host"
+    # Verify lookup by ID works
+    found_by_id = docker_provider.get_host(host.id)
+    assert found_by_id.get_certified_data().host_name == "renamed-host"
+
+    # Verify lookup by new name works (even though container label has old name)
+    found_by_name = docker_provider.get_host(HostName("renamed-host"))
+    assert found_by_name.id == host.id
 
 
 def test_close_closes_docker_client(temp_mngr_ctx: MngrContext) -> None:
