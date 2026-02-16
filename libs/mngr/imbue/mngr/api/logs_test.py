@@ -17,7 +17,6 @@ from imbue.mngr.api.logs import resolve_logs_target
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.volume import LocalVolume
 
@@ -129,6 +128,30 @@ def test_read_log_content_returns_file_contents(logs_volume_target: tuple[LogsTa
 # =============================================================================
 
 
+def _create_agent_data_json(
+    temp_host_dir: Path,
+    agent_name: str,
+    command: str,
+) -> AgentId:
+    """Create an agent data.json file so the agent appears in agent references.
+
+    Returns the generated AgentId.
+    """
+    agent_id = AgentId.generate()
+    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    data = {
+        "id": str(agent_id),
+        "name": agent_name,
+        "type": "generic",
+        "command": command,
+        "work_dir": "/tmp/test",
+        "create_time": "2026-01-01T00:00:00+00:00",
+    }
+    (agent_dir / "data.json").write_text(json.dumps(data))
+    return agent_id
+
+
 def test_resolve_logs_target_finds_agent(
     temp_mngr_ctx: MngrContext,
     local_provider,
@@ -136,24 +159,7 @@ def test_resolve_logs_target_finds_agent(
 ) -> None:
     """Verify resolve_logs_target finds an agent and returns a scoped logs volume."""
     host = local_provider.get_host(HostName("local"))
-
-    # Create a dummy agent with logs
-    agent_id = AgentId.generate()
-    agent_name = AgentName("test-resolve-agent")
-
-    # Write agent data.json so it shows up in agent references
-    agents_dir = temp_host_dir / "agents"
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    data = {
-        "id": str(agent_id),
-        "name": str(agent_name),
-        "type": "generic",
-        "command": "sleep 94817",
-        "work_dir": "/tmp/test",
-        "create_time": "2026-01-01T00:00:00+00:00",
-    }
-    (agent_dir / "data.json").write_text(json.dumps(data))
+    agent_id = _create_agent_data_json(temp_host_dir, "test-resolve-agent", "sleep 94817")
 
     # Create logs in the volume
     volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
@@ -163,7 +169,7 @@ def test_resolve_logs_target_finds_agent(
     (agent_logs_dir / "output.log").write_text("agent log content\n")
 
     # Resolve should find the agent
-    target = resolve_logs_target(str(agent_name), temp_mngr_ctx)
+    target = resolve_logs_target("test-resolve-agent", temp_mngr_ctx)
     assert "test-resolve-agent" in target.display_name
 
     # Should be able to list and read log files
@@ -184,19 +190,7 @@ def test_resolve_logs_target_finds_host(
     host = local_provider.get_host(HostName("local"))
 
     # Create an agent so the host appears in load_all_agents_grouped_by_host
-    agent_id = AgentId.generate()
-    agents_dir = temp_host_dir / "agents"
-    agent_dir = agents_dir / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    agent_data = {
-        "id": str(agent_id),
-        "name": "unrelated-agent-47291",
-        "type": "generic",
-        "command": "sleep 47291",
-        "work_dir": "/tmp/test",
-        "create_time": "2026-01-01T00:00:00+00:00",
-    }
-    (agent_dir / "data.json").write_text(json.dumps(agent_data))
+    _create_agent_data_json(temp_host_dir, "unrelated-agent-47291", "sleep 47291")
 
     # Create logs directly in the host volume (not under agents/)
     volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
