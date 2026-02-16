@@ -303,9 +303,9 @@ def test_prevent_direct_subprocess_usage() -> None:
 
     Test files are excluded from this check.
     """
-    # 45 -> 47: Docker provider uses subprocess for docker build/run CLI pass-through
+    # Docker provider uses subprocess for docker build/run CLI pass-through
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mngr_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(47), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(46), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
