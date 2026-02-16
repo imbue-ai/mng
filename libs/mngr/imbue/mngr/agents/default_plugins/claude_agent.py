@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.resources
 import json
 import os
 import shlex
@@ -16,7 +15,6 @@ from pydantic import Field
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
-from imbue.mngr import resources
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
@@ -37,6 +35,7 @@ from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.providers.ssh_host_setup import load_resource_script
 from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.polling import poll_until_counted
 
@@ -122,13 +121,6 @@ def _claude_json_has_primary_api_key() -> bool:
         return False
 
 
-def _load_resource_script(filename: str) -> str:
-    """Load a shell script from the mngr resources package."""
-    resource_files = importlib.resources.files(resources)
-    script_path = resource_files.joinpath(filename)
-    return script_path.read_text()
-
-
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
     """Write the background task scripts to $MNGR_HOST_DIR/commands/.
 
@@ -139,7 +131,7 @@ def _provision_background_scripts(host: OnlineHostInterface) -> None:
     host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
 
     for script_name in ("export_transcript.sh", "claude_background_tasks.sh"):
-        script_content = _load_resource_script(script_name)
+        script_content = load_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to host", script_name):
             host.write_file(script_path, script_content.encode(), mode="0755")

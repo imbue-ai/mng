@@ -50,8 +50,14 @@ while tmux has-session -t "$SESSION_NAME" 2>/dev/null; do
     fi
 
     # Task 2: Export transcript if the export script is available
+    # Uses temp file + mv for atomic replacement so readers never see a truncated file
     if [ -x "$EXPORT_SCRIPT" ]; then
-        "$EXPORT_SCRIPT" > "$MNGR_AGENT_STATE_DIR/logs/transcript.jsonl" 2>/dev/null || true
+        _TRANSCRIPT_TMP="$MNGR_AGENT_STATE_DIR/logs/transcript.jsonl.tmp"
+        if "$EXPORT_SCRIPT" > "$_TRANSCRIPT_TMP" 2>/dev/null; then
+            mv "$_TRANSCRIPT_TMP" "$MNGR_AGENT_STATE_DIR/logs/transcript.jsonl"
+        else
+            rm -f "$_TRANSCRIPT_TMP"
+        fi
     fi
 
     sleep 15
