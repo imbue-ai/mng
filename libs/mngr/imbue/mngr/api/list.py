@@ -52,7 +52,6 @@ from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
-@pure
 def _compute_idle_seconds(
     user_activity: datetime | None,
     agent_activity: datetime | None,
