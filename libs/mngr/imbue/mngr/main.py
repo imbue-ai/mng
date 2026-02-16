@@ -30,6 +30,7 @@ from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
 from imbue.mngr.cli.push import push
 from imbue.mngr.cli.rename import rename
+from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.cli.start import start
 from imbue.mngr.cli.stop import stop
 from imbue.mngr.plugins import hookspecs
@@ -55,6 +56,7 @@ COMMAND_ALIASES: dict[str, list[str]] = {
     "plugin": ["plug"],
     "limit": ["lim"],
     "rename": ["mv"],
+    "snapshot": ["snap"],
 }
 
 # Build reverse mapping: alias -> canonical name
@@ -266,6 +268,7 @@ BUILTIN_COMMANDS: list[click.Command] = [
     start,
     stop,
     limit,
+    snapshot,
     config,
     gc,
     plugin_command,
@@ -287,6 +290,7 @@ cli.add_command(plugin_command, name="plug")
 cli.add_command(provision, name="prov")
 cli.add_command(limit, name="lim")
 cli.add_command(rename, name="mv")
+cli.add_command(snapshot, name="snap")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)
