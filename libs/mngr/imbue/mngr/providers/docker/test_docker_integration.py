@@ -456,3 +456,48 @@ def test_filesystem_persists_across_stop_start(docker_provider: DockerProviderIn
     exit_code, output = docker_provider._exec_in_container(container, "cat /test-persist.txt")
     assert exit_code == 0
     assert "survive-stop" in output
+
+
+# =========================================================================
+# DockerVolume Tests
+# =========================================================================
+
+
+@pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
+def test_docker_volume_write_and_read(docker_provider: DockerProviderInstance) -> None:
+    """Verify DockerVolume can write and read files via the state container."""
+    volume = docker_provider._state_volume
+    volume.write_files({"test/hello.txt": b"world"})
+    result = volume.read_file("test/hello.txt")
+    assert result == b"world"
+
+
+@pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
+def test_docker_volume_listdir(docker_provider: DockerProviderInstance) -> None:
+    """Verify DockerVolume.listdir returns entries."""
+    volume = docker_provider._state_volume
+    volume.write_files({"listdir-test/a.txt": b"a", "listdir-test/b.txt": b"b"})
+    entries = volume.listdir("listdir-test")
+    names = [e.path.rsplit("/", 1)[-1] for e in entries]
+    assert "a.txt" in names
+    assert "b.txt" in names
+
+
+@pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
+def test_docker_volume_remove_file(docker_provider: DockerProviderInstance) -> None:
+    """Verify DockerVolume.remove_file deletes a file."""
+    volume = docker_provider._state_volume
+    volume.write_files({"rm-test/file.txt": b"data"})
+    volume.remove_file("rm-test/file.txt")
+    with pytest.raises(FileNotFoundError):
+        volume.read_file("rm-test/file.txt")
+
+
+@pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
+def test_docker_volume_remove_directory(docker_provider: DockerProviderInstance) -> None:
+    """Verify DockerVolume.remove_directory recursively removes a directory."""
+    volume = docker_provider._state_volume
+    volume.write_files({"rmdir-test/sub/file.txt": b"data"})
+    volume.remove_directory("rmdir-test")
+    entries = volume.listdir("rmdir-test")
+    assert entries == []
