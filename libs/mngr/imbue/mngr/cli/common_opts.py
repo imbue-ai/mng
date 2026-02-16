@@ -134,7 +134,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "output_format",
         default="human",
         show_default=True,
-        help="Output format: human, json, jsonl, or a template string (e.g. '{name}\\t{state}')",
+        help="Output format (human, json, jsonl); some commands also accept a template string",
     )(command)
     # Start the "Common" option group - applied last since decorators run in reverse order
     command = optgroup.group(COMMON_OPTIONS_GROUP_NAME)(command)
@@ -146,12 +146,16 @@ def setup_command_context(
     ctx: click.Context,
     command_name: str,
     command_class: type[TCommandOptions],
+    is_format_template_supported: bool = False,
 ) -> tuple[MngrContext, OutputOptions, TCommandOptions]:
     """Set up config and logging for a command.
 
     This is the single entry point for command setup. Call this at the top of
     each command to load config, parse output options, apply config defaults,
     set up logging, and load plugin backends.
+
+    Set is_format_template_supported=True for commands that handle
+    output_opts.format_template (currently only the list command).
     """
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)
@@ -210,6 +214,13 @@ def setup_command_context(
         log_env_vars=opts.log_env_vars,
         config=mngr_ctx.config,
     )
+
+    # Reject format templates on commands that don't support them
+    if output_opts.format_template is not None and not is_format_template_supported:
+        raise click.UsageError(
+            f"Format template strings are not supported by the '{command_name}' command. "
+            "Use --format human, --format json, or --format jsonl."
+        )
 
     # Set up logging (needs mngr_ctx)
     setup_logging(output_opts, mngr_ctx)
