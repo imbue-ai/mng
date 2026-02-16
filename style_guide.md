@@ -1778,13 +1778,13 @@ def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
     ...
 ```
 
-Acceptance tests run on all branches in CI (except release, since release tests are a superset). They must pass before a PR can be merged.
+Acceptance tests run on all branches in CI. They must pass before a PR can be merged.
 
 Acceptance tests can sometimes be flaky. This is ok. Make it possible to easily retry and re-run them if they fail.
 
 ### Release Tests
 
-Release tests are comprehensive tests that only run when pushing to release. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
+Release tests are comprehensive tests that only run when pushing to the special "release" branch. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
 
 Create release tests in the source package folder, using files that start with "test_" (same location as integration tests).
 
