@@ -723,7 +723,7 @@ def test_host_volume_is_symlinked_and_persists_data(real_modal_provider: ModalPr
             real_modal_provider.destroy_host(host)
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 @pytest.mark.timeout(300)
 def test_host_volume_data_readable_via_volume_interface(real_modal_provider: ModalProviderInstance) -> None:
     """Data written inside the sandbox should be readable via the Volume interface from outside.
@@ -757,28 +757,6 @@ def test_host_volume_data_readable_via_volume_interface(real_modal_provider: Mod
         if host:
             real_modal_provider.destroy_host(host)
 
-
-@pytest.mark.release
-@pytest.mark.timeout(180)
-def test_host_volume_cleanup_on_destroy(real_modal_provider: ModalProviderInstance) -> None:
-    """Destroying a host should delete its persistent volume."""
-    host = None
-    try:
-        host = real_modal_provider.create_host(HostName("test-vol-cleanup"))
-        host_id = host.id
-
-        # Verify the volume exists
-        volume = real_modal_provider.get_volume_for_host(host_id)
-        assert volume is not None
-
-        # Destroy the host (should delete the volume)
-        real_modal_provider.destroy_host(host)
-        host = None
-
-        # Verify the volume is gone
-        volume_after = real_modal_provider.get_volume_for_host(host_id)
-        assert volume_after is None
-
-    finally:
-        if host:
-            real_modal_provider.destroy_host(host)
+            # Verify the volume is gone
+            volume_after = real_modal_provider.get_volume_for_host(host.id)
+            assert volume_after is None
