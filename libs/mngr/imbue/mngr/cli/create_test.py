@@ -11,6 +11,7 @@ from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _parse_project_name
 from imbue.mngr.cli.create import _resolve_source_location
 from imbue.mngr.cli.create import _resolve_target_host
+from imbue.mngr.cli.create import _split_cli_args
 from imbue.mngr.cli.create import _try_reuse_existing_agent
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import UserInputError
@@ -487,3 +488,34 @@ def test_parse_project_name_no_error_without_external_source(
     result = _parse_project_name(source_location, opts, temp_mngr_ctx)
 
     assert result == "some-project"
+
+
+# =============================================================================
+# Tests for _split_cli_args
+# =============================================================================
+
+
+def test_split_cli_args_splits_space_separated_flag_and_value() -> None:
+    """Regression: -b "--cpu 16" should split into ["--cpu", "16"]."""
+    result = _split_cli_args(("--cpu 16", "--memory 16"))
+
+    assert result == ["--cpu", "16", "--memory", "16"]
+
+
+def test_split_cli_args_preserves_key_value_format() -> None:
+    """Simple key=value args should pass through unchanged."""
+    result = _split_cli_args(("cpu=16", "--memory=16"))
+
+    assert result == ["cpu=16", "--memory=16"]
+
+
+def test_split_cli_args_preserves_separate_flag_and_value() -> None:
+    """Already-separate --flag and value args should pass through unchanged."""
+    result = _split_cli_args(("--cpu", "16"))
+
+    assert result == ["--cpu", "16"]
+
+
+def test_split_cli_args_empty() -> None:
+    """Empty input should produce empty output."""
+    assert _split_cli_args(()) == []
