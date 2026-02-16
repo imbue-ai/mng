@@ -195,10 +195,10 @@ def parse_warnings_from_output(output: str) -> list[str]:
     return warnings
 
 
-def _load_activity_watcher_script() -> str:
-    """Load the activity watcher script from resources."""
+def load_resource_script(filename: str) -> str:
+    """Load a shell script from the mngr resources package."""
     resource_files = importlib.resources.files(resources)
-    script_path = resource_files.joinpath("activity_watcher.sh")
+    script_path = resource_files.joinpath(filename)
     return script_path.read_text()
 
 
@@ -251,7 +251,7 @@ def build_start_activity_watcher_command(
 
     Returns a shell command string that can be executed via sh -c.
     """
-    script_content = _load_activity_watcher_script()
+    script_content = load_resource_script("activity_watcher.sh")
 
     # Escape single quotes in script content
     escaped_script = script_content.replace("'", "'\"'\"'")

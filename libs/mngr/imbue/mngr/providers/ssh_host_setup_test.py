@@ -10,13 +10,13 @@ from pathlib import Path
 import imbue.mngr.resources as mngr_resources
 from imbue.mngr.providers.ssh_host_setup import WARNING_PREFIX
 from imbue.mngr.providers.ssh_host_setup import _build_package_check_snippet
-from imbue.mngr.providers.ssh_host_setup import _load_activity_watcher_script
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
 from imbue.mngr.providers.ssh_host_setup import build_start_activity_watcher_command
 from imbue.mngr.providers.ssh_host_setup import build_start_volume_sync_command
 from imbue.mngr.providers.ssh_host_setup import get_user_ssh_dir
+from imbue.mngr.providers.ssh_host_setup import load_resource_script
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 
@@ -110,9 +110,9 @@ def test_skips_empty_warnings() -> None:
     assert warnings == ["actual warning"]
 
 
-def test_load_activity_watcher_script() -> None:
+def test_load_resource_script_loads_activity_watcher() -> None:
     """Should load the activity watcher script from resources."""
-    script = _load_activity_watcher_script()
+    script = load_resource_script("activity_watcher.sh")
     assert isinstance(script, str)
     assert len(script) > 0
     assert "#!/bin/bash" in script

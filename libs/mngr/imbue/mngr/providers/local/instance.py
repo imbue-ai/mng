@@ -30,7 +30,7 @@ from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
-from imbue.mngr.interfaces.volume import Volume
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -374,16 +374,16 @@ class LocalProviderInstance(BaseProviderInstance):
                 return
         raise MngrError(f"Volume {volume_id} not found")
 
-    def get_volume_for_host(self, host: HostInterface | HostId) -> Volume | None:
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the local volume for a host.
 
-        Returns a LocalVolume backed by ~/.mngr/volumes/{host_id}/.
+        Returns a HostVolume backed by ~/.mngr/volumes/{host_id}/.
         The directory is created if it doesn't exist.
         """
         host_id = host.id if isinstance(host, HostInterface) else host
         volume_dir = self._volumes_dir / str(host_id)
         volume_dir.mkdir(parents=True, exist_ok=True)
-        return LocalVolume(root_path=volume_dir)
+        return HostVolume(volume=LocalVolume(root_path=volume_dir))
 
     # =========================================================================
     # Host Mutation Methods

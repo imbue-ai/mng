@@ -67,7 +67,7 @@ from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
-from imbue.mngr.interfaces.volume import Volume
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -407,10 +407,10 @@ class ModalProviderInstance(BaseProviderInstance):
         )
 
     @handle_modal_auth_error
-    def get_volume_for_host(self, host: HostInterface | HostId) -> Volume | None:
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the host volume for reading data written by the sandbox.
 
-        Returns a ModalVolume wrapping the persistent volume mounted inside
+        Returns a HostVolume wrapping the persistent volume mounted inside
         the sandbox. Returns None if the volume does not exist.
 
         Probes the volume with a listdir to verify it actually exists, since
@@ -423,7 +423,8 @@ class ModalProviderInstance(BaseProviderInstance):
             modal_vol = modal.Volume.from_name(volume_name, environment_name=self.environment_name)
             # Probe the volume to verify it exists (from_name returns lazy references)
             modal_vol.listdir("/")
-            return ModalVolume.model_construct(modal_volume=modal_vol)
+            modal_volume = ModalVolume.model_construct(modal_volume=modal_vol)
+            return HostVolume.model_construct(volume=modal_volume)
         except (NotFoundError, modal.exception.InvalidError):
             return None
 

@@ -5,6 +5,7 @@ import pytest
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import SnapshotId
@@ -737,14 +738,15 @@ def test_host_volume_data_readable_via_volume_interface(real_modal_provider: Mod
         # Write a known file and explicitly sync the volume
         host.execute_command("echo 'volume test content' > /mngr/volume_test.txt && sync /host_volume")
 
-        volume = real_modal_provider.get_volume_for_host(host)
-        assert volume is not None
-        assert isinstance(volume, ModalVolume)
+        host_volume = real_modal_provider.get_volume_for_host(host)
+        assert host_volume is not None
+        assert isinstance(host_volume, HostVolume)
+        assert isinstance(host_volume.volume, ModalVolume)
 
         # Poll until the file is visible (auto-commit may take a moment)
         def file_is_readable() -> bool:
             try:
-                content = volume.read_file("/volume_test.txt")
+                content = host_volume.volume.read_file("/volume_test.txt")
                 return b"volume test content" in content
             except FileNotFoundError:
                 return False

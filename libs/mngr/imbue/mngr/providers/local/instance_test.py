@@ -14,6 +14,7 @@ from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
@@ -270,25 +271,26 @@ def test_supports_volumes(local_provider: LocalProviderInstance) -> None:
     assert local_provider.supports_volumes is True
 
 
-def test_get_volume_for_host_returns_local_volume(local_provider: LocalProviderInstance) -> None:
-    """get_volume_for_host returns a LocalVolume for the local host."""
+def test_get_volume_for_host_returns_host_volume(local_provider: LocalProviderInstance) -> None:
+    """get_volume_for_host returns a HostVolume wrapping a LocalVolume."""
     host = local_provider.create_host(HostName("test"))
-    volume = local_provider.get_volume_for_host(host)
-    assert volume is not None
-    assert isinstance(volume, LocalVolume)
+    host_volume = local_provider.get_volume_for_host(host)
+    assert host_volume is not None
+    assert isinstance(host_volume, HostVolume)
+    assert isinstance(host_volume.volume, LocalVolume)
 
 
 def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance) -> None:
     """Data written to a local volume persists across get_volume_for_host calls."""
     host = local_provider.create_host(HostName("test"))
-    volume = local_provider.get_volume_for_host(host)
-    assert volume is not None
-    volume.write_files({"test.txt": b"hello"})
+    host_volume = local_provider.get_volume_for_host(host)
+    assert host_volume is not None
+    host_volume.volume.write_files({"test.txt": b"hello"})
 
     # Get volume again and verify data persists
-    volume2 = local_provider.get_volume_for_host(host)
-    assert volume2 is not None
-    assert volume2.read_file("test.txt") == b"hello"
+    host_volume_2 = local_provider.get_volume_for_host(host)
+    assert host_volume_2 is not None
+    assert host_volume_2.volume.read_file("test.txt") == b"hello"
 
 
 def test_list_volumes_returns_volumes_after_creation(local_provider: LocalProviderInstance) -> None:
@@ -306,9 +308,9 @@ def test_list_volumes_returns_volumes_after_creation(local_provider: LocalProvid
 def test_delete_volume_removes_directory(local_provider: LocalProviderInstance) -> None:
     """delete_volume removes the volume directory."""
     host = local_provider.create_host(HostName("test"))
-    volume = local_provider.get_volume_for_host(host)
-    assert volume is not None
-    volume.write_files({"test.txt": b"data"})
+    host_volume = local_provider.get_volume_for_host(host)
+    assert host_volume is not None
+    host_volume.volume.write_files({"test.txt": b"data"})
 
     # Verify volume directory exists
     volumes_before = local_provider.list_volumes()
