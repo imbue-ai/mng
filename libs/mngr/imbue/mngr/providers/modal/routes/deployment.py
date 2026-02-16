@@ -34,7 +34,7 @@ def deploy_function(function: str, app_name: str, environment_name: str | None, 
                     env={
                         **os.environ,
                         "MNGR_MODAL_APP_NAME": app_name,
-                        "MNGR_MODAL_APP_BUILD_PATH": tmpdir_path,
+                        "MNGR_MODAL_APP_BUILD_PATH": str(tmpdir_path),
                     },
                 )
             except ProcessError as e:
