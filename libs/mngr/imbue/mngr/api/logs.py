@@ -6,6 +6,7 @@ from typing import Final
 
 from loguru import logger
 from pydantic import Field
+from pydantic import model_validator
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
@@ -41,6 +42,15 @@ class LogsTarget(FrozenModel):
     display_name: str = Field(description="Human-readable name for the target (agent or host)")
 
     model_config = {"arbitrary_types_allowed": True}
+
+    @model_validator(mode="after")
+    def _validate_online_host_and_logs_path_are_paired(self) -> "LogsTarget":
+        """Ensure online_host and logs_path are either both set or both None."""
+        is_host_set = self.online_host is not None
+        is_path_set = self.logs_path is not None
+        if is_host_set != is_path_set:
+            raise MngrError("online_host and logs_path must both be set or both be None")
+        return self
 
 
 class LogFileEntry(FrozenModel):
@@ -428,7 +438,7 @@ def _follow_log_file_via_host(
     process = popen_interactive_subprocess(
         cmd,
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
     try:
         assert process.stdout is not None
