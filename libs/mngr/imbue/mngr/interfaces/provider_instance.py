@@ -16,6 +16,7 @@ from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -201,9 +202,25 @@ class ProviderInstanceInterface(MutableModel, ABC):
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a volume.
 
-        Raises MngrError if volume doesn't exist or can't be deleted.
+        Raises MngrError if the volume can't be deleted. Implementations may
+        silently succeed if the volume has already been deleted (idempotent).
         """
         ...
+
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
+        """Get the host volume for a given host, if one exists.
+
+        The host volume is a persistent volume that is mounted inside the
+        host's sandbox and contains all data written to the host_dir. It is
+        writable by untrusted code running in the sandbox.
+
+        This is distinct from the provider's internal state volume, which is
+        only accessed by mngr and contains trusted metadata.
+
+        Returns None if the provider does not support host volumes or if
+        no volume exists for the given host.
+        """
+        return None
 
     # =========================================================================
     # Host Mutation Methods

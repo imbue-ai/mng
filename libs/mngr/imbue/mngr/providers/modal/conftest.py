@@ -91,7 +91,7 @@ def _cleanup_modal_test_resources(app_name: str, volume_name: str, environment_n
 
     # Delete the volume using Modal SDK (must be done before environment deletion)
     try:
-        modal.Volume.delete(volume_name, environment_name=environment_name)
+        modal.Volume.objects.delete(volume_name, environment_name=environment_name)
     except (modal.exception.Error, OSError):
         pass
 

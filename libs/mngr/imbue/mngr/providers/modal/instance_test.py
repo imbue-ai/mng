@@ -25,7 +25,9 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.modal.config import ModalProviderConfig
 from imbue.mngr.providers.modal.constants import MODAL_TEST_APP_PREFIX
+from imbue.mngr.providers.modal.instance import HOST_VOLUME_INFIX
 from imbue.mngr.providers.modal.instance import HostRecord
+from imbue.mngr.providers.modal.instance import MODAL_VOLUME_NAME_MAX_LENGTH
 from imbue.mngr.providers.modal.instance import ModalProviderApp
 from imbue.mngr.providers.modal.instance import ModalProviderInstance
 from imbue.mngr.providers.modal.instance import SandboxConfig
@@ -242,9 +244,9 @@ def test_modal_provider_supports_snapshots(modal_provider: ModalProviderInstance
     assert modal_provider.supports_snapshots is True
 
 
-def test_modal_provider_does_not_support_volumes(modal_provider: ModalProviderInstance) -> None:
-    """Modal provider should not support volumes."""
-    assert modal_provider.supports_volumes is False
+def test_modal_provider_supports_volumes(modal_provider: ModalProviderInstance) -> None:
+    """Modal provider should support host volumes."""
+    assert modal_provider.supports_volumes is True
 
 
 def test_modal_provider_supports_mutable_tags(modal_provider: ModalProviderInstance) -> None:
@@ -252,10 +254,39 @@ def test_modal_provider_supports_mutable_tags(modal_provider: ModalProviderInsta
     assert modal_provider.supports_mutable_tags is True
 
 
-def test_list_volumes_returns_empty_list(modal_provider: ModalProviderInstance) -> None:
-    """Modal provider should return empty list for volumes."""
-    volumes = modal_provider.list_volumes()
-    assert volumes == []
+def test_get_host_volume_name_uses_config_prefix(modal_provider: ModalProviderInstance) -> None:
+    """Host volume name should use the mngr config prefix and host_id hex."""
+    host_id = HostId.generate()
+    name = modal_provider._get_host_volume_name(host_id)
+    expected_prefix = f"{modal_provider.mngr_ctx.config.prefix}{HOST_VOLUME_INFIX}"
+    assert name.startswith(expected_prefix)
+    assert len(name) <= MODAL_VOLUME_NAME_MAX_LENGTH
+    assert "host-host-" not in name
+
+
+def test_volume_id_for_name_produces_valid_volume_id(modal_provider: ModalProviderInstance) -> None:
+    """_volume_id_for_name should produce a valid VolumeId from a Modal volume name."""
+    vol_name = "mngr-vol-abc123def456789012345678abcdef01"
+    vol_id = modal_provider._volume_id_for_name(vol_name)
+    assert str(vol_id).startswith("vol-")
+    assert len(str(vol_id)) == 36
+
+
+def test_volume_id_for_name_is_deterministic(modal_provider: ModalProviderInstance) -> None:
+    """Same volume name should always produce the same VolumeId."""
+    vol_name = "test-vol-abc123"
+    id1 = modal_provider._volume_id_for_name(vol_name)
+    id2 = modal_provider._volume_id_for_name(vol_name)
+    assert id1 == id2
+
+
+def test_volume_id_for_name_different_names_produce_different_ids(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """Different volume names should produce different VolumeIds."""
+    id1 = modal_provider._volume_id_for_name("test-vol-aaa")
+    id2 = modal_provider._volume_id_for_name("test-vol-bbb")
+    assert id1 != id2
 
 
 @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
