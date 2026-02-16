@@ -1389,13 +1389,15 @@ def _parse_target_host(
         host_env_vars = resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
-        # Combine build args from both individual (-b) and bulk (--build-args) options
-        combined_build_args = list(opts.build_arg)
+        # Combine build args from both individual (-b) and bulk (--build-args) options.
+        # Each -b value is shlex-split so that -b "--cpu 16" becomes ["--cpu", "16"].
+        combined_build_args = [token for arg in opts.build_arg for token in shlex.split(arg)]
         if opts.build_args:
             combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
-        # Combine start args from both individual (-s) and bulk (--start-args) options
-        combined_start_args = list(opts.start_arg)
+        # Combine start args from both individual (-s) and bulk (--start-args) options.
+        # Each -s value is shlex-split so that -s "--flag value" becomes ["--flag", "value"].
+        combined_start_args = [token for arg in opts.start_arg for token in shlex.split(arg)]
         if opts.start_args:
             combined_start_args.extend(shlex.split(opts.start_args))
 
