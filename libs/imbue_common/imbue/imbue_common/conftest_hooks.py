@@ -502,7 +502,7 @@ def _print_test_durations_for_ci(
     # Sort by duration (slowest first)
     durations = sorted(all_durations.items(), key=lambda x: x[1], reverse=True)
 
-    output = json.dumps({**durations}, indent=2)
+    output = json.dumps(dict(durations), indent=2)
     os.write(2, f"\n=== test durations (pytest-split format) ===\n{output}\n".encode())
 
 
