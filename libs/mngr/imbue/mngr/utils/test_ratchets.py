@@ -17,12 +17,14 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BUILTIN_E
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CAST_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CLICK_ECHO
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DATACLASSES_IMPORT
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DIRECT_SUBPROCESS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORT_DATETIME
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_DOCSTRINGS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_IN_NON_EXCEPTION_CLASSES
@@ -48,11 +50,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNITTEST_
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRUE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
-from imbue.imbue_common.ratchet_testing.core import FileExtension
-from imbue.imbue_common.ratchet_testing.core import RegexPattern
-from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
-from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
@@ -374,24 +372,8 @@ def test_prevent_direct_subprocess_usage() -> None:
 
     Test files are excluded from this check.
     """
-    pattern = RegexPattern(
-        r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
-        r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
-        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
-        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
-    )
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(45), format_ratchet_failure_message(
-        rule_name="direct subprocess/os.exec usage",
-        rule_description=(
-            "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
-            "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
-            "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
-            "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
-            "See libs/concurrency_group/ for details."
-        ),
-        chunks=chunks,
-    )
+    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mngr_source_dir(), TEST_FILE_PATTERNS)
+    assert len(chunks) <= snapshot(45), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
@@ -460,11 +442,5 @@ def test_prevent_bash_without_strict_mode() -> None:
 
 
 def test_prevent_importlib_import_module() -> None:
-    pattern = RegexPattern(r"\bimport_module\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
-
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
-        rule_name="importlib.import_module usage",
-        rule_description="Always use normal top-level imports instead of importlib.import_module",
-        chunks=chunks,
-    )
+    chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mngr_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)

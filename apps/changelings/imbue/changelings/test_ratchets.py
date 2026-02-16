@@ -1,3 +1,4 @@
+import re
 import subprocess
 from pathlib import Path
 
@@ -16,12 +17,14 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BUILTIN_E
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CAST_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CLICK_ECHO
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DATACLASSES_IMPORT
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DIRECT_SUBPROCESS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORT_DATETIME
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_DOCSTRINGS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_IN_NON_EXCEPTION_CLASSES
@@ -48,6 +51,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRU
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
+from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
@@ -149,6 +153,11 @@ def test_prevent_relative_imports() -> None:
 def test_prevent_import_datetime() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORT_DATETIME, _get_changelings_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IMPORT_DATETIME.format_failure(chunks)
+
+
+def test_prevent_importlib_import_module() -> None:
+    chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_changelings_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
 
 
 # --- Banned libraries and patterns ---
@@ -285,6 +294,18 @@ def test_prevent_pytest_mark_integration() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_PYTEST_MARK_INTEGRATION.format_failure(chunks)
 
 
+# --- Process management ---
+
+
+def test_prevent_direct_subprocess_usage() -> None:
+    """Prevent direct usage of subprocess and os process-spawning functions.
+
+    Test files are excluded from this check.
+    """
+    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_changelings_source_dir(), TEST_FILE_PATTERNS)
+    assert len(chunks) <= snapshot(8), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+
+
 # --- AST-based ratchets ---
 
 
@@ -338,6 +359,38 @@ def test_prevent_code_in_init_files() -> None:
     )
 
 
+def test_no_type_errors() -> None:
+    """Ensure the codebase has zero type errors.
+
+    Runs the type checker (ty) and fails if any type errors are found.
+    The full type checker output is included in the failure message for easy debugging.
+    """
+    project_root = Path(__file__).parent.parent.parent
+    result = subprocess.run(
+        ["uv", "run", "ty", "check"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        error_lines = [
+            line for line in result.stdout.splitlines() if line.startswith("error[") or "error:" in line.lower()
+        ]
+        error_count = len(error_lines)
+
+        failure_message = [
+            f"Type checker found {error_count} error(s):",
+            "",
+            "Full type checker output:",
+            "=" * 80,
+            result.stdout,
+            "=" * 80,
+        ]
+
+        raise AssertionError("\n".join(failure_message))
+
+
 def test_no_ruff_errors() -> None:
     """Ensure the codebase has zero ruff linting errors."""
     project_root = Path(__file__).parent.parent.parent
@@ -359,3 +412,42 @@ def test_no_ruff_errors() -> None:
         ]
 
         raise AssertionError("\n".join(failure_message))
+
+
+def test_prevent_bash_without_strict_mode() -> None:
+    """Ensure all bash scripts use 'set -euo pipefail' for strict error handling.
+
+    Without strict mode, bash scripts silently ignore errors, use unset variables,
+    and mask failures in pipelines. Every bash script should include
+    'set -euo pipefail' near the top.
+    """
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    repo_root = Path(result.stdout.strip())
+
+    ls_result = subprocess.run(
+        ["git", "ls-files", "*.sh"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    sh_files = [repo_root / line.strip() for line in ls_result.stdout.splitlines() if line.strip()]
+
+    strict_mode_pattern = re.compile(r"set\s+-(?=[^ ]*e)(?=[^ ]*u)(?=[^ ]*o)[euo]+\s+pipefail")
+
+    violations: list[str] = []
+    for sh_file in sh_files:
+        content = sh_file.read_text()
+        if not strict_mode_pattern.search(content):
+            violations.append(str(sh_file))
+
+    assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
+        f"  - {v}" for v in violations
+    )
