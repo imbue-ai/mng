@@ -1167,6 +1167,16 @@ def _was_value_after_double_dash(value: str) -> bool:
     return value in args_after_dash
 
 
+@pure
+def _split_cli_args(args: tuple[str, ...]) -> list[str]:
+    """Shell-tokenize each CLI arg and flatten into a single list.
+
+    Handles cases like -b "--cpu 16" where the shell passes "--cpu 16" as a
+    single string that needs to be split into ["--cpu", "16"].
+    """
+    return [token for arg in args for token in shlex.split(arg)]
+
+
 def _parse_agent_opts(
     opts: CreateCliOptions,
     initial_message: str | None,
@@ -1414,12 +1424,12 @@ def _parse_target_host(
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
-        combined_build_args = list(opts.build_arg)
+        combined_build_args = _split_cli_args(opts.build_arg)
         if opts.build_args:
             combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
-        combined_start_args = list(opts.start_arg)
+        combined_start_args = _split_cli_args(opts.start_arg)
         if opts.start_args:
             combined_start_args.extend(shlex.split(opts.start_args))
 
