@@ -261,13 +261,10 @@ def test_host_has_local_connector(local_provider: LocalProviderInstance) -> None
     assert host.connector.connector_cls_name == "LocalConnector"
 
 
-def test_list_volumes_returns_host_volume(local_provider: LocalProviderInstance) -> None:
-    """Local provider returns the host's own volume directory."""
+def test_list_volumes_returns_empty_for_fresh_setup(local_provider: LocalProviderInstance) -> None:
+    """Local provider returns no volumes when no hosts/ subdirectory exists."""
     volumes = local_provider.list_volumes()
-    # The local_provider fixture creates the per-host dir, so there's always at least one
-    assert len(volumes) >= 1
-    host_volume_names = [v.name for v in volumes]
-    assert any(name.startswith("host-") for name in host_volume_names)
+    assert len(volumes) == 0
 
 
 def test_supports_volumes(local_provider: LocalProviderInstance) -> None:
@@ -296,37 +293,36 @@ def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance
     assert host_volume_2.volume.read_file("test.txt") == b"hello"
 
 
-def test_list_volumes_returns_volumes_after_creation(local_provider: LocalProviderInstance) -> None:
-    """list_volumes returns VolumeInfo for each volume directory."""
-    host = local_provider.create_host(HostName("test"))
-    # Creating a volume for the host creates the directory
-    local_provider.get_volume_for_host(host)
+def test_list_volumes_finds_legacy_host_directories(local_provider: LocalProviderInstance) -> None:
+    """list_volumes finds directories under hosts/ (legacy data from before host_dir change)."""
+    # Simulate legacy data by creating a directory under hosts/
+    hosts_dir = local_provider.mngr_ctx.config.default_host_dir.expanduser() / "hosts"
+    legacy_dir = hosts_dir / "host-abc123"
+    legacy_dir.mkdir(parents=True)
+
     volumes = local_provider.list_volumes()
-    assert len(volumes) >= 1
-    host_id_str = str(host.id)
-    volume_names = [v.name for v in volumes]
-    assert host_id_str in volume_names
+    assert len(volumes) == 1
+    assert volumes[0].name == "host-abc123"
 
 
 def test_delete_volume_removes_directory(local_provider: LocalProviderInstance) -> None:
-    """delete_volume removes the volume directory."""
-    host = local_provider.create_host(HostName("test"))
-    host_volume = local_provider.get_volume_for_host(host)
-    assert host_volume is not None
-    host_volume.volume.write_files({"test.txt": b"data"})
+    """delete_volume removes a volume directory under hosts/."""
+    # Simulate legacy data by creating a directory under hosts/
+    hosts_dir = local_provider.mngr_ctx.config.default_host_dir.expanduser() / "hosts"
+    legacy_dir = hosts_dir / "host-abc123"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "test.txt").write_text("data")
 
     # Verify volume directory exists
     volumes_before = local_provider.list_volumes()
-    assert len(volumes_before) >= 1
+    assert len(volumes_before) == 1
 
     # Delete using the volume_id from list_volumes
-    target_volume = [v for v in volumes_before if v.name == str(host.id)][0]
-    local_provider.delete_volume(target_volume.volume_id)
+    local_provider.delete_volume(volumes_before[0].volume_id)
 
     # Verify it's gone
     volumes_after = local_provider.list_volumes()
-    remaining_names = [v.name for v in volumes_after]
-    assert str(host.id) not in remaining_names
+    assert len(volumes_after) == 0
 
 
 def test_delete_volume_raises_when_not_found(local_provider: LocalProviderInstance) -> None:
