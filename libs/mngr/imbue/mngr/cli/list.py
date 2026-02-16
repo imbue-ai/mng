@@ -39,12 +39,24 @@ from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
+    "state",
     "host.name",
     "host.provider_name",
-    "host.state",
-    "state",
+    "host.tags",
     "status",
 )
+
+# Custom header labels for fields that would otherwise generate ugly auto-generated headers.
+# Fields not listed here use the default: field.upper().replace(".", " ")
+_HEADER_LABELS: Final[dict[str, str]] = {
+    "host.name": "HOST",
+    "host.provider_name": "PROVIDER",
+    "host.state": "HOST STATE",
+    "host.tags": "TAGS",
+    "host.ssh.host": "SSH HOST",
+    "idle_timeout_seconds": "IDLE TIMEOUT",
+    "activity_sources": "ACTIVITY",
+}
 
 
 @pure
@@ -92,6 +104,8 @@ class ListCliOptions(CommonCliOptions):
     local: bool
     remote: bool
     provider: tuple[str, ...]
+    project: tuple[str, ...]
+    tag: tuple[str, ...]
     stdin: bool
     fields: str | None
     sort: str
@@ -137,6 +151,16 @@ class ListCliOptions(CommonCliOptions):
     "--provider",
     multiple=True,
     help="Show only agents using specified provider (repeatable)",
+)
+@optgroup.option(
+    "--project",
+    multiple=True,
+    help="Show only agents on hosts tagged with this project (repeatable)",
+)
+@optgroup.option(
+    "--tag",
+    multiple=True,
+    help="Show only agents on hosts with this tag (format: KEY=VALUE, repeatable)",
 )
 @optgroup.option(
     "--stdin",
@@ -248,6 +272,23 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
+
+    # --project X: alias for --include 'host.tags.project == "X"'
+    # Multiple values are OR'd together
+    if opts.project:
+        project_parts = [f'host.tags.project == "{p}"' for p in opts.project]
+        include_filters.append(" || ".join(project_parts))
+
+    # --tag K=V: alias for --include 'host.tags.K == "V"'
+    # Multiple values are OR'd together
+    if opts.tag:
+        tag_parts = []
+        for tag_spec in opts.tag:
+            if "=" not in tag_spec:
+                raise click.BadParameter(f"Tag must be in KEY=VALUE format, got: {tag_spec}", param_hint="--tag")
+            key, value = tag_spec.split("=", 1)
+            tag_parts.append(f'host.tags.{key} == "{value}"')
+        include_filters.append(" || ".join(tag_parts))
 
     # Build list of exclude filters
     exclude_filters = list(opts.exclude)
@@ -484,21 +525,21 @@ class _StreamingTemplateEmitter(MutableModel):
             self._count += 1
 
 
-# Minimum column widths for streaming output (left-justified, not truncated)
+# Minimum column widths for streaming output (left-justified, not truncated).
+# These are the minimum data widths; actual column width is max(min_width, header_length).
 _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "name": 20,
-    "host.name": 15,
+    "name": 15,
+    "host.name": 10,
     "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
-    "status": 30,
+    "host.tags": 10,
+    "status": 20,
 }
-_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
+_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 10
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.name"}
-_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host.name": 20,
-}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.tags"}
+_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
@@ -578,14 +619,24 @@ class _StreamingHumanRenderer(MutableModel):
 
 
 @pure
+def _get_header_label(field: str) -> str:
+    """Get the display label for a column header."""
+    if field in _HEADER_LABELS:
+        return _HEADER_LABELS[field]
+    return field.upper().replace(".", " ")
+
+
+@pure
 def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[str, int]:
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
     separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
 
-    # Start with minimum widths
+    # Start with minimum widths, ensuring each column is at least as wide as its header
     width_by_field: dict[str, int] = {}
     for field in fields:
-        width_by_field[field] = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        min_data_width = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        header_width = len(_get_header_label(field))
+        width_by_field[field] = max(min_data_width, header_width)
 
     min_total = sum(width_by_field.values()) + separator_total
     extra_space = max(terminal_width - min_total, 0)
@@ -617,7 +668,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        value = field.upper().replace(".", "_")
+        value = _get_header_label(field)
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
@@ -748,7 +799,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate headers
     for field in fields:
-        headers.append(field.upper().replace(".", "_"))
+        headers.append(_get_header_label(field))
 
     # Generate rows
     for agent in agents:
@@ -808,6 +859,10 @@ def _format_value_as_string(value: Any) -> str:
     """Convert a value to string representation for display."""
     if value is None:
         return ""
+    elif isinstance(value, dict):
+        if not value:
+            return ""
+        return ", ".join(f"{k}={v}" for k, v in value.items())
     elif isinstance(value, Enum):
         return str(value.value)
     elif hasattr(value, "line"):
@@ -816,6 +871,8 @@ def _format_value_as_string(value: Any) -> str:
     elif hasattr(value, "name") and hasattr(value, "id"):
         # For objects like SnapshotInfo that have both name and id, prefer name
         return str(value.name)
+    elif isinstance(value, (tuple, list)) and not isinstance(value, str):
+        return ", ".join(_format_value_as_string(item) for item in value)
     elif isinstance(value, str):
         return value
     else:
@@ -959,6 +1016,8 @@ Supports filtering, sorting, and multiple output formats.""",
         ("List all agents", "mngr list"),
         ("List only running agents", "mngr list --running"),
         ("List agents on Docker hosts", "mngr list --provider docker"),
+        ("List agents for a project", "mngr list --project mngr"),
+        ("List agents with a specific tag", "mngr list --tag env=prod"),
         ("List agents as JSON", "mngr list --format json"),
         ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
     ),
@@ -1016,6 +1075,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
+- `idle_timeout_seconds` - Idle timeout before host stops
+- `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
@@ -1023,7 +1084,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)

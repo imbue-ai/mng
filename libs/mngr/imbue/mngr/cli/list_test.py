@@ -471,7 +471,7 @@ def test_get_field_value_host_plugin_whole_dict() -> None:
     """_get_field_value should format a dict value when accessing a plugin namespace."""
     agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
     result = _get_field_value(agent, "host.plugin.aws")
-    assert result == "{'iam_user': 'admin'}"
+    assert result == "iam_user=admin"
 
 
 # =============================================================================
@@ -558,13 +558,13 @@ def test_sort_agents_by_name_descending() -> None:
 # =============================================================================
 
 
-def test_format_streaming_header_row_uses_uppercase_fields() -> None:
-    """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
+def test_format_streaming_header_row_uses_custom_labels() -> None:
+    """_format_streaming_header_row should produce custom header labels."""
     fields = ["name", "host.name", "state"]
     widths = _compute_column_widths(fields, 120)
     result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
-    assert "HOST_NAME" in result
+    assert "HOST" in result
     assert "STATE" in result
 
 

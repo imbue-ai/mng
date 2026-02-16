@@ -44,6 +44,8 @@ mngr list [OPTIONS]
 | `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
+| `--project` | text | Show only agents on hosts tagged with this project (repeatable) | None |
+| `--tag` | text | Show only agents on hosts with this tag (format: KEY=VALUE, repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
 ## Output Format
@@ -144,6 +146,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
+- `idle_timeout_seconds` - Idle timeout before host stops
+- `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
@@ -151,7 +155,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
@@ -211,6 +214,18 @@ $ mngr list --running
 
 ```bash
 $ mngr list --provider docker
+```
+
+**List agents for a project**
+
+```bash
+$ mngr list --project mngr
+```
+
+**List agents with a specific tag**
+
+```bash
+$ mngr list --tag env=prod
 ```
 
 **List agents as JSON**

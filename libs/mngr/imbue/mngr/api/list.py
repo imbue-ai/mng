@@ -52,6 +52,23 @@ from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
 
 
+@pure
+def _compute_idle_seconds(
+    user_activity: datetime | None,
+    agent_activity: datetime | None,
+    ssh_activity: datetime | None,
+) -> float | None:
+    """Compute idle seconds from the most recent activity time."""
+    latest_activity: datetime | None = None
+    for activity_time in (user_activity, agent_activity, ssh_activity):
+        if activity_time is not None:
+            if latest_activity is None or activity_time > latest_activity:
+                latest_activity = activity_time
+    if latest_activity is None:
+        return None
+    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
+
+
 class AgentInfo(FrozenModel):
     """Complete information about an agent for listing purposes.
 
@@ -76,6 +93,10 @@ class AgentInfo(FrozenModel):
     ssh_activity_time: datetime | None = Field(default=None, description="Last SSH activity (reported)")
     idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
     idle_mode: str | None = Field(default=None, description="Idle detection mode")
+    idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
+    activity_sources: tuple[str, ...] | None = Field(
+        default=None, description="Activity sources used for idle detection"
+    )
 
     host: HostInfo = Field(description="Host information")
 
@@ -453,10 +474,15 @@ def _assemble_host_info(
         resource = None
 
     # make the host data
-    host_plugin_data = host.get_certified_data().plugin
+    certified_data = host.get_certified_data()
+    host_plugin_data = certified_data.plugin
+    # Always use the certified host_name for consistency between online and offline hosts.
+    # Online hosts would otherwise return the SSH hostname (e.g., "r438.modal.host") via
+    # get_name(), while offline hosts return the friendly name from certified data.
+    host_name = certified_data.host_name
     host_info = HostInfo(
         id=host.id,
-        name=str(host.get_name()),
+        name=host_name,
         provider_name=host_ref.provider_name,
         state=host.get_state(),
         image=host.get_image(),
@@ -470,7 +496,6 @@ def _assemble_host_info(
         locked_time=locked_time,
         plugin=host_plugin_data,
         failure_reason=host.get_failure_reason(),
-        build_log=host.get_build_log(),
     )
 
     # Get all agents on this host
@@ -499,8 +524,14 @@ def _assemble_host_info(
 
                 agent_status = agent.get_reported_status()
 
-                # Get idle_mode from host's activity config
+                # Get activity config from host
                 activity_config = host.get_activity_config()
+
+                # Compute idle_seconds from activity times
+                user_activity = agent.get_reported_activity_time(ActivitySource.USER)
+                agent_activity = agent.get_reported_activity_time(ActivitySource.AGENT)
+                ssh_activity = agent.get_reported_activity_time(ActivitySource.SSH)
+                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity)
 
                 agent_info = AgentInfo(
                     id=agent.id,
@@ -515,11 +546,13 @@ def _assemble_host_info(
                     url=agent.get_reported_url(),
                     start_time=agent.get_reported_start_time(),
                     runtime_seconds=agent.runtime_seconds,
-                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                    idle_seconds=None,
+                    user_activity_time=user_activity,
+                    agent_activity_time=agent_activity,
+                    ssh_activity_time=ssh_activity,
+                    idle_seconds=idle_seconds,
                     idle_mode=activity_config.idle_mode.value,
+                    idle_timeout_seconds=activity_config.idle_timeout_seconds,
+                    activity_sources=tuple(s.value for s in activity_config.activity_sources),
                     host=host_info,
                     plugin={},
                 )

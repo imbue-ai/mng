@@ -436,10 +436,6 @@ class HostInfo(FrozenModel):
         default=None,
         description="Reason for failure if the host failed during creation",
     )
-    build_log: str | None = Field(
-        default=None,
-        description="Build log output if the host failed during creation",
-    )
 
 
 class RelativePath(PurePosixPath):

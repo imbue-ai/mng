@@ -486,8 +486,8 @@ def test_list_command_with_nested_fields(
 
         assert result.exit_code == 0
         assert "NAME" in result.output
-        assert "HOST_NAME" in result.output
-        assert "HOST_PROVIDER_NAME" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
         assert agent_name in result.output
         assert "@local" in result.output
         assert "local" in result.output
@@ -534,10 +534,10 @@ def test_list_command_with_host_and_provider_fields(
 
         assert result.exit_code == 0
         assert "NAME" in result.output
-        assert "HOST_STATE" in result.output
+        assert "HOST STATE" in result.output
         assert "STATE" in result.output
-        assert "HOST_NAME" in result.output
-        assert "HOST_PROVIDER_NAME" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
         assert agent_name in result.output
         # States should show in uppercase
         assert AgentLifecycleState.RUNNING.value in result.output or AgentLifecycleState.STOPPED.value in result.output
