@@ -294,7 +294,7 @@ def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance
 
 
 def test_list_volumes_finds_legacy_host_directories(local_provider: LocalProviderInstance) -> None:
-    """list_volumes finds directories under hosts/ (legacy data from before host_dir change)."""
+    """list_volumes discovers host directories under hosts/."""
     # Simulate legacy data by creating a directory under hosts/
     hosts_dir = local_provider.mngr_ctx.config.default_host_dir.expanduser() / "hosts"
     legacy_dir = hosts_dir / "host-abc123"
