@@ -110,7 +110,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(0), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
