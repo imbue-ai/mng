@@ -1,4 +1,4 @@
-# Docker Provider Spec [future]
+# Docker Provider Spec
 
 ## Metadata Storage
 
@@ -12,8 +12,6 @@ com.imbue.mngr.tags=<json-encoded-tags>
 ```
 
 Labels are preserved across container stop/start cycles and are included in committed images (for snapshots).
-
-Docker labels have a size limit. If metadata exceeds this limit, mngr will warn and truncate tags.
 
 Docker labels cannot be changed after being set. If a user attempts to mutate them, mngr will raise an error.
 
@@ -44,4 +42,4 @@ Certain Docker configurations are incompatible with snapshotting or make snapsho
 - **Shared volumes**: Like bind mounts, volumes shared between containers are not included in snapshots.
 - **Network-attached storage**: Any external storage mounted into the container will not be captured.
 
-When any of these configurations are detected, mngr logs a warning but proceeds with the snapshot.
+When volume mounts are detected, mngr logs a warning but proceeds with the snapshot. Detection of GPU and network-attached storage constraints is not yet implemented.

@@ -765,7 +765,7 @@ kill -TERM 1
             if create_snapshot and self._is_container_running(container):
                 try:
                     with log_span("Creating snapshot before stop", host_id=str(host_id)):
-                        self.create_snapshot(host_id, SnapshotName(f"stop-{uuid4().hex[:8]}"))
+                        self.create_snapshot(host_id, SnapshotName(f"stop-{uuid4().hex}"))
                 except (MngrError, docker.errors.DockerException) as e:
                     logger.warning("Failed to create snapshot before stop: {}", e)
 

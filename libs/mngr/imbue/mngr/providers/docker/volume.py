@@ -141,9 +141,10 @@ class DockerVolume(BaseVolume):
             raise FileNotFoundError(f"File not found on volume: {path}")
         return output if isinstance(output, bytes) else output.encode("utf-8")
 
-    def remove_file(self, path: str) -> None:
+    def remove_file(self, path: str, *, recursive: bool = False) -> None:
         resolved = self._resolve(path)
-        exit_code, _ = self._exec(f"rm -f '{resolved}'")
+        rm_flag = "-rf" if recursive else "-f"
+        exit_code, _ = self._exec(f"rm {rm_flag} '{resolved}'")
         if exit_code != 0:
             logger.trace("Failed to remove file from volume: {}", path)
 
