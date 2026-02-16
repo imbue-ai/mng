@@ -576,7 +576,6 @@
   "libs/mngr/imbue/mngr/providers/docker/test_docker_create.py::test_mngr_create_with_tags_on_docker": 25.0,
   "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_build_image_from_dockerfile": 3.0,
   "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_build_or_pull_image_not_found_raises": 3.0,
-  "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_build_or_pull_image_pulls_default": 3.0,
   "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_container_created_with_correct_labels": 3.0,
   "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_container_entrypoint_keeps_running": 3.0,
   "libs/mngr/imbue/mngr/providers/docker/test_docker_integration.py::test_container_is_running_after_creation": 3.0,

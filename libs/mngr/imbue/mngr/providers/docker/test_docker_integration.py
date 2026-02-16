@@ -184,7 +184,7 @@ def test_exec_detach_returns_immediately(docker_provider: DockerProviderInstance
 
 
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
-def test_pull_image_pulls_default(docker_provider: DockerProviderInstance) -> None:
+def test_pull_image_succeeds(docker_provider: DockerProviderInstance) -> None:
     result = docker_provider._pull_image("debian:bookworm-slim")
     assert result == "debian:bookworm-slim"
 
