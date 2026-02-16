@@ -151,6 +151,10 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
         )
         _console_handler_ids["console"] = handler_id
 
+    # FIXME: entirely remove output_opts.log_level and this whole notion of multiple console handler ids
+    #  we only actually use the console_level and file_level variables in practice.
+    #  don't worry about backwards compatibility--just completely remove the log_level option and simplify this stuff
+
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
     if output_opts.log_level != LogLevel.NONE:
