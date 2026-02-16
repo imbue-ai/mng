@@ -285,7 +285,7 @@ def test_mngr_create_stop_start_destroy_lifecycle(
             "mngr",
             "destroy",
             agent_name,
-            "--yes",
+            "--force",
         ],
         capture_output=True,
         text=True,
