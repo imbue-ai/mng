@@ -53,10 +53,14 @@ def resolve_logs_target(
 
     all_hosts = list(agents_by_host.keys())
 
-    # Try finding as an agent first (returns None-not-found rather than raising)
+    # Try finding as an agent first
+    # Only suppress "not found" errors; re-raise ambiguity ("Multiple") errors
     try:
         agent_result = resolve_agent_reference(identifier, None, agents_by_host)
-    except UserInputError:
+    except UserInputError as e:
+        if "Multiple" in str(e):
+            raise
+        logger.trace("Agent lookup did not find {}: {}", identifier, e)
         agent_result = None
 
     if agent_result is not None:
@@ -76,9 +80,13 @@ def resolve_logs_target(
         )
 
     # Try finding as a host
+    # Only suppress "not found" errors; re-raise ambiguity ("Multiple") errors
     try:
         host_ref = resolve_host_reference(identifier, all_hosts)
-    except UserInputError:
+    except UserInputError as e:
+        if "Multiple" in str(e):
+            raise
+        logger.trace("Host lookup did not find {}: {}", identifier, e)
         host_ref = None
 
     if host_ref is not None:

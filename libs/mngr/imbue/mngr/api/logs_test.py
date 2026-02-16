@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,34 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.volume import LocalVolume
+
+
+def _capture_and_interrupt(captured: list[str]) -> Callable[[str], None]:
+    """Create a callback that captures content then interrupts."""
+
+    def _callback(content: str) -> None:
+        captured.append(content)
+        raise KeyboardInterrupt
+
+    return _callback
+
+
+@pytest.fixture
+def logs_volume_target(tmp_path: Path) -> tuple[LogsTarget, Path]:
+    """Create a LogsTarget backed by a temp directory.
+
+    Returns (target, logs_dir) so tests can write files into the volume.
+    """
+    logs_dir = tmp_path / "logs"
+    logs_dir.mkdir()
+    volume = LocalVolume(root_path=logs_dir)
+    target = LogsTarget(volume=volume, display_name="test")
+    return target, logs_dir
+
+
+# =============================================================================
+# apply_head_or_tail tests
+# =============================================================================
 
 
 def test_apply_head_or_tail_returns_all_when_no_filter() -> None:
@@ -56,6 +85,11 @@ def test_apply_head_or_tail_handles_empty_content() -> None:
     assert result == ""
 
 
+# =============================================================================
+# _extract_filename tests
+# =============================================================================
+
+
 def test_extract_filename_from_simple_path() -> None:
     assert _extract_filename("output.log") == "output.log"
 
@@ -64,16 +98,16 @@ def test_extract_filename_from_nested_path() -> None:
     assert _extract_filename("some/dir/output.log") == "output.log"
 
 
-def test_list_log_files_returns_only_files(tmp_path) -> None:
-    # Create a volume with files and directories
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
+# =============================================================================
+# list_log_files / read_log_content tests
+# =============================================================================
+
+
+def test_list_log_files_returns_only_files(logs_volume_target: tuple[LogsTarget, Path]) -> None:
+    target, logs_dir = logs_volume_target
     (logs_dir / "output.log").write_text("some log data")
     (logs_dir / "error.log").write_text("some errors")
     (logs_dir / "subdir").mkdir()
-
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test agent")
 
     log_files = list_log_files(target)
 
@@ -81,17 +115,18 @@ def test_list_log_files_returns_only_files(tmp_path) -> None:
     assert names == snapshot(["error.log", "output.log"])
 
 
-def test_read_log_content_returns_file_contents(tmp_path) -> None:
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
+def test_read_log_content_returns_file_contents(logs_volume_target: tuple[LogsTarget, Path]) -> None:
+    target, logs_dir = logs_volume_target
     (logs_dir / "test.log").write_text("hello world\nsecond line\n")
-
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test agent")
 
     content = read_log_content(target, "test.log")
 
     assert content == snapshot("hello world\nsecond line\n")
+
+
+# =============================================================================
+# resolve_logs_target tests
+# =============================================================================
 
 
 def test_resolve_logs_target_finds_agent(
@@ -100,12 +135,7 @@ def test_resolve_logs_target_finds_agent(
     temp_host_dir: Path,
 ) -> None:
     """Verify resolve_logs_target finds an agent and returns a scoped logs volume."""
-    # Create a host with an agent
     host = local_provider.get_host(HostName("local"))
-
-    # Create a fake agent directory structure on the volume
-    host_volume = local_provider.get_volume_for_host(host.id)
-    assert host_volume is not None
 
     # Create a dummy agent with logs
     agent_id = AgentId.generate()
@@ -145,6 +175,49 @@ def test_resolve_logs_target_finds_agent(
     assert content == "agent log content\n"
 
 
+def test_resolve_logs_target_finds_host(
+    temp_mngr_ctx: MngrContext,
+    local_provider,
+    temp_host_dir: Path,
+) -> None:
+    """Verify resolve_logs_target falls back to host when no agent matches."""
+    host = local_provider.get_host(HostName("local"))
+
+    # Create an agent so the host appears in load_all_agents_grouped_by_host
+    agent_id = AgentId.generate()
+    agents_dir = temp_host_dir / "agents"
+    agent_dir = agents_dir / str(agent_id)
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    agent_data = {
+        "id": str(agent_id),
+        "name": "unrelated-agent-47291",
+        "type": "generic",
+        "command": "sleep 47291",
+        "work_dir": "/tmp/test",
+        "create_time": "2026-01-01T00:00:00+00:00",
+    }
+    (agent_dir / "data.json").write_text(json.dumps(agent_data))
+
+    # Create logs directly in the host volume (not under agents/)
+    volumes_dir = temp_host_dir.parent / ".mngr" / "volumes"
+    host_volume_dir = volumes_dir / str(host.id)
+    host_logs_dir = host_volume_dir / "logs"
+    host_logs_dir.mkdir(parents=True, exist_ok=True)
+    (host_logs_dir / "host-output.log").write_text("host log content\n")
+
+    # Resolve using the host ID (not name, since "local" doesn't match agent-first)
+    target = resolve_logs_target(str(host.id), temp_mngr_ctx)
+    assert "host" in target.display_name
+
+    # Should be able to list and read log files
+    log_files = list_log_files(target)
+    assert len(log_files) == 1
+    assert log_files[0].name == "host-output.log"
+
+    content = read_log_content(target, "host-output.log")
+    assert content == "host log content\n"
+
+
 def test_resolve_logs_target_raises_for_unknown_identifier(
     temp_mngr_ctx: MngrContext,
 ) -> None:
@@ -152,15 +225,16 @@ def test_resolve_logs_target_raises_for_unknown_identifier(
         resolve_logs_target("nonexistent-identifier-abc123", temp_mngr_ctx)
 
 
-def test_check_for_new_content_detects_appended_content(tmp_path) -> None:
+# =============================================================================
+# _check_for_new_content tests
+# =============================================================================
+
+
+def test_check_for_new_content_detects_appended_content(logs_volume_target: tuple[LogsTarget, Path]) -> None:
     """Verify _check_for_new_content detects new content appended to a log file."""
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
+    target, logs_dir = logs_volume_target
     log_file = logs_dir / "test.log"
     log_file.write_text("initial content\n")
-
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test")
 
     captured_content: list[str] = []
     state = _FollowState(previous_length=len("initial content\n"))
@@ -177,15 +251,11 @@ def test_check_for_new_content_detects_appended_content(tmp_path) -> None:
     assert captured_content[0] == "new line\n"
 
 
-def test_check_for_new_content_handles_truncated_file(tmp_path) -> None:
+def test_check_for_new_content_handles_truncated_file(logs_volume_target: tuple[LogsTarget, Path]) -> None:
     """Verify _check_for_new_content handles file truncation."""
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
+    target, logs_dir = logs_volume_target
     log_file = logs_dir / "test.log"
     log_file.write_text("long content that will be truncated\n")
-
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test")
 
     captured_content: list[str] = []
     state = _FollowState(previous_length=len("long content that will be truncated\n"))
@@ -198,30 +268,23 @@ def test_check_for_new_content_handles_truncated_file(tmp_path) -> None:
     assert captured_content[0] == "short\n"
 
 
-def test_follow_log_file_emits_initial_content_with_tail(tmp_path) -> None:
-    """Verify follow_log_file emits tailed initial content via the callback."""
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
-    log_file = logs_dir / "test.log"
-    log_file.write_text("line1\nline2\nline3\nline4\nline5\n")
+# =============================================================================
+# follow_log_file tests
+# =============================================================================
 
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test")
+
+def test_follow_log_file_emits_initial_content_with_tail(logs_volume_target: tuple[LogsTarget, Path]) -> None:
+    """Verify follow_log_file emits tailed initial content via the callback."""
+    target, logs_dir = logs_volume_target
+    (logs_dir / "test.log").write_text("line1\nline2\nline3\nline4\nline5\n")
 
     captured: list[str] = []
 
-    def _capture_and_interrupt(content: str) -> None:
-        """Capture the content and raise KeyboardInterrupt to stop polling."""
-        captured.append(content)
-        raise KeyboardInterrupt
-
-    # follow_log_file emits the initial tailed content via the callback,
-    # then enters the poll loop. We interrupt on the first callback invocation.
     with pytest.raises(KeyboardInterrupt):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt,
+            on_new_content=_capture_and_interrupt(captured),
             tail_count=2,
         )
 
@@ -229,27 +292,18 @@ def test_follow_log_file_emits_initial_content_with_tail(tmp_path) -> None:
     assert captured[0] == "line4\nline5\n"
 
 
-def test_follow_log_file_emits_all_content_when_no_tail(tmp_path) -> None:
+def test_follow_log_file_emits_all_content_when_no_tail(logs_volume_target: tuple[LogsTarget, Path]) -> None:
     """Verify follow_log_file emits all content when tail_count is None."""
-    logs_dir = tmp_path / "logs"
-    logs_dir.mkdir()
-    log_file = logs_dir / "test.log"
-    log_file.write_text("line1\nline2\n")
-
-    volume = LocalVolume(root_path=logs_dir)
-    target = LogsTarget(volume=volume, display_name="test")
+    target, logs_dir = logs_volume_target
+    (logs_dir / "test.log").write_text("line1\nline2\n")
 
     captured: list[str] = []
-
-    def _capture_and_interrupt(content: str) -> None:
-        captured.append(content)
-        raise KeyboardInterrupt
 
     with pytest.raises(KeyboardInterrupt):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt,
+            on_new_content=_capture_and_interrupt(captured),
             tail_count=None,
         )
 
