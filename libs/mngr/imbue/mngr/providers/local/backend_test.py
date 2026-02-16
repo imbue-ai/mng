@@ -61,8 +61,8 @@ def test_build_provider_instance_with_custom_host_dir(tmp_path: Path, temp_mngr_
         mngr_ctx=temp_mngr_ctx,
     )
     assert isinstance(instance, LocalProviderInstance)
-    # host_dir should be {custom_dir}/hosts/{host_id}/
-    assert str(instance.host_dir).startswith(str(custom_dir / "hosts" / "host-"))
+    # host_dir should be the custom_dir directly
+    assert instance.host_dir == custom_dir
 
 
 def test_build_provider_instance_uses_default_host_dir(temp_mngr_ctx: MngrContext) -> None:
@@ -72,9 +72,9 @@ def test_build_provider_instance_uses_default_host_dir(temp_mngr_ctx: MngrContex
         config=config,
         mngr_ctx=temp_mngr_ctx,
     )
-    # host_dir should be under the expanded default_host_dir/hosts/{host_id}/
+    # host_dir should be the expanded default_host_dir directly
     expanded_default = Path(os.path.expanduser(str(temp_mngr_ctx.config.default_host_dir)))
-    assert str(instance.host_dir).startswith(str(expanded_default / "hosts" / "host-"))
+    assert instance.host_dir == expanded_default
 
 
 def test_build_provider_instance_uses_config_default_host_dir(temp_mngr_ctx: MngrContext) -> None:
@@ -84,8 +84,8 @@ def test_build_provider_instance_uses_config_default_host_dir(temp_mngr_ctx: Mng
         config=config,
         mngr_ctx=temp_mngr_ctx,
     )
-    # host_dir is now a subdirectory of default_host_dir
-    assert str(instance.host_dir).startswith(str(temp_mngr_ctx.config.default_host_dir))
+    # host_dir should equal the expanded default_host_dir
+    assert instance.host_dir == temp_mngr_ctx.config.default_host_dir.expanduser()
 
 
 def test_build_provider_instance_uses_name(temp_mngr_ctx: MngrContext) -> None:
