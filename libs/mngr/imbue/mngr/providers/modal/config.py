@@ -97,3 +97,14 @@ class ModalProviderConfig(ProviderInstanceConfig):
             "be restarted if it was stopped gracefully (which creates a snapshot)."
         ),
     )
+    is_host_volume_created: bool = Field(
+        default=True,
+        description=(
+            "Whether to create and mount a persistent Modal Volume for the host directory. "
+            "When True (default), a volume is created and the host directory is symlinked to it, "
+            "so data (including logs) persists across sandbox restarts and is accessible when the "
+            "host is offline. When False, no host volume is created; the host directory is a regular "
+            "directory on the sandbox filesystem. Logs and other host data will only be available "
+            "while the host is online."
+        ),
+    )

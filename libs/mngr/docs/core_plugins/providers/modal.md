@@ -149,6 +149,27 @@ Snapshot consistency semantics are "hard power off": in-flight writes may not be
 
 See [`mngr snapshot`](../../commands/secondary/snapshot.md) for all options.
 
+## Host Volume
+
+By default, mngr creates a persistent Modal Volume for each host's data directory. This volume stores logs, agent data, and other host state, making them accessible even when the host is offline (e.g., via `mngr logs`).
+
+You can disable this behavior by setting `is_host_volume_created = false` in your provider configuration:
+
+```toml
+[providers.modal]
+backend = "modal"
+is_host_volume_created = false
+```
+
+When `is_host_volume_created` is `false`:
+
+- No persistent volume is created or mounted for the host directory
+- The host directory is created as a regular directory on the sandbox filesystem
+- The periodic volume sync process is not started
+- Logs and other host data are only available while the host is online
+
+This is useful when you don't need offline access to logs and want to avoid the overhead of volume management.
+
 ## Limitations
 
 - Sandboxes have a maximum lifetime (timeout) after which they are automatically terminated by Modal. It is useful as a hard restriction on agent lifetime, but cannot be longer than 24 hours (currently)
