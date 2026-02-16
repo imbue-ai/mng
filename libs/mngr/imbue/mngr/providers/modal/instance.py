@@ -1,13 +1,3 @@
-"""Modal provider instance implementation.
-
-Manages Modal sandboxes as hosts with SSH access via pyinfra.
-
-Host metadata (SSH info, config, snapshots) is stored on a Modal Volume rather
-than in sandbox tags. This allows multiple mngr instances to share state and
-enables restoration from snapshots even after the original sandbox is gone.
-Only host_id and host_name are stored as sandbox tags for discovery purposes.
-"""
-
 import argparse
 import json
 import os
@@ -93,11 +83,11 @@ from imbue.mngr.providers.ssh_host_setup import build_start_volume_sync_command
 from imbue.mngr.providers.ssh_host_setup import parse_warnings_from_output
 
 # Constants
-CONTAINER_SSH_PORT = 22
+CONTAINER_SSH_PORT: Final[int] = 22
 # 2 minutes default sandbox lifetime (so that we don't just leave tons of them running--we're not doing a good job of cleaning them up yet)
-DEFAULT_SANDBOX_TIMEOUT = 2 * 60
+DEFAULT_SANDBOX_TIMEOUT: Final[int] = 2 * 60
 # Seconds to wait for sshd to be ready
-SSH_CONNECT_TIMEOUT = 60
+SSH_CONNECT_TIMEOUT: Final[int] = 60
 
 # Tag key constants for sandbox metadata stored in Modal tags.
 # Only host_id and host_name are stored as tags (for discovery). All other
@@ -670,7 +660,7 @@ class ModalProviderInstance(BaseProviderInstance):
         with log_span("Updating certified host data on volume", host_id=str(host_id)):
             host_record = self._read_host_record(host_id, use_cache=False)
             if host_record is None:
-                raise Exception(f"Host record not found on volume for {host_id}")
+                raise MngrError(f"Host record not found on volume for {host_id}")
             updated_host_record = host_record.model_copy_update(
                 to_update(host_record.field_ref().certified_host_data, certified_data),
             )
@@ -1556,7 +1546,7 @@ log "=== Shutdown script completed ==="
             except modal.exception.Error as e:
                 logger.warning("Error terminating sandbox: {}", e)
         else:
-            logger.debug("Failed to fins sandbox (may already be terminated)", host_id=str(host_id))
+            logger.debug("Failed to find sandbox (may already be terminated)", host_id=str(host_id))
 
         # Record stop_reason=STOPPED to distinguish user-initiated stops from idle pauses
         # Note that we are explicitly avoiding going through the normal host.set_certified_data(host_data) call here

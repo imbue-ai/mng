@@ -7,12 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import Final
-from typing import NamedTuple
 from typing import TextIO
 from typing import cast
 
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -108,7 +109,7 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
-def suppress_warnings():
+def suppress_warnings() -> None:
     # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
     # and logs warnings during file upload retries (e.g., when the remote directory
     # doesn't exist). Mngr already handles these cases gracefully, so the warnings
@@ -252,11 +253,11 @@ def _rotate_old_logs(log_dir: Path, max_files: int) -> None:
                 pass
 
 
-class BufferedMessage(NamedTuple):
+class BufferedMessage(FrozenModel):
     """A buffered log message with its formatted output and destination."""
 
-    formatted_message: str
-    is_stderr: bool
+    formatted_message: str = Field(description="The formatted log message text")
+    is_stderr: bool = Field(description="Whether this message should go to stderr")
 
 
 class BufferingStreamWrapper(io.TextIOBase):
@@ -292,7 +293,7 @@ class BufferingStreamWrapper(io.TextIOBase):
     def write(self, s: str) -> int:
         """Buffer the write instead of passing it to the original stream."""
         if s:
-            self._buffer.append(BufferedMessage(s, self._is_stderr))
+            self._buffer.append(BufferedMessage(formatted_message=s, is_stderr=self._is_stderr))
         return len(s)
 
     def flush(self) -> None:
@@ -421,12 +422,12 @@ class LoggingSuppressor:
     @classmethod
     def _buffered_stdout_sink(cls, message: Any) -> None:
         """Sink function that buffers messages intended for stdout."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=False))
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=False))
 
     @classmethod
     def _buffered_stderr_sink(cls, message: Any) -> None:
         """Sink function that buffers messages intended for stderr."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=True))
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=True))
 
     @classmethod
     def disable_and_replay(cls, clear_screen: bool = True) -> None:

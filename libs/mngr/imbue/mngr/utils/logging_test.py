@@ -459,8 +459,8 @@ def test_logging_suppressor_disable_is_idempotent() -> None:
 
 def test_buffered_message_tracks_stderr_destination() -> None:
     """BufferedMessage should track whether message goes to stderr."""
-    stdout_msg = BufferedMessage("stdout message", is_stderr=False)
-    stderr_msg = BufferedMessage("stderr message", is_stderr=True)
+    stdout_msg = BufferedMessage(formatted_message="stdout message", is_stderr=False)
+    stderr_msg = BufferedMessage(formatted_message="stderr message", is_stderr=True)
 
     assert not stdout_msg.is_stderr
     assert stderr_msg.is_stderr

@@ -540,7 +540,11 @@ def create(ctx: click.Context, **kwargs) -> None:
     _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
 
 
-def _handle_create(mngr_ctx, output_opts, opts):
+def _handle_create(
+    mngr_ctx: MngrContext,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngrContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -783,7 +787,13 @@ def _handle_create(mngr_ctx, output_opts, opts):
     return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
-def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
+def _post_create(
+    create_result: CreateAgentResult,
+    connection_opts: ConnectionOptions,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+    mngr_ctx: MngrContext,
+) -> None:
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)

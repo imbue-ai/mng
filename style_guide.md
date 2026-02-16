@@ -576,7 +576,7 @@ Always create docstrings for classes. The docstring for a class should contain *
 
 Never include the attributes of a class in the class docstring
 
-Never create docstrings for modules
+Never create docstrings for modules (unless they are completely standalone scripts).
 
 # Comments
 

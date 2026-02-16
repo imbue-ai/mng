@@ -1,5 +1,3 @@
-"""Shared utilities for CLI commands that work with agents."""
-
 import sys
 
 from imbue.imbue_common.pure import pure

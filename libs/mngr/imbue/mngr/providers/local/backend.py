@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Final
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
@@ -13,7 +14,7 @@ from imbue.mngr.providers.local.instance import HOSTS_SUBDIR
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 
-LOCAL_BACKEND_NAME = ProviderBackendName("local")
+LOCAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("local")
 
 
 class LocalProviderBackend(ProviderBackendInterface):
