@@ -130,6 +130,11 @@ uv tool install mngr
 uvx mngr
 ```
 
+**Upgrade:**
+```bash
+uv tool upgrade mngr
+```
+
 **For development:**
 ```bash
 git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
