@@ -498,7 +498,6 @@ def _run_mngr(*args: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_plugin_install_discover_and_remove(
     tmp_path: Path,
@@ -551,7 +550,6 @@ def test_plugin_install_discover_and_remove(
         _force_uninstall_dummy_plugin()
 
 
-@pytest.mark.acceptance
 @pytest.mark.timeout(60)
 def test_plugin_add_path_and_remove_via_mngr(
     tmp_path: Path,
