@@ -429,6 +429,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
     if not opts.reconnect:
         raise NotImplementedError("--no-reconnect is not implemented yet")
 
+    logger.info("Finding agent...")
     agents_by_host, providers = load_all_agents_grouped_by_host(mngr_ctx)
 
     agent: AgentInterface
