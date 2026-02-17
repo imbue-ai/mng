@@ -131,7 +131,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def pair(ctx: click.Context, **kwargs) -> None:
-    """Continuously sync files between an agent and local directory.
+    """Continuously sync files between an agent and local directory. [experimental]
 
     This command establishes a bidirectional file sync between an agent's working
     directory and a local directory. Changes are watched and synced in real-time.
@@ -242,7 +242,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
 # Register help metadata for git-style help formatting
 _PAIR_HELP_METADATA = CommandHelpMetadata(
     name="mngr-pair",
-    one_line_description="Continuously sync files between an agent and local directory",
+    one_line_description="Continuously sync files between an agent and local directory [experimental]",
     synopsis="mngr pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
     description="""Continuously sync files between an agent and local directory.
 

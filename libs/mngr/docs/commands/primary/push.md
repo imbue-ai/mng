@@ -10,7 +10,7 @@ mngr push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]
 ```
 
 
-Push files or git commits from local machine to an agent.
+Push files or git commits from local machine to an agent. [experimental]
 
 Syncs files or git state from a local directory to an agent's working directory.
 Default behavior uses rsync for efficient incremental file transfer.

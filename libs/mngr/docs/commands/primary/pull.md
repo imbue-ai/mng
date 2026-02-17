@@ -10,7 +10,7 @@ mngr pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]
 ```
 
 
-Pull files or git commits from an agent to local machine.
+Pull files or git commits from an agent to local machine. [experimental]
 
 Syncs files or git state from an agent's working directory to a local directory.
 Default behavior uses rsync for efficient incremental file transfer.
