@@ -122,6 +122,53 @@ def test_base_agent_set_permissions(
     assert Permission("write") in retrieved
 
 
+def test_base_agent_get_labels_returns_empty_dict_by_default(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test getting labels returns empty dict when none are set."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-labels-empty", temp_work_dir)
+
+    labels = agent.get_labels()
+
+    assert isinstance(labels, dict)
+    assert len(labels) == 0
+
+
+def test_base_agent_set_labels(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test setting and retrieving labels on agent."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-labels", temp_work_dir)
+
+    agent.set_labels({"project": "mngr", "env": "staging"})
+
+    retrieved = agent.get_labels()
+    assert len(retrieved) == 2
+    assert retrieved["project"] == "mngr"
+    assert retrieved["env"] == "staging"
+
+
+def test_base_agent_set_labels_replaces_existing(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test that set_labels replaces all existing labels."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-replace-labels", temp_work_dir)
+
+    agent.set_labels({"project": "mngr", "env": "staging"})
+    agent.set_labels({"team": "infra"})
+
+    retrieved = agent.get_labels()
+    assert len(retrieved) == 1
+    assert retrieved["team"] == "infra"
+    assert "project" not in retrieved
+
+
 def test_base_agent_get_is_start_on_boot(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,

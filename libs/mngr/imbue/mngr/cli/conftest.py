@@ -25,6 +25,7 @@ def make_test_agent_info(
     snapshots: list[SnapshotInfo] | None = None,
     host_plugin: dict | None = None,
     host_tags: dict[str, str] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> AgentInfo:
     """Create a real AgentInfo for testing.
 
@@ -49,6 +50,7 @@ def make_test_agent_info(
         create_time=create_time or datetime.now(timezone.utc),
         start_on_boot=False,
         state=state,
+        labels=labels or {},
         host=host_info,
     )
 

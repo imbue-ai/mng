@@ -1415,7 +1415,7 @@ def _parse_target_host(
             parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
             parsed_host_name = generate_host_name(parsed_host_name_style)
 
-        # Parse tags (project is now an agent label, not a host tag)
+        # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
             if "=" not in tag_string:

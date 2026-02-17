@@ -1047,6 +1047,7 @@ def test_get_header_label_returns_custom_label_for_known_fields() -> None:
     assert _get_header_label("host.name") == "HOST"
     assert _get_header_label("host.provider_name") == "PROVIDER"
     assert _get_header_label("host.tags") == "TAGS"
+    assert _get_header_label("labels") == "LABELS"
 
 
 def test_get_header_label_returns_uppercased_field_for_unknown_fields() -> None:
@@ -1083,9 +1084,9 @@ def test_project_option_generates_cel_filter(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """--project should filter to agents with the specified project tag."""
+    """--project should filter to agents with the specified project label."""
     # Use --project with a non-existent project to verify the filter works
-    # (should return no agents since no local agents have tags)
+    # (should return no agents since no local agents have this label)
     result = cli_runner.invoke(
         list_command,
         ["--project", "nonexistent-project-849213"],
@@ -1124,3 +1125,80 @@ def test_tag_option_rejects_invalid_format(
     )
     assert result.exit_code != 0
     assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for --label CLI option parsing
+# =============================================================================
+
+
+def test_label_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should filter to agents with the specified label key=value."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "env=nonexistent-293847"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_label_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should reject values not in KEY=VALUE format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for labels display in _get_field_value
+# =============================================================================
+
+
+def test_get_field_value_formats_labels_as_key_value_pairs() -> None:
+    """_get_field_value should format labels dict as 'key=value' pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels")
+    assert result == "project=mngr"
+
+
+def test_get_field_value_returns_empty_for_empty_labels() -> None:
+    """_get_field_value should return empty string for empty labels."""
+    agent = make_test_agent_info()
+    result = _get_field_value(agent, "labels")
+    assert result == ""
+
+
+def test_get_field_value_formats_multiple_labels() -> None:
+    """_get_field_value should format multiple labels as comma-separated pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels")
+    # Dict ordering is guaranteed in Python 3.7+ so we can check exact output
+    assert "project=mngr" in result
+    assert "env=prod" in result
+
+
+def test_get_field_value_accesses_specific_label() -> None:
+    """_get_field_value should access a specific label via dot notation."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels.project")
+    assert result == "mngr"
+
+
+def test_get_field_value_returns_empty_for_missing_label() -> None:
+    """_get_field_value should return empty for a label key that does not exist."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels.nonexistent")
+    assert result == ""
