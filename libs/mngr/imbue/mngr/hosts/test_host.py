@@ -2048,7 +2048,24 @@ def test_new_tmux_window_inherits_env_vars(
             # An empty pane means the shell hasn't started yet
             return capture.returncode == 0 and len(capture.stdout.strip()) > 0
 
-        wait_for(window_ready, timeout=10.0, error_message="Window user-window not ready in session")
+        if not poll_until(window_ready, timeout=10.0):
+            # Capture diagnostics: did the window get created? What's in the pane?
+            list_result = subprocess.run(
+                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            pane_content = subprocess.run(
+                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
+                capture_output=True,
+                text=True,
+            )
+            raise AssertionError(
+                f"Window user-window not ready in session.\n"
+                f"Windows: {list_result.stdout.strip()!r}\n"
+                f"Pane content: {pane_content.stdout!r}\n"
+                f"Pane capture returncode: {pane_content.returncode}"
+            )
 
         # Send a command to the new window that writes the env var to a file
         subprocess.run(
