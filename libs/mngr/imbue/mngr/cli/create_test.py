@@ -766,6 +766,6 @@ def test_output_batch_results_human_format(
         _output_batch_results(results, output_opts)
 
         captured = capsys.readouterr()
-        assert "Created 1 agent." in captured.out
+        assert "Created 1 agents." in captured.out
     finally:
         local_host.stop_agents([agent.id])
