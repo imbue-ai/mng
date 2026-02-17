@@ -10,7 +10,7 @@ mngr pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]
 ```
 
 
-Continuously sync files between an agent and local directory.
+Continuously sync files between an agent and local directory. [experimental]
 
 This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
@@ -83,7 +83,7 @@ mngr pair [OPTIONS] SOURCE
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
