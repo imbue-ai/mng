@@ -2,6 +2,7 @@ import os
 import shlex
 import sys
 from collections.abc import Callable
+from collections.abc import Sequence
 from pathlib import Path
 from typing import assert_never
 from typing import cast
@@ -164,6 +165,7 @@ class CreateCliOptions(CommonCliOptions):
     ensure_clean: bool
     snapshot_source: bool | None
     name: str | None
+    count: int
     name_style: str
     agent_command: str | None
     add_command: tuple[str, ...]
@@ -244,7 +246,15 @@ class CreateCliOptions(CommonCliOptions):
     multiple=True,
     help="Use a named template from create_templates config [repeatable, stacks in order]",
 )
-@optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
+@optgroup.option("--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
+@optgroup.option(
+    "-n",
+    "--count",
+    type=click.IntRange(min=1),
+    default=1,
+    show_default=True,
+    help="Number of agents to create (requires --no-connect when > 1)",
+)
 @optgroup.option(
     "--name-style",
     type=click.Choice(_make_name_style_choices(), case_sensitive=False),
@@ -537,6 +547,11 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mngr_ctx.field_ref().is_auto_approve, True),
         )
 
+    # Batch creation: create multiple agents in one command
+    if opts.count > 1:
+        _handle_batch_create(mngr_ctx, output_opts, opts)
+        return
+
     result = _handle_create(mngr_ctx, output_opts, opts)
     if result is None:
         return
@@ -809,6 +824,147 @@ def _handle_create(
             LoggingSuppressor.disable_and_replay(clear_screen=True)
 
     return create_result, connection_opts, output_opts, opts, mngr_ctx
+
+
+def _handle_batch_create(
+    mngr_ctx: MngrContext,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+) -> None:
+    """Handle creation of multiple agents in a single command."""
+    # Validate batch-incompatible options
+    if opts.positional_name or opts.name:
+        raise UserInputError(
+            "Cannot specify agent name with -n/--count > 1. Names are auto-generated for batch creation."
+        )
+    if opts.connect:
+        raise UserInputError("Cannot use --connect with -n/--count > 1. Pass --no-connect for batch creation.")
+    if opts.reuse:
+        raise UserInputError("Cannot use --reuse with -n/--count > 1.")
+    if opts.message or opts.message_file or opts.edit_message:
+        raise UserInputError("Cannot use --message/--message-file/--edit-message with -n/--count > 1.")
+    if opts.await_agent_stopped:
+        raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
+
+    # Shared setup (done once for all agents)
+    agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
+    source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
+    project_name = _parse_project_name(source_location, opts, mngr_ctx)
+    host_lifecycle = _parse_host_lifecycle_options(opts)
+
+    # Ensure source is clean once before creating any agents
+    if opts.ensure_clean:
+        _ensure_clean_work_dir(source_location)
+
+    # Determine host strategy: --in creates a new host per agent, otherwise share one host
+    is_new_host_per_agent = opts.new_host is not None
+
+    # For existing/local hosts, resolve once and reuse for all agents.
+    # When --in is used, each agent gets a fresh host (resolved per-iteration below).
+    shared_resolved_target: OnlineHostInterface | NewHostOptions | None = None
+    if not is_new_host_per_agent:
+        target_host_ref = _parse_target_host(
+            opts=opts,
+            project_name=project_name,
+            agent_and_host_loader=agent_and_host_loader,
+            lifecycle=host_lifecycle,
+        )
+        shared_resolved_target = _resolve_target_host(target_host_ref, mngr_ctx, is_start_desired=opts.start_host)
+
+        # Set tags once on the shared host
+        if isinstance(shared_resolved_target, OnlineHostInterface):
+            tags_to_add: dict[str, str] = {}
+            for tag_string in opts.tag:
+                if "=" in tag_string:
+                    key, value = tag_string.split("=", 1)
+                    tags_to_add[key.strip()] = value.strip()
+            if tags_to_add:
+                shared_resolved_target.add_tags(tags_to_add)
+
+    # Create agents sequentially
+    results: list[CreateAgentResult] = []
+    for agent_idx in range(opts.count):
+        # Parse agent options (auto-generates a unique name each time since name is None)
+        agent_opts = _parse_agent_opts(
+            opts=opts,
+            initial_message=None,
+            resume_message=None,
+            source_location=source_location,
+            mngr_ctx=mngr_ctx,
+        )
+
+        # Set project label on agent
+        if project_name:
+            agent_opts = agent_opts.model_copy_update(
+                to_update(
+                    agent_opts.field_ref().label_options,
+                    AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": project_name}),
+                ),
+            )
+
+        # Determine target host for this agent
+        if is_new_host_per_agent:
+            # Each agent gets a new host with a unique auto-generated name
+            per_agent_host_ref = _parse_target_host(
+                opts=opts,
+                project_name=project_name,
+                agent_and_host_loader=agent_and_host_loader,
+                lifecycle=host_lifecycle,
+            )
+            target_for_create: OnlineHostInterface | NewHostOptions = _resolve_target_host(
+                per_agent_host_ref, mngr_ctx, is_start_desired=opts.start_host
+            )
+        elif shared_resolved_target is not None:
+            target_for_create = shared_resolved_target
+        else:
+            raise UserInputError("No target host resolved for batch creation.")
+
+        # Early work dir creation for existing hosts (same logic as single-create path)
+        is_work_dir_created = False
+        if agent_opts.is_copy_immediate and isinstance(target_for_create, OnlineHostInterface):
+            work_dir_path = target_for_create.create_agent_work_dir(
+                source_location.host, source_location.path, agent_opts
+            )
+            agent_opts = agent_opts.model_copy_update(
+                to_update(agent_opts.field_ref().target_path, work_dir_path),
+            )
+            is_work_dir_created = True
+
+        # Create the agent
+        logger.info("Creating agent {} ({}/{})...", agent_opts.name, agent_idx + 1, opts.count)
+        create_result = api_create(
+            source_location=source_location,
+            target_host=target_for_create,
+            agent_options=agent_opts,
+            mngr_ctx=mngr_ctx,
+            create_work_dir=not is_work_dir_created,
+        )
+        results.append(create_result)
+
+    # Output all results
+    _output_batch_results(results, output_opts)
+
+
+def _output_batch_results(results: Sequence[CreateAgentResult], opts: OutputOptions) -> None:
+    """Output results for a batch of created agents."""
+    if opts.console_level == LogLevel.NONE:
+        return
+
+    match opts.output_format:
+        case OutputFormat.JSON:
+            result_data = [{"agent_id": str(r.agent.id), "host_id": str(r.host.id)} for r in results]
+            emit_final_json({"agents": result_data, "count": len(results)})
+        case OutputFormat.JSONL:
+            for result in results:
+                emit_event(
+                    "created",
+                    {"agent_id": str(result.agent.id), "host_id": str(result.host.id)},
+                    OutputFormat.JSONL,
+                )
+        case OutputFormat.HUMAN:
+            write_human_line("Created {} agents.", len(results))
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _post_create(
@@ -1578,7 +1734,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
-    synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+    synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-n <COUNT>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
@@ -1620,6 +1776,8 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
         ("Reuse existing agent or create if not found", "mngr create my-agent --reuse"),
+        ("Create 5 agents on Modal", "mngr create -n 5 --in modal --no-connect"),
+        ("Create 3 agents locally", "mngr create -n 3 --no-connect"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),

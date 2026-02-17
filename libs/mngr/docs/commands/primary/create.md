@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
+mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-n <COUNT>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
@@ -43,7 +43,8 @@ mngr create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
-| `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
+| `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
+| `-n`, `--count` | integer range | Number of agents to create (requires --no-connect when > 1) | `1` |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
 | `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
@@ -341,4 +342,16 @@ $ mngr create my-agent -c server="npm run dev"
 
 ```bash
 $ mngr create my-agent --reuse
+```
+
+**Create 5 agents on Modal**
+
+```bash
+$ mngr create -n 5 --in modal --no-connect
+```
+
+**Create 3 agents locally**
+
+```bash
+$ mngr create -n 3 --no-connect
 ```

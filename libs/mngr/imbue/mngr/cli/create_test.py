@@ -1,12 +1,16 @@
 """Tests for create module helper functions."""
 
+import json
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from imbue.imbue_common.model_update import to_update
+from imbue.mngr.api.data_types import CreateAgentResult
 from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.cli.create import _handle_batch_create
+from imbue.mngr.cli.create import _output_batch_results
 from imbue.mngr.cli.create import _parse_agent_opts
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _parse_project_name
@@ -15,6 +19,7 @@ from imbue.mngr.cli.create import _resolve_target_host
 from imbue.mngr.cli.create import _split_cli_args
 from imbue.mngr.cli.create import _try_reuse_existing_agent
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -29,6 +34,7 @@ from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import IdleMode
+from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
@@ -593,3 +599,173 @@ def test_parse_agent_opts_empty_labels_by_default(
     )
 
     assert result.label_options.labels == {}
+
+
+# =============================================================================
+# Tests for _handle_batch_create validation
+# =============================================================================
+
+
+def test_handle_batch_create_rejects_positional_name(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects positional name since names must be auto-generated."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().positional_name, "my-agent"),
+        to_update(default_create_cli_opts.field_ref().connect, False),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot specify agent name"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+def test_handle_batch_create_rejects_named_option(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects --name since names must be auto-generated."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().name, "my-agent"),
+        to_update(default_create_cli_opts.field_ref().connect, False),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot specify agent name"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+def test_handle_batch_create_rejects_connect(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects --connect since you can't connect to multiple agents."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().connect, True),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot use --connect"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+def test_handle_batch_create_rejects_reuse(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects --reuse since it doesn't make sense for batch."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().connect, False),
+        to_update(default_create_cli_opts.field_ref().reuse, True),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot use --reuse"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+def test_handle_batch_create_rejects_message(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects --message."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().connect, False),
+        to_update(default_create_cli_opts.field_ref().message, "hello"),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot use --message"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+def test_handle_batch_create_rejects_await_agent_stopped(
+    default_create_cli_opts: CreateCliOptions,
+    temp_mngr_ctx: MngrContext,
+) -> None:
+    """Batch create rejects --await-agent-stopped."""
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().count, 3),
+        to_update(default_create_cli_opts.field_ref().connect, False),
+        to_update(default_create_cli_opts.field_ref().await_agent_stopped, True),
+    )
+
+    with pytest.raises(UserInputError, match="Cannot use --await-agent-stopped"):
+        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
+
+
+# =============================================================================
+# Tests for _output_batch_results
+# =============================================================================
+
+
+def test_output_batch_results_json_format(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Batch results in JSON format produce a structured output with agents array."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+
+    # Create two real agents
+    agent_opts_1 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-json-test-1"),
+        command=CommandString("sleep 582947"),
+    )
+    agent_opts_2 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-json-test-2"),
+        command=CommandString("sleep 847291"),
+    )
+    agent_1 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_1)
+    agent_2 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_2)
+
+    results = [
+        CreateAgentResult(agent=agent_1, host=local_host),
+        CreateAgentResult(agent=agent_2, host=local_host),
+    ]
+
+    output_opts = OutputOptions(output_format=OutputFormat.JSON)
+
+    try:
+        _output_batch_results(results, output_opts)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["count"] == 2
+        assert len(data["agents"]) == 2
+        assert data["agents"][0]["agent_id"] == str(agent_1.id)
+        assert data["agents"][1]["agent_id"] == str(agent_2.id)
+    finally:
+        local_host.stop_agents([agent_1.id, agent_2.id])
+
+
+def test_output_batch_results_human_format(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Batch results in HUMAN format produce a summary line."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+
+    agent_opts = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-human-test-1"),
+        command=CommandString("sleep 394718"),
+    )
+    agent = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts)
+
+    results = [CreateAgentResult(agent=agent, host=local_host)]
+    output_opts = OutputOptions()
+
+    try:
+        _output_batch_results(results, output_opts)
+
+        captured = capsys.readouterr()
+        assert "Created 1 agents." in captured.out
+    finally:
+        local_host.stop_agents([agent.id])
