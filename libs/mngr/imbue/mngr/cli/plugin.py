@@ -482,6 +482,27 @@ def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
         ctx.exit(1)
 
 
+def _resolve_package_name_after_install(specifier: str, specifier_type: PluginSpecifierType) -> str:
+    """Resolve the installed package name from a specifier after installation.
+
+    For PyPI packages, extracts the canonical name from the requirement string.
+    For local paths, reads the name from pyproject.toml (falls back to the raw specifier).
+    For git URLs, returns the raw specifier (the package name cannot be reliably derived).
+    """
+    match specifier_type:
+        case PluginSpecifierType.PYPI_PACKAGE:
+            return _validate_pypi_specifier(specifier)
+        case PluginSpecifierType.LOCAL_PATH:
+            try:
+                return _resolve_package_name_for_removal(specifier, specifier_type)
+            except PluginSpecifierError:
+                return specifier
+        case PluginSpecifierType.GIT_URL:
+            return specifier
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
     """Implementation of plugin add command."""
     mngr_ctx, output_opts, _opts = setup_command_context(
@@ -492,15 +513,12 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
 
     specifier_type = _classify_plugin_specifier(specifier)
 
-    # Validate PyPI specifiers early
-    package_name: str
+    # Validate PyPI specifiers early to fail fast before running uv
     if specifier_type == PluginSpecifierType.PYPI_PACKAGE:
         try:
-            package_name = _validate_pypi_specifier(specifier)
+            _validate_pypi_specifier(specifier)
         except PluginSpecifierError as e:
             raise AbortError(str(e)) from e
-    else:
-        package_name = specifier
 
     command = _build_uv_pip_install_command(specifier, specifier_type)
 
@@ -513,15 +531,9 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
                 original_exception=e,
             ) from e
 
-    # For local paths, resolve the actual package name from pyproject.toml
-    if specifier_type == PluginSpecifierType.LOCAL_PATH:
-        try:
-            package_name = _resolve_package_name_for_removal(specifier, specifier_type)
-        except PluginSpecifierError:
-            package_name = specifier
-
-    has_entry_points = _check_for_mngr_entry_points(package_name)
-    _emit_plugin_add_result(specifier, package_name, has_entry_points, output_opts)
+    resolved_package_name = _resolve_package_name_after_install(specifier, specifier_type)
+    has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
+    _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
 
 
 def _plugin_remove_impl(ctx: click.Context, *, specifier: str) -> None:
