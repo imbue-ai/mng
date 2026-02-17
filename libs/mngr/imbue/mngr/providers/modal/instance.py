@@ -45,6 +45,10 @@ from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.hosts.common import compute_idle_seconds
+from imbue.mngr.hosts.common import determine_lifecycle_state
+from imbue.mngr.hosts.common import resolve_expected_process_name
+from imbue.mngr.hosts.common import timestamp_to_datetime
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.agent import AgentInterface
@@ -64,7 +68,6 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
-from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
@@ -320,8 +323,8 @@ def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
             if json_str:
                 try:
                     result["certified_data"] = json.loads(json_str)
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse host data.json in listing output: {}", e)
 
         # ps output
         elif line.strip() == _SEP_PS_START:
@@ -348,8 +351,8 @@ def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
                     if agent_json_str:
                         try:
                             agent_raw["data"] = json.loads(agent_json_str)
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            logger.warning("Failed to parse agent data.json in listing output: {}", e)
                 elif aline.startswith("USER_MTIME="):
                     val = aline[len("USER_MTIME=") :].strip()
                     agent_raw["user_activity_mtime"] = int(val) if val else None
@@ -380,120 +383,6 @@ def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
 
     result["agents"] = agents
     return result
-
-
-@pure
-def _parse_boot_time_from_raw(btime: int | None) -> datetime | None:
-    """Convert a btime Unix timestamp to a datetime."""
-    if btime is None:
-        return None
-    try:
-        return datetime.fromtimestamp(btime, tz=timezone.utc)
-    except (ValueError, OSError):
-        return None
-
-
-@pure
-def _mtime_to_datetime(mtime: int | None) -> datetime | None:
-    """Convert an mtime Unix timestamp to a datetime."""
-    if mtime is None:
-        return None
-    try:
-        return datetime.fromtimestamp(mtime, tz=timezone.utc)
-    except (ValueError, OSError):
-        return None
-
-
-@pure
-def _compute_idle_seconds(
-    user_activity: datetime | None,
-    agent_activity: datetime | None,
-    ssh_activity: datetime | None,
-) -> float | None:
-    """Compute idle seconds from the most recent activity time."""
-    latest_activity: datetime | None = None
-    for activity_time in (user_activity, agent_activity, ssh_activity):
-        if activity_time is not None:
-            if latest_activity is None or activity_time > latest_activity:
-                latest_activity = activity_time
-    if latest_activity is None:
-        return None
-    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
-
-
-@pure
-def _determine_lifecycle_state(
-    tmux_info: str | None,
-    is_active: bool,
-    expected_command: CommandString,
-    ps_output: str,
-) -> AgentLifecycleState:
-    """Determine agent lifecycle state from tmux info and ps output.
-
-    Replicates the logic from BaseAgent.get_lifecycle_state() but uses
-    pre-collected data instead of making SSH calls.
-    """
-    if not tmux_info:
-        return AgentLifecycleState.STOPPED
-
-    parts = tmux_info.split("|")
-    if len(parts) != 3:
-        return AgentLifecycleState.STOPPED
-
-    pane_dead, current_command, pane_pid = parts
-
-    if pane_dead == "1":
-        return AgentLifecycleState.DONE
-
-    # Extract expected basename
-    expected_basename = expected_command.split()[0].split("/")[-1] if expected_command else ""
-
-    if current_command == expected_basename:
-        return AgentLifecycleState.RUNNING if is_active else AgentLifecycleState.WAITING
-
-    # Check descendant processes
-    descendant_names = _get_descendant_process_names(pane_pid, ps_output)
-
-    if expected_basename in descendant_names:
-        return AgentLifecycleState.RUNNING if is_active else AgentLifecycleState.WAITING
-
-    # Check for non-shell descendant processes
-    shells = {"bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"}
-    non_shell_processes = [p for p in descendant_names if p not in shells]
-    if non_shell_processes:
-        return AgentLifecycleState.REPLACED
-
-    # Current command is a shell -> agent probably finished
-    if current_command in shells:
-        return AgentLifecycleState.DONE
-
-    return AgentLifecycleState.REPLACED
-
-
-@pure
-def _get_descendant_process_names(root_pid: str, ps_output: str) -> list[str]:
-    """Get names of all descendant processes from ps output."""
-    children_by_ppid: dict[str, list[str]] = {}
-    comm_by_pid: dict[str, str] = {}
-
-    for line in ps_output.strip().split("\n"):
-        line_parts = line.split()
-        if len(line_parts) >= 3:
-            pid, ppid, comm = line_parts[0], line_parts[1], line_parts[2]
-            comm_by_pid[pid] = comm
-            if ppid not in children_by_ppid:
-                children_by_ppid[ppid] = []
-            children_by_ppid[ppid].append(pid)
-
-    descendant_names: list[str] = []
-    queue = list(children_by_ppid.get(root_pid, []))
-    while queue:
-        pid = queue.pop(0)
-        if pid in comm_by_pid:
-            descendant_names.append(comm_by_pid[pid])
-        queue.extend(children_by_ppid.get(pid, []))
-
-    return descendant_names
 
 
 class SandboxConfig(HostConfig):
@@ -2355,7 +2244,7 @@ log "=== Shutdown script completed ==="
             )
 
         # Boot time and uptime from SSH-collected data
-        boot_time = _parse_boot_time_from_raw(raw.get("btime"))
+        boot_time = timestamp_to_datetime(raw.get("btime"))
         uptime_seconds = raw.get("uptime_seconds")
 
         # Resources from cached host record (no remote call)
@@ -2464,24 +2353,26 @@ log "=== Shutdown script completed ==="
             labels = agent_data.get("labels", {})
 
             # Activity times from mtimes
-            user_activity = _mtime_to_datetime(agent_raw.get("user_activity_mtime"))
-            agent_activity = _mtime_to_datetime(agent_raw.get("agent_activity_mtime"))
-            start_time = _mtime_to_datetime(agent_raw.get("start_activity_mtime"))
+            user_activity = timestamp_to_datetime(agent_raw.get("user_activity_mtime"))
+            agent_activity = timestamp_to_datetime(agent_raw.get("agent_activity_mtime"))
+            start_time = timestamp_to_datetime(agent_raw.get("start_activity_mtime"))
 
             # Runtime from start_time
             now = datetime.now(timezone.utc)
             runtime_seconds = (now - start_time).total_seconds() if start_time else None
 
             # Idle seconds
-            idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+            idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
             # Lifecycle state from tmux info
             tmux_info = agent_raw.get("tmux_info")
             is_active = agent_raw.get("is_active", False)
-            state = _determine_lifecycle_state(
+            # Resolve expected process name using agent type (handles overrides like ClaudeAgent)
+            expected_process_name = resolve_expected_process_name(agent_type, command, self.mngr_ctx.config)
+            state = determine_lifecycle_state(
                 tmux_info=tmux_info,
                 is_active=is_active,
-                expected_command=command,
+                expected_process_name=expected_process_name,
                 ps_output=ps_output,
             )
 

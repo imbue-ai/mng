@@ -30,6 +30,7 @@ from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.hosts.common import compute_idle_seconds
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
@@ -49,22 +50,6 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-
-
-def _compute_idle_seconds(
-    user_activity: datetime | None,
-    agent_activity: datetime | None,
-    ssh_activity: datetime | None,
-) -> float | None:
-    """Compute idle seconds from the most recent activity time."""
-    latest_activity: datetime | None = None
-    for activity_time in (user_activity, agent_activity, ssh_activity):
-        if activity_time is not None:
-            if latest_activity is None or activity_time > latest_activity:
-                latest_activity = activity_time
-    if latest_activity is None:
-        return None
-    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
 
 
 class ErrorInfo(FrozenModel):
@@ -524,7 +509,7 @@ def _assemble_host_info(
                 runtime_seconds = (now - start_time).total_seconds() if start_time else None
 
                 # idle_seconds: include host-level ssh_activity; 0.0 if no activity yet
-                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+                idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
                 agent_info = AgentInfo(
                     id=agent.id,
