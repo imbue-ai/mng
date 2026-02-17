@@ -2027,44 +2027,43 @@ def test_new_tmux_window_inherits_env_vars(
             capture_output=True,
         )
 
-        # Wait for the window to exist and shell to be ready
-        # The shell is ready when it shows a prompt (has content in the pane)
-        def window_ready() -> bool:
-            result = subprocess.run(
-                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
-                capture_output=True,
-                text=True,
-            )
-            if "user-window" not in result.stdout:
-                return False
-            # Check if the shell has started by looking for prompt content
-            # The pane should have some content once the shell is ready
-            capture = subprocess.run(
-                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
-                capture_output=True,
-                text=True,
-            )
-            # Shell is ready when it has displayed something (the prompt)
-            # An empty pane means the shell hasn't started yet
-            return capture.returncode == 0 and len(capture.stdout.strip()) > 0
+        # Wait for the shell in the new window to be ready by sending a sentinel
+        # command and waiting for its output. Checking for "any pane content" is
+        # not reliable because shell init (.zshenv, .zshrc errors, compdef
+        # failures, direnv output, etc.) can produce pane content before the
+        # shell is actually accepting commands.
+        window_target = f"{session_name}:user-window"
+        sentinel = f"MNGR_READY_{mngr_test_prefix.replace('-', '_')}"
+        subprocess.run(
+            ["tmux", "send-keys", "-t", window_target, f"echo {sentinel}", "Enter"],
+            check=True,
+            capture_output=True,
+        )
 
-        if not poll_until(window_ready, timeout=10.0):
-            # Capture diagnostics: did the window get created? What's in the pane?
-            list_result = subprocess.run(
-                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+        def shell_ready() -> bool:
+            capture = subprocess.run(
+                ["tmux", "capture-pane", "-t", window_target, "-p"],
                 capture_output=True,
                 text=True,
             )
+            if capture.returncode != 0:
+                return False
+            # Look for the sentinel as its own line (the command output),
+            # not as part of "echo SENTINEL" (the echoed command text).
+            for line in capture.stdout.splitlines():
+                if line.strip() == sentinel:
+                    return True
+            return False
+
+        if not poll_until(shell_ready, timeout=10.0):
             pane_content = subprocess.run(
-                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
+                ["tmux", "capture-pane", "-t", window_target, "-p"],
                 capture_output=True,
                 text=True,
             )
             raise AssertionError(
-                f"Window user-window not ready in session.\n"
-                f"Windows: {list_result.stdout.strip()!r}\n"
-                f"Pane content: {pane_content.stdout!r}\n"
-                f"Pane capture returncode: {pane_content.returncode}"
+                f"Shell not ready in user-window (sentinel {sentinel!r} not found).\n"
+                f"Pane content:\n{pane_content.stdout}"
             )
 
         # Send a command to the new window that writes the env var to a file
@@ -2073,7 +2072,7 @@ def test_new_tmux_window_inherits_env_vars(
                 "tmux",
                 "send-keys",
                 "-t",
-                f"{session_name}:user-window",
+                window_target,
                 f"echo NEW_WINDOW_VAR=$NEW_WINDOW_VAR > {marker_file}",
                 "Enter",
             ],
