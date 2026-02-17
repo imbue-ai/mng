@@ -54,6 +54,15 @@ jobs:
             exit 1
           fi
 
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG_VERSION="${{ github.ref_name }}"
+            TAG_VERSION="${TAG_VERSION#v}"
+            if [ "$MNGR_VERSION" != "$TAG_VERSION" ]; then
+              echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNGR_VERSION)"
+              exit 1
+            fi
+          fi
+
       - name: Build imbue-common
         run: pyproject-build libs/imbue_common -o dist/
 
