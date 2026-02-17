@@ -36,7 +36,7 @@ Called at various points in the execution of any `mngr` command:
 | `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
 | `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
-| `on_startup`               | Runs when `mngr` starts up, before any command runs.                                                                                                    |
+| `on_startup`               | Runs when `mngr` starts up, before any command runs. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks. |
 | `on_before_command`        | Runs before any command executes. Receives the command name and resolved parameters dict. Plugins can raise to abort execution.                         |
 | `on_after_command`         | Runs after a command completes successfully. Receives the command name and parameters dict. Useful for logging, cleanup, or post-processing.            |
 | `override_command_options` | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs.  |
