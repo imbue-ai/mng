@@ -1,5 +1,6 @@
 # mngr: build your team of AI engineering agents
 
+**installation:**
 ```bash
 # [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
