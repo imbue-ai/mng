@@ -248,6 +248,9 @@ scripts/notify_user.local.sh
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
 
+# Test output artifacts generated during pytest runs
+.claude/tests_outputs/
+
 # we stick the image build artifacts here
 .mngr/dev/build/
 .mngr/dev/secrets/
