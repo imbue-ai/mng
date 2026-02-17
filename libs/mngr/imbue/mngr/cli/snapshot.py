@@ -376,7 +376,15 @@ class _SnapshotGroup(click.Group):
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
-    """Create, list, and destroy host snapshots."""
+    """Create, list, and destroy host snapshots.
+
+    Snapshots capture the complete state of an agent's host, allowing it
+    to be restored later. Because the snapshot is at the host level, the
+    state of all agents on the host is saved.
+
+    \b
+    Alias: snap
+    """
 
 
 # =============================================================================
@@ -901,8 +909,8 @@ When no subcommand is given, defaults to 'create'. For example,
 Useful for checkpointing work, creating restore points, or managing disk space.""",
     aliases=("snap",),
     examples=(
-        ("Create a snapshot (short form)", "mngr snapshot my-agent"),
-        ("Create a snapshot (explicit)", "mngr snapshot create my-agent"),
+        ("Snapshot an agent's host (short form)", "mngr snapshot my-agent"),
+        ("Snapshot an agent's host (explicit)", "mngr snapshot create my-agent"),
         ("Create a named snapshot", "mngr snapshot create my-agent --name before-refactor"),
         ("Snapshot by host ID", "mngr snapshot create my-host-id"),
         ("Snapshot all running agents", "mngr snapshot create --all --dry-run"),
