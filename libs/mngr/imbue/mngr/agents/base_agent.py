@@ -118,6 +118,15 @@ class BaseAgent(AgentInterface):
         data["permissions"] = [str(p) for p in value]
         self._write_data(data)
 
+    def get_labels(self) -> dict[str, str]:
+        data = self._read_data()
+        return data.get("labels", {})
+
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        data = self._read_data()
+        data["labels"] = dict(labels)
+        self._write_data(data)
+
     def get_is_start_on_boot(self) -> bool:
         data = self._read_data()
         return data.get("start_on_boot", False)

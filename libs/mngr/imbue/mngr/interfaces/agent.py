@@ -90,6 +90,16 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_labels(self) -> dict[str, str]:
+        """Return the labels attached to this agent."""
+        ...
+
+    @abstractmethod
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        """Replace all labels on this agent with the given mapping."""
+        ...
+
+    @abstractmethod
     def get_is_start_on_boot(self) -> bool:
         """Return whether this agent should start automatically on host boot."""
         ...
