@@ -106,7 +106,7 @@ mngr plugin list [OPTIONS]
 
 Install a plugin package.
 
-SPECIFIER can be a PyPI package name, a local path, or a git URL.
+NAME can be a PyPI package name, a local path, or a git URL.
 
 Local paths (starting with '.', '/', or '~') are installed in editable mode.
 Git URLs must start with 'git+'.
@@ -124,7 +124,7 @@ Examples:
 **Usage:**
 
 ```text
-mngr plugin add [OPTIONS] SPECIFIER
+mngr plugin add [OPTIONS] NAME
 ```
 
 **Options:**
@@ -150,7 +150,7 @@ mngr plugin add [OPTIONS] SPECIFIER
 
 Uninstall a plugin package.
 
-SPECIFIER can be a package name or a local path. For local paths, the
+NAME can be a package name or a local path. For local paths, the
 package name is read from pyproject.toml. Git URLs are not supported --
 use the package name instead (find it with `mngr plugin list`).
 
@@ -163,7 +163,7 @@ Examples:
 **Usage:**
 
 ```text
-mngr plugin remove [OPTIONS] SPECIFIER
+mngr plugin remove [OPTIONS] NAME
 ```
 
 **Options:**

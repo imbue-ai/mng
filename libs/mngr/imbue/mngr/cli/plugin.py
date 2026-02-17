@@ -434,13 +434,13 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @plugin.command(name="add")
-@click.argument("specifier")
+@click.argument("name")
 @add_common_options
 @click.pass_context
-def plugin_add(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
+def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
     """Install a plugin package.
 
-    SPECIFIER can be a PyPI package name, a local path, or a git URL.
+    NAME can be a PyPI package name, a local path, or a git URL.
 
     Local paths (starting with '.', '/', or '~') are installed in editable mode.
     Git URLs must start with 'git+'.
@@ -456,20 +456,20 @@ def plugin_add(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
       mngr plugin add git+https://github.com/user/mngr-plugin.git
     """
     try:
-        _plugin_add_impl(ctx, specifier=specifier)
+        _plugin_add_impl(ctx, specifier=name)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
 
 
 @plugin.command(name="remove")
-@click.argument("specifier")
+@click.argument("name")
 @add_common_options
 @click.pass_context
-def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
+def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
     """Uninstall a plugin package.
 
-    SPECIFIER can be a package name or a local path. For local paths, the
+    NAME can be a package name or a local path. For local paths, the
     package name is read from pyproject.toml. Git URLs are not supported --
     use the package name instead (find it with `mngr plugin list`).
 
@@ -480,7 +480,7 @@ def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
       mngr plugin remove ./my-plugin
     """
     try:
-        _plugin_remove_impl(ctx, specifier=specifier)
+        _plugin_remove_impl(ctx, specifier=name)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
@@ -524,7 +524,7 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
     # Validate PyPI specifiers early to fail fast before running uv
     if specifier_type == PluginSpecifierType.PYPI_PACKAGE and _parse_pypi_package_name(specifier) is None:
         raise AbortError(
-            f"Unrecognized plugin specifier '{specifier}'. Expected one of:\n"
+            f"Unrecognized plugin name '{specifier}'. Expected one of:\n"
             "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
             "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
             "  - A git URL (e.g. git+https://github.com/user/repo.git)"
@@ -562,7 +562,7 @@ def _plugin_remove_impl(ctx: click.Context, *, specifier: str) -> None:
             package_name = _parse_pypi_package_name(specifier)
             if package_name is None:
                 raise AbortError(
-                    f"Unrecognized plugin specifier '{specifier}'. Expected one of:\n"
+                    f"Unrecognized plugin name '{specifier}'. Expected one of:\n"
                     "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
                     "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
                     "  - A git URL (e.g. git+https://github.com/user/repo.git)"

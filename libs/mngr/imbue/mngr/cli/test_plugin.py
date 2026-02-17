@@ -343,13 +343,13 @@ def test_plugin_add_bare_url_fails_with_helpful_message(
 # =============================================================================
 
 
-def test_plugin_remove_nonexistent_package_fails(
+def test_plugin_remove_nonexistent_package_succeeds(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     temp_git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that removing a nonexistent package fails with an error."""
+    """Test that removing a nonexistent package succeeds (uv silently skips it)."""
     monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
@@ -358,7 +358,7 @@ def test_plugin_remove_nonexistent_package_fails(
         obj=plugin_manager,
     )
 
-    assert result.exit_code != 0
+    assert result.exit_code == 0
 
 
 def test_plugin_remove_git_url_fails_with_error(
