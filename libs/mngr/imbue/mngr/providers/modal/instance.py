@@ -2081,7 +2081,8 @@ log "=== Shutdown script completed ==="
             if not name.endswith(".json") and name.startswith("host-"):
                 try:
                     host_ids.append(HostId(name))
-                except ValueError:
+                except ValueError as e:
+                    logger.trace("Skipped non-host directory on volume: {} ({})", name, e)
                     continue
 
         # Read agent data for all hosts in parallel
