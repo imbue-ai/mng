@@ -42,6 +42,7 @@ _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "state",
     "host.name",
     "host.provider_name",
+    "host.state",
     "host.tags",
     "status",
 )
