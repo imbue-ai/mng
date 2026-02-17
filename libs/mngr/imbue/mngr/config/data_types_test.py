@@ -857,3 +857,35 @@ def test_mngr_config_merge_keeps_base_destroyed_host_persisted_seconds_when_over
     )
     merged = base.merge_with(override)
     assert merged.default_destroyed_host_persisted_seconds == 86400.0
+
+
+# =============================================================================
+# Tests for MngrConfig.is_gc_in_background
+# =============================================================================
+
+
+def test_mngr_config_is_gc_in_background_defaults_to_false(mngr_test_prefix: str) -> None:
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.is_gc_in_background is False
+
+
+def test_mngr_config_is_gc_in_background_can_be_set_true(mngr_test_prefix: str) -> None:
+    config = MngrConfig(prefix=mngr_test_prefix, is_gc_in_background=True)
+    assert config.is_gc_in_background is True
+
+
+def test_mngr_config_merge_overrides_is_gc_in_background(mngr_test_prefix: str) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, is_gc_in_background=False)
+    override = MngrConfig(prefix=mngr_test_prefix, is_gc_in_background=True)
+    merged = base.merge_with(override)
+    assert merged.is_gc_in_background is True
+
+
+def test_mngr_config_merge_keeps_base_is_gc_in_background_when_override_none(mngr_test_prefix: str) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, is_gc_in_background=True)
+    override = MngrConfig.model_construct(
+        prefix=mngr_test_prefix,
+        is_gc_in_background=None,
+    )
+    merged = base.merge_with(override)
+    assert merged.is_gc_in_background is True

@@ -478,6 +478,11 @@ class MngrConfig(FrozenModel):
         description="Default number of seconds a destroyed host's records are kept before permanent deletion. "
         "Can be overridden per provider via destroyed_host_persisted_seconds in the provider config.",
     )
+    is_gc_in_background: bool = Field(
+        default=False,
+        description="Whether to run garbage collection in a disowned background process when called as part of destroy. "
+        "When True, the destroy command returns immediately and GC runs asynchronously.",
+    )
 
     def merge_with(self, override: Self) -> Self:
         """Merge this config with an override config.
@@ -611,6 +616,11 @@ class MngrConfig(FrozenModel):
         if override.logging is not None:
             merged_logging = self.logging.merge_with(override.logging)
 
+        # Merge is_gc_in_background (scalar - override wins if not None)
+        is_gc_in_background = self.is_gc_in_background
+        if override.is_gc_in_background is not None:
+            is_gc_in_background = override.is_gc_in_background
+
         return self.__class__(
             prefix=merged_prefix,
             default_host_dir=merged_default_host_dir,
@@ -630,6 +640,7 @@ class MngrConfig(FrozenModel):
             is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,
             default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,
+            is_gc_in_background=is_gc_in_background,
         )
 
 
