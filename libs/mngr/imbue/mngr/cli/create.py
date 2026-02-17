@@ -709,6 +709,19 @@ def _handle_create(
     # figure out the target host (if we just have a reference)
     resolved_target_host = _resolve_target_host(target_host, mngr_ctx, is_start_desired=opts.start_host)
 
+    # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
+    # This ensures local hosts get the project tag and any --tag values.
+    if isinstance(resolved_target_host, OnlineHostInterface):
+        tags_to_add: dict[str, str] = {}
+        for tag_string in opts.tag:
+            if "=" in tag_string:
+                key, value = tag_string.split("=", 1)
+                tags_to_add[key.strip()] = value.strip()
+        if project_name:
+            tags_to_add["project"] = project_name
+        if tags_to_add:
+            resolved_target_host.add_tags(tags_to_add)
+
     # figure out the source (this may snapshot the source agent if needed)
     snapshot = _snapshot_if_required(
         mngr_ctx=mngr_ctx,

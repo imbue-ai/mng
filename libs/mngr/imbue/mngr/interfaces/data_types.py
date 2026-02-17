@@ -432,6 +432,10 @@ class HostInfo(FrozenModel):
     )
     locked_time: datetime | None = Field(default=None, description="When the host was locked")
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-defined fields")
+    ssh_activity_time: datetime | None = Field(
+        default=None,
+        description="Last SSH activity time (from host-level activity/ssh file mtime)",
+    )
     failure_reason: str | None = Field(
         default=None,
         description="Reason for failure if the host failed during creation",

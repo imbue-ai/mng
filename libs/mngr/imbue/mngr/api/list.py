@@ -31,7 +31,6 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
-from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.host import HostInterface
@@ -83,13 +82,11 @@ class AgentInfo(FrozenModel):
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
     state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
-    status: AgentStatus | None = Field(default=None, description="Current status (reported)")
     url: str | None = Field(default=None, description="Agent URL (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")
     runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
     user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
     agent_activity_time: datetime | None = Field(default=None, description="Last agent activity (reported)")
-    ssh_activity_time: datetime | None = Field(default=None, description="Last SSH activity (reported)")
     idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
     idle_mode: str | None = Field(default=None, description="Idle detection mode")
     idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
@@ -479,6 +476,10 @@ def _assemble_host_info(
     # Online hosts would otherwise return the SSH hostname (e.g., "r438.modal.host") via
     # get_name(), while offline hosts return the friendly name from certified data.
     host_name = certified_data.host_name
+    # SSH activity is tracked at the host level (host_dir/activity/ssh)
+    ssh_activity = (
+        host.get_reported_activity_time(ActivitySource.SSH) if isinstance(host, OnlineHostInterface) else None
+    )
     host_info = HostInfo(
         id=host.id,
         name=host_name,
@@ -494,6 +495,7 @@ def _assemble_host_info(
         is_locked=is_locked,
         locked_time=locked_time,
         plugin=host_plugin_data,
+        ssh_activity_time=ssh_activity,
         failure_reason=host.get_failure_reason(),
     )
 
@@ -521,21 +523,12 @@ def _assemble_host_info(
                         params.on_error(error_info)
                     continue
 
-                agent_status = agent.get_reported_status()
-
                 # Get activity config from host
                 activity_config = host.get_activity_config()
 
-                # Activity times from file mtimes.
-                # User and agent activity are per-agent (in agent state dir).
-                # SSH activity is per-host (in host dir) since SSH connects to the host, not an agent.
+                # Activity times from file mtimes (per-agent)
                 user_activity = agent.get_reported_activity_time(ActivitySource.USER)
                 agent_activity = agent.get_reported_activity_time(ActivitySource.AGENT)
-                ssh_activity = (
-                    host.get_reported_activity_time(ActivitySource.SSH)
-                    if isinstance(host, OnlineHostInterface)
-                    else None
-                )
 
                 # start_time from activity/start file mtime (not the status/start_time file)
                 start_time = agent.get_reported_activity_time(ActivitySource.START)
@@ -544,7 +537,7 @@ def _assemble_host_info(
                 now = datetime.now(timezone.utc)
                 runtime_seconds = (now - start_time).total_seconds() if start_time else None
 
-                # idle_seconds: 0.0 if no activity yet (not null -- null implies unknown)
+                # idle_seconds: include host-level ssh_activity; 0.0 if no activity yet
                 idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
                 agent_info = AgentInfo(
@@ -556,13 +549,11 @@ def _assemble_host_info(
                     create_time=agent.create_time,
                     start_on_boot=agent.get_is_start_on_boot(),
                     state=agent.get_lifecycle_state(),
-                    status=agent_status,
                     url=agent.get_reported_url(),
                     start_time=start_time,
                     runtime_seconds=runtime_seconds,
                     user_activity_time=user_activity,
                     agent_activity_time=agent_activity,
-                    ssh_activity_time=ssh_activity,
                     idle_seconds=idle_seconds,
                     idle_mode=activity_config.idle_mode.value,
                     idle_timeout_seconds=activity_config.idle_timeout_seconds,
@@ -584,13 +575,11 @@ def _assemble_host_info(
                     create_time=create_time,
                     start_on_boot=agent_ref.start_on_boot,
                     state=AgentLifecycleState.STOPPED,
-                    status=None,
                     url=None,
                     start_time=None,
                     runtime_seconds=None,
                     user_activity_time=None,
                     agent_activity_time=None,
-                    ssh_activity_time=None,
                     idle_seconds=None,
                     idle_mode=None,
                     host=host_info,

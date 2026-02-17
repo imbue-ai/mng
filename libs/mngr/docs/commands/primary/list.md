@@ -133,17 +133,12 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `type` - Agent type (claude, codex, etc.)
 - `command` - The command used to start the agent
 - `url` - URL where the agent can be accessed (if reported)
-- `status` - Status as reported by the agent
-  - `status.line` - A single line summary
-  - `status.full` - A longer description of the current status
-  - `status.html` - Full HTML status report (if available)
 - `work_dir` - Working directory for this agent
 - `create_time` - Creation timestamp
 - `start_time` - Timestamp for when the agent was last started
 - `runtime_seconds` - How long the agent has been running
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
-- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
 - `idle_timeout_seconds` - Idle timeout before host stops
@@ -159,6 +154,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
+- `host.ssh_activity_time` - Timestamp of the last SSH connection to the host
 - `host.boot_time` - When the host was last started
 - `host.uptime_seconds` - How long the host has been running
 - `host.resource` - Resource limits for the host

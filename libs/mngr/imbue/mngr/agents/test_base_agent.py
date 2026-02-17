@@ -201,45 +201,6 @@ def test_base_agent_get_reported_start_time_none(
     assert start_time is None
 
 
-def test_base_agent_get_reported_status_markdown_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status_markdown returns None when no status file exists."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status", temp_work_dir)
-
-    status = agent.get_reported_status_markdown()
-
-    assert status is None
-
-
-def test_base_agent_get_reported_status_html_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status_html returns None when no HTML status file exists."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-html", temp_work_dir)
-
-    html = agent.get_reported_status_html()
-
-    assert html is None
-
-
-def test_base_agent_get_reported_status_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status returns None when no status files exist."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status-obj", temp_work_dir)
-
-    status = agent.get_reported_status()
-
-    assert status is None
-
-
 def test_base_agent_get_reported_activity_time_none(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,

@@ -1979,8 +1979,9 @@ log "=== Shutdown script completed ==="
         memory = host_record.config.memory
 
         return HostResources(
-            # Modal allows fractional CPUs (e.g., 0.5), but count must be at least 1
-            cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=None),
+            # Modal allows fractional CPUs (e.g., 0.5), but count must be at least 1.
+            # All Modal sandboxes run on the same CPU at ~1.85 GHz.
+            cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=1.85),
             memory_gb=memory,
             disk_gb=None,
             gpu=None,

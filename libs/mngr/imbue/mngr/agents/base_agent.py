@@ -19,7 +19,6 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
@@ -585,35 +584,6 @@ class BaseAgent(AgentInterface):
             return datetime.fromisoformat(content)
         except FileNotFoundError:
             return None
-
-    def get_reported_status_markdown(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.md"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status_html(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.html"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status(self) -> AgentStatus | None:
-        """Get the agent's reported status."""
-        status_markdown = self.get_reported_status_markdown()
-        status_html = self.get_reported_status_html()
-        status_line = status_markdown.split("\n")[0] if status_markdown else None
-
-        if status_line or status_markdown or status_html:
-            return AgentStatus(
-                line=status_line or "",
-                full=status_markdown or "",
-                html=status_html,
-            )
-
-        return None
 
     # =========================================================================
     # Activity
