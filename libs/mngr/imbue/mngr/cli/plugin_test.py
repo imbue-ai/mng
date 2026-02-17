@@ -21,7 +21,7 @@ from imbue.mngr.cli.plugin import _get_field_value
 from imbue.mngr.cli.plugin import _is_plugin_enabled
 from imbue.mngr.cli.plugin import _parse_fields
 from imbue.mngr.cli.plugin import _parse_pypi_package_name
-from imbue.mngr.cli.plugin import _resolve_package_name_for_removal
+from imbue.mngr.cli.plugin import _read_package_name_from_pyproject
 from imbue.mngr.cli.plugin import _validate_plugin_name_is_known
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -538,34 +538,22 @@ def test_extract_installed_package_name_ignores_reinstalls() -> None:
 
 
 # =============================================================================
-# Tests for _resolve_package_name_for_removal
+# Tests for _read_package_name_from_pyproject
 # =============================================================================
 
 
-def test_resolve_package_name_for_removal_pypi_package() -> None:
-    """_resolve_package_name_for_removal should return the canonical name for PyPI packages."""
-    assert _resolve_package_name_for_removal("mngr-opencode>=1.0", PluginSpecifierType.PYPI_PACKAGE) == "mngr-opencode"
-
-
-def test_resolve_package_name_for_removal_local_path_with_pyproject(tmp_path: Path) -> None:
-    """_resolve_package_name_for_removal should read name from pyproject.toml for local paths."""
+def test_read_package_name_from_pyproject_valid(tmp_path: Path) -> None:
+    """_read_package_name_from_pyproject should read name from pyproject.toml."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "my-test-plugin"\n')
 
-    result = _resolve_package_name_for_removal(str(tmp_path), PluginSpecifierType.LOCAL_PATH)
-    assert result == "my-test-plugin"
+    assert _read_package_name_from_pyproject(str(tmp_path)) == "my-test-plugin"
 
 
-def test_resolve_package_name_for_removal_local_path_without_pyproject(tmp_path: Path) -> None:
-    """_resolve_package_name_for_removal should raise PluginSpecifierError if no pyproject.toml found."""
+def test_read_package_name_from_pyproject_missing_file(tmp_path: Path) -> None:
+    """_read_package_name_from_pyproject should raise PluginSpecifierError if no pyproject.toml found."""
     with pytest.raises(PluginSpecifierError, match="No pyproject.toml found"):
-        _resolve_package_name_for_removal(str(tmp_path), PluginSpecifierType.LOCAL_PATH)
-
-
-def test_resolve_package_name_for_removal_git_url_raises() -> None:
-    """_resolve_package_name_for_removal should raise PluginSpecifierError for git URLs."""
-    with pytest.raises(PluginSpecifierError, match="Cannot determine the package name from a git URL"):
-        _resolve_package_name_for_removal("git+https://github.com/user/repo.git", PluginSpecifierType.GIT_URL)
+        _read_package_name_from_pyproject(str(tmp_path))
 
 
 # =============================================================================

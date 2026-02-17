@@ -267,37 +267,21 @@ def _extract_installed_package_name(install_stderr: str) -> str | None:
     return match.group(1) if match is not None else None
 
 
-def _resolve_package_name_for_removal(specifier: str, specifier_type: PluginSpecifierType) -> str:
-    """Resolve the package name from a specifier for removal.
+def _read_package_name_from_pyproject(local_path: str) -> str:
+    """Read the package name from a local path's pyproject.toml.
 
-    For PyPI package names, returns the specifier directly (stripping any version constraint).
-    For local paths, reads the pyproject.toml at that path to extract the package name.
-    For git URLs, raises an error since the package name cannot be reliably derived.
+    Raises PluginSpecifierError if the file is missing or has no project.name.
     """
-    match specifier_type:
-        case PluginSpecifierType.PYPI_PACKAGE:
-            name = _parse_pypi_package_name(specifier)
-            if name is None:
-                raise PluginSpecifierError(f"Invalid package specifier: '{specifier}'")
-            return name
-        case PluginSpecifierType.LOCAL_PATH:
-            resolved = Path(specifier).expanduser().resolve()
-            pyproject_path = resolved / "pyproject.toml"
-            if not pyproject_path.exists():
-                raise PluginSpecifierError(f"No pyproject.toml found at '{resolved}' -- cannot determine package name")
-            with open(pyproject_path, "rb") as f:
-                data = tomllib.load(f)
-            name = data.get("project", {}).get("name")
-            if not name:
-                raise PluginSpecifierError(f"pyproject.toml at '{resolved}' does not have a project.name field")
-            return name
-        case PluginSpecifierType.GIT_URL:
-            raise PluginSpecifierError(
-                "Cannot determine the package name from a git URL. "
-                "Use the package name instead (find it with `mngr plugin list`)"
-            )
-        case _ as unreachable:
-            assert_never(unreachable)
+    resolved = Path(local_path).expanduser().resolve()
+    pyproject_path = resolved / "pyproject.toml"
+    if not pyproject_path.exists():
+        raise PluginSpecifierError(f"No pyproject.toml found at '{resolved}' -- cannot determine package name")
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+    name = data.get("project", {}).get("name")
+    if not name:
+        raise PluginSpecifierError(f"pyproject.toml at '{resolved}' does not have a project.name field")
+    return name
 
 
 def _check_for_mngr_entry_points(package_name: str) -> bool:
@@ -518,7 +502,7 @@ def _resolve_package_name_after_install(
             return _parse_pypi_package_name(specifier) or specifier
         case PluginSpecifierType.LOCAL_PATH:
             try:
-                return _resolve_package_name_for_removal(specifier, specifier_type)
+                return _read_package_name_from_pyproject(specifier)
             except PluginSpecifierError:
                 return specifier
         case PluginSpecifierType.GIT_URL:
@@ -573,10 +557,28 @@ def _plugin_remove_impl(ctx: click.Context, *, specifier: str) -> None:
     specifier_type = _classify_plugin_specifier(specifier)
 
     # Resolve the package name from the specifier
-    try:
-        package_name = _resolve_package_name_for_removal(specifier, specifier_type)
-    except PluginSpecifierError as e:
-        raise AbortError(str(e)) from e
+    match specifier_type:
+        case PluginSpecifierType.PYPI_PACKAGE:
+            package_name = _parse_pypi_package_name(specifier)
+            if package_name is None:
+                raise AbortError(
+                    f"Unrecognized plugin specifier '{specifier}'. Expected one of:\n"
+                    "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
+                    "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
+                    "  - A git URL (e.g. git+https://github.com/user/repo.git)"
+                )
+        case PluginSpecifierType.LOCAL_PATH:
+            try:
+                package_name = _read_package_name_from_pyproject(specifier)
+            except PluginSpecifierError as e:
+                raise AbortError(str(e)) from e
+        case PluginSpecifierType.GIT_URL:
+            raise AbortError(
+                "Cannot determine the package name from a git URL. "
+                "Use the package name instead (find it with `mngr plugin list`)"
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
 
     command = _build_uv_pip_uninstall_command(package_name)
 
