@@ -1973,7 +1973,7 @@ def test_start_agent_has_access_to_env_vars(
         host.stop_agents([agent.id])
 
 
-@pytest.mark.timeout(20)
+@pytest.mark.timeout(15)
 def test_new_tmux_window_inherits_env_vars(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -2018,19 +2018,38 @@ def test_new_tmux_window_inherits_env_vars(
     host.start_agents([agent.id])
 
     try:
-        # Create a new window in the session (simulating what a user would do).
-        # This window should inherit env vars via the session's default-command,
-        # which sources env files before exec-ing into the user's shell.
+        # Create a new window in the session (simulating what a user would do)
+        # This window should inherit env vars via tmux set-environment
         subprocess.run(
             ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
             check=True,
             capture_output=True,
         )
 
-        # Send a command to the new window that writes the env var to a file.
-        # We don't need to wait for the shell to be "ready" first -- tmux
-        # send-keys writes into the pty buffer, and the shell will process the
-        # buffered input once it finishes starting (sourcing env files + exec).
+        # Wait for the window to exist and shell to be ready
+        # The shell is ready when it shows a prompt (has content in the pane)
+        def window_ready() -> bool:
+            result = subprocess.run(
+                ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+                capture_output=True,
+                text=True,
+            )
+            if "user-window" not in result.stdout:
+                return False
+            # Check if the shell has started by looking for prompt content
+            # The pane should have some content once the shell is ready
+            capture = subprocess.run(
+                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
+                capture_output=True,
+                text=True,
+            )
+            # Shell is ready when it has displayed something (the prompt)
+            # An empty pane means the shell hasn't started yet
+            return capture.returncode == 0 and len(capture.stdout.strip()) > 0
+
+        wait_for(window_ready, timeout=10.0, error_message="Window user-window not ready in session")
+
+        # Send a command to the new window that writes the env var to a file
         subprocess.run(
             [
                 "tmux",
@@ -2044,18 +2063,14 @@ def test_new_tmux_window_inherits_env_vars(
             capture_output=True,
         )
 
-        # Wait for the marker file to be written with the expected value.
-        # Use a generous timeout to account for shell startup time (sourcing
-        # env files, loading rc files, etc.).
+        # Wait for the marker file to be written with the expected value
         def check_marker_file() -> bool:
             if not marker_file.exists():
                 return False
             content = marker_file.read_text()
             return "NEW_WINDOW_VAR=new_window_value_123456" in content
 
-        wait_for(
-            check_marker_file, timeout=10.0, error_message="New tmux window did not inherit environment variables"
-        )
+        wait_for(check_marker_file, error_message="New tmux window did not inherit environment variables")
 
     finally:
         host.stop_agents([agent.id])
