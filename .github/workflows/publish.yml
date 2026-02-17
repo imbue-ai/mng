@@ -35,6 +35,10 @@ jobs:
         run: uv tool install build
 
       - name: Verify version consistency
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           MNGR_VERSION=$(python -c "import tomllib; print(tomllib.load(open('libs/mngr/pyproject.toml', 'rb'))['project']['version'])")
           COMMON_VERSION=$(python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
@@ -49,14 +53,13 @@ jobs:
             exit 1
           fi
 
-          if [ -n "${{ inputs.version }}" ] && [ "$MNGR_VERSION" != "${{ inputs.version }}" ]; then
-            echo "ERROR: Input version (${{ inputs.version }}) does not match pyproject.toml version ($MNGR_VERSION)"
+          if [ -n "$INPUT_VERSION" ] && [ "$MNGR_VERSION" != "$INPUT_VERSION" ]; then
+            echo "ERROR: Input version ($INPUT_VERSION) does not match pyproject.toml version ($MNGR_VERSION)"
             exit 1
           fi
 
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG_VERSION="${{ github.ref_name }}"
-            TAG_VERSION="${TAG_VERSION#v}"
+          if [ "$REF_TYPE" = "tag" ]; then
+            TAG_VERSION="${REF_NAME#v}"
             if [ "$MNGR_VERSION" != "$TAG_VERSION" ]; then
               echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNGR_VERSION)"
               exit 1
