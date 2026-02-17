@@ -122,27 +122,6 @@ From the repo where you would like a Dockerfile created.
 
 `mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and has [100's of additional plugins](http://imbue.com/mngr/plugins) enable the latest AI coding workflows
 
-## Installation
-
-**Quick install** (installs system dependencies + mngr automatically):
-```bash
-# [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
-curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
-```
-
-**Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `git`, `tmux`, `jq`, `rsync`, `unison`):
-```bash
-uv tool install mngr
-
-# or run without installing
-uvx mngr
-```
-
-**For development:**
-```bash
-git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
-```
-
 ## Shell Completion
 
 `mngr` supports tab completion for commands and agent names in bash, zsh, and fish.
