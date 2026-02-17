@@ -355,7 +355,7 @@ def _resolve_host_identifiers(
 @add_common_options
 @click.pass_context
 def limit(ctx: click.Context, **kwargs: Any) -> None:
-    """Configure limits for agents and hosts.
+    """Configure limits for agents and hosts. [experimental]
 
     Configures settings on existing agents and hosts: idle timeout, idle mode,
     activity sources, permissions, and start-on-boot.
@@ -616,7 +616,7 @@ def _apply_agent_changes(
 # Register help metadata for git-style help formatting
 _LIMIT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-limit",
-    one_line_description="Configure limits for agents and hosts",
+    one_line_description="Configure limits for agents and hosts [experimental]",
     synopsis="mngr [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
     arguments_description="- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)",
     description="""Configure settings on existing agents and hosts: idle timeout,
