@@ -526,11 +526,20 @@ def _assemble_host_info(
                 # Get activity config from host
                 activity_config = host.get_activity_config()
 
-                # Compute idle_seconds from activity times
+                # Activity times from file mtimes
                 user_activity = agent.get_reported_activity_time(ActivitySource.USER)
                 agent_activity = agent.get_reported_activity_time(ActivitySource.AGENT)
                 ssh_activity = agent.get_reported_activity_time(ActivitySource.SSH)
-                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity)
+
+                # start_time from activity/start file mtime (not the status/start_time file)
+                start_time = agent.get_reported_activity_time(ActivitySource.START)
+
+                # runtime_seconds computed from start_time
+                now = datetime.now(timezone.utc)
+                runtime_seconds = (now - start_time).total_seconds() if start_time else None
+
+                # idle_seconds: 0.0 if no activity yet (not null -- null implies unknown)
+                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
                 agent_info = AgentInfo(
                     id=agent.id,
@@ -543,8 +552,8 @@ def _assemble_host_info(
                     state=agent.get_lifecycle_state(),
                     status=agent_status,
                     url=agent.get_reported_url(),
-                    start_time=agent.get_reported_start_time(),
-                    runtime_seconds=agent.runtime_seconds,
+                    start_time=start_time,
+                    runtime_seconds=runtime_seconds,
                     user_activity_time=user_activity,
                     agent_activity_time=agent_activity,
                     ssh_activity_time=ssh_activity,
