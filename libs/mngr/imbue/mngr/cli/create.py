@@ -950,7 +950,8 @@ def _output_batch_results(results: Sequence[CreateAgentResult], opts: OutputOpti
                     OutputFormat.JSONL,
                 )
         case OutputFormat.HUMAN:
-            write_human_line("Created {} agents.", len(results))
+            agent_word = "agent" if len(results) == 1 else "agents"
+            write_human_line("Created {} {}.", len(results), agent_word)
         case _ as unreachable:
             assert_never(unreachable)
 
