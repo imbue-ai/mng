@@ -10,7 +10,7 @@ from imbue.mngr.main import AliasAwareGroup
 # These tests exercise the default-to-create and unrecognized-command-forwarding
 # behavior using a minimal group with "create" and "list" subcommands.
 # Commands store their invocation info in a shared dict so tests can verify
-# routing without using print or click.echo (both banned by ratchet rules).
+# routing without producing stdout output (banned by ratchet rules).
 
 
 def _make_test_group(invocation_record: dict[str, str | None]) -> click.Group:
