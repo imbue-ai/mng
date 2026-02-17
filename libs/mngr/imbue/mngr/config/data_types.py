@@ -4,6 +4,7 @@ import os
 import shlex
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import Self
 from typing import TypeVar
 from uuid import uuid4
@@ -31,9 +32,12 @@ from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 
-USER_ID_FILENAME = "user_id"
-PROFILES_DIRNAME = "profiles"
-ROOT_CONFIG_FILENAME = "config.toml"
+USER_ID_FILENAME: Final[str] = "user_id"
+PROFILES_DIRNAME: Final[str] = "profiles"
+ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
+
+# 7 days in seconds
+_DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS: Final[float] = 60.0 * 60.0 * 24.0 * 7.0
 
 # === Helper Functions ===
 
@@ -198,6 +202,11 @@ class ProviderInstanceConfig(FrozenModel):
     is_enabled: bool | None = Field(
         default=None,
         description="Whether this provider instance is enabled. Set to false to disable without removing configuration.",
+    )
+    destroyed_host_persisted_seconds: float | None = Field(
+        default=None,
+        description="How long (in seconds) a destroyed host's records are kept before permanent deletion. "
+        "Overrides the global default_destroyed_host_persisted_seconds when set.",
     )
 
     def merge_with(self, override: "ProviderInstanceConfig") -> "ProviderInstanceConfig":
@@ -456,9 +465,18 @@ class MngrConfig(FrozenModel):
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
     )
+    is_error_reporting_enabled: bool = Field(
+        default=True,
+        description="Whether to prompt users to report unexpected errors as GitHub issues when running interactively",
+    )
     is_allowed_in_pytest: bool = Field(
         default=True,
         description="Set this to False to prevent loading this config in pytest runs",
+    )
+    default_destroyed_host_persisted_seconds: float = Field(
+        default=_DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS,
+        description="Default number of seconds a destroyed host's records are kept before permanent deletion. "
+        "Can be overridden per provider via destroyed_host_persisted_seconds in the provider config.",
     )
 
     def merge_with(self, override: Self) -> Self:
@@ -574,9 +592,19 @@ class MngrConfig(FrozenModel):
         if override.is_nested_tmux_allowed is not None:
             merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
 
+        # Merge is_error_reporting_enabled (scalar - override wins if not None)
+        merged_is_error_reporting_enabled = self.is_error_reporting_enabled
+        if override.is_error_reporting_enabled is not None:
+            merged_is_error_reporting_enabled = override.is_error_reporting_enabled
+
         is_allowed_in_pytest = self.is_allowed_in_pytest
         if override.is_allowed_in_pytest is not None:
             is_allowed_in_pytest = override.is_allowed_in_pytest
+
+        # Merge default_destroyed_host_persisted_seconds (scalar - override wins if not None)
+        default_destroyed_host_persisted_seconds = self.default_destroyed_host_persisted_seconds
+        if override.default_destroyed_host_persisted_seconds is not None:
+            default_destroyed_host_persisted_seconds = override.default_destroyed_host_persisted_seconds
 
         # Merge logging (nested config - use merge_with if override.logging is not None)
         merged_logging = self.logging
@@ -599,7 +627,9 @@ class MngrConfig(FrozenModel):
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
+            is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,
+            default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,
         )
 
 
@@ -623,6 +653,10 @@ class MngrContext(FrozenModel):
         default=False,
         description="Whether the CLI is running in interactive mode (can prompt user for input)",
     )
+    is_auto_approve: bool = Field(
+        default=False,
+        description="Whether to auto-approve prompts (e.g., skill installation) without asking",
+    )
     profile_dir: Path = Field(
         description="Profile-specific directory for user data (user_id, providers, settings)",
     )
@@ -641,6 +675,10 @@ class OutputOptions(FrozenModel):
     output_format: OutputFormat = Field(
         default=OutputFormat.HUMAN,
         description="Output format for command results",
+    )
+    format_template: str | None = Field(
+        default=None,
+        description="Format template string for custom output formatting (set when --format is a template string rather than a built-in format name)",
     )
     console_level: LogLevel = Field(
         default=LogLevel.BUILD,

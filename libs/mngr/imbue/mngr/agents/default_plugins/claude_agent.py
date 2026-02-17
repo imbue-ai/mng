@@ -35,6 +35,7 @@ from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.providers.ssh_host_setup import load_resource_script
 from imbue.mngr.utils.git_utils import find_git_common_dir
 from imbue.mngr.utils.polling import poll_until_counted
 
@@ -118,6 +119,22 @@ def _claude_json_has_primary_api_key() -> bool:
         return bool(config_data.get("primaryApiKey"))
     except (json.JSONDecodeError, OSError):
         return False
+
+
+def _provision_background_scripts(host: OnlineHostInterface) -> None:
+    """Write the background task scripts to $MNGR_HOST_DIR/commands/.
+
+    Provisions export_transcript.sh and claude_background_tasks.sh so they
+    can be launched by the agent's assemble_command at runtime.
+    """
+    commands_dir = host.host_dir / "commands"
+    host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
+
+    for script_name in ("export_transcript.sh", "claude_background_tasks.sh"):
+        script_content = load_resource_script(script_name)
+        script_path = commands_dir / script_name
+        with log_span("Writing {} to host", script_name):
+            host.write_file(script_path, script_content.encode(), mode="0755")
 
 
 def _has_api_credentials_available(
@@ -235,34 +252,15 @@ class ClaudeAgent(BaseAgent):
                 "This may indicate a trust dialog appeared or Claude Code failed to start.",
             )
 
-    def _build_activity_updater_command(self, session_name: str) -> str:
-        """Build a shell command that starts the activity updater in the background.
+    def _build_background_tasks_command(self, session_name: str) -> str:
+        """Build a shell command that starts the background tasks script.
 
-        The activity updater continuously updates the agent's activity file
-        ($MNGR_AGENT_STATE_DIR/activity/agent) as long as the tmux session exists
-        AND the $MNGR_AGENT_STATE_DIR/active file is present (indicating the agent is actively
-        processing, not idle). Uses a pidfile to prevent duplicate instances for
-        the same session.
+        The background tasks script (provisioned to $MNGR_HOST_DIR/commands/)
+        handles both activity tracking and transcript export. It runs in the
+        background while the tmux session is alive.
         """
-        parts = [
-            "(",
-            f"_MNGR_ACT_LOCK=/tmp/mngr_act_{session_name}.pid;",
-            'if [ -f "$_MNGR_ACT_LOCK" ] &&',
-            'kill -0 "$(cat "$_MNGR_ACT_LOCK" 2>/dev/null)" 2>/dev/null;',
-            "then exit 0; fi;",
-            'echo $$ > "$_MNGR_ACT_LOCK";',
-            """trap 'rm -f "$_MNGR_ACT_LOCK"' EXIT;""",
-            'mkdir -p "$MNGR_AGENT_STATE_DIR/activity";',
-            f"while tmux has-session -t '{session_name}' 2>/dev/null; do",
-            'if [ -f "$MNGR_AGENT_STATE_DIR/active" ]; then',
-            """printf '{"time": %d, "source": "activity_updater"}'""",
-            '"$(($(date +%s) * 1000))" > "$MNGR_AGENT_STATE_DIR/activity/agent";',
-            "fi;",
-            "sleep 15; done;",
-            'rm -f "$_MNGR_ACT_LOCK"',
-            ") &",
-        ]
-        return " ".join(parts)
+        script_path = "$MNGR_HOST_DIR/commands/claude_background_tasks.sh"
+        return f"( {script_path} {shlex.quote(session_name)} ) &"
 
     def assemble_command(
         self,
@@ -317,13 +315,13 @@ class ClaudeAgent(BaseAgent):
         # IS_SANDBOX is only set for remote hosts (not local)
         env_exports = f"export IS_SANDBOX=1 && {sid_export}" if not host.is_local else sid_export
 
-        # Build the activity updater background command
+        # Build the background tasks command (activity tracking + transcript export)
         session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
-        activity_cmd = self._build_activity_updater_command(session_name)
+        background_cmd = self._build_background_tasks_command(session_name)
 
-        # Combine: start activity updater in background, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
+        # Combine: start background tasks, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
         return CommandString(
-            f"{activity_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
+            f"{background_cmd} {env_exports} && rm -rf $MNGR_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
         )
 
     def on_before_provisioning(
@@ -339,8 +337,8 @@ class ClaudeAgent(BaseAgent):
 
         For worktree mode on non-interactive runs: validates that the
         source directory is trusted in Claude's config (~/.claude.json)
-        so we fail early with a clear message. Interactive runs skip
-        this check because provision() will prompt the user if needed.
+        so we fail early with a clear message. Interactive and auto-approve
+        runs skip this check because provision() will handle trust.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -349,7 +347,7 @@ class ClaudeAgent(BaseAgent):
                     "Claude trust extension requires local filesystem access. "
                     "Use --copy or --clone instead."
                 )
-            if not mngr_ctx.is_interactive:
+            if not mngr_ctx.is_interactive and not mngr_ctx.is_auto_approve:
                 git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
@@ -480,7 +478,7 @@ class ClaudeAgent(BaseAgent):
                 try:
                     extend_claude_trust_to_worktree(source_path, self.work_dir)
                 except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_trust(source_path)):
                         add_claude_trust_for_path(source_path)
                         extend_claude_trust_to_worktree(source_path, self.work_dir)
                     else:
@@ -497,8 +495,10 @@ class ClaudeAgent(BaseAgent):
                 logger.warning("Claude is not installed on the host")
 
                 if host.is_local:
-                    # For local hosts, prompt the user for consent (if interactive)
-                    if mngr_ctx.is_interactive:
+                    # For local hosts, auto-approve or prompt the user for consent
+                    if mngr_ctx.is_auto_approve:
+                        logger.debug("Auto-approving claude installation (--yes)")
+                    elif mngr_ctx.is_interactive:
                         if _prompt_user_for_installation():
                             logger.debug("User consented to install claude locally")
                         else:
@@ -555,7 +555,10 @@ class ClaudeAgent(BaseAgent):
                 claude_json_path = Path.home() / ".claude.json"
                 if claude_json_path.exists():
                     logger.info("Transferring ~/.claude.json to remote host...")
-                    host.write_text_file(Path(".claude.json"), claude_json_path.read_text())
+                    # hack--add an extra key in there because otherwise we get prompted about skipping permissions:
+                    claude_json_data = json.loads(claude_json_path.read_text())
+                    claude_json_data["bypassPermissionsModeAccepted"] = True
+                    host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
                 else:
                     logger.debug("Skipped ~/.claude.json (file does not exist)")
 
@@ -569,6 +572,9 @@ class ClaudeAgent(BaseAgent):
 
         # Configure readiness hooks (for both local and remote hosts)
         self._configure_readiness_hooks(host)
+
+        # Provision background task scripts to the host commands directory
+        _provision_background_scripts(host)
 
     def on_destroy(self, host: OnlineHostInterface) -> None:
         """Clean up Claude trust entries for this agent's work directory."""

@@ -1,3 +1,5 @@
+import json
+import os
 from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -6,6 +8,7 @@ from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -28,9 +31,9 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
-from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
+from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
@@ -49,6 +52,22 @@ from imbue.mngr.utils.cel_utils import compile_cel_filters
 from imbue.mngr.utils.url_utils import compute_default_url
 
 
+def _compute_idle_seconds(
+    user_activity: datetime | None,
+    agent_activity: datetime | None,
+    ssh_activity: datetime | None,
+) -> float | None:
+    """Compute idle seconds from the most recent activity time."""
+    latest_activity: datetime | None = None
+    for activity_time in (user_activity, agent_activity, ssh_activity):
+        if activity_time is not None:
+            if latest_activity is None or activity_time > latest_activity:
+                latest_activity = activity_time
+    if latest_activity is None:
+        return None
+    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
+
+
 class AgentInfo(FrozenModel):
     """Complete information about an agent for listing purposes.
 
@@ -64,16 +83,20 @@ class AgentInfo(FrozenModel):
     start_on_boot: bool = Field(description="Whether agent starts on host boot")
 
     state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
-    status: AgentStatus | None = Field(default=None, description="Current status (reported)")
     url: str | None = Field(default=None, description="Default agent URL (reported)")
     urls: dict[str, str] = Field(default_factory=dict, description="All agent URLs keyed by type (reported)")
     start_time: datetime | None = Field(default=None, description="Last start time (reported)")
     runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
     user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
     agent_activity_time: datetime | None = Field(default=None, description="Last agent activity (reported)")
-    ssh_activity_time: datetime | None = Field(default=None, description="Last SSH activity (reported)")
     idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
     idle_mode: str | None = Field(default=None, description="Idle detection mode")
+    idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
+    activity_sources: tuple[str, ...] | None = Field(
+        default=None, description="Activity sources used for idle detection"
+    )
+
+    labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
 
     host: HostInfo = Field(description="Host information")
 
@@ -232,7 +255,38 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _write_completion_cache(mngr_ctx, result)
+
     return result
+
+
+COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
+
+
+def _write_completion_cache(mngr_ctx: MngrContext, result: ListResult) -> None:
+    """Write agent names to the completion cache file (best-effort).
+
+    Writes a JSON file with all agent names from the list result so that
+    shell completion can read it without importing the mngr config system.
+    The cache file is written to {host_dir}/.completion_cache.json.
+
+    This function never raises -- cache write failures must not break list_agents().
+    """
+    try:
+        env_host_dir = os.environ.get("MNGR_HOST_DIR")
+        host_dir = Path(env_host_dir) if env_host_dir else mngr_ctx.config.default_host_dir.expanduser()
+
+        names = sorted({str(agent.name) for agent in result.agents})
+        cache_data = {
+            "names": names,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        cache_path = host_dir / COMPLETION_CACHE_FILENAME
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(cache_data))
+    except OSError:
+        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(
@@ -420,10 +474,19 @@ def _assemble_host_info(
         resource = None
 
     # make the host data
-    host_plugin_data = host.get_certified_data().plugin
+    certified_data = host.get_certified_data()
+    host_plugin_data = certified_data.plugin
+    # Always use the certified host_name for consistency between online and offline hosts.
+    # Online hosts would otherwise return the SSH hostname (e.g., "r438.modal.host") via
+    # get_name(), while offline hosts return the friendly name from certified data.
+    host_name = certified_data.host_name
+    # SSH activity is tracked at the host level (host_dir/activity/ssh)
+    ssh_activity = (
+        host.get_reported_activity_time(ActivitySource.SSH) if isinstance(host, OnlineHostInterface) else None
+    )
     host_info = HostInfo(
         id=host.id,
-        name=str(host.get_name()),
+        name=host_name,
         provider_name=host_ref.provider_name,
         state=host.get_state(),
         image=host.get_image(),
@@ -436,8 +499,8 @@ def _assemble_host_info(
         is_locked=is_locked,
         locked_time=locked_time,
         plugin=host_plugin_data,
+        ssh_activity_time=ssh_activity,
         failure_reason=host.get_failure_reason(),
-        build_log=host.get_build_log(),
     )
 
     # Get all agents on this host
@@ -464,12 +527,24 @@ def _assemble_host_info(
                         params.on_error(error_info)
                     continue
 
-                agent_status = agent.get_reported_status()
-
-                # Get idle_mode from host's activity config
+                # Get activity config from host
                 activity_config = host.get_activity_config()
 
                 reported_urls = agent.get_reported_urls()
+
+                # Activity times from file mtimes (per-agent)
+                user_activity = agent.get_reported_activity_time(ActivitySource.USER)
+                agent_activity = agent.get_reported_activity_time(ActivitySource.AGENT)
+
+                # start_time from activity/start file mtime (not the status/start_time file)
+                start_time = agent.get_reported_activity_time(ActivitySource.START)
+
+                # runtime_seconds computed from start_time
+                now = datetime.now(timezone.utc)
+                runtime_seconds = (now - start_time).total_seconds() if start_time else None
+
+                # idle_seconds: include host-level ssh_activity; 0.0 if no activity yet
+                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
                 agent_info = AgentInfo(
                     id=agent.id,
@@ -480,16 +555,17 @@ def _assemble_host_info(
                     create_time=agent.create_time,
                     start_on_boot=agent.get_is_start_on_boot(),
                     state=agent.get_lifecycle_state(),
-                    status=agent_status,
                     url=compute_default_url(reported_urls),
                     urls=reported_urls,
-                    start_time=agent.get_reported_start_time(),
-                    runtime_seconds=agent.runtime_seconds,
-                    user_activity_time=agent.get_reported_activity_time(ActivitySource.USER),
-                    agent_activity_time=agent.get_reported_activity_time(ActivitySource.AGENT),
-                    ssh_activity_time=agent.get_reported_activity_time(ActivitySource.SSH),
-                    idle_seconds=None,
+                    start_time=start_time,
+                    runtime_seconds=runtime_seconds,
+                    user_activity_time=user_activity,
+                    agent_activity_time=agent_activity,
+                    idle_seconds=idle_seconds,
                     idle_mode=activity_config.idle_mode.value,
+                    idle_timeout_seconds=activity_config.idle_timeout_seconds,
+                    activity_sources=tuple(s.value for s in activity_config.activity_sources),
+                    labels=agent.get_labels(),
                     host=host_info,
                     plugin={},
                 )
@@ -507,15 +583,14 @@ def _assemble_host_info(
                     create_time=create_time,
                     start_on_boot=agent_ref.start_on_boot,
                     state=AgentLifecycleState.STOPPED,
-                    status=None,
                     url=None,
                     start_time=None,
                     runtime_seconds=None,
                     user_activity_time=None,
                     agent_activity_time=None,
-                    ssh_activity_time=None,
                     idle_seconds=None,
                     idle_mode=None,
+                    labels=agent_ref.labels,
                     host=host_info,
                     plugin={},
                 )
@@ -685,7 +760,7 @@ def _process_provider_for_host_listing(
 
 
 # retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host, provider):
+def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
     try:
         return host.get_agent_references()
     # retry once when there is a host connection error (the second time we'll probably end up

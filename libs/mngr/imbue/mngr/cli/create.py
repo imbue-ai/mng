@@ -14,6 +14,7 @@ from pydantic import Field
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
@@ -35,12 +36,13 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.env_utils import resolve_env_vars
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
-from imbue.mngr.config.data_types import EnvVar
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -52,6 +54,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
+from imbue.mngr.interfaces.host import AgentLabelOptions
 from imbue.mngr.interfaces.host import AgentLifecycleOptions
 from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
@@ -80,6 +83,7 @@ from imbue.mngr.primitives import Permission
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import WorkDirCopyMode
+from imbue.mngr.utils.duration import parse_duration_to_seconds
 from imbue.mngr.utils.editor import EditorSession
 from imbue.mngr.utils.git_utils import derive_project_name_from_path
 from imbue.mngr.utils.git_utils import find_git_worktree_root
@@ -192,6 +196,7 @@ class CreateCliOptions(CommonCliOptions):
     host_name: str | None
     host_name_style: str
     tag: tuple[str, ...]
+    label: tuple[str, ...]
     project: str | None
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
@@ -212,7 +217,7 @@ class CreateCliOptions(CommonCliOptions):
     retry: int
     retry_delay: str
     attach_command: str | None
-    idle_timeout: int | None
+    idle_timeout: str | None
     idle_mode: str | None
     activity_sources: str | None
     start_on_boot: bool | None
@@ -225,6 +230,7 @@ class CreateCliOptions(CommonCliOptions):
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
     ready_timeout: float
+    yes: bool
 
 
 @click.command()
@@ -270,9 +276,10 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
 @optgroup.option(
     "--project",
-    help="Project name for the agent [default: derived from git remote origin or folder name]",
+    help="Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name]",
 )
-@optgroup.option("--tag", multiple=True, help="Metadata tag KEY=VALUE [repeatable]")
+@optgroup.option("--label", multiple=True, help="Agent label KEY=VALUE [repeatable]")
+@optgroup.option("--tag", multiple=True, help="Host metadata tag KEY=VALUE [repeatable]")
 @optgroup.option("--host-name", help="Name for the new host")
 @optgroup.option(
     "--host-name-style",
@@ -452,7 +459,11 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("-s", "--start", "--start-arg", "start_arg", multiple=True, help="Argument for start [repeatable]")
 @optgroup.option("--start-args", help="Space-separated start arguments (alternative to -s)")
 @optgroup.group("New Host Lifecycle")
-@optgroup.option("--idle-timeout", type=int, help="Shutdown after idle for N seconds [default: none]")
+@optgroup.option(
+    "--idle-timeout",
+    type=str,
+    help="Shutdown after idle for specified duration (e.g., 30s, 5m, 1h, or plain seconds) [default: none]",
+)
 @optgroup.option(
     "--idle-mode",
     type=click.Choice(_make_idle_mode_choices(), case_sensitive=False),
@@ -493,6 +504,14 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.group("Automation")
+@optgroup.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Auto-approve all prompts (e.g., skill installation) without asking",
+)
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
@@ -512,6 +531,12 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_class=CreateCliOptions,
     )
 
+    # Apply --yes flag to auto-approve prompts (e.g., skill installation)
+    if opts.yes:
+        mngr_ctx = mngr_ctx.model_copy_update(
+            to_update(mngr_ctx.field_ref().is_auto_approve, True),
+        )
+
     result = _handle_create(mngr_ctx, output_opts, opts)
     if result is None:
         return
@@ -519,7 +544,11 @@ def create(ctx: click.Context, **kwargs) -> None:
     _post_create(create_result, connection_opts, output_opts, opts, mngr_ctx)
 
 
-def _handle_create(mngr_ctx, output_opts, opts):
+def _handle_create(
+    mngr_ctx: MngrContext,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngrContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -683,6 +712,26 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # figure out the target host (if we just have a reference)
     resolved_target_host = _resolve_target_host(target_host, mngr_ctx, is_start_desired=opts.start_host)
 
+    # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
+    # This ensures local hosts get any --tag values.
+    if isinstance(resolved_target_host, OnlineHostInterface):
+        tags_to_add: dict[str, str] = {}
+        for tag_string in opts.tag:
+            if "=" in tag_string:
+                key, value = tag_string.split("=", 1)
+                tags_to_add[key.strip()] = value.strip()
+        if tags_to_add:
+            resolved_target_host.add_tags(tags_to_add)
+
+    # Set the project as a label on the agent (labels are agent-level, not host-level)
+    if project_name:
+        agent_opts = agent_opts.model_copy_update(
+            to_update(
+                agent_opts.field_ref().label_options,
+                AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": project_name}),
+            ),
+        )
+
     # figure out the source (this may snapshot the source agent if needed)
     snapshot = _snapshot_if_required(
         mngr_ctx=mngr_ctx,
@@ -693,19 +742,18 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # create work_dir immediately (if necessary)
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
-    final_source_location: HostLocation
     is_work_dir_created: bool
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
-        final_source_location = HostLocation(
-            host=source_location.host,
-            path=work_dir_path,
+        # Record the actual work_dir path in agent_opts so the API uses it
+        # (the path may have been auto-generated, e.g. for worktrees)
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().target_path, work_dir_path),
         )
         is_work_dir_created = True
     else:
-        final_source_location = source_location
         if snapshot is None:
             is_work_dir_created = False
         else:
@@ -726,7 +774,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # starting an editor subprocess that would need to be cleaned up
     if not opts.connect and not should_await_ready:
         _create_agent_in_background(
-            final_source_location,
+            source_location,
             resolved_target_host,
             agent_opts,
             mngr_ctx,
@@ -739,7 +787,7 @@ def _handle_create(mngr_ctx, output_opts, opts):
     # Wrap in try/finally to ensure editor cleanup on failure
     try:
         create_result = api_create(
-            source_location=final_source_location,
+            source_location=source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mngr_ctx=mngr_ctx,
@@ -763,7 +811,13 @@ def _handle_create(mngr_ctx, output_opts, opts):
     return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
-def _post_create(create_result: CreateAgentResult, connection_opts, output_opts, opts, mngr_ctx):
+def _post_create(
+    create_result: CreateAgentResult,
+    connection_opts: ConnectionOptions,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+    mngr_ctx: MngrContext,
+) -> None:
     # If --await-agent-stopped is set, wait for the agent to finish running
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
@@ -888,7 +942,7 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
     # When creating a new host from an external source (--source-agent or --source-host),
     # validate that the project inferred from the source matches the project inferred from
     # the local working directory. If they differ, the user must specify --project explicitly
-    # to avoid silently tagging the new host with the wrong project.
+    # to avoid silently tagging the agent with the wrong project.
     is_external_source = opts.source_agent is not None or opts.source_host is not None
     is_creating_new_host = opts.new_host is not None
     if is_external_source and is_creating_new_host:
@@ -1093,29 +1147,6 @@ def _get_current_git_branch(source_location: HostLocation, mngr_ctx: MngrContext
     return get_current_git_branch(source_location.path, mngr_ctx.concurrency_group)
 
 
-def _resolve_env_vars(
-    pass_env_var_names: tuple[str, ...],
-    explicit_env_var_strings: tuple[str, ...],
-) -> tuple[EnvVar, ...]:
-    """Resolve and merge environment variables.
-
-    Resolves pass_env_var_names from os.environ and merges with explicit_env_var_strings.
-    Explicit env vars take precedence over pass-through values.
-    """
-    # Start with pass-through env vars from current shell
-    merged: dict[str, str] = {}
-    for var_name in pass_env_var_names:
-        if var_name in os.environ:
-            merged[var_name] = os.environ[var_name]
-
-    # Explicit env vars override pass-through values
-    for env_str in explicit_env_var_strings:
-        env_var = EnvVar.from_string(env_str)
-        merged[env_var.key] = env_var.value
-
-    return tuple(EnvVar(key=k, value=v) for k, v in merged.items())
-
-
 def _is_git_repo(path: Path, cg: ConcurrencyGroup) -> bool:
     """Check if the given path is inside a git repository."""
     return find_git_worktree_root(path, cg) is not None
@@ -1133,6 +1164,16 @@ def _was_value_after_double_dash(value: str) -> bool:
     dash_index = sys.argv.index("--")
     args_after_dash = sys.argv[dash_index + 1 :]
     return value in args_after_dash
+
+
+@pure
+def _split_cli_args(args: tuple[str, ...]) -> list[str]:
+    """Shell-tokenize each CLI arg and flatten into a single list.
+
+    Handles cases like -b "--cpu 16" where the shell passes "--cpu 16" as a
+    single string that needs to be split into ["--cpu", "16"].
+    """
+    return [token for arg in args for token in shlex.split(arg)]
 
 
 def _parse_agent_opts(
@@ -1222,7 +1263,7 @@ def _parse_agent_opts(
     )
 
     # Parse environment options
-    env_vars = _resolve_env_vars(opts.pass_agent_env, opts.agent_env)
+    env_vars = resolve_env_vars(opts.pass_agent_env, opts.agent_env)
     env_files = tuple(Path(f) for f in opts.agent_env_file)
 
     environment = AgentEnvironmentOptions(
@@ -1239,6 +1280,15 @@ def _parse_agent_opts(
     permissions = AgentPermissionsOptions(
         granted_permissions=tuple(Permission(p) for p in opts.grant),
     )
+
+    # Parse label options
+    labels_dict: dict[str, str] = {}
+    for label_string in opts.label:
+        if "=" not in label_string:
+            raise UserInputError(f"Label must be in KEY=VALUE format, got: {label_string}")
+        key, value = label_string.split("=", 1)
+        labels_dict[key.strip()] = value.strip()
+    label_options = AgentLabelOptions(labels=labels_dict)
 
     # Parse provisioning options
     provisioning = AgentProvisioningOptions(
@@ -1310,6 +1360,7 @@ def _parse_agent_opts(
         environment=environment,
         lifecycle=lifecycle,
         permissions=permissions,
+        label_options=label_options,
         provisioning=provisioning,
     )
     return agent_opts
@@ -1327,8 +1378,9 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
         if opts.activity_sources
         else None
     )
+    parsed_idle_timeout = int(parse_duration_to_seconds(opts.idle_timeout)) if opts.idle_timeout is not None else None
     return HostLifecycleOptions(
-        idle_timeout_seconds=opts.idle_timeout,
+        idle_timeout_seconds=parsed_idle_timeout,
         idle_mode=parsed_idle_mode,
         activity_sources=parsed_activity_sources,
     )
@@ -1363,7 +1415,7 @@ def _parse_target_host(
             parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
             parsed_host_name = generate_host_name(parsed_host_name_style)
 
-        # Parse tags and add the project tag
+        # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
             if "=" not in tag_string:
@@ -1371,22 +1423,19 @@ def _parse_target_host(
             key, value = tag_string.split("=", 1)
             tags_dict[key.strip()] = value.strip()
 
-        if project_name:
-            tags_dict["project"] = project_name
-
         tags = tags_dict
 
         # Parse host environment
-        host_env_vars = _resolve_env_vars(opts.pass_host_env, opts.host_env)
+        host_env_vars = resolve_env_vars(opts.pass_host_env, opts.host_env)
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
-        combined_build_args = list(opts.build_arg)
+        combined_build_args = _split_cli_args(opts.build_arg)
         if opts.build_args:
             combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
-        combined_start_args = list(opts.start_arg)
+        combined_start_args = _split_cli_args(opts.start_arg)
         if opts.start_args:
             combined_start_args.extend(shlex.split(opts.start_args))
 
@@ -1520,7 +1569,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
         case OutputFormat.JSONL:
             emit_event("created", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Done.")
+            write_human_line("Done.")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -1530,7 +1579,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
     synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
-    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]

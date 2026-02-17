@@ -11,9 +11,12 @@
 # Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
 # needed when CEL filters are used (--include/--exclude), but is currently
 # imported at the top level via imbue.mngr.utils.cel_utils.
+import pluggy
+
 import imbue.mngr.providers.local.backend as local_backend_module
 import imbue.mngr.providers.modal.backend as modal_backend_module
 import imbue.mngr.providers.ssh.backend as ssh_backend_module
+from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
@@ -44,7 +47,7 @@ def reset_backend_registry() -> None:
     _registry_state["backends_loaded"] = False
 
 
-def _load_backends(pm, *, include_modal: bool) -> None:
+def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool) -> None:
     """Load provider backends from the specified modules.
 
     The pm parameter is the pluggy plugin manager. If include_modal is True,
@@ -53,10 +56,10 @@ def _load_backends(pm, *, include_modal: bool) -> None:
     if _registry_state["backends_loaded"]:
         return
 
-    pm.register(local_backend_module)
-    pm.register(ssh_backend_module)
+    pm.register(local_backend_module, name="local")
+    pm.register(ssh_backend_module, name="ssh")
     if include_modal:
-        pm.register(modal_backend_module)
+        pm.register(modal_backend_module, name="modal")
 
     registrations = pm.hook.register_provider_backend()
 
@@ -81,7 +84,7 @@ def _load_backends(pm, *, include_modal: bool) -> None:
     _registry_state["backends_loaded"] = True
 
 
-def load_local_backend_only(pm) -> None:
+def load_local_backend_only(pm: pluggy.PluginManager) -> None:
     """Load only the local and SSH provider backends.
 
     This is used by tests to avoid depending on Modal credentials.
@@ -90,7 +93,7 @@ def load_local_backend_only(pm) -> None:
     _load_backends(pm, include_modal=False)
 
 
-def load_backends_from_plugins(pm) -> None:
+def load_backends_from_plugins(pm: pluggy.PluginManager) -> None:
     """Load all provider backends from plugins."""
     _load_backends(pm, include_modal=True)
 
@@ -145,3 +148,28 @@ def build_provider_instance(
             f"Backend {backend_name} returned {type(obj).__name__}, expected BaseProviderInstance subclass"
         )
     return obj
+
+
+@pure
+def _indent_text(text: str, indent: str) -> str:
+    """Indent each line of text with the given prefix."""
+    return "\n".join(indent + line if line.strip() else "" for line in text.split("\n"))
+
+
+def get_all_provider_args_help_sections() -> tuple[tuple[str, str], ...]:
+    """Generate help sections for build/start args from all registered backends.
+
+    Returns a tuple of (title, content) pairs suitable for use as additional
+    sections in CommandHelpMetadata.
+    """
+    lines: list[str] = []
+    for backend_name in sorted(_backend_registry.keys()):
+        backend_class = _backend_registry[backend_name]
+        build_help = backend_class.get_build_args_help().strip()
+        start_help = backend_class.get_start_args_help().strip()
+        lines.append(f"Provider: {backend_name}")
+        lines.append(_indent_text(build_help, "  "))
+        if start_help != build_help:
+            lines.append(_indent_text(start_help, "  "))
+        lines.append("")
+    return (("Provider Build/Start Arguments", "\n".join(lines)),)

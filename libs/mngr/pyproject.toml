@@ -21,6 +21,7 @@ dependencies = [
     "pyinfra>=3.0",
     "pluggy>=1.5.0",
     "tabulate>=0.9.0",
+    "tenacity>=8.0",
     "tomlkit>=0.12.0",
     "urwid>=2.2.0",
     "uvicorn>=0.24.0",
@@ -36,6 +37,48 @@ build-backend = "hatchling.build"
 [tool.uv.sources]
 imbue-common = { workspace = true }
 concurrency-group = { workspace = true }
+
+# Shared pytest settings (markers, filterwarnings, coverage report config)
+# are centralized in:
+#   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
+# The settings below remain here because they are read from pyproject.toml
+# before any hooks run: addopts, coverage.run, inline-snapshot, timeout_func_only.
+[tool.pytest.ini_options]
+timeout_func_only = true
+testpaths = ["."]
+addopts = [
+  "-n 4",
+  "--cov=imbue.mngr",
+  "--cov-report=term-missing",
+  "--cov-report=html",
+  "--cov-report=xml",
+  "--cov-fail-under=80",
+  "--durations=20",
+  "--timeout=10",
+  "--timeout-method=signal",
+  "--max-worker-restart=0",
+  "-m not acceptance and not release",
+  "--slow-tests-to-file",
+  "--coverage-to-file",
+]
+
+[tool.coverage.run]
+parallel = true
+concurrency = ["multiprocessing"]
+omit = [
+  "*_test.py",
+  "test_*.py",
+  "*/tests/*",
+  "*/conftest.py",
+  "*/utils/testing.py",
+  "imbue/mngr/providers/modal/*",
+]
+
+[tool.inline-snapshot]
+default-flags=["report"]
+default-flags-tui=["report"]
+default-flags-ide=["report"]
+format-command="uv run ruff format --force-exclude --config pyproject.toml --stdin-filename {filename}"
 
 [tool.pyright]
 venvPath = "../.."

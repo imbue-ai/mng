@@ -4,7 +4,11 @@ An agent is simply a process running in window 0 of a properly-named tmux sessio
 
 Each agent runs inside a working directory (`work_dir`) on a [host](./hosts.md).
 
-Each agent has a name, a unique identifier (`agent-id`), and is a particular ["agent type"](agent_types.md)
+Each agent has a name, a unique identifier (`agent-id`), and is a particular ["agent type"](agent_types.md).
+
+Each agent can have **labels** -- key-value string pairs that provide metadata about the agent. The most common label is `project`, which is automatically set based on the git remote origin or folder name. Labels are used for filtering and organizing agents (e.g., `mngr list --project mngr` or `mngr list --label env=prod`).
+
+Labels are distinct from host **tags**: labels are agent-level metadata, while tags are host-level metadata. Use `--label KEY=VALUE` when creating an agent to attach custom labels, and `--tag KEY=VALUE` for host-level tags.
 
 Nothing stops you from creating additional invocations of agent programs inside the tmux session (e.g. launching multiple Claude Code's), but only the main agent process for a given tmux session is considered by `mngr` for the purposes of detecting the agent's state.
 

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from pydantic import Field
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -30,14 +29,6 @@ from imbue.mngr.primitives import Permission
 if TYPE_CHECKING:
     from imbue.mngr.interfaces.host import CreateAgentOptions
     from imbue.mngr.interfaces.host import OnlineHostInterface
-
-
-class AgentStatus(FrozenModel):
-    """Agent status information."""
-
-    line: str = Field(description="Single line summary")
-    full: str = Field(description="Full markdown description")
-    html: str | None = Field(default=None, description="HTML status report")
 
 
 class AgentInterface(MutableModel, ABC):
@@ -96,6 +87,16 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def set_permissions(self, value: Sequence[Permission]) -> None:
         """Set the list of permissions for this agent."""
+        ...
+
+    @abstractmethod
+    def get_labels(self) -> dict[str, str]:
+        """Return the labels attached to this agent."""
+        ...
+
+    @abstractmethod
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        """Replace all labels on this agent with the given mapping."""
         ...
 
     @abstractmethod
@@ -173,21 +174,6 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def get_reported_start_time(self) -> datetime | None:
         """Return the agent's self-reported start time, or None if not set."""
-        ...
-
-    @abstractmethod
-    def get_reported_status_markdown(self) -> str | None:
-        """Return the agent's self-reported status in markdown format, or None if not set."""
-        ...
-
-    @abstractmethod
-    def get_reported_status_html(self) -> str | None:
-        """Return the agent's self-reported status in HTML format, or None if not set."""
-        ...
-
-    @abstractmethod
-    def get_reported_status(self) -> AgentStatus | None:
-        """Return the agent's self-reported status, or None if not available."""
         ...
 
     # =========================================================================

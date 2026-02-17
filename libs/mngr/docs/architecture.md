@@ -37,7 +37,6 @@ mngr is responsible for:
 - enforcing the [host lifecycle](./concepts/hosts.md#Lifecycle), including automatically stopping a host when all its agents are idle
 - configuring/enabling/disabling [plugins](./concepts/plugins.md)
 - handling [permissions](./concepts/permissions.md) [future] for remote hosts
-- detecting hangs and failures (via the [`mngr enforce` command](./commands/secondary/enforce.md) [future])
 
 ## Multi-user support
 

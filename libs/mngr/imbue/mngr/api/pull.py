@@ -1,5 +1,3 @@
-"""Pull API for syncing from agent to local - thin wrappers around sync module."""
-
 from pathlib import Path
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup

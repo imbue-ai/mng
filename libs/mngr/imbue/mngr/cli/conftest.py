@@ -24,6 +24,8 @@ def make_test_agent_info(
     create_time: datetime | None = None,
     snapshots: list[SnapshotInfo] | None = None,
     host_plugin: dict | None = None,
+    host_tags: dict[str, str] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> AgentInfo:
     """Create a real AgentInfo for testing.
 
@@ -37,6 +39,7 @@ def make_test_agent_info(
         snapshots=snapshots or [],
         state=HostState.RUNNING,
         plugin=host_plugin or {},
+        tags=host_tags or {},
     )
     return AgentInfo(
         id=AgentId.generate(),
@@ -47,6 +50,7 @@ def make_test_agent_info(
         create_time=create_time or datetime.now(timezone.utc),
         start_on_boot=False,
         state=state,
+        labels=labels or {},
         host=host_info,
     )
 
@@ -114,6 +118,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         host_name=None,
         host_name_style="astronomy",
         tag=(),
+        label=(),
         project=None,
         host_env=(),
         host_env_file=(),
@@ -147,6 +152,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         prepend_to_file=(),
         create_directory=(),
         ready_timeout=10.0,
+        yes=False,
     )
 
 

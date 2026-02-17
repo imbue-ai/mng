@@ -162,6 +162,8 @@ class HostInterface(MutableModel, ABC):
 
 
 class OnlineHostInterface(HostInterface, ABC):
+    """Interface for hosts that are currently online and accessible for operations."""
+
     connector: PyinfraConnector = Field(frozen=True, description="Pyinfra connector for host operations")
 
     # =========================================================================
@@ -383,6 +385,11 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
+    def get_agent_env_path(self, agent: AgentInterface) -> Path:
+        """Get the path to the agent's environment file."""
+        ...
+
+    @abstractmethod
     def get_agents(self) -> list[AgentInterface]:
         """Return a list of all agents running on this host."""
         ...
@@ -516,6 +523,15 @@ class AgentLifecycleOptions(FrozenModel):
     is_start_on_boot: bool | None = Field(
         default=None,
         description="Whether to restart agent on host boot",
+    )
+
+
+class AgentLabelOptions(FrozenModel):
+    """Label options for the agent."""
+
+    labels: dict[str, str] = Field(
+        default_factory=dict,
+        description="Key-value labels to attach to the agent",
     )
 
 
@@ -723,6 +739,10 @@ class CreateAgentOptions(FrozenModel):
     permissions: AgentPermissionsOptions = Field(
         default_factory=AgentPermissionsOptions,
         description="Permissions options",
+    )
+    label_options: AgentLabelOptions = Field(
+        default_factory=AgentLabelOptions,
+        description="Label options",
     )
     provisioning: AgentProvisioningOptions = Field(
         default_factory=AgentProvisioningOptions,

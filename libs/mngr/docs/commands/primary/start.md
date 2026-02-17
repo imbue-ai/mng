@@ -16,6 +16,8 @@ For remote hosts, this restores from the most recent snapshot and starts
 the container/instance. For local agents, this starts the agent's tmux
 session.
 
+Supports custom format templates via --format. Available fields: name.
+
 Examples:
 
   mngr start my-agent
@@ -25,6 +27,8 @@ Examples:
   mngr start --agent my-agent --connect
 
   mngr start --all
+
+  mngr start --all --format '{name}'
 
 **Usage:**
 
@@ -67,7 +71,9 @@ mngr start [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--json` | boolean | Alias for --format json | `False` |
+| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |

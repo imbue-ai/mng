@@ -79,7 +79,15 @@ class ModalLoguruWriter:
         stripped = text.strip()
         if stripped == "":
             return len(text)
-        logger.log(LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name)
+        try:
+            logger.log(
+                LogLevel.BUILD.value, "{}", stripped, source="modal", app_id=self.app_id, app_name=self.app_name
+            )
+        except ValueError as e:
+            if "I/O operation on closed file" in str(e):
+                pass
+            else:
+                raise
         return len(text)
 
     def flush(self) -> None:

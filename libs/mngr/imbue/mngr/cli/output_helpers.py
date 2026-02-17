@@ -1,11 +1,14 @@
 import json
+import string
 import sys
 from collections.abc import Mapping
+from collections.abc import Sequence
 from typing import Any
 from typing import assert_never
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.sync import SyncFilesResult
 from imbue.mngr.api.sync import SyncGitResult
 from imbue.mngr.primitives import ErrorBehavior
@@ -21,6 +24,35 @@ def _write_json_line(data: Mapping[str, Any]) -> None:
     """
     sys.stdout.write(json.dumps(data) + "\n")
     sys.stdout.flush()
+
+
+def write_human_line(message: str, *args: Any) -> None:
+    """Write a human-readable output line to stdout.
+
+    Use this for actual command output (results, tables, status messages) in HUMAN format.
+    For log/diagnostic messages, use logger.* instead (which goes to stderr).
+    Accepts positional format args like loguru: write_human_line("Created {} items", count).
+    """
+    if args:
+        formatted = message.format(*args)
+    else:
+        formatted = message
+    sys.stdout.write(formatted + "\n")
+    sys.stdout.flush()
+
+
+@pure
+def format_size(size_bytes: int) -> str:
+    """Format bytes into a human-readable size string."""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024**2:
+        return f"{size_bytes / 1024:.1f} KB"
+    if size_bytes < 1024**3:
+        return f"{size_bytes / 1024**2:.1f} MB"
+    if size_bytes < 1024**4:
+        return f"{size_bytes / 1024**3:.2f} GB"
+    return f"{size_bytes / 1024**4:.2f} TB"
 
 
 class AbortError(BaseException):
@@ -45,7 +77,7 @@ def emit_info(message: str, output_format: OutputFormat) -> None:
     """Emit an informational message in the appropriate format."""
     match output_format:
         case OutputFormat.HUMAN:
-            logger.info(message)
+            write_human_line(message)
         case OutputFormat.JSONL:
             event = {"event": "info", "message": message}
             _write_json_line(event)
@@ -67,7 +99,7 @@ def emit_event(
     match output_format:
         case OutputFormat.HUMAN:
             if "message" in data:
-                logger.info(data["message"])
+                write_human_line(str(data["message"]))
         case OutputFormat.JSONL:
             event = {"event": event_type, **data}
             _write_json_line(event)
@@ -110,6 +142,48 @@ def emit_final_json(data: Mapping[str, Any]) -> None:
     _write_json_line(data)
 
 
+@pure
+def render_format_template(template: str, values: Mapping[str, str]) -> str:
+    """Expand a str.format()-style template using field values from a mapping.
+
+    Uses string.Formatter().parse() to extract field names, resolves each via
+    mapping lookup, then assembles the output. This avoids str.format_map()
+    because Python's format machinery interprets dots as attribute access, but
+    our field names may use dots as part of the key path.
+    """
+    parts: list[str] = []
+    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(template):
+        parts.append(literal_text)
+        if field_name is None:
+            continue
+        value = values.get(field_name, "")
+        if conversion is None:
+            pass
+        elif conversion == "s":
+            value = str(value)
+        elif conversion == "r":
+            value = repr(value)
+        elif conversion == "a":
+            value = ascii(value)
+        else:
+            raise AssertionError(f"Unknown conversion: {conversion!r}")
+        if format_spec:
+            value = format(value, format_spec)
+        parts.append(value)
+    return "".join(parts)
+
+
+def emit_format_template_lines(
+    template: str,
+    items: Sequence[Mapping[str, str]],
+) -> None:
+    """Emit one line per item using a format template string."""
+    for item in items:
+        line = render_format_template(template, item)
+        sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
 def output_sync_files_result(
     result: SyncFilesResult,
     output_format: OutputFormat,
@@ -136,9 +210,9 @@ def output_sync_files_result(
             emit_event(event_name, result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.is_dry_run:
-                logger.info("Dry run complete: {} files would be transferred", result.files_transferred)
+                write_human_line("Dry run complete: {} files would be transferred", result.files_transferred)
             else:
-                logger.info(
+                write_human_line(
                     "{} complete: {} files, {} bytes transferred",
                     mode_label,
                     result.files_transferred,
@@ -178,7 +252,7 @@ def output_sync_git_result(
             emit_event(event_name, result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if result.is_dry_run:
-                logger.info(
+                write_human_line(
                     "Dry run complete: would {} {} commits from {} {} {}",
                     verb,
                     result.commits_transferred,
@@ -187,7 +261,7 @@ def output_sync_git_result(
                     result.target_branch,
                 )
             else:
-                logger.info(
+                write_human_line(
                     "Git {} complete: {} {} commits from {} {} {}",
                     verb,
                     verb_past,

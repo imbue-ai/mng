@@ -1,5 +1,3 @@
-"""Web interface for managing AI coding agents via mngr."""
-
 import json
 import subprocess
 import threading

@@ -122,6 +122,53 @@ def test_base_agent_set_permissions(
     assert Permission("write") in retrieved
 
 
+def test_base_agent_get_labels_returns_empty_dict_by_default(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test getting labels returns empty dict when none are set."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-labels-empty", temp_work_dir)
+
+    labels = agent.get_labels()
+
+    assert isinstance(labels, dict)
+    assert len(labels) == 0
+
+
+def test_base_agent_set_labels(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test setting and retrieving labels on agent."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-set-labels", temp_work_dir)
+
+    agent.set_labels({"project": "mngr", "env": "staging"})
+
+    retrieved = agent.get_labels()
+    assert len(retrieved) == 2
+    assert retrieved["project"] == "mngr"
+    assert retrieved["env"] == "staging"
+
+
+def test_base_agent_set_labels_replaces_existing(
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Test that set_labels replaces all existing labels."""
+    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-replace-labels", temp_work_dir)
+
+    agent.set_labels({"project": "mngr", "env": "staging"})
+    agent.set_labels({"team": "infra"})
+
+    retrieved = agent.get_labels()
+    assert len(retrieved) == 1
+    assert retrieved["team"] == "infra"
+    assert "project" not in retrieved
+
+
 def test_base_agent_get_is_start_on_boot(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
@@ -148,12 +195,12 @@ def test_base_agent_set_is_start_on_boot(
     assert agent.get_is_start_on_boot() is True
 
 
-def test_base_agent_is_running_false_no_pid(
+def test_base_agent_is_running_false_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,
     temp_work_dir: Path,
 ) -> None:
-    """Test is_running returns False when no PID file exists."""
+    """Test is_running returns False when no tmux session exists (lifecycle state is STOPPED)."""
     agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-not-running", temp_work_dir)
 
     result = agent.is_running()
@@ -199,45 +246,6 @@ def test_base_agent_get_reported_start_time_none(
     start_time = agent.get_reported_start_time()
 
     assert start_time is None
-
-
-def test_base_agent_get_reported_status_markdown_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status_markdown returns None when no status file exists."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status", temp_work_dir)
-
-    status = agent.get_reported_status_markdown()
-
-    assert status is None
-
-
-def test_base_agent_get_reported_status_html_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status_html returns None when no HTML status file exists."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-html", temp_work_dir)
-
-    html = agent.get_reported_status_html()
-
-    assert html is None
-
-
-def test_base_agent_get_reported_status_none(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test get_reported_status returns None when no status files exist."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-no-status-obj", temp_work_dir)
-
-    status = agent.get_reported_status()
-
-    assert status is None
 
 
 def test_base_agent_get_reported_activity_time_none(

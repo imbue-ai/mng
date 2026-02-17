@@ -1,25 +1,34 @@
 """Unit tests for Host implementation."""
 
+import io
 import json
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import IO
+from typing import cast
 
 import pytest
+from paramiko import SSHException
+from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.errors import AgentError
+from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
+from imbue.mngr.hosts.host import _is_socket_closed_os_error
 from imbue.mngr.hosts.host import _parse_boot_time_output
 from imbue.mngr.hosts.host import _parse_uptime_output
+from imbue.mngr.interfaces.data_types import PyinfraConnector
 from imbue.mngr.interfaces.host import NamedCommand
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
+from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.utils.testing import get_short_random_string
@@ -54,7 +63,7 @@ def _create_testable_agent(
     create_time = datetime.now(timezone.utc)
 
     # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
@@ -89,7 +98,7 @@ def host_with_agents_dir(
     """Create a Host with an agents directory for testing."""
     host = local_provider.create_host(HostName("test-agent-refs"))
     assert isinstance(host, Host)
-    agents_dir = temp_host_dir / "agents"
+    agents_dir = local_provider.host_dir / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
     return host, agents_dir
 
@@ -307,7 +316,7 @@ def test_destroy_agent_calls_on_destroy(
     """Test that destroy_agent calls agent.on_destroy() before cleanup."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
 
     host.destroy_agent(agent)
@@ -324,7 +333,7 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     """Test that destroy_agent still cleans up if agent.on_destroy() raises."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir, on_destroy_should_raise=True)
 
-    agent_dir = temp_host_dir / "agents" / str(agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     assert agent_dir.exists()
 
     # Exception propagates, but cleanup still runs
@@ -353,7 +362,7 @@ def _create_test_agent(
     agent_name = AgentName(f"test-agent-{get_short_random_string()}")
 
     # Create agent directory and data.json
-    agent_dir = temp_host_dir / "agents" / str(agent_id)
+    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "id": str(agent_id),
@@ -614,3 +623,264 @@ def test_parse_boot_time_output_empty() -> None:
 def test_parse_boot_time_output_non_numeric() -> None:
     """Test parsing non-numeric output returns None."""
     assert _parse_boot_time_output("not_a_number\n") is None
+
+
+# =========================================================================
+# Tests for socket closed retry logic
+# =========================================================================
+
+
+class _FakePyinfraHost:
+    """Test double for pyinfra Host that simulates configurable file operation behavior."""
+
+    def __init__(
+        self,
+        get_file_results: list[bool | Exception] | None = None,
+        put_file_results: list[bool | Exception] | None = None,
+    ) -> None:
+        self.connected = True
+        self.name = "fake-ssh-host"
+        self.connector_cls = type("SSHConnector", (), {})
+        self.data: dict[str, str] = {}
+        self._get_file_results: list[bool | Exception] = get_file_results or []
+        self._put_file_results: list[bool | Exception] = put_file_results or []
+        self._get_file_call_count = 0
+        self._put_file_call_count = 0
+        self.disconnect_call_count = 0
+
+    def connect(self, raise_exceptions: bool = False) -> None:
+        self.connected = True
+
+    def disconnect(self) -> None:
+        self.connected = False
+        self.disconnect_call_count += 1
+
+    def get_file(
+        self,
+        remote_filename: str,
+        filename_or_io: str | IO[bytes],
+        remote_temp_filename: str | None = None,
+    ) -> bool:
+        idx = self._get_file_call_count
+        self._get_file_call_count += 1
+        if idx < len(self._get_file_results):
+            result = self._get_file_results[idx]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return True
+
+    def put_file(
+        self,
+        filename_or_io: str | IO[str] | IO[bytes],
+        remote_filename: str,
+        remote_temp_filename: str | None = None,
+    ) -> bool:
+        idx = self._put_file_call_count
+        self._put_file_call_count += 1
+        if idx < len(self._put_file_results):
+            result = self._put_file_results[idx]
+            if isinstance(result, Exception):
+                raise result
+            return result
+        return True
+
+
+def _create_host_with_fake_connector(
+    local_provider: LocalProviderInstance,
+    fake_host: _FakePyinfraHost,
+) -> Host:
+    """Create a Host with a fake pyinfra connector for testing retry behavior."""
+    connector = PyinfraConnector(cast(PyinfraHost, fake_host))
+    return Host(
+        id=HostId.generate(),
+        connector=connector,
+        provider_instance=local_provider,
+        mngr_ctx=local_provider.mngr_ctx,
+    )
+
+
+def test_is_socket_closed_os_error_matches_socket_closed_message() -> None:
+    assert _is_socket_closed_os_error(OSError("Socket is closed")) is True
+
+
+def test_is_socket_closed_os_error_rejects_other_os_error() -> None:
+    assert _is_socket_closed_os_error(OSError("No such file or directory")) is False
+
+
+def test_is_socket_closed_os_error_rejects_non_os_error() -> None:
+    assert _is_socket_closed_os_error(ValueError("Socket is closed")) is False
+
+
+def test_get_file_retries_on_socket_closed_and_returns_result(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """A transient socket-closed error should be transparently retried."""
+    fake = _FakePyinfraHost(
+        get_file_results=[
+            OSError("Socket is closed"),
+            True,
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    result = host._get_file("/remote/file.txt", io.BytesIO())
+
+    assert result is True
+    assert fake._get_file_call_count == 2
+    assert fake.disconnect_call_count >= 1
+
+
+def test_get_file_raises_file_not_found_immediately_without_retry(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """FileNotFoundError should propagate immediately without retrying."""
+    fake = _FakePyinfraHost(
+        get_file_results=[
+            OSError("No such file or directory: /missing.txt"),
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(FileNotFoundError, match="File not found"):
+        host._get_file("/missing.txt", io.BytesIO())
+
+    assert fake._get_file_call_count == 1
+
+
+def test_get_file_disconnects_on_socket_closed_before_retry(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """On socket-closed error, disconnect should be called to force a fresh reconnection."""
+    fake = _FakePyinfraHost(
+        get_file_results=[
+            OSError("Socket is closed"),
+            True,
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    host._get_file("/remote/file.txt", io.BytesIO())
+
+    assert fake.disconnect_call_count >= 1
+
+
+def test_get_file_resets_output_io_between_retry_attempts(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Output IO should be seek(0)/truncate(0) before each retry to clear partial data."""
+    io_sizes_at_call_time: list[int] = []
+
+    class _WritingHost(_FakePyinfraHost):
+        def get_file(
+            self,
+            remote_filename: str,
+            filename_or_io: str | IO[bytes],
+            remote_temp_filename: str | None = None,
+        ) -> bool:
+            if isinstance(filename_or_io, io.BytesIO):
+                # Simulate partial write on first call (like a real SFTP transfer)
+                if self._get_file_call_count == 0:
+                    filename_or_io.write(b"partial data")
+                io_sizes_at_call_time.append(filename_or_io.tell())
+            return super().get_file(remote_filename, filename_or_io, remote_temp_filename)
+
+    fake = _WritingHost(
+        get_file_results=[
+            OSError("Socket is closed"),
+            True,
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    host._get_file("/remote/file.txt", io.BytesIO())
+
+    # First call: partial write advanced position to 12
+    # Second call: seek(0) + truncate(0) reset to 0
+    assert io_sizes_at_call_time == [12, 0]
+
+
+def test_put_file_retries_on_socket_closed_and_returns_result(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """A transient socket-closed error on put_file should be transparently retried."""
+    fake = _FakePyinfraHost(
+        put_file_results=[
+            OSError("Socket is closed"),
+            True,
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    result = host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
+
+    assert result is True
+    assert fake._put_file_call_count == 2
+    assert fake.disconnect_call_count >= 1
+
+
+def test_put_file_resets_input_io_position_between_retry_attempts(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Input IO should be seek(0) before each retry so the full content is re-read."""
+    io_positions_at_call_time: list[int] = []
+
+    class _PositionAdvancingHost(_FakePyinfraHost):
+        def put_file(
+            self,
+            filename_or_io: str | IO[str] | IO[bytes],
+            remote_filename: str,
+            remote_temp_filename: str | None = None,
+        ) -> bool:
+            if isinstance(filename_or_io, io.BytesIO):
+                # Simulate partial read advancing IO position on first call
+                if self._put_file_call_count == 0:
+                    filename_or_io.read(5)
+                io_positions_at_call_time.append(filename_or_io.tell())
+            return super().put_file(filename_or_io, remote_filename, remote_temp_filename)
+
+    fake = _PositionAdvancingHost(
+        put_file_results=[
+            OSError("Socket is closed"),
+            True,
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    host._put_file(io.BytesIO(b"file content here"), "/remote/file.txt")
+
+    # First call: partial read advanced position to 5
+    # Second call: seek(0) reset position to 0
+    assert io_positions_at_call_time == [5, 0]
+
+
+def test_put_file_propagates_non_socket_closed_os_error(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """Non-socket-closed OSErrors should propagate without retry."""
+    fake = _FakePyinfraHost(
+        put_file_results=[
+            OSError("Permission denied"),
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(OSError, match="Permission denied"):
+        host._put_file(io.BytesIO(b"content"), "/remote/file.txt")
+
+    assert fake._put_file_call_count == 1
+
+
+def test_get_file_wraps_ssh_exception_in_host_connection_error(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """SSHException should be wrapped in HostConnectionError."""
+    fake = _FakePyinfraHost(
+        get_file_results=[
+            SSHException("connection lost"),
+        ]
+    )
+    host = _create_host_with_fake_connector(local_provider, fake)
+
+    with pytest.raises(HostConnectionError, match="Could not read file"):
+        host._get_file("/remote/file.txt", io.BytesIO())

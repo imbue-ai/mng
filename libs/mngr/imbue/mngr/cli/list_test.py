@@ -5,19 +5,26 @@ from datetime import datetime
 from datetime import timezone
 from io import StringIO
 
-from loguru import logger
+import pluggy
+from click.testing import CliRunner
 
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
+from imbue.mngr.cli.list import _StreamingTemplateEmitter
 from imbue.mngr.cli.list import _compute_column_widths
+from imbue.mngr.cli.list import _emit_template_output
 from imbue.mngr.cli.list import _format_streaming_agent_row
 from imbue.mngr.cli.list import _format_streaming_header_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
+from imbue.mngr.cli.list import _get_header_label
 from imbue.mngr.cli.list import _get_sortable_value
+from imbue.mngr.cli.list import _is_streaming_eligible
 from imbue.mngr.cli.list import _parse_slice_spec
+from imbue.mngr.cli.list import _render_format_template
 from imbue.mngr.cli.list import _should_use_streaming_mode
 from imbue.mngr.cli.list import _sort_agents
+from imbue.mngr.cli.list import list_command
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -469,7 +476,7 @@ def test_get_field_value_host_plugin_whole_dict() -> None:
     """_get_field_value should format a dict value when accessing a plugin namespace."""
     agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
     result = _get_field_value(agent, "host.plugin.aws")
-    assert result == "{'iam_user': 'admin'}"
+    assert result == "iam_user=admin"
 
 
 # =============================================================================
@@ -556,13 +563,13 @@ def test_sort_agents_by_name_descending() -> None:
 # =============================================================================
 
 
-def test_format_streaming_header_row_uses_uppercase_fields() -> None:
-    """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
+def test_format_streaming_header_row_uses_custom_labels() -> None:
+    """_format_streaming_header_row should produce custom header labels."""
     fields = ["name", "host.name", "state"]
     widths = _compute_column_widths(fields, 120)
     result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
-    assert "HOST_NAME" in result
+    assert "HOST" in result
     assert "STATE" in result
 
 
@@ -601,17 +608,16 @@ def test_compute_column_widths_expands_expandable_columns() -> None:
 def _create_streaming_renderer(
     fields: list[str],
     is_tty: bool,
+    output: StringIO,
 ) -> _StreamingHumanRenderer:
     """Create and initialize a streaming renderer for tests."""
-    return _StreamingHumanRenderer(fields=fields, is_tty=is_tty)
+    return _StreamingHumanRenderer(fields=fields, is_tty=is_tty, output=output)
 
 
-def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
+def test_streaming_renderer_non_tty_no_ansi_codes() -> None:
     """Non-TTY streaming output should contain no ANSI escape codes."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name", "state"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "state"], is_tty=False, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -622,24 +628,20 @@ def test_streaming_renderer_non_tty_no_ansi_codes(monkeypatch) -> None:
     assert "NAME" in output
 
 
-def test_streaming_renderer_tty_includes_status_line(monkeypatch) -> None:
+def test_streaming_renderer_tty_includes_status_line() -> None:
     """TTY streaming output should include status line with ANSI codes."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
 
     output = captured.getvalue()
     assert "Searching..." in output
 
 
-def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
+def test_streaming_renderer_tty_shows_count_after_agent() -> None:
     """TTY streaming should update status line with count after agent is received."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
 
@@ -647,30 +649,23 @@ def test_streaming_renderer_tty_shows_count_after_agent(monkeypatch) -> None:
     assert "(1 found)" in output
 
 
-def test_streaming_renderer_finish_no_agents_shows_no_agents_found(monkeypatch) -> None:
+def test_streaming_renderer_finish_no_agents_shows_no_agents_found(capsys) -> None:
     """Streaming renderer should indicate no agents when finishing with zero results."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
 
-    # Capture loguru output to the same StringIO by adding a temporary sink
-    sink_id = logger.add(captured, format="{message}", level="INFO")
-    try:
-        renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
-        renderer.start()
-        renderer.finish()
-    finally:
-        logger.remove(sink_id)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+    renderer.finish()
 
-    output = captured.getvalue()
-    assert "No agents found" in output
+    # write_human_line writes to sys.stdout, so check captured stdout
+    stdout_output = capsys.readouterr().out
+    assert "No agents found" in stdout_output
 
 
-def test_streaming_renderer_thread_safety(monkeypatch) -> None:
+def test_streaming_renderer_thread_safety() -> None:
     """Streaming renderer should handle concurrent calls without data corruption."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
     renderer.start()
 
     # Send agents from multiple threads concurrently
@@ -695,12 +690,10 @@ def test_streaming_renderer_thread_safety(monkeypatch) -> None:
     assert len(lines) == agent_count + 1
 
 
-def test_streaming_renderer_custom_fields(monkeypatch) -> None:
+def test_streaming_renderer_custom_fields() -> None:
     """Streaming renderer should respect custom field selection."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name", "type"], is_tty=False)
+    renderer = _create_streaming_renderer(fields=["name", "type"], is_tty=False, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -711,12 +704,52 @@ def test_streaming_renderer_custom_fields(monkeypatch) -> None:
     assert "generic" in output
 
 
-def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
+def test_streaming_renderer_limit_caps_output() -> None:
+    """Streaming renderer with limit should stop displaying agents after limit is reached."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.limit = 2
+    renderer.start()
+
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+    renderer(make_test_agent_info(name="agent-4"))
+
+    renderer.finish()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line.strip()]
+    # 1 header + 2 agent rows (limit=2, agents 3 and 4 are dropped)
+    assert len(lines) == 3
+    assert "agent-1" in output
+    assert "agent-2" in output
+    assert "agent-3" not in output
+    assert "agent-4" not in output
+
+
+def test_streaming_renderer_no_limit_shows_all() -> None:
+    """Streaming renderer without limit should show all agents."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+
+    renderer.finish()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line.strip()]
+    # 1 header + 3 agent rows
+    assert len(lines) == 4
+
+
+def test_streaming_renderer_tty_erases_status_on_finish() -> None:
     """TTY streaming should erase the status line on finish."""
     captured = StringIO()
-    monkeypatch.setattr("sys.stdout", captured)
-
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
     renderer(make_test_agent_info())
     renderer.finish()
@@ -732,26 +765,24 @@ def test_streaming_renderer_tty_erases_status_on_finish(monkeypatch) -> None:
 
 
 def test_should_use_streaming_mode_default_human() -> None:
-    """Default HUMAN format without watch/sort/limit should use streaming mode."""
+    """Default HUMAN format without watch/sort should use streaming mode."""
     assert (
         _should_use_streaming_mode(
             output_format=OutputFormat.HUMAN,
             is_watch=False,
             is_sort_explicit=False,
-            limit=None,
         )
         is True
     )
 
 
-def test_should_use_streaming_mode_with_limit_uses_batch() -> None:
-    """--limit should force batch mode for deterministic results."""
+def test_should_use_streaming_mode_json_with_explicit_sort_uses_batch() -> None:
+    """JSON format with explicit sort should use batch mode."""
     assert (
         _should_use_streaming_mode(
-            output_format=OutputFormat.HUMAN,
+            output_format=OutputFormat.JSON,
             is_watch=False,
-            is_sort_explicit=False,
-            limit=5,
+            is_sort_explicit=True,
         )
         is False
     )
@@ -764,7 +795,6 @@ def test_should_use_streaming_mode_with_explicit_sort_uses_batch() -> None:
             output_format=OutputFormat.HUMAN,
             is_watch=False,
             is_sort_explicit=True,
-            limit=None,
         )
         is False
     )
@@ -777,7 +807,6 @@ def test_should_use_streaming_mode_with_watch_uses_batch() -> None:
             output_format=OutputFormat.HUMAN,
             is_watch=True,
             is_sort_explicit=False,
-            limit=None,
         )
         is False
     )
@@ -790,7 +819,386 @@ def test_should_use_streaming_mode_json_format_uses_batch() -> None:
             output_format=OutputFormat.JSON,
             is_watch=False,
             is_sort_explicit=False,
-            limit=None,
         )
         is False
     )
+
+
+# =============================================================================
+# Tests for _is_streaming_eligible
+# =============================================================================
+
+
+def test_is_streaming_eligible_all_conditions_met() -> None:
+    """_is_streaming_eligible should return True when no watch, no sort."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=False) is True
+
+
+def test_is_streaming_eligible_watch_disables() -> None:
+    """_is_streaming_eligible should return False when watch is active."""
+    assert _is_streaming_eligible(is_watch=True, is_sort_explicit=False) is False
+
+
+def test_is_streaming_eligible_explicit_sort_disables() -> None:
+    """_is_streaming_eligible should return False when sort is explicit."""
+    assert _is_streaming_eligible(is_watch=False, is_sort_explicit=True) is False
+
+
+# =============================================================================
+# Tests for _render_format_template
+# =============================================================================
+
+
+def test_render_format_template_simple_field() -> None:
+    """_render_format_template should expand a simple field."""
+    agent = make_test_agent_info(name="my-agent")
+    result = _render_format_template("{name}", agent)
+    assert result == "my-agent"
+
+
+def test_render_format_template_multiple_fields() -> None:
+    """_render_format_template should expand multiple fields."""
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.RUNNING)
+    result = _render_format_template("{name} {state}", agent)
+    assert result == "my-agent RUNNING"
+
+
+def test_render_format_template_nested_field() -> None:
+    """_render_format_template should expand nested fields with dot notation."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{host.name}", agent)
+    assert result == "test-host"
+
+
+def test_render_format_template_nested_host_field() -> None:
+    """_render_format_template should resolve nested host fields."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{host.provider_name}", agent)
+    assert result == "local"
+
+
+def test_render_format_template_unknown_field() -> None:
+    """_render_format_template should resolve unknown fields to empty string."""
+    agent = make_test_agent_info()
+    result = _render_format_template("{nonexistent}", agent)
+    assert result == ""
+
+
+def test_render_format_template_format_spec() -> None:
+    """_render_format_template should support format specifications."""
+    agent = make_test_agent_info(name="hi")
+    result = _render_format_template("{name:>10}", agent)
+    assert result == "        hi"
+
+
+def test_render_format_template_literal_braces() -> None:
+    """_render_format_template should handle escaped braces."""
+    agent = make_test_agent_info(name="my-agent")
+    result = _render_format_template("{{literal}} {name}", agent)
+    assert result == "{literal} my-agent"
+
+
+def test_render_format_template_empty_template() -> None:
+    """_render_format_template should handle empty template."""
+    agent = make_test_agent_info()
+    result = _render_format_template("", agent)
+    assert result == ""
+
+
+def test_render_format_template_literal_text_only() -> None:
+    """_render_format_template should handle template with no fields."""
+    agent = make_test_agent_info()
+    result = _render_format_template("just text", agent)
+    assert result == "just text"
+
+
+def test_render_format_template_tab_separator() -> None:
+    """_render_format_template should handle tab characters in templates."""
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.STOPPED)
+    result = _render_format_template("{name}\t{state}", agent)
+    assert result == "my-agent\tSTOPPED"
+
+
+# =============================================================================
+# Tests for _emit_template_output
+# =============================================================================
+
+
+def test_emit_template_output() -> None:
+    """_emit_template_output should produce one line per agent, and nothing for empty list."""
+    # Empty list produces no output
+    empty_output = StringIO()
+    _emit_template_output([], "{name}", output=empty_output)
+    assert empty_output.getvalue() == ""
+
+    # Multiple agents produce one line each
+    agents = [
+        make_test_agent_info(name="agent-alpha"),
+        make_test_agent_info(name="agent-bravo"),
+        make_test_agent_info(name="agent-charlie"),
+    ]
+    captured = StringIO()
+    _emit_template_output(agents, "{name}", output=captured)
+
+    lines = captured.getvalue().strip().split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "agent-alpha"
+    assert lines[1] == "agent-bravo"
+    assert lines[2] == "agent-charlie"
+
+
+# =============================================================================
+# Tests for _StreamingTemplateEmitter
+# =============================================================================
+
+
+def test_streaming_template_emitter_writes_formatted_line() -> None:
+    """_StreamingTemplateEmitter should write one template-expanded line per agent."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}\t{state}", output=captured)
+
+    agent = make_test_agent_info(name="my-agent", state=AgentLifecycleState.RUNNING)
+    emitter(agent)
+
+    output = captured.getvalue()
+    assert output == "my-agent\tRUNNING\n"
+
+
+def test_streaming_template_emitter_multiple_agents() -> None:
+    """_StreamingTemplateEmitter should write one line per agent call."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured)
+
+    emitter(make_test_agent_info(name="agent-one"))
+    emitter(make_test_agent_info(name="agent-two"))
+    emitter(make_test_agent_info(name="agent-three"))
+
+    lines = captured.getvalue().strip().split("\n")
+    assert len(lines) == 3
+    assert lines[0] == "agent-one"
+    assert lines[1] == "agent-two"
+    assert lines[2] == "agent-three"
+
+
+def test_streaming_template_emitter_limit_caps_output() -> None:
+    """_StreamingTemplateEmitter with limit should stop emitting after limit is reached."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured, limit=2)
+
+    emitter(make_test_agent_info(name="agent-one"))
+    emitter(make_test_agent_info(name="agent-two"))
+    emitter(make_test_agent_info(name="agent-three"))
+
+    lines = captured.getvalue().strip().split("\n")
+    assert len(lines) == 2
+    assert lines[0] == "agent-one"
+    assert lines[1] == "agent-two"
+
+
+def test_streaming_template_emitter_thread_safety() -> None:
+    """_StreamingTemplateEmitter should handle concurrent calls without data corruption."""
+    captured = StringIO()
+    emitter = _StreamingTemplateEmitter(format_template="{name}", output=captured)
+
+    agent_count = 50
+    agents = [make_test_agent_info(name=f"agent-{i}") for i in range(agent_count)]
+
+    threads = [threading.Thread(target=emitter, args=(agent,)) for agent in agents]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    output = captured.getvalue()
+    lines = [line for line in output.strip().split("\n") if line]
+    assert len(lines) == agent_count
+
+
+# =============================================================================
+# Tests for _format_value_as_string with dict and tuple values
+# =============================================================================
+
+
+def test_format_value_as_string_formats_dict_as_key_value_pairs() -> None:
+    """_format_value_as_string should format dicts as 'key=value' pairs."""
+    result = _format_value_as_string({"project": "mngr", "env": "prod"})
+    assert result == "project=mngr, env=prod"
+
+
+def test_format_value_as_string_returns_empty_for_empty_dict() -> None:
+    """_format_value_as_string should return empty string for empty dicts."""
+    result = _format_value_as_string({})
+    assert result == ""
+
+
+def test_format_value_as_string_formats_tuple_as_comma_separated() -> None:
+    """_format_value_as_string should format tuples as comma-separated values."""
+    result = _format_value_as_string(("USER", "AGENT", "SSH"))
+    assert result == "USER, AGENT, SSH"
+
+
+# =============================================================================
+# Tests for _get_header_label
+# =============================================================================
+
+
+def test_get_header_label_returns_custom_label_for_known_fields() -> None:
+    """_get_header_label should return custom labels for configured fields."""
+    assert _get_header_label("host.name") == "HOST"
+    assert _get_header_label("host.provider_name") == "PROVIDER"
+    assert _get_header_label("host.tags") == "TAGS"
+    assert _get_header_label("labels") == "LABELS"
+
+
+def test_get_header_label_returns_uppercased_field_for_unknown_fields() -> None:
+    """_get_header_label should uppercase and replace dots with spaces for unknown fields."""
+    assert _get_header_label("name") == "NAME"
+    assert _get_header_label("some.nested.field") == "SOME NESTED FIELD"
+
+
+# =============================================================================
+# Tests for _get_field_value with tags
+# =============================================================================
+
+
+def test_get_field_value_formats_host_tags_as_key_value_pairs() -> None:
+    """_get_field_value should format host.tags dict as 'key=value' pairs."""
+    agent = make_test_agent_info(host_tags={"project": "mngr"})
+    result = _get_field_value(agent, "host.tags")
+    assert result == "project=mngr"
+
+
+def test_get_field_value_returns_empty_for_empty_tags() -> None:
+    """_get_field_value should return empty string for empty tags."""
+    agent = make_test_agent_info()
+    result = _get_field_value(agent, "host.tags")
+    assert result == ""
+
+
+# =============================================================================
+# Tests for --project and --tag CLI option parsing
+# =============================================================================
+
+
+def test_project_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--project should filter to agents with the specified project label."""
+    # Use --project with a non-existent project to verify the filter works
+    # (should return no agents since no local agents have this label)
+    result = cli_runner.invoke(
+        list_command,
+        ["--project", "nonexistent-project-849213"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_tag_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--tag should filter to agents with the specified tag key=value."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--tag", "env=nonexistent-849213"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_tag_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--tag should reject values not in KEY=VALUE format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--tag", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for --label CLI option parsing
+# =============================================================================
+
+
+def test_label_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should filter to agents with the specified label key=value."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "env=nonexistent-293847"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_label_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should reject values not in KEY=VALUE format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for labels display in _get_field_value
+# =============================================================================
+
+
+def test_get_field_value_formats_labels_as_key_value_pairs() -> None:
+    """_get_field_value should format labels dict as 'key=value' pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels")
+    assert result == "project=mngr"
+
+
+def test_get_field_value_returns_empty_for_empty_labels() -> None:
+    """_get_field_value should return empty string for empty labels."""
+    agent = make_test_agent_info()
+    result = _get_field_value(agent, "labels")
+    assert result == ""
+
+
+def test_get_field_value_formats_multiple_labels() -> None:
+    """_get_field_value should format multiple labels as comma-separated pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels")
+    # Dict ordering is guaranteed in Python 3.7+ so we can check exact output
+    assert "project=mngr" in result
+    assert "env=prod" in result
+
+
+def test_get_field_value_accesses_specific_label() -> None:
+    """_get_field_value should access a specific label via dot notation."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels.project")
+    assert result == "mngr"
+
+
+def test_get_field_value_returns_empty_for_missing_label() -> None:
+    """_get_field_value should return empty for a label key that does not exist."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels.nonexistent")
+    assert result == ""

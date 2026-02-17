@@ -1,5 +1,6 @@
 import re
 import shutil
+import string
 import sys
 from collections.abc import Sequence
 from enum import Enum
@@ -27,6 +28,8 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import render_format_template
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -36,12 +39,39 @@ from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
+    "state",
     "host.name",
     "host.provider_name",
     "host.state",
-    "state",
-    "status",
+    "labels",
 )
+
+# Custom header labels for fields that would otherwise generate ugly auto-generated headers.
+# Fields not listed here use the default: field.upper().replace(".", " ")
+_HEADER_LABELS: Final[dict[str, str]] = {
+    "host.name": "HOST",
+    "host.provider_name": "PROVIDER",
+    "host.state": "HOST STATE",
+    "host.tags": "TAGS",
+    "labels": "LABELS",
+    "host.ssh.host": "SSH HOST",
+    "idle_timeout_seconds": "IDLE TIMEOUT",
+    "activity_sources": "ACTIVITY",
+}
+
+
+@pure
+def _is_streaming_eligible(
+    is_watch: bool,
+    is_sort_explicit: bool,
+) -> bool:
+    """Whether the general conditions for streaming mode are met.
+
+    Streaming requires: no watch mode (needs repeated full fetches) and no explicit sort
+    (needs all results before sorting). A limit is compatible with streaming -- it simply
+    caps output at the first N agents to arrive, which is non-deterministic.
+    """
+    return not is_watch and not is_sort_explicit
 
 
 @pure
@@ -49,10 +79,11 @@ def _should_use_streaming_mode(
     output_format: OutputFormat,
     is_watch: bool,
     is_sort_explicit: bool,
-    limit: int | None,
 ) -> bool:
-    """Determine whether to use streaming mode for list output."""
-    return output_format == OutputFormat.HUMAN and not is_watch and not is_sort_explicit and limit is None
+    """Determine whether to use streaming mode for human list output."""
+    return output_format == OutputFormat.HUMAN and _is_streaming_eligible(
+        is_watch=is_watch, is_sort_explicit=is_sort_explicit
+    )
 
 
 class ListCliOptions(CommonCliOptions):
@@ -74,8 +105,10 @@ class ListCliOptions(CommonCliOptions):
     local: bool
     remote: bool
     provider: tuple[str, ...]
+    project: tuple[str, ...]
+    label: tuple[str, ...]
+    tag: tuple[str, ...]
     stdin: bool
-    format_template: str | None
     fields: str | None
     sort: str
     sort_order: str
@@ -122,16 +155,26 @@ class ListCliOptions(CommonCliOptions):
     help="Show only agents using specified provider (repeatable)",
 )
 @optgroup.option(
+    "--project",
+    multiple=True,
+    help="Show only agents with this project label (repeatable)",
+)
+@optgroup.option(
+    "--label",
+    multiple=True,
+    help="Show only agents with this label (format: KEY=VALUE, repeatable)",
+)
+@optgroup.option(
+    "--tag",
+    multiple=True,
+    help="Show only agents on hosts with this tag (format: KEY=VALUE, repeatable)",
+)
+@optgroup.option(
     "--stdin",
     is_flag=True,
     help="Read agent and host IDs or names from stdin (one per line)",
 )
 @optgroup.group("Output Format")
-@optgroup.option(
-    "--format-template",
-    "format_template",
-    help="Output format as a string template (mutually exclusive with --format) [future]",
-)
 @optgroup.option(
     "--fields",
     help="Which fields to include (comma-separated)",
@@ -197,12 +240,12 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         ctx=ctx,
         command_name="list",
         command_class=ListCliOptions,
+        is_format_template_supported=True,
     )
 
-    # --format-template FORMAT: Output format as a string template, mutually exclusive with --format
-    # Template can reference any field from the Available Fields list (see CommandHelpMetadata)
-    if opts.format_template:
-        raise NotImplementedError("Custom format templates not implemented yet")
+    # Format template is now resolved by the common option parsing infrastructure
+    # (via --format with a template string, e.g. --format '{name}\t{state}')
+    format_template = output_opts.format_template
 
     # Parse fields if provided
     fields = None
@@ -236,6 +279,34 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
+
+    # --project X: alias for --include 'labels.project == "X"'
+    # Multiple values are OR'd together
+    if opts.project:
+        project_parts = [f'labels.project == "{p}"' for p in opts.project]
+        include_filters.append(" || ".join(project_parts))
+
+    # --label K=V: alias for --include 'labels.K == "V"'
+    # Multiple values are OR'd together
+    if opts.label:
+        label_parts = []
+        for label_spec in opts.label:
+            if "=" not in label_spec:
+                raise click.BadParameter(f"Label must be in KEY=VALUE format, got: {label_spec}", param_hint="--label")
+            key, value = label_spec.split("=", 1)
+            label_parts.append(f'labels.{key} == "{value}"')
+        include_filters.append(" || ".join(label_parts))
+
+    # --tag K=V: alias for --include 'host.tags.K == "V"'
+    # Multiple values are OR'd together
+    if opts.tag:
+        tag_parts = []
+        for tag_spec in opts.tag:
+            if "=" not in tag_spec:
+                raise click.BadParameter(f"Tag must be in KEY=VALUE format, got: {tag_spec}", param_hint="--tag")
+            key, value = tag_spec.split("=", 1)
+            tag_parts.append(f'host.tags.{key} == "{value}"')
+        include_filters.append(" || ".join(tag_parts))
 
     # Build list of exclude filters
     exclude_filters = list(opts.exclude)
@@ -280,13 +351,29 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_order_source is not None and sort_order_source != click.core.ParameterSource.DEFAULT
     )
 
+    # Template output path: if --format is a template string, use streaming when possible, batch otherwise
+    if format_template is not None:
+        is_streaming_template = _is_streaming_eligible(is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit)
+        if is_streaming_template:
+            _list_streaming_template(
+                ctx,
+                mngr_ctx,
+                include_filters_tuple,
+                exclude_filters_tuple,
+                provider_names,
+                error_behavior,
+                format_template,
+                limit,
+            )
+            return
+        # Fall through to batch path with format_template set
+
     # Streaming mode trades sorted output for faster time-to-first-result: agents display
     # as each provider completes rather than waiting for all providers. Users who need sorted
     # output can pass --sort explicitly, which falls back to batch mode. When --limit is set,
-    # batch mode is required to get deterministic results (streaming would show whichever
-    # agents load first, since sorting is skipped).
-    if _should_use_streaming_mode(
-        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit, limit=limit
+    # streaming still works but produces non-deterministic results (whichever agents arrive first).
+    if format_template is None and _should_use_streaming_mode(
+        output_opts.output_format, is_watch=bool(opts.watch), is_sort_explicit=is_sort_explicit
     ):
         display_fields = fields if fields is not None else list(_DEFAULT_HUMAN_DISPLAY_FIELDS)
         _list_streaming_human(
@@ -297,6 +384,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
             provider_names,
             error_behavior,
             display_fields,
+            limit,
         )
         return
 
@@ -312,6 +400,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         sort_reverse=sort_reverse,
         limit=limit,
         fields=fields,
+        format_template=format_template,
     )
 
     if opts.watch:
@@ -367,9 +456,10 @@ def _list_streaming_human(
     provider_names: tuple[str, ...] | None,
     error_behavior: ErrorBehavior,
     fields: list[str],
+    limit: int | None,
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
-    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty())
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout, limit=limit)
     renderer.start()
     try:
         result = api_list_agents(
@@ -383,6 +473,35 @@ def _list_streaming_human(
         )
     finally:
         renderer.finish()
+
+    if result.errors:
+        for error in result.errors:
+            logger.warning("{}: {}", error.exception_type, error.message)
+        ctx.exit(1)
+
+
+def _list_streaming_template(
+    ctx: click.Context,
+    mngr_ctx: MngrContext,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+    provider_names: tuple[str, ...] | None,
+    error_behavior: ErrorBehavior,
+    format_template: str,
+    limit: int | None,
+) -> None:
+    """Streaming template output path: write one template-expanded line per agent."""
+    emitter = _StreamingTemplateEmitter(format_template=format_template, output=sys.stdout, limit=limit)
+
+    result = api_list_agents(
+        mngr_ctx=mngr_ctx,
+        include_filters=include_filters,
+        exclude_filters=exclude_filters,
+        provider_names=provider_names,
+        error_behavior=error_behavior,
+        on_agent=emitter,
+        is_streaming=True,
+    )
 
     if result.errors:
         for error in result.errors:
@@ -405,21 +524,40 @@ class _LimitedJsonlEmitter(MutableModel):
             self.count += 1
 
 
-# Minimum column widths for streaming output (left-justified, not truncated)
+class _StreamingTemplateEmitter(MutableModel):
+    """Callable that writes one template-expanded line per agent."""
+
+    format_template: str
+    output: Any
+    limit: int | None = None
+    _lock: Lock = PrivateAttr(default_factory=Lock)
+    _count: int = PrivateAttr(default=0)
+
+    def __call__(self, agent: AgentInfo) -> None:
+        line = _render_format_template(self.format_template, agent)
+        with self._lock:
+            if self.limit is not None and self._count >= self.limit:
+                return
+            self.output.write(line + "\n")
+            self.output.flush()
+            self._count += 1
+
+
+# Minimum column widths for streaming output (left-justified, not truncated).
+# These are the minimum data widths; actual column width is max(min_width, header_length).
 _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "name": 20,
-    "host.name": 15,
+    "name": 15,
+    "host.name": 10,
     "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
-    "status": 30,
+    "labels": 10,
+    "host.tags": 10,
 }
-_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
+_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 10
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.name"}
-_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host.name": 20,
-}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels"}
+_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
@@ -434,10 +572,15 @@ class _StreamingHumanRenderer(MutableModel):
     Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
     line ("Searching...") that gets replaced by data rows on TTY outputs. On non-TTY
     outputs (piped), skips status lines and ANSI codes entirely.
+
+    When limit is set, stops displaying agents after the limit is reached. Results
+    are non-deterministic since streaming does not sort.
     """
 
     fields: list[str]
     is_tty: bool
+    output: Any
+    limit: int | None = None
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
@@ -450,44 +593,55 @@ class _StreamingHumanRenderer(MutableModel):
 
         if self.is_tty:
             status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
-            sys.stdout.write(status)
-            sys.stdout.flush()
+            self.output.write(status)
+            self.output.flush()
 
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
+            if self.limit is not None and self._count >= self.limit:
+                return
+
             if self.is_tty:
                 # Erase the current status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
+                self.output.write(_ANSI_ERASE_LINE)
 
             # Write header on first agent
             if not self._is_header_written:
                 header_line = _format_streaming_header_row(self.fields, self._column_widths)
-                sys.stdout.write(header_line + "\n")
+                self.output.write(header_line + "\n")
                 self._is_header_written = True
 
             # Write the agent row
             row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
-            sys.stdout.write(row_line + "\n")
+            self.output.write(row_line + "\n")
             self._count += 1
 
             if self.is_tty:
                 # Write updated status line
                 status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
-                sys.stdout.write(status)
+                self.output.write(status)
 
-            sys.stdout.flush()
+            self.output.flush()
 
     def finish(self) -> None:
         """Clean up the status line after all providers have completed."""
         with self._lock:
             if self.is_tty:
                 # Erase the final status line
-                sys.stdout.write(_ANSI_ERASE_LINE)
-                sys.stdout.flush()
+                self.output.write(_ANSI_ERASE_LINE)
+                self.output.flush()
 
             if self._count == 0:
-                logger.info("No agents found")
+                write_human_line("No agents found")
+
+
+@pure
+def _get_header_label(field: str) -> str:
+    """Get the display label for a column header."""
+    if field in _HEADER_LABELS:
+        return _HEADER_LABELS[field]
+    return field.upper().replace(".", " ")
 
 
 @pure
@@ -495,10 +649,12 @@ def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[s
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
     separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
 
-    # Start with minimum widths
+    # Start with minimum widths, ensuring each column is at least as wide as its header
     width_by_field: dict[str, int] = {}
     for field in fields:
-        width_by_field[field] = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        min_data_width = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        header_width = len(_get_header_label(field))
+        width_by_field[field] = max(min_data_width, header_width)
 
     min_total = sum(width_by_field.values()) + separator_total
     extra_space = max(terminal_width - min_total, 0)
@@ -530,7 +686,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        value = field.upper().replace(".", "_")
+        value = _get_header_label(field)
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
@@ -563,6 +719,7 @@ class _ListIterationParams(BaseModel):
     sort_reverse: bool
     limit: int | None
     fields: list[str] | None
+    format_template: str | None = None
 
 
 def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> None:
@@ -588,8 +745,11 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
         agents_to_display = agents_to_display[: params.limit]
 
     if not agents_to_display:
-        if params.output_opts.output_format == OutputFormat.HUMAN:
-            logger.info("No agents found")
+        if params.format_template is not None:
+            # Template mode: silent empty output (consistent with scripting use)
+            pass
+        elif params.output_opts.output_format == OutputFormat.HUMAN:
+            write_human_line("No agents found")
         elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
         else:
@@ -600,7 +760,10 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
             ctx.exit(1)
         return
 
-    if params.output_opts.output_format == OutputFormat.HUMAN:
+    # Template output takes precedence over format-based dispatch
+    if params.format_template is not None:
+        _emit_template_output(agents_to_display, params.format_template, output=sys.stdout)
+    elif params.output_opts.output_format == OutputFormat.HUMAN:
         _emit_human_output(agents_to_display, params.fields)
     elif params.output_opts.output_format == OutputFormat.JSON:
         _emit_json_output(agents_to_display, result.errors)
@@ -637,10 +800,7 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 
 
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
-    """Emit human-readable table output with optional field selection.
-
-    If fields is None, uses default fields (name, host, provider, host.state, state, status).
-    """
+    """Emit human-readable table output with optional field selection."""
     if not agents:
         return
 
@@ -654,7 +814,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate headers
     for field in fields:
-        headers.append(field.upper().replace(".", "_"))
+        headers.append(_get_header_label(field))
 
     # Generate rows
     for agent in agents:
@@ -666,7 +826,15 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate table
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    logger.info("\n" + table)
+    write_human_line("\n" + table)
+
+
+def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:
+    """Emit template-formatted output, one line per agent."""
+    for agent in agents:
+        line = _render_format_template(template, agent)
+        output.write(line + "\n")
+    output.flush()
 
 
 def _parse_slice_spec(spec: str) -> int | slice | None:
@@ -706,14 +874,17 @@ def _format_value_as_string(value: Any) -> str:
     """Convert a value to string representation for display."""
     if value is None:
         return ""
+    elif isinstance(value, dict):
+        if not value:
+            return ""
+        return ", ".join(f"{k}={v}" for k, v in value.items())
     elif isinstance(value, Enum):
         return str(value.value)
-    elif hasattr(value, "line"):
-        # For AgentStatus objects which have a 'line' attribute
-        return str(value.line)
     elif hasattr(value, "name") and hasattr(value, "id"):
         # For objects like SnapshotInfo that have both name and id, prefer name
         return str(value.name)
+    elif isinstance(value, (tuple, list)) and not isinstance(value, str):
+        return ", ".join(_format_value_as_string(item) for item in value)
     elif isinstance(value, str):
         return value
     else:
@@ -827,6 +998,22 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
         return ""
 
 
+@pure
+def _render_format_template(template: str, agent: AgentInfo) -> str:
+    """Expand a str.format()-style template using agent field values.
+
+    Pre-resolves field names via _get_field_value() (which supports nested
+    attribute access and bracket notation on AgentInfo), then delegates
+    template expansion to the shared render_format_template helper.
+    """
+    # Pre-resolve all referenced field names using the agent-specific field resolver
+    field_values: dict[str, str] = {}
+    for _, field_name, _, _ in string.Formatter().parse(template):
+        if field_name is not None:
+            field_values[field_name] = _get_field_value(agent, field_name)
+    return render_format_template(template, field_values)
+
+
 # Register help metadata for git-style help formatting
 _LIST_HELP_METADATA = CommandHelpMetadata(
     name="mngr-list",
@@ -841,6 +1028,9 @@ Supports filtering, sorting, and multiple output formats.""",
         ("List all agents", "mngr list"),
         ("List only running agents", "mngr list --running"),
         ("List agents on Docker hosts", "mngr list --provider docker"),
+        ("List agents for a project", "mngr list --project mngr"),
+        ("List agents with a specific label", "mngr list --label env=prod"),
+        ("List agents with a specific host tag", "mngr list --tag env=prod"),
         ("List agents as JSON", "mngr list --format json"),
         ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
     ),
@@ -855,6 +1045,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
+- `labels.project == "mngr"` - Match agents with a specific project label
 
 **Compound expressions:**
 - `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
@@ -885,31 +1076,30 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `type` - Agent type (claude, codex, etc.)
 - `command` - The command used to start the agent
 - `url` - URL where the agent can be accessed (if reported)
-- `status` - Status as reported by the agent
-  - `status.line` - A single line summary
-  - `status.full` - A longer description of the current status
-  - `status.html` - Full HTML status report (if available)
 - `work_dir` - Working directory for this agent
 - `create_time` - Creation timestamp
 - `start_time` - Timestamp for when the agent was last started
 - `runtime_seconds` - How long the agent has been running
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
-- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
+- `idle_timeout_seconds` - Idle timeout before host stops
+- `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
+- `labels` - Agent labels (key-value pairs, e.g., project=mngr)
+- `labels.$KEY` - Specific label value (e.g., `labels.project`)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
+- `host.ssh_activity_time` - Timestamp of the last SSH connection to the host
 - `host.boot_time` - When the host was last started
 - `host.uptime_seconds` - How long the host has been running
 - `host.resource` - Resource limits for the host

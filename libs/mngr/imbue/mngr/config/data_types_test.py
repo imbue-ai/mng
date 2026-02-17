@@ -789,3 +789,71 @@ def test_split_cli_args_string_does_not_treat_hash_as_comment() -> None:
     assert result[0] == "--flag"
     assert result[1] == hash_token
     assert result[2] == "--other"
+
+
+# =============================================================================
+# Tests for destroyed_host_persisted_seconds
+# =============================================================================
+
+
+def test_provider_instance_config_destroyed_host_persisted_seconds_defaults_to_none() -> None:
+    config = ProviderInstanceConfig(backend=ProviderBackendName("local"))
+    assert config.destroyed_host_persisted_seconds is None
+
+
+def test_provider_instance_config_destroyed_host_persisted_seconds_can_be_set() -> None:
+    config = ProviderInstanceConfig(
+        backend=ProviderBackendName("modal"),
+        destroyed_host_persisted_seconds=86400.0,
+    )
+    assert config.destroyed_host_persisted_seconds == 86400.0
+
+
+def test_provider_instance_config_merge_overrides_destroyed_host_persisted_seconds() -> None:
+    base = ProviderInstanceConfig(
+        backend=ProviderBackendName("local"),
+        destroyed_host_persisted_seconds=3600.0,
+    )
+    override = ProviderInstanceConfig(
+        backend=ProviderBackendName("local"),
+        destroyed_host_persisted_seconds=7200.0,
+    )
+    merged = base.merge_with(override)
+    assert merged.destroyed_host_persisted_seconds == 7200.0
+
+
+def test_provider_instance_config_merge_keeps_base_when_override_is_none() -> None:
+    base = ProviderInstanceConfig(
+        backend=ProviderBackendName("local"),
+        destroyed_host_persisted_seconds=3600.0,
+    )
+    override = ProviderInstanceConfig.model_construct(
+        backend=ProviderBackendName("local"),
+        destroyed_host_persisted_seconds=None,
+    )
+    merged = base.merge_with(override)
+    assert merged.destroyed_host_persisted_seconds == 3600.0
+
+
+def test_mngr_config_default_destroyed_host_persisted_seconds_is_seven_days(mngr_test_prefix: str) -> None:
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.default_destroyed_host_persisted_seconds == 60.0 * 60.0 * 24.0 * 7.0
+
+
+def test_mngr_config_merge_overrides_default_destroyed_host_persisted_seconds(mngr_test_prefix: str) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, default_destroyed_host_persisted_seconds=604800.0)
+    override = MngrConfig(prefix=mngr_test_prefix, default_destroyed_host_persisted_seconds=86400.0)
+    merged = base.merge_with(override)
+    assert merged.default_destroyed_host_persisted_seconds == 86400.0
+
+
+def test_mngr_config_merge_keeps_base_destroyed_host_persisted_seconds_when_override_none(
+    mngr_test_prefix: str,
+) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, default_destroyed_host_persisted_seconds=86400.0)
+    override = MngrConfig.model_construct(
+        prefix=mngr_test_prefix,
+        default_destroyed_host_persisted_seconds=None,
+    )
+    merged = base.merge_with(override)
+    assert merged.default_destroyed_host_persisted_seconds == 86400.0

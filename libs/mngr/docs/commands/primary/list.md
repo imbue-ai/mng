@@ -44,13 +44,15 @@ mngr list [OPTIONS]
 | `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
+| `--project` | text | Show only agents with this project label (repeatable) | None |
+| `--label` | text | Show only agents with this label (format: KEY=VALUE, repeatable) | None |
+| `--tag` | text | Show only agents on hosts with this tag (format: KEY=VALUE, repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
 ## Output Format
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format-template` | text | Output format as a string template (mutually exclusive with --format) [future] | None |
 | `--fields` | text | Which fields to include (comma-separated) | None |
 | `--sort` | text | Sort by field (supports nested fields like host.name); enables sorted (non-streaming) output [default: create_time] | `create_time` |
 | `--sort-order` | choice (`asc` &#x7C; `desc`) | Sort order [default: asc] | `asc` |
@@ -72,7 +74,9 @@ mngr list [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | choice (`human` &#x7C; `json` &#x7C; `jsonl`) | Output format for command results | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--json` | boolean | Alias for --format json | `False` |
+| `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
 | `--log-file` | path | Path to log file (overrides default ~/.mngr/logs/<timestamp>-<pid>.json) | None |
@@ -99,6 +103,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
+- `labels.project == "mngr"` - Match agents with a specific project label
 
 **Compound expressions:**
 - `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
@@ -130,31 +135,30 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `type` - Agent type (claude, codex, etc.)
 - `command` - The command used to start the agent
 - `url` - URL where the agent can be accessed (if reported)
-- `status` - Status as reported by the agent
-  - `status.line` - A single line summary
-  - `status.full` - A longer description of the current status
-  - `status.html` - Full HTML status report (if available)
 - `work_dir` - Working directory for this agent
 - `create_time` - Creation timestamp
 - `start_time` - Timestamp for when the agent was last started
 - `runtime_seconds` - How long the agent has been running
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
-- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
+- `idle_timeout_seconds` - Idle timeout before host stops
+- `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
+- `labels` - Agent labels (key-value pairs, e.g., project=mngr)
+- `labels.$KEY` - Specific label value (e.g., `labels.project`)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
+- `host.ssh_activity_time` - Timestamp of the last SSH connection to the host
 - `host.boot_time` - When the host was last started
 - `host.uptime_seconds` - How long the host has been running
 - `host.resource` - Resource limits for the host
@@ -210,6 +214,24 @@ $ mngr list --running
 
 ```bash
 $ mngr list --provider docker
+```
+
+**List agents for a project**
+
+```bash
+$ mngr list --project mngr
+```
+
+**List agents with a specific label**
+
+```bash
+$ mngr list --label env=prod
+```
+
+**List agents with a specific host tag**
+
+```bash
+$ mngr list --tag env=prod
 ```
 
 **List agents as JSON**

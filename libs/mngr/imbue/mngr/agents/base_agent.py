@@ -19,7 +19,6 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
@@ -120,6 +119,15 @@ class BaseAgent(AgentInterface):
         data["permissions"] = [str(p) for p in value]
         self._write_data(data)
 
+    def get_labels(self) -> dict[str, str]:
+        data = self._read_data()
+        return data.get("labels", {})
+
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        data = self._read_data()
+        data["labels"] = dict(labels)
+        self._write_data(data)
+
     def get_is_start_on_boot(self) -> bool:
         data = self._read_data()
         return data.get("start_on_boot", False)
@@ -134,18 +142,11 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def is_running(self) -> bool:
-        """Check if the agent is currently running."""
-        pid_path = self._get_agent_dir() / "agent.pid"
-        try:
-            content = self.host.read_text_file(pid_path)
-            pid = int(content.strip())
-            result = self.host.execute_command(f"ps -p {pid}", timeout_seconds=5.0)
-            is_running = result.success
-            logger.trace("Determined agent {} is_running={} (pid={})", self.name, is_running, pid)
-            return is_running
-        except (FileNotFoundError, ValueError):
-            logger.trace("Determined agent {} is_running=False (no pid file or invalid)", self.name)
-            return False
+        """Check if the agent is currently running by checking lifecycle state."""
+        state = self.get_lifecycle_state()
+        is_running = state in (AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING, AgentLifecycleState.REPLACED)
+        logger.trace("Determined agent {} is_running={} (lifecycle_state={})", self.name, is_running, state)
+        return is_running
 
     def get_lifecycle_state(self) -> AgentLifecycleState:
         """Get the lifecycle state of this agent using tmux format variables.
@@ -468,9 +469,18 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, indicator),
                 timeout=_TUI_READY_TIMEOUT_SECONDS,
             ):
+                pane_content = self._capture_pane_content(session_name)
+                if pane_content is not None:
+                    logger.error(
+                        "TUI ready timeout -- remote pane content:\n{}",
+                        pane_content,
+                    )
+                else:
+                    logger.error("TUI ready timeout -- failed to capture remote pane content")
                 raise SendMessageError(
                     str(self.name),
-                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)",
+                    f"Timeout waiting for TUI to be ready (waited {_TUI_READY_TIMEOUT_SECONDS:.1f}s)"
+                    + (f"\nPane content:\n{pane_content}" if pane_content else ""),
                 )
 
     def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
@@ -606,35 +616,6 @@ class BaseAgent(AgentInterface):
             return datetime.fromisoformat(content)
         except FileNotFoundError:
             return None
-
-    def get_reported_status_markdown(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.md"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status_html(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.html"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status(self) -> AgentStatus | None:
-        """Get the agent's reported status."""
-        status_markdown = self.get_reported_status_markdown()
-        status_html = self.get_reported_status_html()
-        status_line = status_markdown.split("\n")[0] if status_markdown else None
-
-        if status_line or status_markdown or status_html:
-            return AgentStatus(
-                line=status_line or "",
-                full=status_markdown or "",
-                html=status_html,
-            )
-
-        return None
 
     # =========================================================================
     # Activity

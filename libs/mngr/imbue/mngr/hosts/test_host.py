@@ -9,6 +9,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from collections.abc import Generator
@@ -55,11 +56,11 @@ from imbue.mngr.utils.testing import local_sshd
 
 
 @pytest.fixture
-def host_with_temp_dir(local_provider: LocalProviderInstance, temp_host_dir: Path) -> tuple[Host, Path]:
-    """Create a Host using the local provider and its temp directory."""
+def host_with_temp_dir(local_provider: LocalProviderInstance) -> tuple[Host, Path]:
+    """Create a Host using the local provider and its per-host directory."""
     host = local_provider.create_host(HostName("test"))
     assert isinstance(host, Host)
-    return host, temp_host_dir
+    return host, host.host_dir
 
 
 @pytest.fixture
@@ -635,6 +636,7 @@ def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Pa
 
 def test_unset_vars_applied_during_agent_start(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -650,7 +652,7 @@ def test_unset_vars_applied_during_agent_start(
     mngr_ctx_with_unset = MngrContext(config=config_with_unset, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider_with_unset = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx_with_unset,
     )
 
@@ -662,7 +664,8 @@ def test_unset_vars_applied_during_agent_start(
         options=CreateAgentOptions(
             name=AgentName("test-agent"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 736249"),
+            # Background the sleep so the shell remains interactive for our echo commands
+            command=CommandString("sleep 736249 &"),
         ),
     )
 
@@ -670,7 +673,7 @@ def test_unset_vars_applied_during_agent_start(
 
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    # Wait for the tmux session to be fully ready before sending keys
+    # Wait for the tmux session to exist
     def session_ready() -> bool:
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
         if not result.success:
@@ -678,7 +681,7 @@ def test_unset_vars_applied_during_agent_start(
         capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
         return capture_result.success and ("sleep 736249" in capture_result.stdout)
 
-    wait_for(session_ready, error_message="tmux session not ready")
+    wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
     # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
     # This lets us send echo commands to check environment variables.
@@ -704,7 +707,12 @@ def test_unset_vars_applied_during_agent_start(
         has_profile = "PROFILE_VALUE=UNSET" in output or "PROFILE_VALUE=" in output
         return has_histfile and has_profile
 
-    wait_for(check_output, error_message="Expected environment variables not found in tmux output")
+    wait_for(
+        check_output,
+        timeout=30.0,
+        poll_interval=0.5,
+        error_message="Expected environment variables not found in tmux output",
+    )
 
     host.stop_agents([agent.id])
 
@@ -719,8 +727,32 @@ def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
     return host._collect_session_pids(session_name)
 
 
+def test_procps_ps_command_available() -> None:
+    """Verify that the `ps` command from procps is available.
+
+    The procps package provides essential process utilities (ps, pgrep, pkill).
+    Without it, process management in stop_agents() and process verification in tests fail.
+    This test exists to validate that the container environment includes procps.
+    """
+    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"PROCPS TEST FAILED: 'ps aux' returned {result.returncode}\n")
+        sys.stderr.write(f"stderr: {result.stderr}\n")
+        sys.stderr.write("The procps package is likely not installed. Install with: apt-get install procps\n")
+        sys.stderr.flush()
+        raise AssertionError(f"ps aux failed: {result.stderr}")
+
+    # Verify we get reasonable output (should include at least our own process)
+    if "PID" not in result.stdout and len(result.stdout.strip().split("\n")) <= 1:
+        sys.stderr.write("PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
+        sys.stderr.write(f"stdout: {result.stdout}\n")
+        sys.stderr.flush()
+        raise AssertionError("ps aux output invalid")
+
+
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -731,7 +763,7 @@ def test_stop_agent_kills_single_pane_processes(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-stop-single"))
@@ -769,11 +801,12 @@ def test_stop_agent_kills_single_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, error_message="Agent session and processes not cleaned up after stop")
+    wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -784,7 +817,7 @@ def test_stop_agent_kills_multi_pane_processes(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-stop-multi"))
@@ -828,11 +861,14 @@ def test_stop_agent_kills_multi_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, error_message="Multi-pane agent session and processes not cleaned up after stop")
+    wait_for(
+        check_cleanup, timeout=10, error_message="Multi-pane agent session and processes not cleaned up after stop"
+    )
 
 
 def test_start_agent_creates_process_group(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -843,7 +879,7 @@ def test_start_agent_creates_process_group(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-pgid"))
@@ -889,6 +925,7 @@ def test_start_agent_creates_process_group(
 
 def test_start_agent_starts_process_activity_monitor(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -899,7 +936,7 @@ def test_start_agent_starts_process_activity_monitor(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-activity-monitor"))
@@ -918,16 +955,27 @@ def test_start_agent_starts_process_activity_monitor(
 
     try:
         # The process activity monitor should write process activity within ~5-6 seconds
-        activity_path = temp_host_dir / "agents" / str(agent.id) / "activity" / "process"
+        activity_path = host.host_dir / "agents" / str(agent.id) / "activity" / "process"
 
-        def activity_file_exists() -> bool:
-            return activity_path.exists()
+        # Wait until the file exists AND has valid JSON content. The writer
+        # creates the file then writes to it, so there is a brief window where
+        # the file exists but is empty.
+        data: dict = {}
 
-        wait_for(activity_file_exists, timeout=10.0, error_message="process activity file not created")
+        def activity_file_has_content() -> bool:
+            nonlocal data
+            if not activity_path.exists():
+                return False
+            content = activity_path.read_text()
+            if not content.strip():
+                return False
+            try:
+                data = json.loads(content)
+                return True
+            except json.JSONDecodeError:
+                return False
 
-        # Verify the activity file has valid JSON content with time in milliseconds
-        content = activity_path.read_text()
-        data = json.loads(content)
+        wait_for(activity_file_has_content, timeout=10.0, error_message="process activity file not created or empty")
         assert "time" in data
         # Time should be an integer (milliseconds since epoch)
         assert isinstance(data["time"], int)
@@ -947,6 +995,7 @@ def test_start_agent_starts_process_activity_monitor(
 
 def test_additional_commands_stored_in_agent_data(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -957,7 +1006,7 @@ def test_additional_commands_stored_in_agent_data(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-cmds-stored"))
@@ -977,7 +1026,7 @@ def test_additional_commands_stored_in_agent_data(
     )
 
     # Read the data.json file and verify additional_commands are stored
-    data_path = temp_host_dir / "agents" / str(agent.id) / "data.json"
+    data_path = host.host_dir / "agents" / str(agent.id) / "data.json"
     data = json.loads(data_path.read_text())
 
     assert "additional_commands" in data
@@ -989,6 +1038,7 @@ def test_additional_commands_stored_in_agent_data(
 
 def test_start_agent_creates_additional_tmux_windows(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -999,7 +1049,7 @@ def test_start_agent_creates_additional_tmux_windows(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-windows"))
@@ -1045,6 +1095,7 @@ def test_start_agent_creates_additional_tmux_windows(
 
 def test_start_agent_additional_windows_run_commands(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -1055,7 +1106,7 @@ def test_start_agent_additional_windows_run_commands(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-additional-commands"))
@@ -1894,6 +1945,7 @@ def test_provision_agent_env_vars_precedence(
 
 def test_start_agent_has_access_to_env_vars(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -1909,7 +1961,7 @@ def test_start_agent_has_access_to_env_vars(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-env-start"))
@@ -1956,6 +2008,7 @@ def test_start_agent_has_access_to_env_vars(
 @pytest.mark.timeout(15)
 def test_new_tmux_window_inherits_env_vars(
     temp_host_dir: Path,
+    per_host_dir: Path,
     temp_work_dir: Path,
     temp_profile_dir: Path,
     plugin_manager: pluggy.PluginManager,
@@ -1970,7 +2023,7 @@ def test_new_tmux_window_inherits_env_vars(
     mngr_ctx = MngrContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
     provider = LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
+        host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
     host = provider.create_host(HostName("test-new-window"))

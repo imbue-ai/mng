@@ -1,4 +1,5 @@
-"""Modal function to snapshot and shut down a host.
+"""
+Modal function to snapshot and shut down a host.
 
 This function is deployed as a Modal web endpoint and can be invoked to:
 1. Snapshot a running Modal sandbox
@@ -9,6 +10,8 @@ All code is self-contained in this file - no imports from the mngr codebase.
 
 Required environment variable (must be set when deploying):
 - MNGR_MODAL_APP_NAME: The Modal app name (e.g., "mngr-<user_id>-modal")
+
+(note: do NOT remove this module docstring--this is a fully standalone script)
 """
 
 import json
@@ -31,16 +34,21 @@ if modal.is_local():
     APP_NAME = os.environ.get("MNGR_MODAL_APP_NAME")
     if APP_NAME is None:
         raise ConfigurationError("MNGR_MODAL_APP_NAME environment variable must be set")
-    output_app_name_file = Path(".mngr/dev/build/app_name")
+    APP_BUILD_PATH = os.environ.get("MNGR_MODAL_APP_BUILD_PATH")
+    if APP_BUILD_PATH is None:
+        raise ConfigurationError("MNGR_MODAL_APP_BUILD_PATH environment variable must be set")
+    output_app_name_file = Path(APP_BUILD_PATH) / "app_name"
     output_app_name_file.parent.mkdir(parents=True, exist_ok=True)
     output_app_name_file.write_text(APP_NAME)
+    (Path(APP_BUILD_PATH) / "app_build_path").write_text(APP_BUILD_PATH)
 else:
     APP_NAME = Path("/deployment/app_name").read_text().strip()
+    APP_BUILD_PATH = Path("/deployment/app_build_path").read_text().strip()
 
 image = (
     modal.Image.debian_slim()
     .uv_pip_install("fastapi[standard]")
-    .add_local_file(".mngr/dev/build/app_name", "/deployment/app_name", copy=True)
+    .add_local_dir(str(Path(APP_BUILD_PATH)), "/deployment/", copy=True)
 )
 
 app = modal.App(name=APP_NAME, image=image)
@@ -97,7 +105,7 @@ def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
     volume.commit()
 
 
-@app.function(volumes={"/vol": volume}, enable_memory_snapshot=True)
+@app.function(volumes={"/vol": volume})
 @modal.fastapi_endpoint(method="POST", docs=True)
 def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     """Snapshot a Modal sandbox and shut it down.
@@ -164,6 +172,7 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
 
             # Record the stop reason (PAUSED for idle, STOPPED for user-requested)
             certified_data["stop_reason"] = stop_reason
+            certified_data["updated_at"] = datetime.now(timezone.utc).isoformat()
             host_record["certified_host_data"] = certified_data
 
             # Write updated host record

@@ -8,15 +8,22 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
+from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
+from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import LOCAL_PROVIDER_NAME
+from imbue.mngr.primitives import ProviderBackendName
+from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
+from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
+from imbue.mngr.providers.local.volume import LocalVolume
 from imbue.mngr.utils.testing import make_local_provider
 
 
@@ -254,10 +261,74 @@ def test_host_has_local_connector(local_provider: LocalProviderInstance) -> None
     assert host.connector.connector_cls_name == "LocalConnector"
 
 
-def test_list_volumes_returns_empty_list(local_provider: LocalProviderInstance) -> None:
-    """Local provider does not support volumes, should return empty list."""
+def test_list_volumes_returns_empty_for_fresh_setup(local_provider: LocalProviderInstance) -> None:
+    """Local provider returns no volumes when no hosts/ subdirectory exists."""
     volumes = local_provider.list_volumes()
-    assert volumes == []
+    assert len(volumes) == 0
+
+
+def test_supports_volumes(local_provider: LocalProviderInstance) -> None:
+    assert local_provider.supports_volumes is True
+
+
+def test_get_volume_for_host_returns_host_volume(local_provider: LocalProviderInstance) -> None:
+    """get_volume_for_host returns a HostVolume wrapping a LocalVolume."""
+    host = local_provider.create_host(HostName("test"))
+    host_volume = local_provider.get_volume_for_host(host)
+    assert host_volume is not None
+    assert isinstance(host_volume, HostVolume)
+    assert isinstance(host_volume.volume, LocalVolume)
+
+
+def test_get_volume_for_host_data_persists(local_provider: LocalProviderInstance) -> None:
+    """Data written to a local volume persists across get_volume_for_host calls."""
+    host = local_provider.create_host(HostName("test"))
+    host_volume = local_provider.get_volume_for_host(host)
+    assert host_volume is not None
+    host_volume.volume.write_files({"test.txt": b"hello"})
+
+    # Get volume again and verify data persists
+    host_volume_2 = local_provider.get_volume_for_host(host)
+    assert host_volume_2 is not None
+    assert host_volume_2.volume.read_file("test.txt") == b"hello"
+
+
+def test_list_volumes_finds_legacy_host_directories(local_provider: LocalProviderInstance) -> None:
+    """list_volumes discovers host directories under hosts/."""
+    # Simulate legacy data by creating a directory under hosts/
+    hosts_dir = local_provider.mngr_ctx.config.default_host_dir.expanduser() / "hosts"
+    legacy_dir = hosts_dir / "host-abc123"
+    legacy_dir.mkdir(parents=True)
+
+    volumes = local_provider.list_volumes()
+    assert len(volumes) == 1
+    assert volumes[0].name == "host-abc123"
+
+
+def test_delete_volume_removes_directory(local_provider: LocalProviderInstance) -> None:
+    """delete_volume removes a volume directory under hosts/."""
+    # Simulate legacy data by creating a directory under hosts/
+    hosts_dir = local_provider.mngr_ctx.config.default_host_dir.expanduser() / "hosts"
+    legacy_dir = hosts_dir / "host-abc123"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "test.txt").write_text("data")
+
+    # Verify volume directory exists
+    volumes_before = local_provider.list_volumes()
+    assert len(volumes_before) == 1
+
+    # Delete using the volume_id from list_volumes
+    local_provider.delete_volume(volumes_before[0].volume_id)
+
+    # Verify it's gone
+    volumes_after = local_provider.list_volumes()
+    assert len(volumes_after) == 0
+
+
+def test_delete_volume_raises_when_not_found(local_provider: LocalProviderInstance) -> None:
+    """delete_volume raises MngrError for nonexistent volume."""
+    with pytest.raises(MngrError):
+        local_provider.delete_volume(VolumeId.generate())
 
 
 def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Path, temp_config: MngrConfig) -> None:
@@ -272,3 +343,81 @@ def test_get_host_tags_returns_empty_when_labels_file_is_empty(temp_host_dir: Pa
 
     tags = provider.get_host_tags(host)
     assert tags == {}
+
+
+# =============================================================================
+# Tests for get_max_destroyed_host_persisted_seconds (BaseProviderInstance)
+# =============================================================================
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_global_default(
+    local_provider: LocalProviderInstance,
+) -> None:
+    """When no provider-level override exists, uses the global config default."""
+    result = local_provider.get_max_destroyed_host_persisted_seconds()
+    assert result == local_provider.mngr_ctx.config.default_destroyed_host_persisted_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_provider_override(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """When a provider-level override exists, uses that instead of the global default."""
+    provider_name = ProviderInstanceName("local")
+    provider_seconds = 86400.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        providers={
+            provider_name: ProviderInstanceConfig(
+                backend=ProviderBackendName("local"),
+                destroyed_host_persisted_seconds=provider_seconds,
+            ),
+        },
+    )
+    provider = make_local_provider(temp_host_dir, config, name=str(provider_name))
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == provider_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_uses_custom_global_default(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """When the global default is customized and no provider override exists, uses the global default."""
+    custom_global_seconds = 172800.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        default_destroyed_host_persisted_seconds=custom_global_seconds,
+    )
+    provider = make_local_provider(temp_host_dir, config)
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == custom_global_seconds
+
+
+def test_get_max_destroyed_host_persisted_seconds_provider_override_takes_precedence(
+    temp_host_dir: Path,
+    mngr_test_prefix: str,
+) -> None:
+    """Provider-level setting takes precedence over the global default."""
+    provider_name = ProviderInstanceName("local")
+    global_seconds = 604800.0
+    provider_seconds = 3600.0
+    config = MngrConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mngr_test_prefix,
+        default_destroyed_host_persisted_seconds=global_seconds,
+        providers={
+            provider_name: ProviderInstanceConfig(
+                backend=ProviderBackendName("local"),
+                destroyed_host_persisted_seconds=provider_seconds,
+            ),
+        },
+    )
+    provider = make_local_provider(temp_host_dir, config, name=str(provider_name))
+
+    result = provider.get_max_destroyed_host_persisted_seconds()
+    assert result == provider_seconds

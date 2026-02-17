@@ -22,35 +22,66 @@ def test_lifecycle_state_stopped_when_no_tmux_session(
     assert state == AgentLifecycleState.STOPPED
 
 
+def _create_running_agent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+    # unique sleep duration to avoid collisions with other tests
+    sleep_duration: int,
+) -> tuple:
+    """Create an agent with a running tmux session and active file.
+
+    Returns the agent and its tmux session name. Caller must clean up
+    the session (e.g. with cleanup_tmux_session).
+    """
+    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
+    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
+
+    # Create a tmux session and run the expected command
+    test_agent.host.execute_command(
+        f"tmux new-session -d -s '{session_name}' 'sleep {sleep_duration}'",
+        timeout_seconds=5.0,
+    )
+
+    # Create the active file in the agent's state directory (signals RUNNING)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
+    active_file = agent_dir / "active"
+    active_file.write_text("")
+
+    return test_agent, session_name
+
+
 def test_lifecycle_state_running_when_expected_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
     """Test that agent is RUNNING when tmux session exists with expected process and active file."""
-    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    session_name = f"{test_agent.mngr_ctx.config.prefix}{test_agent.name}"
-
-    # Create a tmux session and run the expected command
-    test_agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'sleep 1000'",
-        timeout_seconds=5.0,
-    )
-
-    # Create the active file in the agent's state directory (signals RUNNING)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
-    active_file = agent_dir / "active"
-    active_file.write_text("")
+    test_agent, session_name = _create_running_agent(local_provider, temp_host_dir, temp_work_dir, 847291)
 
     try:
-        # Poll for up to 5 seconds for the state to become RUNNING
-        # There's a race condition where the process might not be fully started yet
         wait_for(
             lambda: test_agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
             error_message="Expected agent lifecycle state to be RUNNING",
         )
     finally:
-        # Clean up tmux session and all its processes
+        cleanup_tmux_session(session_name)
+
+
+def test_is_running_true_when_tmux_session_running(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that is_running returns True when tmux session exists with expected process and active file."""
+    test_agent, session_name = _create_running_agent(local_provider, temp_host_dir, temp_work_dir, 847293)
+
+    try:
+        wait_for(
+            lambda: test_agent.is_running(),
+            error_message="Expected is_running() to return True for running agent",
+        )
+    finally:
         cleanup_tmux_session(session_name)
 
 
@@ -111,61 +142,6 @@ def test_lifecycle_state_done_when_no_process_in_pane(
         cleanup_tmux_session(session_name)
 
 
-def test_get_reported_status_returns_none_when_no_status_files(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns None when no status files exist."""
-    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    status = test_agent.get_reported_status()
-    assert status is None
-
-
-def test_get_reported_status_returns_status_with_markdown_only(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns AgentStatus with markdown content."""
-    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
-    status_dir = agent_dir / "status"
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    markdown_content = "Agent is running\nProcessing task 123"
-    (status_dir / "status.md").write_text(markdown_content)
-
-    status = test_agent.get_reported_status()
-    assert status is not None
-    assert status.line == "Agent is running"
-    assert status.full == markdown_content
-    assert status.html is None
-
-
-def test_get_reported_status_returns_status_with_html_and_markdown(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns AgentStatus with both markdown and html."""
-    test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
-    status_dir = agent_dir / "status"
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    markdown_content = "Agent is running\nProcessing task 123"
-    html_content = "<html><body><h1>Agent is running</h1><p>Processing task 123</p></body></html>"
-    (status_dir / "status.md").write_text(markdown_content)
-    (status_dir / "status.html").write_text(html_content)
-
-    status = test_agent.get_reported_status()
-    assert status is not None
-    assert status.line == "Agent is running"
-    assert status.full == markdown_content
-    assert status.html == html_content
-
-
 def test_lifecycle_state_waiting_when_no_active_file(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -209,7 +185,7 @@ def test_lifecycle_state_running_when_active_file_created(
         timeout_seconds=5.0,
     )
 
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
 
     try:
         # First verify it's in WAITING state (no active file)
@@ -249,7 +225,7 @@ def test_get_initial_message_returns_message_when_set(
 ) -> None:
     """Test that get_initial_message returns the message when set in data.json."""
     test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with initial_message
@@ -277,7 +253,7 @@ def test_get_resume_message_returns_message_when_set(
 ) -> None:
     """Test that get_resume_message returns the message when set in data.json."""
     test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with resume_message
@@ -305,7 +281,7 @@ def test_get_ready_timeout_seconds_returns_value_when_set(
 ) -> None:
     """Test that get_ready_timeout_seconds returns the value when set in data.json."""
     test_agent = create_test_base_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = temp_host_dir / "agents" / str(test_agent.id)
+    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
     # Update data.json with ready_timeout_seconds

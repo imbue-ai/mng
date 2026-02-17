@@ -91,7 +91,12 @@ def create(
             with log_span("Creating agent work directory from source {}", source_location.path):
                 work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
         else:
-            work_dir_path = source_location.path
+            # Work dir was already created (e.g. by CLI's early copy).
+            # Use target_path if set (it should contain the actual work_dir path),
+            # otherwise fall back to source path (in-place mode).
+            work_dir_path = (
+                agent_options.target_path if agent_options.target_path is not None else source_location.path
+            )
 
         # Create the agent state (registers the agent with the host)
         with log_span("Creating agent state in work directory {}", work_dir_path):

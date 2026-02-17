@@ -1,5 +1,3 @@
-"""Shared pytest fixtures for mngr tests."""
-
 import json
 import os
 import shutil
@@ -10,7 +8,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Generator
-from typing import NamedTuple
 from uuid import uuid4
 
 import pluggy
@@ -18,11 +15,14 @@ import psutil
 import pytest
 import toml
 from click.testing import CliRunner
+from pydantic import Field
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mngr.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
+from imbue.mngr.agents.agent_registry import reset_agent_registry
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
@@ -324,7 +324,7 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
     Use this fixture when calling API functions that need a config.
     """
-    return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix, is_error_reporting_enabled=False)
 
 
 def make_mngr_ctx(
@@ -333,6 +333,7 @@ def make_mngr_ctx(
     profile_dir: Path,
     *,
     is_interactive: bool = False,
+    is_auto_approve: bool = False,
     concurrency_group: ConcurrencyGroup,
 ) -> MngrContext:
     """Create a MngrContext with the given parameters.
@@ -345,6 +346,7 @@ def make_mngr_ctx(
         pm=pm,
         profile_dir=profile_dir,
         is_interactive=is_interactive,
+        is_auto_approve=is_auto_approve,
         concurrency_group=concurrency_group,
     )
 
@@ -439,6 +441,16 @@ def create_test_base_agent(
 
 
 @pytest.fixture
+def per_host_dir(temp_host_dir: Path) -> Path:
+    """Get the host directory for the local provider.
+
+    This is the directory where host-scoped data lives: agents/, data.json,
+    activity/, etc. This is the same as temp_host_dir (e.g. ~/.mngr/).
+    """
+    return temp_host_dir
+
+
+@pytest.fixture
 def cli_runner() -> CliRunner:
     """Create a Click CLI runner for testing CLI commands."""
     return CliRunner()
@@ -461,8 +473,9 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset the module-level plugin manager singleton before each test
     imbue.mngr.main.reset_plugin_manager()
 
-    # Clear the backend registry to ensure clean state
+    # Clear the registries to ensure clean state
     reset_backend_registry()
+    reset_agent_registry()
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -481,6 +494,7 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset after the test as well
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
+    reset_agent_registry()
 
     # Clean up Modal app contexts to prevent async cleanup errors
     ModalProviderBackend.reset_app_registry()
@@ -596,12 +610,12 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 
 
-class ModalSubprocessTestEnv(NamedTuple):
+class ModalSubprocessTestEnv(FrozenModel):
     """Environment configuration for Modal subprocess tests."""
 
-    env: dict[str, str]
-    prefix: str
-    host_dir: Path
+    env: dict[str, str] = Field(description="Environment variables for the subprocess")
+    prefix: str = Field(description="The mngr prefix for test isolation")
+    host_dir: Path = Field(description="Path to the temporary host directory")
 
 
 @pytest.fixture(scope="session")

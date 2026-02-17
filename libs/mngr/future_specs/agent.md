@@ -8,7 +8,7 @@ The agent name can be determined by stripping the $MNGR_PREFIX env var from the 
 
 The state of the agent is based on whether the expected `command` is running inside the first pane for the tmux session.
 
-By convention, the agent directory also contains subdirectories for `logs/` and `events/`.
+By convention, the agent directory also contains a subdirectory for `logs/`.
 
 The agent directory should also include an `env` file with any environment variable overrides for this agent (it will be sourced after the host-level `env` file).
 
@@ -39,12 +39,9 @@ Agent state is separated into two classes:
 | Field             | Notes                                        | Storage Location (within `MNGR_AGENT_STATE_DIR`) |
 |-------------------|----------------------------------------------|--------------------------------------------------|
 | `url`             | For communicating with the agent via http(s) | `url`                                            |
-| `start_time`      | When the tmux session was started            | `start_time`                                     |
+| `start_time`      | When the tmux session was started            | `activity/start` (mtime)                         |
 | `runtime_seconds` | `current_time` - `start_time`                | (computed)                                       |
-| `status.line`     | First line of `status.markdown`              | (computed)                                       |
-| `status.full`     | The current status of the agent, as Markdown | `status/markdown`                                |
-| `status.html`     | The current status of the agent, as html     | `status/html`                                    |
 | `plugin.*`        | Plugin-specific (reported) state             | `plugin/<plugin>/*`                              |
 
-**Important:** All access to agent data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_create_time` vs `get_reported_status`).
+**Important:** All access to agent data should be through methods that communicate whether that data is "certified" or "reported", to help avoid confusion about which fields are trustworthy (ex: `get_create_time` vs `get_reported_url`).
 

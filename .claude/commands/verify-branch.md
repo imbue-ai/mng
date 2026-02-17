@@ -219,12 +219,19 @@ Comments should describe what the code does, not how it was changed.
 
 - Functions that have gotten long (> 50 lines) and are mixing multiple concerns and/or combining several different steps should be broken up. (Typically by using helper functions and/or separate classes to encapsulate individual concerns.)
 - Classes or files that are combining different concerns should be broken up, such that each class / file only deals with one primary concern.
+- This also includes structures that are unsafe (ex: returning a type that has an error state rather than raising an exception).
+- Using primitive types (strings, integers, etc) to represent domain-level data--actual data types should be preferred instead, even if they simply inherit from the built-in types, as it makes the code more readable.
+- Using an if/elif/.../else construct where you could use a match statement instead (eg, to dispatch on an enum value)
 
 Note: we don't impose any minimal or maximal length on a class or file. Classes and files are ok to be long, as long as they only deal with a single concern.
 
 **Examples:**
 - New functionality that is orthogonal to the existing functionality in a function is inserted into the existing function's body instead of being separated out into its own function
 - A class mixes two different use cases that could be separated into two classes
+- A function that returns a value that can be either a valid result or an error state (e.g. None, False, -1) instead of raising an exception for the error case. This is bad because the caller can forget to check for the error state.
+- A class that has a "name" attribute that is just a string, instead of having a proper Name class (eg, that inherits from NonEmptyString).
+- A class with a bare string or uuid as an "id" attribute, instead of having a proper ID class
+- An if/elif/.../else construct that dispatches on the value of an enum, instead of using a match statement (in languages that support it)
 
 ---
 
@@ -294,12 +301,16 @@ Also look for reference management issues: objects being cleaned up while still 
 
 ### fails_silently
 
-Code that fails silently is code that ignores errors without reporting them.
+Code that fails silently is code that ignores errors without reporting them or properly handling them.
+
+This includes behaviors like catching exceptions without logging them as warnings/errors (or re-raising them), returning inappropriate default values during an error condition, returning None instead of raising an error when there is a legitimate error, or otherwise allowing errors to occur without any indication to the user or developer.
 
 **Examples:**
-- The code indiscriminately captures exceptions of all types (e.g. Exception) and continues execution without taking any action to handle the error
+- The code indiscriminately captures exceptions of all types (e.g. Exception) or multiple types and continues execution without taking any action to handle the error
 - Overly broad "except" clauses that catch many different types of errors and simply continue execution (rather than raising it so that invalid states are not silently ignored)
-- Any "except" clause that does *not* log the error (at least at "trace" level) and/or report it to an error tracking system (e.g. Sentry)
+- Any "except" clause that does *not* log the error (at least at "trace" level) and/or report it to an error tracking system (e.g. Sentry). Real error conditions should be logged at *least* at warning level, and anything that violates a program invariant (eg, is an unexpected condition) should generally be raised.
+- Returning None or an inappropriate default value when an error occurs instead of raising an exception. This can lead to downstream errors that are harder to debug because the original error is obscured.
+- Any except clause *must* either log the error (if it is handling the error), or re-raise the error (if it is not handling the error). If an except clause does neither of these things, it is a silent failure (it's ok if the logging is at trace level, but it must be present).
 - The return value of a function that returns an error value in case of a failure is not checked by the caller
 
 **Exceptions:**
@@ -369,6 +380,9 @@ Code patterns that are very likely to cause runtime errors during execution.
 - os.chdir() without proper restoration
 - Modifying global state in ways that affect other code
 - Operations that are not thread-safe when concurrency is present
+
+**Catch clauses that are too broad and could hide runtime errors:**
+- Almost all try/except blocks (for specific types of errors) should only span a single line, and should generally catch a single class of errors.
 
 **Look for platform-specific incompatibilities:**
 - Code that will fail when run on OSX or linux (it's ok to fail on Windows)

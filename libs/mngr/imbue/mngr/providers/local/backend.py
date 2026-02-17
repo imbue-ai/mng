@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Final
 
 from imbue.mngr import hookimpl
 from imbue.mngr.config.data_types import MngrContext
@@ -11,7 +12,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.config import LocalProviderConfig
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
-LOCAL_BACKEND_NAME = ProviderBackendName("local")
+LOCAL_BACKEND_NAME: Final[ProviderBackendName] = ProviderBackendName("local")
 
 
 class LocalProviderBackend(ProviderBackendInterface):
@@ -53,11 +54,12 @@ class LocalProviderBackend(ProviderBackendInterface):
             raise ConfigStructureError(f"Expected LocalProviderConfig, got {type(config).__name__}")
         # Get host_dir from typed config, falling back to default
         if config.host_dir is not None:
-            host_dir = config.host_dir
+            host_dir = Path(config.host_dir).expanduser()
         else:
-            host_dir = mngr_ctx.config.default_host_dir
-        # Expand ~ to the actual home directory
-        host_dir = Path(host_dir).expanduser()
+            host_dir = Path(mngr_ctx.config.default_host_dir).expanduser()
+
+        host_dir.mkdir(parents=True, exist_ok=True)
+
         return LocalProviderInstance(
             name=name,
             host_dir=host_dir,

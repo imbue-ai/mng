@@ -11,14 +11,12 @@ from typing import Final
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
-from imbue.imbue_common.pure import pure
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.utils.interactive_subprocess import popen_interactive_subprocess
 
 FALLBACK_EDITORS: Final[tuple[str, ...]] = ("vim", "vi", "nano", "notepad")
 
 
-@pure
 def get_editor_command() -> str:
     """Get the editor command from environment variables or use a fallback.
 

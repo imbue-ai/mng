@@ -16,7 +16,6 @@ from pydantic_core import core_schema
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.imbue_common.primitives import PositiveInt
-from imbue.imbue_common.pure import pure
 
 
 class FileExtension(NonEmptyStr):
@@ -196,7 +195,6 @@ def _get_chunk_commit_date(
     return most_recent_date
 
 
-@pure
 def get_ratchet_failures(
     folder_path: Path,
     extension: FileExtension,
@@ -275,7 +273,6 @@ def clear_ratchet_caches() -> None:
     _parse_file_ast.cache_clear()
 
 
-@pure
 def format_ratchet_failure_message(
     rule_name: str,
     rule_description: str,
@@ -332,7 +329,6 @@ def format_ratchet_failure_message(
     return "\n".join(lines)
 
 
-@pure
 def check_regex_ratchet(
     source_dir: Path,
     extension: FileExtension,

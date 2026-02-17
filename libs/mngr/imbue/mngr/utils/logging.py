@@ -7,12 +7,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import Final
-from typing import NamedTuple
 from typing import TextIO
 from typing import cast
 
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -67,6 +68,12 @@ CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 _console_handler_ids: dict[str, int] = {}
 
 
+def _dynamic_stderr_sink(message: Any) -> None:
+    """Loguru sink that always writes to the current sys.stderr."""
+    sys.stderr.write(str(message))
+    sys.stderr.flush()
+
+
 def _format_user_message(record: Any) -> str:
     """Format user-facing log messages, adding colored prefixes for warnings and errors.
 
@@ -87,7 +94,7 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
-def suppress_warnings():
+def suppress_warnings() -> None:
     # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
     # and logs warnings during file upload retries (e.g., when the remote directory
     # doesn't exist). Mngr already handles these cases gracefully, so the warnings
@@ -101,7 +108,7 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     """Configure logging based on output options and mngr context.
 
     Sets up:
-    - stdout logging for user-facing messages (clean format)
+    - stderr logging for user-facing messages (clean format)
     - stderr logging for structured diagnostic messages (detailed format)
     - File logging to custom path (if log_file_path provided) or
       ~/.mngr/logs/<timestamp>-<pid>.json (default)
@@ -129,24 +136,31 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     # Clear stored handler IDs from previous setup (if any)
     _console_handler_ids.clear()
 
-    # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
+    # Set up stderr logging for user-facing messages (clean format, with colored WARNING prefix).
+    # All logger.* messages go to stderr; only explicit output (JSON, tables, etc.) goes to stdout.
     # We set colorize=False because we handle colors manually in _format_user_message.
+    # Use callable sinks so the handler always writes to the current sys.stderr,
+    # even if it gets replaced (e.g., by pytest's capture mechanism).
     if output_opts.console_level != LogLevel.NONE:
         handler_id = logger.add(
-            sys.stdout,
+            _dynamic_stderr_sink,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
             diagnose=False,
         )
-        _console_handler_ids["stdout"] = handler_id
+        _console_handler_ids["console"] = handler_id
+
+    # FIXME: entirely remove output_opts.log_level and this whole notion of multiple console handler ids
+    #  we only actually use the console_level and file_level variables in practice.
+    #  don't worry about backwards compatibility--just completely remove the log_level option and simplify this stuff
 
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
     if output_opts.log_level != LogLevel.NONE:
         console_level = level_map[output_opts.log_level]
         handler_id = logger.add(
-            sys.stderr,
+            _dynamic_stderr_sink,
             level=console_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
@@ -229,11 +243,11 @@ def _rotate_old_logs(log_dir: Path, max_files: int) -> None:
                 pass
 
 
-class BufferedMessage(NamedTuple):
+class BufferedMessage(FrozenModel):
     """A buffered log message with its formatted output and destination."""
 
-    formatted_message: str
-    is_stderr: bool
+    formatted_message: str = Field(description="The formatted log message text")
+    is_stderr: bool = Field(description="Whether this message should go to stderr")
 
 
 class BufferingStreamWrapper(io.TextIOBase):
@@ -269,7 +283,7 @@ class BufferingStreamWrapper(io.TextIOBase):
     def write(self, s: str) -> int:
         """Buffer the write instead of passing it to the original stream."""
         if s:
-            self._buffer.append(BufferedMessage(s, self._is_stderr))
+            self._buffer.append(BufferedMessage(formatted_message=s, is_stderr=self._is_stderr))
         return len(s)
 
     def flush(self) -> None:
@@ -310,9 +324,9 @@ class LoggingSuppressor:
     # Class-level state for the singleton suppressor
     _is_suppressed: bool = False
     _buffer: deque[BufferedMessage] = deque(maxlen=DEFAULT_BUFFER_SIZE)
-    _stdout_handler_id: int | None = None
+    _console_handler_id: int | None = None
     _stderr_handler_id: int | None = None
-    _suppressed_stdout_handler_id: int | None = None
+    _suppressed_console_handler_id: int | None = None
     _suppressed_stderr_handler_id: int | None = None
     _output_opts: OutputOptions | None = None
     # Original streams for restoration
@@ -343,9 +357,9 @@ class LoggingSuppressor:
 
         # Remove only the console handlers (preserving file logging)
         # The handler IDs are stored in _console_handler_ids by setup_logging()
-        if "stdout" in _console_handler_ids:
+        if "console" in _console_handler_ids:
             try:
-                logger.remove(_console_handler_ids["stdout"])
+                logger.remove(_console_handler_ids["console"])
             except ValueError:
                 pass
         if "stderr" in _console_handler_ids:
@@ -369,8 +383,8 @@ class LoggingSuppressor:
         # The loguru messages will be buffered via the sink functions, while direct
         # writes to sys.stdout/stderr will be buffered via the stream wrappers.
         if output_opts.console_level != LogLevel.NONE:
-            cls._suppressed_stdout_handler_id = logger.add(
-                cls._buffered_stdout_sink,
+            cls._suppressed_console_handler_id = logger.add(
+                cls._buffered_console_sink,
                 level=output_opts.console_level,
                 format=_format_user_message,
                 colorize=False,
@@ -396,14 +410,14 @@ class LoggingSuppressor:
             )
 
     @classmethod
-    def _buffered_stdout_sink(cls, message: Any) -> None:
-        """Sink function that buffers messages intended for stdout."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=False))
+    def _buffered_console_sink(cls, message: Any) -> None:
+        """Sink function that buffers messages intended for the console (stderr)."""
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=True))
 
     @classmethod
     def _buffered_stderr_sink(cls, message: Any) -> None:
         """Sink function that buffers messages intended for stderr."""
-        cls._buffer.append(BufferedMessage(str(message), is_stderr=True))
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=True))
 
     @classmethod
     def disable_and_replay(cls, clear_screen: bool = True) -> None:
@@ -419,9 +433,9 @@ class LoggingSuppressor:
         output_opts = cls._output_opts
 
         # Remove the buffering handlers
-        if cls._suppressed_stdout_handler_id is not None:
-            logger.remove(cls._suppressed_stdout_handler_id)
-            cls._suppressed_stdout_handler_id = None
+        if cls._suppressed_console_handler_id is not None:
+            logger.remove(cls._suppressed_console_handler_id)
+            cls._suppressed_console_handler_id = None
         if cls._suppressed_stderr_handler_id is not None:
             logger.remove(cls._suppressed_stderr_handler_id)
             cls._suppressed_stderr_handler_id = None
@@ -454,17 +468,18 @@ class LoggingSuppressor:
         # Clear the buffer
         cls._buffer.clear()
 
-        # Re-add the normal console handlers and store their IDs
+        # Re-add the normal console handlers and store their IDs.
+        # Use callable sinks so the handler always writes to the current stream.
         if output_opts is not None:
             if output_opts.console_level != LogLevel.NONE:
                 handler_id = logger.add(
-                    sys.stdout,
+                    _dynamic_stderr_sink,
                     level=output_opts.console_level,
                     format=_format_user_message,
                     colorize=False,
                     diagnose=False,
                 )
-                _console_handler_ids["stdout"] = handler_id
+                _console_handler_ids["console"] = handler_id
 
             if output_opts.log_level != LogLevel.NONE:
                 level_map = {
@@ -477,7 +492,7 @@ class LoggingSuppressor:
                     LogLevel.NONE: "CRITICAL",
                 }
                 handler_id = logger.add(
-                    sys.stderr,
+                    _dynamic_stderr_sink,
                     level=level_map[output_opts.log_level],
                     format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
                     colorize=True,

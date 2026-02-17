@@ -257,6 +257,8 @@ def make_local_provider(
 
     If profile_dir is not provided, a new one is created. To share state between
     multiple provider instances, pass the same profile_dir to each call.
+
+    The host_dir is used directly as the host directory (e.g. ~/.mngr/).
     """
     pm = pluggy.PluginManager("mngr")
     # Create a profile directory in the host_dir if not provided
@@ -264,6 +266,7 @@ def make_local_provider(
         profile_dir = host_dir / PROFILES_DIRNAME / uuid4().hex
     profile_dir.mkdir(parents=True, exist_ok=True)
     mngr_ctx = MngrContext(config=config, pm=pm, profile_dir=profile_dir)
+
     return LocalProviderInstance(
         name=ProviderInstanceName(name),
         host_dir=host_dir,
@@ -273,7 +276,7 @@ def make_local_provider(
 
 def make_mngr_ctx(default_host_dir: Path, prefix: str) -> MngrContext:
     """Create a MngrContext with the given default_host_dir, prefix, and a basic plugin manager."""
-    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix)
+    config = MngrConfig(default_host_dir=default_host_dir, prefix=prefix, is_error_reporting_enabled=False)
     pm = pluggy.PluginManager("mngr")
     # Create a profile directory in the default_host_dir
     profile_dir = default_host_dir / PROFILES_DIRNAME / uuid4().hex
