@@ -4,6 +4,7 @@
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+# [TODO] Replace with vanity URL: curl -fsSL https://imbue.com/mngr/install.sh | bash
 #
 # This script:
 #   1. Installs system dependencies (tmux, jq, curl, unison)
