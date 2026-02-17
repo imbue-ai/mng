@@ -513,7 +513,7 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
                 original_exception=e,
             ) from e
 
-    # For local paths and git URLs, try to determine the installed package name
+    # For local paths, resolve the actual package name from pyproject.toml
     if specifier_type == PluginSpecifierType.LOCAL_PATH:
         try:
             package_name = _resolve_package_name_for_removal(specifier, specifier_type)
