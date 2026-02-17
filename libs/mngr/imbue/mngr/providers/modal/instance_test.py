@@ -1434,3 +1434,224 @@ def test_is_host_volume_created_defaults_to_true() -> None:
     """ModalProviderConfig.is_host_volume_created should default to True."""
     config = ModalProviderConfig()
     assert config.is_host_volume_created is True
+
+
+# =============================================================================
+# Tests for _list_all_persisted_agent_data
+# =============================================================================
+
+
+# def test_list_all_persisted_agent_data_returns_empty_when_volume_empty(
+#     modal_provider: ModalProviderInstance,
+# ) -> None:
+#     """_list_all_persisted_agent_data returns empty dict when volume has no host directories."""
+#     mock_volume = cast(Any, modal_provider.modal_app.volume)
+#     mock_volume.listdir.return_value = []
+#
+#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
+#
+#     assert result == {}
+#
+#
+# def test_list_all_persisted_agent_data_skips_json_files(
+#     modal_provider: ModalProviderInstance,
+# ) -> None:
+#     """_list_all_persisted_agent_data skips .json files (host records) and non-host directories."""
+#     mock_volume = cast(Any, modal_provider.modal_app.volume)
+#     host_record_entry = MagicMock()
+#     host_record_entry.path = f"/{HostId.generate()}.json"
+#     random_dir_entry = MagicMock()
+#     random_dir_entry.path = "/some-other-dir"
+#     mock_volume.listdir.return_value = [host_record_entry, random_dir_entry]
+#
+#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
+#
+#     assert result == {}
+#
+#
+# def test_list_all_persisted_agent_data_reads_agent_data_for_host_dirs(
+#     modal_provider: ModalProviderInstance,
+# ) -> None:
+#     """_list_all_persisted_agent_data reads agent data for directories matching host-* pattern."""
+#     host_id = HostId.generate()
+#     agent_id = AgentId.generate()
+#     agent_data = {"id": str(agent_id), "name": "test-agent", "type": "claude"}
+#
+#     mock_volume = cast(Any, modal_provider.modal_app.volume)
+#
+#     # Root listing returns a host directory
+#     host_dir_entry = MagicMock()
+#     host_dir_entry.path = f"/{host_id}"
+#     mock_volume.listdir.side_effect = lambda path: {
+#         "/": [host_dir_entry],
+#         f"/{host_id}": [MagicMock(path=f"{agent_id}.json")],
+#     }[path]
+#
+#     # Reading agent file returns agent data (read_file returns an iterator of bytes chunks)
+#     mock_volume.read_file.return_value = [json.dumps(agent_data).encode("utf-8")]
+#
+#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
+#
+#     assert host_id in result
+#     assert len(result[host_id]) == 1
+#     assert result[host_id][0]["id"] == str(agent_id)
+
+
+# =============================================================================
+# Tests for _list_running_host_ids
+# =============================================================================
+
+
+def test_list_running_host_ids_returns_empty_when_no_sandboxes(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids returns empty set when no sandboxes exist."""
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = []
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == set()
+
+
+def test_list_running_host_ids_fetches_tags_in_parallel(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids fetches tags for all sandboxes and extracts host IDs."""
+    host_id_1 = HostId.generate()
+    host_id_2 = HostId.generate()
+
+    sandbox_1 = MagicMock()
+    sandbox_1.get_tags.return_value = {TAG_HOST_ID: str(host_id_1), TAG_HOST_NAME: "host-1"}
+    sandbox_2 = MagicMock()
+    sandbox_2.get_tags.return_value = {TAG_HOST_ID: str(host_id_2), TAG_HOST_NAME: "host-2"}
+
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = [sandbox_1, sandbox_2]
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == {host_id_1, host_id_2}
+
+
+def test_list_running_host_ids_skips_sandboxes_without_host_id_tag(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids skips sandboxes that don't have the host ID tag."""
+    host_id = HostId.generate()
+
+    sandbox_with_tag = MagicMock()
+    sandbox_with_tag.get_tags.return_value = {TAG_HOST_ID: str(host_id)}
+    sandbox_without_tag = MagicMock()
+    sandbox_without_tag.get_tags.return_value = {"some_other_tag": "value"}
+
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = [sandbox_with_tag, sandbox_without_tag]
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == {host_id}
+
+
+# =============================================================================
+# Tests for load_agent_refs (optimized modal implementation)
+# =============================================================================
+
+
+def test_load_agent_refs_returns_agents_from_volume_data(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs builds HostReference->AgentReference map from volume data."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    snapshot = _make_snapshot_record("initial")
+    host_record = _make_host_record(host_id, host_name="my-host", snapshots=[snapshot])
+    agent_data = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(
+            modal_provider,
+            "_list_all_persisted_agent_data",
+            return_value={host_id: agent_data},
+        ),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
+
+    assert len(result) == 1
+    host_ref = next(iter(result.keys()))
+    assert host_ref.host_id == host_id
+    assert host_ref.host_name == "my-host"
+    assert host_ref.provider_name == modal_provider.name
+
+    agent_refs = result[host_ref]
+    assert len(agent_refs) == 1
+    assert agent_refs[0].agent_id == agent_id
+
+
+def test_load_agent_refs_excludes_destroyed_hosts_by_default(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs excludes destroyed hosts (no sandbox, no snapshots) by default."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=False)
+
+    assert len(result) == 0
+
+
+def test_load_agent_refs_includes_destroyed_hosts_when_requested(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs includes destroyed hosts when include_destroyed=True."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id, snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=True)
+
+    assert len(result) == 1
+
+
+def test_load_agent_refs_includes_running_hosts_from_host_records(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs includes running hosts (sandbox exists + host record exists)."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id, host_name="running-host", snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value={host_id}),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
+        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
+
+    # Running host (sandbox exists) should be included even without snapshots
+    assert len(result) == 1
+    host_ref = next(iter(result.keys()))
+    assert host_ref.host_id == host_id
+
+
+def test_load_agent_refs_ignores_running_sandbox_without_host_record(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs does not create entries for sandboxes that have no host record."""
+    orphan_host_id = HostId.generate()
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value={orphan_host_id}),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
+        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
+
+    assert len(result) == 0

@@ -9,6 +9,7 @@ import pytest
 
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.hosts.offline_host import validate_and_create_agent_reference
 from imbue.mngr.interfaces.data_types import ActivityConfig
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import SnapshotInfo
@@ -16,6 +17,7 @@ from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import HostId
+from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ProviderInstanceName
@@ -378,3 +380,102 @@ def test_get_state_based_on_stop_reason(
 
     state = host.get_state()
     assert state == expected_state
+
+
+# =============================================================================
+# Tests for validate_and_create_agent_reference standalone function
+# =============================================================================
+
+
+def test_validate_and_create_agent_reference_creates_valid_ref() -> None:
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    provider_name = ProviderInstanceName("test-provider")
+    agent_data = {
+        "id": str(agent_id),
+        "name": "my-agent",
+        "type": "claude",
+        "permissions": ["read"],
+    }
+
+    ref = validate_and_create_agent_reference(agent_data, host_id, provider_name)
+
+    assert ref is not None
+    assert ref.agent_id == agent_id
+    assert ref.agent_name == AgentName("my-agent")
+    assert ref.host_id == host_id
+    assert ref.provider_name == provider_name
+    assert ref.certified_data == agent_data
+    assert ref.agent_type == "claude"
+    assert ref.permissions == ("read",)
+
+
+def test_validate_and_create_agent_reference_returns_none_for_missing_id() -> None:
+    host_id = HostId.generate()
+    agent_data = {"name": "my-agent"}
+    ref = validate_and_create_agent_reference(agent_data, host_id, ProviderInstanceName("p"))
+    assert ref is None
+
+
+def test_validate_and_create_agent_reference_returns_none_for_invalid_id() -> None:
+    host_id = HostId.generate()
+    agent_data = {"id": "not-a-valid-id", "name": "my-agent"}
+    ref = validate_and_create_agent_reference(agent_data, host_id, ProviderInstanceName("p"))
+    assert ref is None
+
+
+def test_validate_and_create_agent_reference_returns_none_for_missing_name() -> None:
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    agent_data = {"id": str(agent_id)}
+    ref = validate_and_create_agent_reference(agent_data, host_id, ProviderInstanceName("p"))
+    assert ref is None
+
+
+# =============================================================================
+# Tests for default load_agent_refs on the provider
+# =============================================================================
+
+
+def test_load_agent_refs_default_returns_agents_grouped_by_host(
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
+) -> None:
+    """Default load_agent_refs lists hosts and gets agent references in parallel."""
+    host_id = HostId.generate()
+    now = datetime.now(timezone.utc)
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name="test-host",
+        created_at=now,
+        updated_at=now,
+    )
+    agent_id = AgentId.generate()
+    fake_provider.mock_agent_data = [
+        {"id": str(agent_id), "name": "agent-one", "type": "claude"},
+    ]
+    offline_host = make_offline_host(certified_data, fake_provider, temp_mngr_ctx)
+    fake_provider.mock_hosts = [offline_host]
+
+    result = fake_provider.load_agent_refs(cg=temp_mngr_ctx.concurrency_group)
+
+    assert len(result) == 1
+    host_ref = next(iter(result.keys()))
+    assert host_ref.host_id == host_id
+    assert host_ref.host_name == HostName("test-host")
+    assert host_ref.provider_name == fake_provider.name
+
+    agent_refs = result[host_ref]
+    assert len(agent_refs) == 1
+    assert agent_refs[0].agent_id == agent_id
+    assert agent_refs[0].agent_name == AgentName("agent-one")
+
+
+def test_load_agent_refs_default_returns_empty_for_no_hosts(
+    fake_provider: MockProviderInstance, temp_mngr_ctx: MngrContext
+) -> None:
+    """Default load_agent_refs returns empty dict when provider has no hosts."""
+    fake_provider.mock_hosts = []
+
+    result = fake_provider.load_agent_refs(cg=temp_mngr_ctx.concurrency_group)
+
+    assert result == {}
