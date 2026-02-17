@@ -2043,12 +2043,20 @@ log "=== Shutdown script completed ==="
     def get_host(
         self,
         host: HostId | HostName,
+    ) -> HostInterface:
+        return self._get_host(host)
+
+    def _get_host(
+        self,
+        host: HostId | HostName,
         host_record: HostRecord | None = None,
     ) -> HostInterface:
         """Get a host by ID or name.
 
         First tries to find a running sandbox. If not found, falls back to
         the host record on the volume (for stopped hosts).
+
+        Allows you to pass in the HostRecord if you know if (an optimization so that it doesnt need to be loaded again)
         """
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
@@ -2374,7 +2382,7 @@ log "=== Shutdown script completed ==="
                 host_record = self._read_host_record(host_ref.host_id)
 
             with trace_span("Getting host for {}", host_ref.host_id, _is_trace_span_enabled=False):
-                host = self.get_host(host_ref.host_id, host_record)
+                host = self._get_host(host_ref.host_id, host_record)
 
             # For offline hosts, fall back to the default per-field collection
             if not isinstance(host, Host):
