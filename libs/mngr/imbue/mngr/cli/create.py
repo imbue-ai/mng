@@ -942,7 +942,7 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
     # When creating a new host from an external source (--source-agent or --source-host),
     # validate that the project inferred from the source matches the project inferred from
     # the local working directory. If they differ, the user must specify --project explicitly
-    # to avoid silently tagging the new host with the wrong project.
+    # to avoid silently tagging the agent with the wrong project.
     is_external_source = opts.source_agent is not None or opts.source_host is not None
     is_creating_new_host = opts.new_host is not None
     if is_external_source and is_creating_new_host:
