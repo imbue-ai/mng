@@ -548,3 +548,40 @@ def test_plugin_install_discover_and_remove(
 
     finally:
         _force_uninstall_dummy_plugin()
+
+
+@pytest.mark.timeout(60)
+def test_plugin_add_path_and_remove_via_mngr(
+    tmp_path: Path,
+) -> None:
+    """Test that `mngr plugin add --path` installs a local plugin and `mngr plugin remove` removes it.
+
+    Uses `uv run mngr` subprocesses for the full lifecycle. The install is
+    editable (as --path produces), so we install and immediately remove to
+    minimize the window where pytest-xdist workers might encounter the
+    editable .pth entry.
+    """
+    _force_uninstall_dummy_plugin()
+
+    plugin_dir = _create_dummy_plugin_package(tmp_path)
+
+    try:
+        # -- Install via mngr plugin add --path --
+        add_result = _run_mngr("plugin", "add", "--path", str(plugin_dir), "--format", "json")
+        add_output = json.loads(add_result.stdout)
+        assert add_output["package"] == _DUMMY_PLUGIN_NAME
+        assert add_output["has_entry_points"] is True
+
+        # -- Verify discovery in a fresh process --
+        list_result = _run_mngr("plugin", "list", "--format", "json")
+        list_output = json.loads(list_result.stdout)
+        plugin_names = [p["name"] for p in list_output["plugins"]]
+        assert "test-dummy" in plugin_names
+
+        # -- Remove via mngr plugin remove --
+        remove_result = _run_mngr("plugin", "remove", _DUMMY_PLUGIN_NAME, "--format", "json")
+        remove_output = json.loads(remove_result.stdout)
+        assert remove_output["package"] == _DUMMY_PLUGIN_NAME
+
+    finally:
+        _force_uninstall_dummy_plugin()
