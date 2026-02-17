@@ -2,12 +2,15 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 
+from imbue.mngr.config.data_types import AgentTypeConfig
+from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.hosts.common import compute_idle_seconds
 from imbue.mngr.hosts.common import determine_lifecycle_state
 from imbue.mngr.hosts.common import get_descendant_process_names
 from imbue.mngr.hosts.common import resolve_expected_process_name
 from imbue.mngr.hosts.common import timestamp_to_datetime
 from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentTypeName
 from imbue.mngr.primitives import CommandString
 
 # =========================================================================
@@ -128,26 +131,18 @@ def test_descendant_names_finds_nested_children() -> None:
 
 
 def test_resolve_expected_process_name_for_claude() -> None:
-    from imbue.mngr.config.data_types import MngrConfig
-
     config = MngrConfig.model_construct(agent_types={})
     result = resolve_expected_process_name("claude", CommandString("complex wrapper command"), config)
     assert result == "claude"
 
 
 def test_resolve_expected_process_name_for_simple_command() -> None:
-    from imbue.mngr.config.data_types import MngrConfig
-
     config = MngrConfig.model_construct(agent_types={})
     result = resolve_expected_process_name("custom", CommandString("/usr/bin/my-agent --flag"), config)
     assert result == "my-agent"
 
 
 def test_resolve_expected_process_name_for_custom_type_with_claude_parent() -> None:
-    from imbue.mngr.config.data_types import AgentTypeConfig
-    from imbue.mngr.config.data_types import MngrConfig
-    from imbue.mngr.primitives import AgentTypeName
-
     custom_config = AgentTypeConfig.model_construct(parent_type=AgentTypeName("claude"))
     config = MngrConfig.model_construct(agent_types={AgentTypeName("my-claude"): custom_config})
     result = resolve_expected_process_name("my-claude", CommandString("complex wrapper"), config)
@@ -155,8 +150,6 @@ def test_resolve_expected_process_name_for_custom_type_with_claude_parent() -> N
 
 
 def test_resolve_expected_process_name_for_bare_command() -> None:
-    from imbue.mngr.config.data_types import MngrConfig
-
     config = MngrConfig.model_construct(agent_types={})
     result = resolve_expected_process_name("unknown", CommandString("sleep"), config)
     assert result == "sleep"
