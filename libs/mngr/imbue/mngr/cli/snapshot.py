@@ -134,7 +134,15 @@ def _classify_mixed_identifiers(
     if not identifiers:
         return [], []
 
-    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
+    # Use try/except to gracefully handle provider errors (e.g. unreachable providers).
+    # Partial results are acceptable here since we're only classifying identifiers.
+    try:
+        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
+    except BaseMngrError as e:
+        logger.warning("Failed to load agents for identifier classification: {}", e)
+        # Treat all identifiers as host identifiers when agents cannot be loaded
+        return [], identifiers
+
     known_names_and_ids: set[str] = set()
     for agent_refs in agents_by_host.values():
         for agent_ref in agent_refs:
