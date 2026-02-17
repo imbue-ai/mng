@@ -9,6 +9,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import threading
 from collections.abc import Callable
 from collections.abc import Generator
@@ -664,7 +665,8 @@ def test_unset_vars_applied_during_agent_start(
         options=CreateAgentOptions(
             name=AgentName("test-agent"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 736249"),
+            # Background the sleep so the shell remains interactive for our echo commands
+            command=CommandString("sleep 736249 &"),
         ),
     )
 
@@ -672,7 +674,7 @@ def test_unset_vars_applied_during_agent_start(
 
     session_name = f"{mngr_test_prefix}{agent.name}"
 
-    # Wait for the tmux session to be fully ready before sending keys
+    # Wait for the tmux session to exist
     def session_ready() -> bool:
         result = host.execute_command(f"tmux has-session -t '{session_name}'")
         if not result.success:
@@ -680,7 +682,7 @@ def test_unset_vars_applied_during_agent_start(
         capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
         return capture_result.success and ("sleep 736249" in capture_result.stdout)
 
-    wait_for(session_ready, error_message="tmux session not ready")
+    wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
     # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
     # This lets us send echo commands to check environment variables.
@@ -706,7 +708,12 @@ def test_unset_vars_applied_during_agent_start(
         has_profile = "PROFILE_VALUE=UNSET" in output or "PROFILE_VALUE=" in output
         return has_histfile and has_profile
 
-    wait_for(check_output, error_message="Expected environment variables not found in tmux output")
+    wait_for(
+        check_output,
+        timeout=30.0,
+        poll_interval=0.5,
+        error_message="Expected environment variables not found in tmux output",
+    )
 
     host.stop_agents([agent.id])
 
@@ -719,6 +726,29 @@ def test_unset_vars_applied_during_agent_start(
 def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
     """Collect all pane PIDs and their descendant PIDs for a tmux session (across all windows)."""
     return host._collect_session_pids(session_name)
+
+
+def test_procps_ps_command_available() -> None:
+    """Verify that the `ps` command from procps is available.
+
+    The procps package provides essential process utilities (ps, pgrep, pkill).
+    Without it, process management in stop_agents() and process verification in tests fail.
+    This test exists to validate that the container environment includes procps.
+    """
+    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.stderr.write(f"PROCPS TEST FAILED: 'ps aux' returned {result.returncode}\n")
+        sys.stderr.write(f"stderr: {result.stderr}\n")
+        sys.stderr.write("The procps package is likely not installed. Install with: apt-get install procps\n")
+        sys.stderr.flush()
+        raise AssertionError(f"ps aux failed: {result.stderr}")
+
+    # Verify we get reasonable output (should include at least our own process)
+    if "PID" not in result.stdout and len(result.stdout.strip().split("\n")) <= 1:
+        sys.stderr.write("PROCPS TEST FAILED: 'ps aux' output looks wrong\n")
+        sys.stderr.write(f"stdout: {result.stdout}\n")
+        sys.stderr.flush()
+        raise AssertionError("ps aux output invalid")
 
 
 def test_stop_agent_kills_single_pane_processes(
@@ -772,7 +802,7 @@ def test_stop_agent_kills_single_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, error_message="Agent session and processes not cleaned up after stop")
+    wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
 def test_stop_agent_kills_multi_pane_processes(
@@ -832,7 +862,9 @@ def test_stop_agent_kills_multi_pane_processes(
                 return False
         return session_killed
 
-    wait_for(check_cleanup, error_message="Multi-pane agent session and processes not cleaned up after stop")
+    wait_for(
+        check_cleanup, timeout=10, error_message="Multi-pane agent session and processes not cleaned up after stop"
+    )
 
 
 def test_start_agent_creates_process_group(

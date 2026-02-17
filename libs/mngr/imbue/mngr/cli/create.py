@@ -278,7 +278,7 @@ class CreateCliOptions(CommonCliOptions):
     "--project",
     help="Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name]",
 )
-@optgroup.option("--label", multiple=True, help="Agent label KEY=VALUE [repeatable]")
+@optgroup.option("--label", multiple=True, help="Agent label KEY=VALUE [repeatable] [experimental]")
 @optgroup.option("--tag", multiple=True, help="Host metadata tag KEY=VALUE [repeatable]")
 @optgroup.option("--host-name", help="Name for the new host")
 @optgroup.option(
