@@ -848,7 +848,8 @@ def _handle_batch_create(
     if opts.await_agent_stopped:
         raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
 
-    # Shared setup (done once for all agents)
+    # Shared setup (done once, but each iteration below is otherwise
+    # equivalent to running `mngr create` independently)
     agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
     project_name = _parse_project_name(source_location, opts, mngr_ctx)
@@ -858,26 +859,7 @@ def _handle_batch_create(
     if opts.ensure_clean:
         _ensure_clean_work_dir(source_location)
 
-    # Determine host strategy: --in creates a new host per agent, otherwise share one host
-    is_new_host_per_agent = opts.new_host is not None
-
-    # For existing/local hosts, resolve once and reuse for all agents.
-    # When --in is used, each agent gets a fresh host (resolved per-iteration below).
-    shared_resolved_target: OnlineHostInterface | NewHostOptions | None = None
-    if not is_new_host_per_agent:
-        target_host_ref = _parse_target_host(
-            opts=opts,
-            project_name=project_name,
-            agent_and_host_loader=agent_and_host_loader,
-            lifecycle=host_lifecycle,
-        )
-        shared_resolved_target = _resolve_target_host(target_host_ref, mngr_ctx, is_start_desired=opts.start_host)
-
-        # Set tags once on the shared host
-        if isinstance(shared_resolved_target, OnlineHostInterface):
-            _apply_tags_to_host(shared_resolved_target, opts.tag)
-
-    # Create agents sequentially
+    # Create agents sequentially (each iteration is equivalent to a separate `mngr create`)
     results: list[CreateAgentResult] = []
     for agent_idx in range(opts.count):
         # Parse agent options (auto-generates a unique name each time since name is None)
@@ -898,27 +880,23 @@ def _handle_batch_create(
                 ),
             )
 
-        # Determine target host for this agent
-        if is_new_host_per_agent:
-            # Each agent gets a new host with a unique auto-generated name
-            per_agent_host_ref = _parse_target_host(
-                opts=opts,
-                project_name=project_name,
-                agent_and_host_loader=agent_and_host_loader,
-                lifecycle=host_lifecycle,
-            )
-            target_for_create: OnlineHostInterface | NewHostOptions = _resolve_target_host(
-                per_agent_host_ref, mngr_ctx, is_start_desired=opts.start_host
-            )
-        elif shared_resolved_target is not None:
-            target_for_create = shared_resolved_target
-        else:
-            raise UserInputError("No target host resolved for batch creation.")
+        # Parse and resolve target host (fresh each iteration, so --in creates a new host each time)
+        target_host_ref = _parse_target_host(
+            opts=opts,
+            project_name=project_name,
+            agent_and_host_loader=agent_and_host_loader,
+            lifecycle=host_lifecycle,
+        )
+        resolved_target = _resolve_target_host(target_host_ref, mngr_ctx, is_start_desired=opts.start_host)
+
+        # Set tags on existing hosts
+        if isinstance(resolved_target, OnlineHostInterface):
+            _apply_tags_to_host(resolved_target, opts.tag)
 
         # Early work dir creation for existing hosts (same logic as single-create path)
         is_work_dir_created = False
-        if agent_opts.is_copy_immediate and isinstance(target_for_create, OnlineHostInterface):
-            work_dir_path = target_for_create.create_agent_work_dir(
+        if agent_opts.is_copy_immediate and isinstance(resolved_target, OnlineHostInterface):
+            work_dir_path = resolved_target.create_agent_work_dir(
                 source_location.host, source_location.path, agent_opts
             )
             agent_opts = agent_opts.model_copy_update(
@@ -930,7 +908,7 @@ def _handle_batch_create(
         logger.info("Creating agent {} ({}/{})...", agent_opts.name, agent_idx + 1, opts.count)
         create_result = api_create(
             source_location=source_location,
-            target_host=target_for_create,
+            target_host=resolved_target,
             agent_options=agent_opts,
             mngr_ctx=mngr_ctx,
             create_work_dir=not is_work_dir_created,
