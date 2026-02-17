@@ -59,7 +59,7 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 | `--in`, `--new-host` | text | Create a new host using provider (docker, modal, ...) | None |
 | `--host`, `--target-host` | text | Use an existing host (by name or ID) [default: local] | None |
 | `--project` | text | Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name] | None |
-| `--label` | text | Agent label KEY=VALUE [repeatable] | None |
+| `--label` | text | Agent label KEY=VALUE [repeatable] [experimental] | None |
 | `--tag` | text | Host metadata tag KEY=VALUE [repeatable] | None |
 | `--host-name` | text | Name for the new host | None |
 | `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
@@ -235,8 +235,8 @@ Provider: modal
                           RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
     --cidr-allowlist CIDR Restrict network access to the specified CIDR range (e.g., 203.0.113.0/24) [experimental].
                           Can be specified multiple times.
-    --offline             Block all outbound network access from the sandbox. Default: off
-    --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox. NAME is the
+    --offline             Block all outbound network access from the sandbox [experimental]. Default: off
+    --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox [experimental]. NAME is the
                           volume name on Modal (created if it doesn't exist). Can be specified
                           multiple times.
   No start arguments are supported for the modal provider.

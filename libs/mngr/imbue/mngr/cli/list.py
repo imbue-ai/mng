@@ -162,7 +162,7 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--label",
     multiple=True,
-    help="Show only agents with this label (format: KEY=VALUE, repeatable)",
+    help="Show only agents with this label (format: KEY=VALUE, repeatable) [experimental]",
 )
 @optgroup.option(
     "--tag",

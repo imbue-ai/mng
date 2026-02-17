@@ -45,7 +45,7 @@ mngr list [OPTIONS]
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
 | `--project` | text | Show only agents with this project label (repeatable) | None |
-| `--label` | text | Show only agents with this label (format: KEY=VALUE, repeatable) | None |
+| `--label` | text | Show only agents with this label (format: KEY=VALUE, repeatable) [experimental] | None |
 | `--tag` | text | Show only agents on hosts with this tag (format: KEY=VALUE, repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 

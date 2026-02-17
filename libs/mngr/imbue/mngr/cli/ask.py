@@ -372,7 +372,7 @@ class AskCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
-    """Chat with mngr for help.
+    """Chat with mngr for help. [experimental]
 
     Ask mngr a question and it will generate the appropriate CLI command.
     If no query is provided, shows general help.
@@ -465,7 +465,7 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 # Register help metadata for git-style help formatting
 _ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
     name="mngr-ask",
-    one_line_description="Chat with mngr for help",
+    one_line_description="Chat with mngr for help [experimental]",
     synopsis="mngr ask [--execute] QUERY...",
     description="""Chat directly with mngr for help -- it can create the
 necessary CLI call for pretty much anything you want to do.

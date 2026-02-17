@@ -10,7 +10,7 @@ mngr ask [--execute] QUERY...
 ```
 
 
-Chat with mngr for help.
+Chat with mngr for help. [experimental]
 
 Ask mngr a question and it will generate the appropriate CLI command.
 If no query is provided, shows general help.
