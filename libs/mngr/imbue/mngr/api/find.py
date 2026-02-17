@@ -10,7 +10,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
-from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentNotFoundError
@@ -423,7 +423,6 @@ class AgentMatch(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
-@pure
 def find_agents_by_identifiers_or_state(
     agent_identifiers: Sequence[str],
     filter_all: bool,
@@ -439,35 +438,39 @@ def find_agents_by_identifiers_or_state(
 
     Raises AgentNotFoundError if any identifier does not match an agent.
     """
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
 
-    matches: list[AgentMatch] = []
+    # Collect candidate matches from the lightweight agent references
+    candidates: list[AgentMatch] = []
     matched_identifiers: set[str] = set()
 
-    for agent_ref in list_agents(mngr_ctx, is_streaming=False).agents:
-        should_include: bool
-        if filter_all:
-            should_include = target_state is None or agent_ref.state == target_state
-        elif agent_identifiers:
-            agent_name_str = str(agent_ref.name)
-            agent_id_str = str(agent_ref.id)
+    for host_ref, agent_refs in agents_by_host.items():
+        for agent_ref in agent_refs:
+            should_include: bool
+            if filter_all:
+                # State filtering is deferred below when target_state is set
+                should_include = True
+            elif agent_identifiers:
+                agent_name_str = str(agent_ref.agent_name)
+                agent_id_str = str(agent_ref.agent_id)
 
-            should_include = False
-            for identifier in agent_identifiers:
-                if identifier == agent_name_str or identifier == agent_id_str:
-                    should_include = True
-                    matched_identifiers.add(identifier)
-        else:
-            should_include = False
+                should_include = False
+                for identifier in agent_identifiers:
+                    if identifier == agent_name_str or identifier == agent_id_str:
+                        should_include = True
+                        matched_identifiers.add(identifier)
+            else:
+                should_include = False
 
-        if should_include:
-            matches.append(
-                AgentMatch(
-                    agent_id=agent_ref.id,
-                    agent_name=agent_ref.name,
-                    host_id=agent_ref.host.id,
-                    provider_name=agent_ref.host.provider_name,
+            if should_include:
+                candidates.append(
+                    AgentMatch(
+                        agent_id=agent_ref.agent_id,
+                        agent_name=agent_ref.agent_name,
+                        host_id=host_ref.host_id,
+                        provider_name=host_ref.provider_name,
+                    )
                 )
-            )
 
     # Verify all specified identifiers were found
     if agent_identifiers:
@@ -475,6 +478,27 @@ def find_agents_by_identifiers_or_state(
         if unmatched_identifiers:
             unmatched_list = ", ".join(sorted(unmatched_identifiers))
             raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
+
+    # If no state filtering is needed, return the candidates directly
+    if not filter_all or target_state is None:
+        return candidates
+
+    # State filtering: go online to each host and check lifecycle state
+    matches: list[AgentMatch] = []
+    candidates_by_host = group_agents_by_host(candidates)
+    for host_key, agent_list in candidates_by_host.items():
+        host_id_str, _ = host_key.split(":", 1)
+        provider_name = agent_list[0].provider_name
+        provider = get_provider_instance(provider_name, mngr_ctx)
+        host = provider.get_host(HostId(host_id_str))
+        if not isinstance(host, OnlineHostInterface):
+            continue
+        agents = host.get_agents()
+        for candidate in agent_list:
+            for agent in agents:
+                if agent.id == candidate.agent_id and agent.get_lifecycle_state() == target_state:
+                    matches.append(candidate)
+                    break
 
     return matches
 

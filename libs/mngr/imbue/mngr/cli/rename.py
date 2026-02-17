@@ -6,7 +6,6 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mngr.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -132,11 +131,11 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
         _output(f"Agent already named: {new_agent_name}", output_opts)
         return
 
-    # Check for name conflicts
-    existing_agents = list_agents(mngr_ctx, is_streaming=False)
-    for existing_agent in existing_agents.agents:
-        if existing_agent.name == new_agent_name and existing_agent.id != agent.id:
-            raise UserInputError(f"An agent named '{new_agent_name}' already exists (ID: {existing_agent.id})")
+    # Check for name conflicts using the already-loaded agent references
+    for agent_refs in agents_by_host.values():
+        for agent_ref in agent_refs:
+            if agent_ref.agent_name == new_agent_name and agent_ref.agent_id != agent.id:
+                raise UserInputError(f"An agent named '{new_agent_name}' already exists (ID: {agent_ref.agent_id})")
 
     # Handle dry-run mode
     if opts.dry_run:
