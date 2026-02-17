@@ -483,7 +483,8 @@ def find_agents_by_identifiers_or_state(
     if not filter_all or target_state is None:
         return candidates
 
-    # State filtering: go online to each host and check lifecycle state
+    # State filtering: go online to each host and check lifecycle state.
+    # Agents on offline hosts are treated as STOPPED.
     matches: list[AgentMatch] = []
     candidates_by_host = group_agents_by_host(candidates)
     for host_key, agent_list in candidates_by_host.items():
@@ -492,6 +493,9 @@ def find_agents_by_identifiers_or_state(
         provider = get_provider_instance(provider_name, mngr_ctx)
         host = provider.get_host(HostId(host_id_str))
         if not isinstance(host, OnlineHostInterface):
+            # Offline hosts: all agents are considered STOPPED
+            if target_state == AgentLifecycleState.STOPPED:
+                matches.extend(agent_list)
             continue
         agents = host.get_agents()
         for candidate in agent_list:
