@@ -99,7 +99,7 @@ def parse_source_and_invoke_create(
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def clone(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Create a new agent by cloning an existing one.
+    """Create a new agent by cloning an existing one. [experimental]
 
     \b
     This is a convenience wrapper around `mngr create --from-agent <source>`.
@@ -131,9 +131,9 @@ def _reject_source_agent_options(
 
 _CLONE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-clone",
-    one_line_description="Create a new agent by cloning an existing one",
+    one_line_description="Create a new agent by cloning an existing one [experimental]",
     synopsis="mngr clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-    description="""Create a new agent by cloning an existing one.
+    description="""Create a new agent by cloning an existing one. [experimental]
 
 This is a convenience wrapper around `mngr create --from-agent <source>`.
 The first argument is the source agent to clone from. An optional second

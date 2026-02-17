@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.connect import ConnectCliOptions
 from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentId

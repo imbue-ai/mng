@@ -9,7 +9,7 @@
 mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]
 ```
 
-Move an agent to a different host by cloning it and destroying the original.
+Move an agent to a different host by cloning it and destroying the original. [experimental]
 
 This is equivalent to running `mngr clone <source>` followed by
 `mngr destroy --force <source>`. The first argument is the source agent to

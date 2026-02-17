@@ -23,7 +23,6 @@ from imbue.imbue_common.pure import pure
 from imbue.mngr.api.cleanup import execute_cleanup
 from imbue.mngr.api.cleanup import find_agents_for_cleanup
 from imbue.mngr.api.data_types import CleanupResult
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
@@ -39,6 +38,7 @@ from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.primitives import CleanupAction
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
@@ -145,7 +145,7 @@ class CleanupCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def cleanup(ctx: click.Context, **kwargs) -> None:
-    """Destroy or stop agents and hosts to free up resources.
+    """Destroy or stop agents and hosts to free up resources. [experimental]
 
     When running interactively, provides an interactive interface for reviewing
     and selecting agents. Use --yes to skip prompts.
@@ -677,7 +677,7 @@ def _emit_result(
 # Register help metadata for git-style help formatting
 _CLEANUP_HELP_METADATA = CommandHelpMetadata(
     name="mngr-cleanup",
-    one_line_description="Destroy or stop agents and hosts to free up resources",
+    one_line_description="Destroy or stop agents and hosts to free up resources [experimental]",
     synopsis="mngr [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
     "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",
     description="""Destroy or stop agents and hosts in order to free up resources.
