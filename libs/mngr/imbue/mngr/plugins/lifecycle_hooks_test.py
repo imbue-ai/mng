@@ -24,6 +24,8 @@ class _LifecycleTracker:
     """A test plugin that records lifecycle hook invocations."""
 
     def __init__(self) -> None:
+        # Real plugins are plain classes with no __init__ (just @hookimpl methods).
+        # We need __init__ here to hold per-instance test state.
         self.hook_log: list[str] = []
         self.hook_data: dict[str, Any] = {}
 
