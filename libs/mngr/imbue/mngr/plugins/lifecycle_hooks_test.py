@@ -64,8 +64,8 @@ class _AbortingPlugin:
         raise click.Abort()
 
 
-class _NoinoCliOptions(CommonCliOptions):
-    """Minimal options class for the test 'noino' command."""
+class _NoopCliOptions(CommonCliOptions):
+    """Minimal options class for the test 'noop' command."""
 
 
 class _FailingCliOptions(CommonCliOptions):
@@ -93,12 +93,12 @@ def _test_cli_with_plugins(
         pm.hook.on_startup()
         ctx.call_on_close(lambda: pm.hook.on_shutdown())
 
-    @click.command(name="noino")
+    @click.command(name="noop")
     @add_common_options
     @click.pass_context
-    def noino_cmd(ctx: click.Context, **kwargs: Any) -> None:
+    def noop_cmd(ctx: click.Context, **kwargs: Any) -> None:
         """A simple test command that does nothing."""
-        setup_command_context(ctx=ctx, command_name="noino", command_class=_NoinoCliOptions)
+        setup_command_context(ctx=ctx, command_name="noop", command_class=_NoopCliOptions)
 
     @click.command(name="failing")
     @add_common_options
@@ -108,7 +108,7 @@ def _test_cli_with_plugins(
         setup_command_context(ctx=ctx, command_name="failing", command_class=_FailingCliOptions)
         raise PluginMngrError("deliberate failure")
 
-    test_cli.add_command(noino_cmd)
+    test_cli.add_command(noop_cmd)
     test_cli.add_command(failing_cmd)
 
     try:
@@ -147,29 +147,29 @@ def lifecycle_fixture() -> Generator[_LifecycleFixture, None, None]:
 
 def test_on_startup_called_on_cli_invocation(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_startup fires when the CLI group is invoked."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert "on_startup" in lifecycle_fixture.hook_log
 
 
 def test_on_shutdown_called_after_cli_completes(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_shutdown fires when the CLI context closes."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert "on_shutdown" in lifecycle_fixture.hook_log
 
 
 def test_on_before_command_called_with_correct_name(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_before_command receives the command name."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert "on_before_command" in lifecycle_fixture.hook_log
-    assert lifecycle_fixture.hook_data.get("before_command_name") == "noino"
+    assert lifecycle_fixture.hook_data.get("before_command_name") == "noop"
 
 
 def test_on_before_command_receives_params_dict(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_before_command receives a dict of command parameters."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     params = lifecycle_fixture.hook_data.get("before_command_params")
     assert isinstance(params, dict)
@@ -179,10 +179,10 @@ def test_on_before_command_receives_params_dict(lifecycle_fixture: _LifecycleFix
 
 def test_on_after_command_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_after_command fires after a successful command."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert "on_after_command" in lifecycle_fixture.hook_log
-    assert lifecycle_fixture.hook_data.get("after_command_name") == "noino"
+    assert lifecycle_fixture.hook_data.get("after_command_name") == "noop"
 
 
 def test_on_after_command_not_called_on_error(lifecycle_fixture: _LifecycleFixture) -> None:
@@ -203,14 +203,14 @@ def test_on_error_called_when_command_raises(lifecycle_fixture: _LifecycleFixtur
 
 def test_on_error_not_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_error does NOT fire when a command succeeds."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert "on_error" not in lifecycle_fixture.hook_log
 
 
 def test_lifecycle_hook_ordering(lifecycle_fixture: _LifecycleFixture) -> None:
     """Hooks fire in the correct order: startup, before, after, shutdown."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
 
     assert lifecycle_fixture.hook_log == ["on_startup", "on_before_command", "on_after_command", "on_shutdown"]
 
@@ -227,7 +227,7 @@ def test_on_before_command_can_abort_execution() -> None:
     tracker = _LifecycleTracker()
     with _test_cli_with_plugins([_AbortingPlugin(), tracker]) as cli:
         runner = CliRunner()
-        result = runner.invoke(cli, ["noino"])
+        result = runner.invoke(cli, ["noop"])
 
         # The command should have been aborted (non-zero exit or Abort)
         assert result.exit_code != 0
