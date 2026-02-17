@@ -128,9 +128,8 @@ def test_snapshot_unrecognized_subcommand_forwards_to_create(
 ) -> None:
     """Running `mngr snapshot nonexistent` should forward to `snapshot create nonexistent`.
 
-    The local provider accepts any HostName (since there's only one host),
-    so "nonexistent" resolves to the local host and fails with "snapshots
-    not supported" rather than "not found". The key assertion is that it
+    The local provider only accepts "localhost" as a host name, so
+    "nonexistent" fails with "not found". The key assertion is that it
     does NOT say "No such command".
     """
     result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
