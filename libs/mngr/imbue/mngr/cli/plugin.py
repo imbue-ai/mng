@@ -1,5 +1,6 @@
 import importlib.metadata
 import os
+import re
 import tomllib
 from enum import auto
 from pathlib import Path
@@ -250,6 +251,22 @@ def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
     return ("uv", "pip", "uninstall", package_name)
 
 
+# Matches uv pip install output lines for newly added packages, e.g. " + mngr-opencode==0.1.0"
+_UV_INSTALLED_PACKAGE_RE: Final[re.Pattern[str]] = re.compile(r"^\s*\+\s+(\S+)==", re.MULTILINE)
+
+
+@pure
+def _extract_installed_package_name(install_stderr: str) -> str | None:
+    """Extract the first newly-installed package name from uv pip install stderr.
+
+    Parses lines like ' + package-name==1.0.0' from uv's output. Returns
+    the first match, which for a git URL install is typically the primary package.
+    Returns None if no newly-installed package lines are found.
+    """
+    match = _UV_INSTALLED_PACKAGE_RE.search(install_stderr)
+    return match.group(1) if match is not None else None
+
+
 def _resolve_package_name_for_removal(specifier: str, specifier_type: PluginSpecifierType) -> str:
     """Resolve the package name from a specifier for removal.
 
@@ -482,12 +499,16 @@ def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
         ctx.exit(1)
 
 
-def _resolve_package_name_after_install(specifier: str, specifier_type: PluginSpecifierType) -> str:
+def _resolve_package_name_after_install(
+    specifier: str,
+    specifier_type: PluginSpecifierType,
+    install_stderr: str,
+) -> str:
     """Resolve the installed package name from a specifier after installation.
 
     For PyPI packages, extracts the canonical name from the requirement string.
     For local paths, reads the name from pyproject.toml (falls back to the raw specifier).
-    For git URLs, returns the raw specifier (the package name cannot be reliably derived).
+    For git URLs, parses the uv install output to find the installed package name.
     """
     match specifier_type:
         case PluginSpecifierType.PYPI_PACKAGE:
@@ -498,7 +519,7 @@ def _resolve_package_name_after_install(specifier: str, specifier_type: PluginSp
             except PluginSpecifierError:
                 return specifier
         case PluginSpecifierType.GIT_URL:
-            return specifier
+            return _extract_installed_package_name(install_stderr) or specifier
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -524,14 +545,14 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
 
     with log_span("Installing plugin package '{}'", specifier):
         try:
-            mngr_ctx.concurrency_group.run_process_to_completion(command)
+            result = mngr_ctx.concurrency_group.run_process_to_completion(command)
         except ProcessError as e:
             raise AbortError(
                 f"Failed to install plugin package '{specifier}': {e.stderr.strip() or e.stdout.strip()}",
                 original_exception=e,
             ) from e
 
-    resolved_package_name = _resolve_package_name_after_install(specifier, specifier_type)
+    resolved_package_name = _resolve_package_name_after_install(specifier, specifier_type, result.stderr)
     has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
     _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
 

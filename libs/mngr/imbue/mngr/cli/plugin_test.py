@@ -15,6 +15,7 @@ from imbue.mngr.cli.plugin import _emit_plugin_add_result
 from imbue.mngr.cli.plugin import _emit_plugin_list
 from imbue.mngr.cli.plugin import _emit_plugin_remove_result
 from imbue.mngr.cli.plugin import _emit_plugin_toggle_result
+from imbue.mngr.cli.plugin import _extract_installed_package_name
 from imbue.mngr.cli.plugin import _gather_plugin_info
 from imbue.mngr.cli.plugin import _get_field_value
 from imbue.mngr.cli.plugin import _is_plugin_enabled
@@ -510,6 +511,31 @@ def test_build_uv_pip_uninstall_command() -> None:
     """_build_uv_pip_uninstall_command should produce a valid uv pip uninstall command."""
     cmd = _build_uv_pip_uninstall_command("mngr-opencode")
     assert cmd == ("uv", "pip", "uninstall", "mngr-opencode")
+
+
+# =============================================================================
+# Tests for _extract_installed_package_name
+# =============================================================================
+
+
+def test_extract_installed_package_name_finds_new_package() -> None:
+    """_extract_installed_package_name should parse the first + line from uv output."""
+    stderr = (
+        "Resolved 5 packages in 100ms\nInstalled 2 packages in 50ms\n + mngr-cool-plugin==0.1.0\n + some-dep==1.2.3\n"
+    )
+    assert _extract_installed_package_name(stderr) == "mngr-cool-plugin"
+
+
+def test_extract_installed_package_name_no_new_packages() -> None:
+    """_extract_installed_package_name should return None when no + lines present."""
+    stderr = "Resolved 1 package in 10ms\nAudited 1 package in 5ms\n"
+    assert _extract_installed_package_name(stderr) is None
+
+
+def test_extract_installed_package_name_ignores_reinstalls() -> None:
+    """_extract_installed_package_name should not match ~ (reinstall) lines."""
+    stderr = " ~ existing-package==1.0.0\n"
+    assert _extract_installed_package_name(stderr) is None
 
 
 # =============================================================================
