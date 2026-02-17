@@ -109,7 +109,7 @@ def create_sandbox() -> str:
     print(f"Tags set on sandbox: {sandbox.get_tags()}")
 
     # Verify the sandbox is findable by app_id alone
-    print(f"\nVerifying sandbox is listed (app_id only)...")
+    print("\nVerifying sandbox is listed (app_id only)...")
     found_by_app = list(modal.Sandbox.list(app_id=app.app_id))
     print(f"Sandboxes found by app_id only: {len(found_by_app)}")
     for sb in found_by_app:
@@ -154,7 +154,7 @@ def query_sandbox(sandbox_id: str) -> bool:
 
     # Verify the tags match what we're querying for
     actual_tags = target_sandbox.get_tags()
-    print(f"\n--- Verifying tag match ---")
+    print("\n--- Verifying tag match ---")
     print(f"Query tags:  {tags}")
     print(f"Actual tags: {actual_tags}")
     print(f"Tags match:  {tags.items() <= actual_tags.items()}")
@@ -184,7 +184,7 @@ def query_sandbox(sandbox_id: str) -> bool:
         print(f"  - Sandbox {sandbox_id} EXISTS (found by app_id only)")
         print(f"  - Sandbox has tags: {actual_tags}")
         print(f"  - Query tags match: {tags}")
-        print(f"  - But Sandbox.list(app_id=..., tags=...) returns EMPTY!")
+        print("  - But Sandbox.list(app_id=..., tags=...) returns EMPTY!")
         print("")
         print("This appears to be a Modal bug where Sandbox.list() with both")
         print("app_id and tags filters fails for non-default environments.")
@@ -251,7 +251,7 @@ def main() -> int:
     if args.command == "create":
         sandbox_id = create_sandbox()
         print(f"\nSandbox created: {sandbox_id}")
-        print(f"\nTo query (in a separate process):")
+        print("\nTo query (in a separate process):")
         print(f"  uv run python scripts/modal_sandbox_list_bug_repro.py query {sandbox_id}")
         return 0
 
