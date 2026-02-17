@@ -157,7 +157,7 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def provision(ctx: click.Context, **kwargs: Any) -> None:
-    """Re-run provisioning on an existing agent.
+    """Re-run provisioning on an existing agent. [experimental]
 
     This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
     user commands, env vars) on an agent that has already been created. Useful for
@@ -268,7 +268,7 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 _PROVISION_HELP_METADATA = CommandHelpMetadata(
     name="mngr-provision",
-    one_line_description="Re-run provisioning on an existing agent",
+    one_line_description="Re-run provisioning on an existing agent [experimental]",
     synopsis="mngr [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
     description="""Re-run provisioning on an existing agent.
 
