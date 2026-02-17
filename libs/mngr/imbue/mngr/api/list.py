@@ -526,10 +526,16 @@ def _assemble_host_info(
                 # Get activity config from host
                 activity_config = host.get_activity_config()
 
-                # Activity times from file mtimes
+                # Activity times from file mtimes.
+                # User and agent activity are per-agent (in agent state dir).
+                # SSH activity is per-host (in host dir) since SSH connects to the host, not an agent.
                 user_activity = agent.get_reported_activity_time(ActivitySource.USER)
                 agent_activity = agent.get_reported_activity_time(ActivitySource.AGENT)
-                ssh_activity = agent.get_reported_activity_time(ActivitySource.SSH)
+                ssh_activity = (
+                    host.get_reported_activity_time(ActivitySource.SSH)
+                    if isinstance(host, OnlineHostInterface)
+                    else None
+                )
 
                 # start_time from activity/start file mtime (not the status/start_time file)
                 start_time = agent.get_reported_activity_time(ActivitySource.START)
