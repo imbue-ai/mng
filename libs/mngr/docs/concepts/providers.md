@@ -4,28 +4,24 @@ A **provider instance** creates and manages [hosts](./hosts.md). Each provider i
 
 From the perspective of `[pyinfra](https://pyinfra.com/)` (the tool we suggest for [provisioning](./provisioning.md)), you can think of provider instances as "something that mutates the inventory" (eg, create, destroy, stop, start, etc.)
 
-There are some built-in provider instances (`local` and `local_docker`), but you generally define your own in your `mngr` settings:
+There is one built-in provider instance (`local`), but you generally define your own in your `mngr` settings:
 
 ```toml
-[[providers]]
-name = "my-aws-prod"
+[providers.my-aws-prod]
 backend = "aws"
 region = "us-east-1"
 profile = "production"
 
-[[providers]]
-name = "my-aws-dev"
+[providers.my-aws-dev]
 backend = "aws"
 region = "us-west-2"
 profile = "development"
 
-[[providers]]
-name = "remote-docker"
+[providers.remote-docker]
 backend = "docker"
 host = "ssh://user@server"
 
-[[providers]]
-name = "team-mngr"
+[providers.team-mngr]
 backend = "mngr"
 url = "https://mngr.internal.company.com"
 ```
@@ -36,9 +32,9 @@ url = "https://mngr.internal.company.com"
 
 A special provider instance that is always available. Runs agents directly on your machine with no isolation. Automatically available--no configuration required.
 
-### local_docker [future]
+### docker [future]
 
-Runs agents in Docker containers on your local machine. Automatically available as long as `docker` is installed.
+Runs agents in Docker containers on your local machine. Requires `docker` to be installed.
 
 Provides container isolation while keeping everything local. Uses `docker` commands directly to manage containers.
 
@@ -56,7 +52,7 @@ Provider instances must handle:
 
 `mngr` handles higher-level concerns: agent lifecycle, idle detection, port forwarding, and file sync.
 
-See [`imbue/mngr/interfaces/provider.py`](../../imbue/mngr/interfaces/provider.py) for the full provider interface.
+See [`imbue/mngr/interfaces/provider_instance.py`](../../imbue/mngr/interfaces/provider_instance.py) and [`imbue/mngr/interfaces/provider_backend.py`](../../imbue/mngr/interfaces/provider_backend.py) for the full provider interfaces.
 
 ## State Storage
 

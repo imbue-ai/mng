@@ -4,6 +4,6 @@ Commands that target multiple agents/hosts must specify the behavior when the co
 
 The options are:
 
-- continue-and-warn: proceed with the command and log warnings for any hosts where the command did not succeed
-- fail-immediately: abort the command as soon as a command fails on any host
+- continue: proceed with the command and log warnings for any hosts where the command did not succeed
+- abort: abort the command as soon as a command fails on any host
 - retry-until-success [future]: keep retrying until all hosts have succeeded

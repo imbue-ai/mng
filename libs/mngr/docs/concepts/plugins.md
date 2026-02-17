@@ -84,8 +84,8 @@ These hooks can be used to customize behavior when interacting with individual a
 | Hook                                | Description                                                                                           |
 |-------------------------------------|-------------------------------------------------------------------------------------------------------|
 | `on_agent_collected`                | Called once per agent (per command where we collect this agent.)                                      |
-| `on_before_agent_create`            | Before creating an agent                                                                              |
-| `on_after_agent_create`             | After all steps have been completed to create an agent and it is started                              |
+| `on_agent_created`                  | Called after an agent has been created                                                                 |
+| `on_agent_destroyed`               | Called before an agent is destroyed                                                                    |
 | `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
 | `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
 | `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
@@ -125,6 +125,7 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 `mngr` ships with built-in plugins for common agent types:
 
 - **claude**: Claude Code with default configuration
+- **code-guardian**: Claude Code with a skill for identifying code-level inconsistencies
 - **codex**: OpenAI Codex integration
 
 And for the basic provider backends:
@@ -132,6 +133,7 @@ And for the basic provider backends:
 - **local**: Local host backend
 - **docker** [future]: Docker-based host backend
 - **modal**: Modal cloud host backend
+- **ssh**: SSH-based host backend (connects to pre-configured hosts)
 
 Utility plugins [future] for additional features:
 

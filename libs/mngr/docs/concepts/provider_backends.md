@@ -26,6 +26,7 @@ Each provider backend has different trade-offs:
 - **Local**: Fast iteration with trusted agents. No overhead, but no isolation.
 - **Docker** [future]: Isolation without cloud costs. Good for untrusted agents on your machine.
 - **Modal**: Full isolation in the cloud. Best for untrusted agents or long-running work. Access from anywhere.
+- **SSH**: Connect to pre-configured remote hosts. Good for existing infrastructure or managed servers.
 
 ## Custom Provider Backends
 

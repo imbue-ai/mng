@@ -74,9 +74,19 @@ for canonical, aliases in COMMAND_ALIASES.items():
 
 
 class AliasAwareGroup(click.Group):
-    """Custom click.Group that shows aliases inline with commands in --help."""
+    """Custom click.Group that shows aliases inline with commands in --help.
+
+    When no subcommand is given, defaults to 'create'. When an unrecognized
+    subcommand is given, it is treated as arguments to 'create' (e.g.
+    ``mngr my-task`` is equivalent to ``mngr create my-task``).
+    """
 
     def invoke(self, ctx: click.Context) -> Any:
+        # Default to 'create' when no subcommand is given.
+        # Mutate the list in place rather than reassigning the property,
+        # since Click's type stubs mark protected_args as read-only.
+        if not ctx.protected_args and not ctx.args:
+            ctx.protected_args.append("create")
         try:
             return super().invoke(ctx)
         except NotImplementedError as e:
@@ -87,6 +97,17 @@ class AliasAwareGroup(click.Group):
             if ctx.meta.get("is_error_reporting_enabled", False):
                 handle_unexpected_error(e)
             raise
+
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """Resolve command, defaulting to 'create' for unrecognized commands."""
+        if args:
+            cmd = self.get_command(ctx, args[0])
+            if cmd is None:
+                # Not a recognized command or alias -- treat as args to 'create'
+                return super().resolve_command(ctx, ["create"] + args)
+        return super().resolve_command(ctx, args)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""

@@ -9,3 +9,9 @@ The following methods are available for plugins:
 | `register_cli_commands`      | Define an entirely new CLI command                                                                                                                         |
 | `register_cli_options`       | Add custom CLI options to any existing command's schema so that they appear in `--help`                                                                    |
 | `override_command_options`   | Override or modify command options after CLI parsing and config defaults, but before the command options object is created                                 |
+| `on_load_config`             | Called when loading configuration, before final validation. Receives the current config dict and can modify it.                                            |
+| `on_before_create`           | Called at the start of `create()`, before any work is done                                                                                                 |
+| `on_agent_created`           | Called after an agent has been created                                                                                                                      |
+| `on_agent_destroyed`         | Called before an agent is destroyed                                                                                                                        |
+| `on_host_created`            | Called after a host has been created                                                                                                                       |
+| `on_host_destroyed`          | Called before a host is destroyed                                                                                                                          |
