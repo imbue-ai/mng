@@ -6,6 +6,7 @@ from typing import Any
 
 import click
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 import imbue.mngr.main
@@ -17,39 +18,39 @@ from imbue.mngr.main import AliasAwareGroup
 from imbue.mngr.main import reset_plugin_manager
 from imbue.mngr.plugins import hookspecs
 
-# Module-level container to capture hook invocations from test plugins.
-_hook_log: list[str] = []
-_hook_data: dict[str, Any] = {}
-
 
 class _LifecycleTracker:
     """A test plugin that records lifecycle hook invocations."""
 
+    def __init__(self) -> None:
+        self.hook_log: list[str] = []
+        self.hook_data: dict[str, Any] = {}
+
     @hookimpl
     def on_startup(self) -> None:
-        _hook_log.append("on_startup")
+        self.hook_log.append("on_startup")
 
     @hookimpl
     def on_shutdown(self) -> None:
-        _hook_log.append("on_shutdown")
+        self.hook_log.append("on_shutdown")
 
     @hookimpl
     def on_before_command(self, command_name: str, command_params: dict[str, Any]) -> None:
-        _hook_log.append("on_before_command")
-        _hook_data["before_command_name"] = command_name
-        _hook_data["before_command_params"] = command_params
+        self.hook_log.append("on_before_command")
+        self.hook_data["before_command_name"] = command_name
+        self.hook_data["before_command_params"] = command_params
 
     @hookimpl
     def on_after_command(self, command_name: str, command_params: dict[str, Any]) -> None:
-        _hook_log.append("on_after_command")
-        _hook_data["after_command_name"] = command_name
-        _hook_data["after_command_params"] = command_params
+        self.hook_log.append("on_after_command")
+        self.hook_data["after_command_name"] = command_name
+        self.hook_data["after_command_params"] = command_params
 
     @hookimpl
     def on_error(self, command_name: str, command_params: dict[str, Any], error: BaseException) -> None:
-        _hook_log.append("on_error")
-        _hook_data["error_command_name"] = command_name
-        _hook_data["error"] = error
+        self.hook_log.append("on_error")
+        self.hook_data["error_command_name"] = command_name
+        self.hook_data["error"] = error
 
 
 class _AbortingPlugin:
@@ -113,135 +114,119 @@ def _test_cli_with_plugins(
         imbue.mngr.main._plugin_manager_container["pm"] = old_pm
 
 
+class _LifecycleFixture:
+    """Container for the shared lifecycle test state."""
+
+    def __init__(self, tracker: _LifecycleTracker, cli: click.Group, runner: CliRunner) -> None:
+        self.tracker = tracker
+        self.cli = cli
+        self.runner = runner
+
+    @property
+    def hook_log(self) -> list[str]:
+        return self.tracker.hook_log
+
+    @property
+    def hook_data(self) -> dict[str, Any]:
+        return self.tracker.hook_data
+
+
+@pytest.fixture()
+def lifecycle_fixture() -> Generator[_LifecycleFixture, None, None]:
+    """Provide a test CLI with a lifecycle-tracking plugin and a runner."""
+    tracker = _LifecycleTracker()
+    with _test_cli_with_plugins([tracker]) as cli:
+        yield _LifecycleFixture(tracker=tracker, cli=cli, runner=CliRunner())
+
+
 # --- Tests ---
 
 
-def test_on_startup_called_on_cli_invocation() -> None:
+def test_on_startup_called_on_cli_invocation(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_startup fires when the CLI group is invoked."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert "on_startup" in _hook_log
+    assert "on_startup" in lifecycle_fixture.hook_log
 
 
-def test_on_shutdown_called_after_cli_completes() -> None:
+def test_on_shutdown_called_after_cli_completes(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_shutdown fires when the CLI context closes."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert "on_shutdown" in _hook_log
+    assert "on_shutdown" in lifecycle_fixture.hook_log
 
 
-def test_on_before_command_called_with_correct_name() -> None:
+def test_on_before_command_called_with_correct_name(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_before_command receives the command name."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert "on_before_command" in _hook_log
-        assert _hook_data.get("before_command_name") == "noino"
+    assert "on_before_command" in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("before_command_name") == "noino"
 
 
-def test_on_before_command_receives_params_dict() -> None:
+def test_on_before_command_receives_params_dict(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_before_command receives a dict of command parameters."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        params = _hook_data.get("before_command_params")
-        assert isinstance(params, dict)
-        # The params dict should contain at least the common option keys
-        assert "output_format" in params
+    params = lifecycle_fixture.hook_data.get("before_command_params")
+    assert isinstance(params, dict)
+    # The params dict should contain at least the common option keys
+    assert "output_format" in params
 
 
-def test_on_after_command_called_on_success() -> None:
+def test_on_after_command_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_after_command fires after a successful command."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert "on_after_command" in _hook_log
-        assert _hook_data.get("after_command_name") == "noino"
+    assert "on_after_command" in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("after_command_name") == "noino"
 
 
-def test_on_after_command_not_called_on_error() -> None:
+def test_on_after_command_not_called_on_error(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_after_command does NOT fire when a command raises."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["failing"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
 
-        assert "on_after_command" not in _hook_log
+    assert "on_after_command" not in lifecycle_fixture.hook_log
 
 
-def test_on_error_called_when_command_raises() -> None:
+def test_on_error_called_when_command_raises(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_error fires when a command raises an exception."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["failing"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
 
-        assert "on_error" in _hook_log
-        assert _hook_data.get("error_command_name") == "failing"
-        assert isinstance(_hook_data.get("error"), RuntimeError)
+    assert "on_error" in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("error_command_name") == "failing"
+    assert isinstance(lifecycle_fixture.hook_data.get("error"), RuntimeError)
 
 
-def test_on_error_not_called_on_success() -> None:
+def test_on_error_not_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_error does NOT fire when a command succeeds."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert "on_error" not in _hook_log
+    assert "on_error" not in lifecycle_fixture.hook_log
 
 
-def test_lifecycle_hook_ordering() -> None:
+def test_lifecycle_hook_ordering(lifecycle_fixture: _LifecycleFixture) -> None:
     """Hooks fire in the correct order: startup, before, after, shutdown."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["noino"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noino"])
 
-        assert _hook_log == ["on_startup", "on_before_command", "on_after_command", "on_shutdown"]
+    assert lifecycle_fixture.hook_log == ["on_startup", "on_before_command", "on_after_command", "on_shutdown"]
 
 
-def test_lifecycle_hook_ordering_on_error() -> None:
+def test_lifecycle_hook_ordering_on_error(lifecycle_fixture: _LifecycleFixture) -> None:
     """On error: startup, before, error, shutdown (no after)."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_LifecycleTracker()]) as test_cli:
-        runner = CliRunner()
-        runner.invoke(test_cli, ["failing"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
 
-        assert _hook_log == ["on_startup", "on_before_command", "on_error", "on_shutdown"]
+    assert lifecycle_fixture.hook_log == ["on_startup", "on_before_command", "on_error", "on_shutdown"]
 
 
 def test_on_before_command_can_abort_execution() -> None:
     """A plugin raising in on_before_command aborts the command."""
-    _hook_log.clear()
-    _hook_data.clear()
-    with _test_cli_with_plugins([_AbortingPlugin(), _LifecycleTracker()]) as test_cli:
+    tracker = _LifecycleTracker()
+    with _test_cli_with_plugins([_AbortingPlugin(), tracker]) as cli:
         runner = CliRunner()
-        result = runner.invoke(test_cli, ["noino"])
+        result = runner.invoke(cli, ["noino"])
 
         # The command should have been aborted (non-zero exit or Abort)
         assert result.exit_code != 0
         # on_after_command should NOT have fired since the command was aborted
-        assert "on_after_command" not in _hook_log
+        assert "on_after_command" not in tracker.hook_log
