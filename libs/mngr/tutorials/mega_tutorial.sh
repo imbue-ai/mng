@@ -205,3 +205,143 @@ mngr config set commands.create in modal
 #   commands, define create templates, and configure providers.
 ##############################################################################
 
+
+##############################################################################
+# COMMON TASKS
+#   Quick recipes for the things you'll do most often: launching an agent
+#   on a task, checking on it, grabbing its work, and cleaning up after.
+##############################################################################
+
+
+##############################################################################
+# PROJECTS
+#   Agents are automatically associated with a project (the git repo you
+#   run mngr from). Use projects to organize agents and filter your list.
+##############################################################################
+
+
+##############################################################################
+# MULTI-AGENT WORKFLOWS
+#   Run multiple agents in parallel on different tasks, coordinate their
+#   work, and bring everything together.
+##############################################################################
+
+
+##############################################################################
+# WORKING WITH GIT
+#   Push and pull git commits (not just files) between your machine and
+#   agents. Branch management, merge strategies, and worktree support.
+##############################################################################
+
+
+##############################################################################
+# LABELS AND FILTERING
+#   Tag agents with labels and use CEL filter expressions to target
+#   specific agents across list, destroy, cleanup, and other commands.
+##############################################################################
+
+
+##############################################################################
+# CREATE TEMPLATES
+#   Define reusable presets that bundle common options (provider, build
+#   args, permissions, environment, etc.) into a single template name.
+##############################################################################
+
+
+##############################################################################
+# CUSTOM AGENT TYPES
+#   Define your own agent types in config, or use any command in your PATH
+#   as an agent. Wrap existing tools with custom defaults and permissions.
+##############################################################################
+
+
+##############################################################################
+# ENVIRONMENT VARIABLES
+#   Pass environment variables to agents during creation, control mngr
+#   behavior via env vars, and understand the variables mngr sets for you.
+##############################################################################
+
+
+##############################################################################
+# RUNNING AGENTS ON MODAL
+#   Launch agents in Modal sandboxes for full isolation, GPU access, and
+#   cloud-based execution. Custom images, secrets, volumes, and networking.
+##############################################################################
+
+
+##############################################################################
+# RUNNING AGENTS IN DOCKER
+#   Run agents in Docker containers for local isolation without cloud
+#   costs. Good for untrusted code or reproducible environments.
+##############################################################################
+
+
+##############################################################################
+# RUNNING AGENTS LOCALLY
+#   The simplest and fastest option. Agents run directly on your machine
+#   with no isolation overhead. Best for trusted agents and quick tasks.
+##############################################################################
+
+
+##############################################################################
+# IDLE DETECTION AND TIMEOUTS
+#   Automatically pause or stop agents when they go idle to save resources.
+#   Configure what counts as "activity" and how long to wait.
+##############################################################################
+
+
+##############################################################################
+# PERMISSIONS
+#   Grant agents specific capabilities (like network access or filesystem
+#   writes) and revoke them. Permissions are enforced by plugins.
+##############################################################################
+
+
+##############################################################################
+# MULTIPLE AGENTS ON ONE HOST
+#   Run several agents on the same host to share resources and reduce
+#   costs. Agents share the host filesystem and network.
+##############################################################################
+
+
+##############################################################################
+# SCRIPTING AND AUTOMATION
+#   Use mngr in shell scripts, CI pipelines, and cron jobs. JSON output,
+#   headless mode, idempotent creation, and programmatic control.
+##############################################################################
+
+
+##############################################################################
+# OUTPUT FORMATS AND MACHINE-READABLE OUTPUT
+#   Switch between human-readable, JSON, and JSONL output. Use --format
+#   with templates, pipe output to jq, and build tooling on top of mngr.
+##############################################################################
+
+
+##############################################################################
+# DEVCONTAINER HOOKS
+#   Use devcontainer lifecycle hooks (onCreateCommand, postStartCommand,
+#   etc.) to customize agent environments during provisioning.
+##############################################################################
+
+
+##############################################################################
+# UPLOADING FILES AND RUNNING SETUP COMMANDS
+#   Upload files, append to configs, create directories, and run setup
+#   commands on agent hosts during creation or via re-provisioning.
+##############################################################################
+
+
+##############################################################################
+# TROUBLESHOOTING
+#   Common problems and how to fix them. Debugging with logs, verbose
+#   output, and exec. What to do when agents crash or hosts won't start.
+##############################################################################
+
+
+##############################################################################
+# TIPS AND TRICKS
+#   Power-user shortcuts, lesser-known features, and workflow patterns
+#   that make working with mngr faster and more pleasant.
+##############################################################################
+
