@@ -6,7 +6,7 @@
 # [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 
-# or install directly if you already have uv
+# or install directly if you already have uv (requires tmux, jq, curl, unison)
 uv tool install mngr
 
 # or run without installing
@@ -128,7 +128,7 @@ From the repo where you would like a Dockerfile created.
 # [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 
-# or install directly if you already have uv
+# or install directly if you already have uv (requires tmux, jq, curl, unison)
 uv tool install mngr
 
 # or run without installing
