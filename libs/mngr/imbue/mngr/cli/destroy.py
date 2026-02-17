@@ -11,6 +11,7 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mngr.api.data_types import GcResourceTypes
+from imbue.mngr.api.data_types import GcResult
 from imbue.mngr.api.gc import gc as api_gc
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -489,9 +490,36 @@ def _run_post_destroy_gc(mngr_ctx: MngrContext, output_opts: OutputOptions) -> N
     so that destroy returns immediately.
     """
     if mngr_ctx.config.is_gc_in_background:
-        _run_gc_in_background(mngr_ctx=mngr_ctx, output_opts=output_opts)
+        _run_gc_in_background(mngr_ctx=mngr_ctx)
     else:
         _run_gc_synchronously(mngr_ctx=mngr_ctx, output_opts=output_opts)
+
+
+def _execute_post_destroy_gc(mngr_ctx: MngrContext) -> GcResult:
+    """Execute the post-destroy garbage collection and return the result.
+
+    This is the shared GC logic used by both synchronous and background paths.
+    """
+    providers = get_all_provider_instances(mngr_ctx)
+
+    resource_types = GcResourceTypes(
+        is_machines=True,
+        is_work_dirs=True,
+        is_snapshots=True,
+        is_volumes=True,
+        is_logs=False,
+        is_build_cache=False,
+    )
+
+    return api_gc(
+        mngr_ctx=mngr_ctx,
+        providers=providers,
+        resource_types=resource_types,
+        include_filters=(),
+        exclude_filters=(),
+        dry_run=False,
+        error_behavior=ErrorBehavior.CONTINUE,
+    )
 
 
 def _run_gc_synchronously(mngr_ctx: MngrContext, output_opts: OutputOptions) -> None:
@@ -499,26 +527,7 @@ def _run_gc_synchronously(mngr_ctx: MngrContext, output_opts: OutputOptions) -> 
     try:
         _output("Garbage collecting...", output_opts)
 
-        providers = get_all_provider_instances(mngr_ctx)
-
-        resource_types = GcResourceTypes(
-            is_machines=True,
-            is_work_dirs=True,
-            is_snapshots=True,
-            is_volumes=True,
-            is_logs=False,
-            is_build_cache=False,
-        )
-
-        result = api_gc(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            resource_types=resource_types,
-            include_filters=(),
-            exclude_filters=(),
-            dry_run=False,
-            error_behavior=ErrorBehavior.CONTINUE,
-        )
+        result = _execute_post_destroy_gc(mngr_ctx)
 
         _output("Garbage collecting... done.", output_opts)
 
@@ -532,7 +541,7 @@ def _run_gc_synchronously(mngr_ctx: MngrContext, output_opts: OutputOptions) -> 
         logger.warning("This does not affect the destroy operation, which completed successfully")
 
 
-def _run_gc_in_background(mngr_ctx: MngrContext, output_opts: OutputOptions) -> None:
+def _run_gc_in_background(mngr_ctx: MngrContext) -> None:
     """Run garbage collection in a disowned background process.
 
     Forks the current process. The parent returns immediately while the child
@@ -558,26 +567,7 @@ def _run_gc_in_background(mngr_ctx: MngrContext, output_opts: OutputOptions) -> 
         # The default disposition for SIGALRM is to terminate the process.
         signal.alarm(_GC_BACKGROUND_TIMEOUT_SECONDS)
 
-        providers = get_all_provider_instances(mngr_ctx)
-
-        resource_types = GcResourceTypes(
-            is_machines=True,
-            is_work_dirs=True,
-            is_snapshots=True,
-            is_volumes=True,
-            is_logs=False,
-            is_build_cache=False,
-        )
-
-        result = api_gc(
-            mngr_ctx=mngr_ctx,
-            providers=providers,
-            resource_types=resource_types,
-            include_filters=(),
-            exclude_filters=(),
-            dry_run=False,
-            error_behavior=ErrorBehavior.CONTINUE,
-        )
+        result = _execute_post_destroy_gc(mngr_ctx)
 
         if result.errors:
             logger.warning("Background GC completed with {} error(s)", len(result.errors))
