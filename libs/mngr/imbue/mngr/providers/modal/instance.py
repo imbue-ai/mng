@@ -2219,11 +2219,7 @@ log "=== Shutdown script completed ==="
         self,
         host: HostInterface | HostId,
     ) -> dict[str, str]:
-        """Get user-defined tags for a host (excludes internal mngr tags).
-
-        Reads from the volume, which persists even after sandbox termination.
-        Falls back to sandbox tags if volume record doesn't exist yet.
-        """
+        """Get user-defined tags for a host (excludes internal mngr tags)."""
         host_id = host.id if isinstance(host, HostInterface) else host
 
         # try getting live sandbox tags
