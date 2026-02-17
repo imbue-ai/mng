@@ -128,6 +128,24 @@ def _claude_json_has_primary_api_key() -> bool:
         return False
 
 
+_MASKED_REFRESH_TOKEN: Final[str] = (
+    "sk-ant-ort01-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-xxxxxxxx"
+)
+
+
+def _mask_refresh_token_in_credentials(credentials_json: str) -> str:
+    """Replace the OAuth refresh token in credentials JSON with a dummy value.
+
+    The refresh token is not needed on remote hosts (the access token suffices)
+    and should not be transmitted.
+    """
+    credentials_data = json.loads(credentials_json)
+    oauth_section = credentials_data.get("claudeAiOauth")
+    if isinstance(oauth_section, dict) and "refreshToken" in oauth_section:
+        oauth_section["refreshToken"] = _MASKED_REFRESH_TOKEN
+    return json.dumps(credentials_data, indent=2)
+
+
 def _read_macos_keychain_credential(label: str, concurrency_group: ConcurrencyGroup) -> str | None:
     """Read a credential from the macOS keychain by label."""
     try:
@@ -607,7 +625,8 @@ class ClaudeAgent(BaseAgent):
                 credentials_path = Path.home() / ".claude" / ".credentials.json"
                 if credentials_path.exists():
                     logger.info("Transferring ~/.claude/.credentials.json to remote host...")
-                    host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
+                    masked_credentials = _mask_refresh_token_in_credentials(credentials_path.read_text())
+                    host.write_text_file(Path(".claude/.credentials.json"), masked_credentials)
                 elif config.convert_macos_credentials and is_macos():
                     # No local credentials file, but keychain may have OAuth tokens
                     keychain_credentials = _read_macos_keychain_credential(
@@ -615,7 +634,8 @@ class ClaudeAgent(BaseAgent):
                     )
                     if keychain_credentials is not None:
                         logger.info("Writing macOS keychain OAuth credentials to remote host...")
-                        host.write_text_file(Path(".claude/.credentials.json"), keychain_credentials)
+                        masked_credentials = _mask_refresh_token_in_credentials(keychain_credentials)
+                        host.write_text_file(Path(".claude/.credentials.json"), masked_credentials)
                     else:
                         logger.debug(
                             "Skipped ~/.claude/.credentials.json (file does not exist, no keychain credentials)"
