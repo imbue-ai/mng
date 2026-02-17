@@ -376,24 +376,7 @@ class _SnapshotGroup(click.Group):
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
-    """Create, list, and destroy host snapshots.
-
-    Snapshots capture the complete state of an agent's host, allowing it
-    to be restored later. Because the snapshot is at the host level, the
-    state of all agents on the host is saved.
-
-    \b
-    Alias: snap
-
-    \b
-    Examples:
-
-      mngr snapshot my-agent
-
-      mngr snapshot list my-agent
-
-      mngr snapshot destroy my-agent --all-snapshots --force
-    """
+    """Create, list, and destroy host snapshots."""
 
 
 # =============================================================================
@@ -912,12 +895,17 @@ Positional arguments to 'create' can be agent names/IDs or host names/IDs.
 Each identifier is automatically resolved: if it matches a known agent, that
 agent's host is used; otherwise it is treated as a host identifier.
 
+When no subcommand is given, defaults to 'create'. For example,
+``mngr snapshot my-agent`` is equivalent to ``mngr snapshot create my-agent``.
+
 Useful for checkpointing work, creating restore points, or managing disk space.""",
     aliases=("snap",),
     examples=(
-        ("Create a snapshot of an agent's host", "mngr snapshot create my-agent"),
+        ("Create a snapshot (short form)", "mngr snapshot my-agent"),
+        ("Create a snapshot (explicit)", "mngr snapshot create my-agent"),
         ("Create a named snapshot", "mngr snapshot create my-agent --name before-refactor"),
         ("Snapshot by host ID", "mngr snapshot create my-host-id"),
+        ("Snapshot all running agents", "mngr snapshot create --all --dry-run"),
         ("List snapshots for an agent", "mngr snapshot list my-agent"),
         ("Destroy all snapshots for an agent", "mngr snapshot destroy my-agent --all-snapshots --force"),
         ("Preview what would be destroyed", "mngr snapshot destroy my-agent --all-snapshots --dry-run"),

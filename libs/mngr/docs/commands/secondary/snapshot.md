@@ -12,20 +12,6 @@ mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 
 Create, list, and destroy host snapshots.
 
-Snapshots capture the complete state of an agent's host, allowing it
-to be restored later. Because the snapshot is at the host level, the
-state of all agents on the host is saved.
-
-Alias: snap
-
-Examples:
-
-  mngr snapshot my-agent
-
-  mngr snapshot list my-agent
-
-  mngr snapshot destroy my-agent --all-snapshots --force
-
 **Usage:**
 
 ```text
@@ -259,7 +245,13 @@ mngr snapshot destroy [OPTIONS] [AGENTS]...
 
 ## Examples
 
-**Create a snapshot of an agent's host**
+**Create a snapshot (short form)**
+
+```bash
+$ mngr snapshot my-agent
+```
+
+**Create a snapshot (explicit)**
 
 ```bash
 $ mngr snapshot create my-agent
@@ -275,6 +267,12 @@ $ mngr snapshot create my-agent --name before-refactor
 
 ```bash
 $ mngr snapshot create my-host-id
+```
+
+**Snapshot all running agents**
+
+```bash
+$ mngr snapshot create --all --dry-run
 ```
 
 **List snapshots for an agent**
