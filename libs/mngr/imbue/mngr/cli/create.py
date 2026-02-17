@@ -253,7 +253,7 @@ class CreateCliOptions(CommonCliOptions):
     type=click.IntRange(min=1),
     default=1,
     show_default=True,
-    help="Number of agents to create (requires --no-connect when > 1)",
+    help="Number of agents to create (automatically disables connect when > 1)",
 )
 @optgroup.option(
     "--name-style",
@@ -549,6 +549,16 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Batch creation: create multiple agents in one command
     if opts.count > 1:
+        # Auto-disable connect for batch, but error if user explicitly passed --connect
+        connect_source = ctx.get_parameter_source("connect")
+        is_connect_explicit = connect_source == click.core.ParameterSource.COMMANDLINE
+        if opts.connect and is_connect_explicit:
+            raise UserInputError(
+                "Cannot use --connect with -n/--count > 1. Batch create automatically disables connect."
+            )
+        opts = opts.model_copy_update(
+            to_update(opts.field_ref().connect, False),
+        )
         _handle_batch_create(mngr_ctx, output_opts, opts)
         return
 
@@ -831,8 +841,6 @@ def _handle_batch_create(
         raise UserInputError(
             "Cannot specify agent name with -n/--count > 1. Names are auto-generated for batch creation."
         )
-    if opts.connect:
-        raise UserInputError("Cannot use --connect with -n/--count > 1. Pass --no-connect for batch creation.")
     if opts.reuse:
         raise UserInputError("Cannot use --reuse with -n/--count > 1.")
     if opts.message or opts.message_file or opts.edit_message:
@@ -1778,8 +1786,8 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mngr create my-agent --no-connect"),
         ("Add extra tmux windows", 'mngr create my-agent -c server="npm run dev"'),
         ("Reuse existing agent or create if not found", "mngr create my-agent --reuse"),
-        ("Create 5 agents on Modal", "mngr create -n 5 --in modal --no-connect"),
-        ("Create 3 agents locally", "mngr create -n 3 --no-connect"),
+        ("Create 5 agents on Modal", "mngr create -n 5 --in modal"),
+        ("Create 3 agents locally", "mngr create -n 3"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),

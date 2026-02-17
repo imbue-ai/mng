@@ -1143,17 +1143,18 @@ def test_batch_create_with_name_raises_error(
     assert "Cannot specify agent name" in result.output
 
 
-def test_batch_create_with_connect_raises_error(
+def test_batch_create_with_explicit_connect_raises_error(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that -n with --connect raises an error."""
+    """Test that -n with explicit --connect raises an error."""
     result = cli_runner.invoke(
         create,
         [
             "-n",
             "2",
+            "--connect",
             "--agent-cmd",
             "sleep 495827",
             "--source",

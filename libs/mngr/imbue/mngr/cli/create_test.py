@@ -636,20 +636,6 @@ def test_handle_batch_create_rejects_named_option(
         _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
 
 
-def test_handle_batch_create_rejects_connect(
-    default_create_cli_opts: CreateCliOptions,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Batch create rejects --connect since you can't connect to multiple agents."""
-    opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().count, 3),
-        to_update(default_create_cli_opts.field_ref().connect, True),
-    )
-
-    with pytest.raises(UserInputError, match="Cannot use --connect"):
-        _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
-
-
 def test_handle_batch_create_rejects_reuse(
     default_create_cli_opts: CreateCliOptions,
     temp_mngr_ctx: MngrContext,
