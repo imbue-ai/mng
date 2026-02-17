@@ -290,14 +290,24 @@ fi
 def _parse_optional_int(value: str) -> int | None:
     """Parse an optional integer from a key=value line's value portion."""
     stripped = value.strip()
-    return int(stripped) if stripped else None
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return None
 
 
 @pure
 def _parse_optional_float(value: str) -> float | None:
     """Parse an optional float from a key=value line's value portion."""
     stripped = value.strip()
-    return float(stripped) if stripped else None
+    if not stripped:
+        return None
+    try:
+        return float(stripped)
+    except ValueError:
+        return None
 
 
 def _extract_delimited_block(lines: list[str], idx: int, end_marker: str) -> tuple[str, int]:
