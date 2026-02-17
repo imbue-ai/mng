@@ -46,55 +46,31 @@ OS="$(detect_os)"
 
 SYSTEM_DEPS=(git ssh tmux jq curl rsync unison)
 
-install_system_deps_macos() {
-    local missing=()
-    for dep in "${SYSTEM_DEPS[@]}"; do
-        if ! command -v "$dep" &>/dev/null; then
-            missing+=("$dep")
-        fi
-    done
-
-    if [ ${#missing[@]} -eq 0 ]; then
-        info "All system dependencies already installed"
-        return
+missing=()
+for dep in "${SYSTEM_DEPS[@]}"; do
+    if ! command -v "$dep" &>/dev/null; then
+        missing+=("$dep")
     fi
-
-    if ! command -v brew &>/dev/null; then
-        error "Missing dependencies: ${missing[*]}. Install them manually, or install Homebrew (https://brew.sh) and re-run this script."
-    fi
-
-    info "Installing system dependencies: ${missing[*]}"
-    brew install "${missing[@]}"
-}
-
-install_system_deps_linux() {
-    local missing=()
-    for dep in "${SYSTEM_DEPS[@]}"; do
-        if ! command -v "$dep" &>/dev/null; then
-            missing+=("$dep")
-        fi
-    done
-
-    if [ ${#missing[@]} -eq 0 ]; then
-        info "All system dependencies already installed"
-        return
-    fi
-
-    if ! command -v apt-get &>/dev/null; then
-        error "apt-get not found. On non-Debian systems, manually install: ${missing[*]}"
-    fi
-
-    info "Installing system dependencies: ${missing[*]}"
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq "${missing[@]}"
-}
+done
 
 info "Detected OS: ${OS}"
 
-case "$OS" in
-    macos) install_system_deps_macos ;;
-    linux) install_system_deps_linux ;;
-esac
+if [ ${#missing[@]} -eq 0 ]; then
+    info "All system dependencies already installed"
+elif [ "$OS" = "macos" ]; then
+    if ! command -v brew &>/dev/null; then
+        error "Missing dependencies: ${missing[*]}. Install them manually, or install Homebrew (https://brew.sh) and re-run this script."
+    fi
+    info "Installing system dependencies: ${missing[*]}"
+    brew install "${missing[@]}"
+elif [ "$OS" = "linux" ]; then
+    if ! command -v apt-get &>/dev/null; then
+        error "apt-get not found. On non-Debian systems, manually install: ${missing[*]}"
+    fi
+    info "Installing system dependencies: ${missing[*]}"
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq "${missing[@]}"
+fi
 
 # ── Install uv ─────────────────────────────────────────────────────────────────
 
