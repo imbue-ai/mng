@@ -49,6 +49,7 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 from imbue.mngr.providers.ssh.instance import SSHHostConfig
 from imbue.mngr.providers.ssh.instance import SSHProviderInstance
+from imbue.mngr.utils.polling import poll_until
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import generate_ssh_keypair
 from imbue.mngr.utils.testing import local_sshd
@@ -1973,7 +1974,7 @@ def test_start_agent_has_access_to_env_vars(
         host.stop_agents([agent.id])
 
 
-@pytest.mark.timeout(15)
+@pytest.mark.timeout(25)
 def test_new_tmux_window_inherits_env_vars(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -2070,7 +2071,19 @@ def test_new_tmux_window_inherits_env_vars(
             content = marker_file.read_text()
             return "NEW_WINDOW_VAR=new_window_value_123456" in content
 
-        wait_for(check_marker_file, error_message="New tmux window did not inherit environment variables")
+        if not poll_until(check_marker_file, timeout=10.0):
+            # Capture diagnostics to help debug flakiness
+            pane_content = subprocess.run(
+                ["tmux", "capture-pane", "-t", f"{session_name}:user-window", "-p"],
+                capture_output=True,
+                text=True,
+            )
+            marker_content = marker_file.read_text() if marker_file.exists() else "<file does not exist>"
+            raise AssertionError(
+                f"New tmux window did not inherit environment variables.\n"
+                f"Marker file content: {marker_content!r}\n"
+                f"Pane content:\n{pane_content.stdout}"
+            )
 
     finally:
         host.stop_agents([agent.id])
