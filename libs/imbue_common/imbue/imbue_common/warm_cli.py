@@ -14,6 +14,7 @@ from typing import Final
 import click
 
 _DEFAULT_TIMEOUT_SECONDS: Final[int] = 3600
+_EXPECTED_FD_COUNT: Final[int] = 3
 
 
 def _send_fds(sock: socket.socket, fds: list[int], data: bytes = b"\x00") -> None:
@@ -54,11 +55,14 @@ def _resolve_click_callback(func: Callable[..., object] | click.Command) -> type
     return callback
 
 
-def _run_entry_func(func: Callable[..., object] | click.Command) -> int:
+def _run_entry_func(
+    func: Callable[..., object] | click.Command,
+    args: list[str] | None = None,
+) -> int:
     """Run a click command entry function and return an exit code."""
     exit_code = 0
     try:
-        result = func(standalone_mode=False)
+        result = func(args=args, standalone_mode=False)
         if isinstance(result, int):
             exit_code = result
     except SystemExit as exc:
@@ -69,13 +73,11 @@ def _run_entry_func(func: Callable[..., object] | click.Command) -> int:
     return exit_code
 
 
-def _warm_server(
-    entry_module: str,
-    entry_func_name: str,
+def _accept_one_connection(
     socket_path: Path,
     timeout_seconds: int,
-) -> None:
-    """Bind, wait for one connection, take over the client's terminal, run, then spawn a replacement."""
+) -> socket.socket | None:
+    """Bind a Unix socket, wait for one connection, and return it (or None on timeout)."""
     try:
         socket_path.unlink()
     except FileNotFoundError:
@@ -85,34 +87,34 @@ def _warm_server(
     try:
         sock.bind(str(socket_path))
     except OSError:
-        return
+        sock.close()
+        return None
     sock.listen(1)
     sock.settimeout(timeout_seconds)
 
-    # Ignore SIGINT while waiting for a client -- only the foreground process should handle it
+    # Ignore SIGINT while waiting -- only the foreground process should handle it
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
     try:
         conn, _ = sock.accept()
     except socket.timeout:
-        sock.close()
         try:
             socket_path.unlink()
         except OSError:
             pass
-        return
+        return None
+    finally:
+        sock.close()
 
-    sock.close()
+    return conn
 
-    # Receive the client's file descriptors and JSON payload in one recvmsg call
-    _EXPECTED_FD_COUNT: Final[int] = 3
+
+def _receive_client_payload(conn: socket.socket) -> dict[str, object] | None:
+    """Receive file descriptors and JSON payload from the client. Returns None on protocol error."""
     raw_payload, fds = _recv_fds(conn, _EXPECTED_FD_COUNT)
 
     if len(fds) < _EXPECTED_FD_COUNT:
-        conn.close()
-        return
-
-    client_stdin_fd, client_stdout_fd, client_stderr_fd = fds
+        return None
 
     # Drain any remaining payload data that didn't fit in the first recv
     conn.setblocking(False)
@@ -127,9 +129,15 @@ def _warm_server(
         pass
     conn.setblocking(True)
 
-    payload = json.loads(b"".join(chunks))
+    payload: dict[str, object] = json.loads(b"".join(chunks))
+    payload["_fds"] = fds
+    return payload
 
-    # Take over the client's terminal via dup2
+
+def _take_over_client_terminal(fds: list[int], payload: dict[str, object]) -> None:
+    """Redirect stdio to the client's file descriptors and set up the client's environment."""
+    client_stdin_fd, client_stdout_fd, client_stderr_fd = fds
+
     os.dup2(client_stdin_fd, 0)
     os.dup2(client_stdout_fd, 1)
     os.dup2(client_stderr_fd, 2)
@@ -137,21 +145,16 @@ def _warm_server(
     os.close(client_stdout_fd)
     os.close(client_stderr_fd)
 
-    # Spawn a replacement warm process AFTER closing the received fds.
-    # This prevents the replacement from inheriting the client's pipe fds,
-    # which would keep them open and prevent EOF detection.
-    _spawn_warm_process(entry_module, entry_func_name, socket_path, timeout_seconds)
-
     # Restore default signal handling now that we own a terminal
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     # Set up the environment to match the caller
     os.environ.clear()
-    os.environ.update(payload.get("env", {}))
-    sys.argv = payload.get("argv", [])
+    os.environ.update(payload.get("env", {}))  # type: ignore[arg-type]
+    sys.argv = payload.get("argv", [])  # type: ignore[assignment]
     if "cwd" in payload:
         try:
-            os.chdir(payload["cwd"])
+            os.chdir(str(payload["cwd"]))
         except OSError:
             pass
 
@@ -159,6 +162,30 @@ def _warm_server(
     sys.stdin = open(0, "r", closefd=False)  # noqa: SIM115
     sys.stdout = open(1, "w", closefd=False)  # noqa: SIM115
     sys.stderr = open(2, "w", closefd=False)  # noqa: SIM115
+
+
+def _warm_server(
+    entry_module: str,
+    entry_func_name: str,
+    socket_path: Path,
+    timeout_seconds: int,
+) -> None:
+    """Bind, wait for one connection, take over the client's terminal, run, then spawn a replacement."""
+    conn = _accept_one_connection(socket_path, timeout_seconds)
+    if conn is None:
+        return
+
+    payload = _receive_client_payload(conn)
+    if payload is None:
+        conn.close()
+        return
+
+    fds: list[int] = payload.pop("_fds")  # type: ignore[assignment]
+
+    # Take over the client's terminal, then spawn a replacement.
+    # The replacement must be spawned AFTER dup2+close to avoid leaking the client's pipe fds.
+    _take_over_client_terminal(fds, payload)
+    _spawn_warm_process(entry_module, entry_func_name, socket_path, timeout_seconds)
 
     # Run the CLI entry function
     mod = sys.modules[entry_module]
@@ -216,29 +243,31 @@ def _spawn_warm_process(
 def _client_invoke(socket_path: Path) -> int:
     """Connect to a warm server, hand over our file descriptors, and wait for the exit code."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(str(socket_path))
+    try:
+        sock.connect(str(socket_path))
 
-    payload = json.dumps(
-        {
-            "argv": sys.argv,
-            "env": dict(os.environ),
-            "cwd": os.getcwd(),
-        }
-    ).encode("utf-8")
+        payload = json.dumps(
+            {
+                "argv": sys.argv,
+                "env": dict(os.environ),
+                "cwd": os.getcwd(),
+            }
+        ).encode("utf-8")
 
-    # Send stdin/stdout/stderr file descriptors along with the payload
-    _send_fds(sock, [0, 1, 2], data=payload)
+        # Send stdin/stdout/stderr file descriptors along with the payload
+        _send_fds(sock, [0, 1, 2], data=payload)
 
-    # Wait for the exit code from the warm server
-    data = b""
-    while len(data) < 4:
-        chunk = sock.recv(4 - len(data))
-        if not chunk:
-            return 1
-        data += chunk
+        # Wait for the exit code from the warm server
+        data = b""
+        while len(data) < 4:
+            chunk = sock.recv(4 - len(data))
+            if not chunk:
+                return 1
+            data += chunk
 
-    sock.close()
-    return struct.unpack("!i", data)[0]
+        return struct.unpack("!i", data)[0]
+    finally:
+        sock.close()
 
 
 def _default_socket_path(callback: types.FunctionType) -> Path:
