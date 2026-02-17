@@ -580,6 +580,12 @@ def _plugin_remove_impl(ctx: click.Context, *, specifier: str) -> None:
         case _ as unreachable:
             assert_never(unreachable)
 
+    # Verify the package is actually installed before trying to uninstall
+    try:
+        importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        raise AbortError(f"Package '{package_name}' is not installed") from None
+
     command = _build_uv_pip_uninstall_command(package_name)
 
     with log_span("Removing plugin package '{}'", package_name):
