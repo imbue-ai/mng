@@ -431,7 +431,7 @@ class LocalProviderInstance(BaseProviderInstance):
         """Rename the local host.
 
         For the local provider, this is a no-op since the host name is always
-        effectively "local". Returns the host unchanged.
+        effectively "localhost". Returns the host unchanged.
         """
         return self._create_host(name)
 
