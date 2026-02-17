@@ -58,6 +58,7 @@ class PluginCliOptions(CommonCliOptions):
     fields: str | None = None
     name: str | None = None
     scope: str | None = None
+    specifier: str | None = None
 
 
 class PluginInfo(FrozenModel):
@@ -434,10 +435,10 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @plugin.command(name="add")
-@click.argument("name")
+@click.argument("specifier", metavar="NAME")
 @add_common_options
 @click.pass_context
-def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
+def plugin_add(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
     """Install a plugin package.
 
     NAME can be a PyPI package name, a local path, or a git URL.
@@ -456,17 +457,17 @@ def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
       mngr plugin add git+https://github.com/user/mngr-plugin.git
     """
     try:
-        _plugin_add_impl(ctx, specifier=name)
+        _plugin_add_impl(ctx, specifier=specifier)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
 
 
 @plugin.command(name="remove")
-@click.argument("name")
+@click.argument("specifier", metavar="NAME")
 @add_common_options
 @click.pass_context
-def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
+def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
     """Uninstall a plugin package.
 
     NAME can be a package name or a local path. For local paths, the
@@ -480,7 +481,7 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
       mngr plugin remove ./my-plugin
     """
     try:
-        _plugin_remove_impl(ctx, specifier=name)
+        _plugin_remove_impl(ctx, specifier=specifier)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
