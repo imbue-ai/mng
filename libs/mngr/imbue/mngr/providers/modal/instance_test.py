@@ -1437,64 +1437,121 @@ def test_is_host_volume_created_defaults_to_true() -> None:
 
 
 # =============================================================================
-# Tests for _list_all_persisted_agent_data
+# Tests for _list_all_host_and_agent_records
 # =============================================================================
 
 
-# def test_list_all_persisted_agent_data_returns_empty_when_volume_empty(
-#     modal_provider: ModalProviderInstance,
-# ) -> None:
-#     """_list_all_persisted_agent_data returns empty dict when volume has no host directories."""
-#     mock_volume = cast(Any, modal_provider.modal_app.volume)
-#     mock_volume.listdir.return_value = []
-#
-#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
-#
-#     assert result == {}
-#
-#
-# def test_list_all_persisted_agent_data_skips_json_files(
-#     modal_provider: ModalProviderInstance,
-# ) -> None:
-#     """_list_all_persisted_agent_data skips .json files (host records) and non-host directories."""
-#     mock_volume = cast(Any, modal_provider.modal_app.volume)
-#     host_record_entry = MagicMock()
-#     host_record_entry.path = f"/{HostId.generate()}.json"
-#     random_dir_entry = MagicMock()
-#     random_dir_entry.path = "/some-other-dir"
-#     mock_volume.listdir.return_value = [host_record_entry, random_dir_entry]
-#
-#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
-#
-#     assert result == {}
-#
-#
-# def test_list_all_persisted_agent_data_reads_agent_data_for_host_dirs(
-#     modal_provider: ModalProviderInstance,
-# ) -> None:
-#     """_list_all_persisted_agent_data reads agent data for directories matching host-* pattern."""
-#     host_id = HostId.generate()
-#     agent_id = AgentId.generate()
-#     agent_data = {"id": str(agent_id), "name": "test-agent", "type": "claude"}
-#
-#     mock_volume = cast(Any, modal_provider.modal_app.volume)
-#
-#     # Root listing returns a host directory
-#     host_dir_entry = MagicMock()
-#     host_dir_entry.path = f"/{host_id}"
-#     mock_volume.listdir.side_effect = lambda path: {
-#         "/": [host_dir_entry],
-#         f"/{host_id}": [MagicMock(path=f"{agent_id}.json")],
-#     }[path]
-#
-#     # Reading agent file returns agent data (read_file returns an iterator of bytes chunks)
-#     mock_volume.read_file.return_value = [json.dumps(agent_data).encode("utf-8")]
-#
-#     result = modal_provider._list_all_persisted_agent_data(modal_provider.mngr_ctx.concurrency_group)
-#
-#     assert host_id in result
-#     assert len(result[host_id]) == 1
-#     assert result[host_id][0]["id"] == str(agent_id)
+def test_list_all_host_and_agent_records_returns_empty_when_volume_empty(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_and_agent_records returns empty results when volume has no entries."""
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = []
+
+    host_records, agent_data = modal_provider._list_all_host_and_agent_records(
+        modal_provider.mngr_ctx.concurrency_group
+    )
+
+    assert host_records == []
+    assert agent_data == {}
+    mock_volume.listdir.assert_called_once_with("/")
+
+
+def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_and_agent_records reads host records and agent data for .json entries."""
+    host_id = HostId.generate()
+    agent_id = AgentId.generate()
+    host_record = _make_host_record(host_id)
+    agent_data_list = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
+
+    mock_entry = MagicMock()
+    mock_entry.path = f"/{host_id}.json"
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry]
+
+    with (
+        patch.object(modal_provider, "_read_host_record", return_value=host_record),
+        patch.object(ModalProviderInstance, "list_persisted_agent_data_for_host", return_value=agent_data_list),
+    ):
+        host_records, agent_data = modal_provider._list_all_host_and_agent_records(
+            modal_provider.mngr_ctx.concurrency_group
+        )
+
+    assert len(host_records) == 1
+    assert host_records[0].certified_host_data.host_id == str(host_id)
+    assert host_id in agent_data
+    assert len(agent_data[host_id]) == 1
+    assert agent_data[host_id][0]["id"] == str(agent_id)
+
+
+def test_list_all_host_and_agent_records_skips_non_json_files(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_and_agent_records only processes .json files."""
+    mock_entry_json = MagicMock()
+    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_dir = MagicMock()
+    mock_entry_dir.path = "/some-directory"
+
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry_json, mock_entry_dir]
+
+    with (
+        patch.object(modal_provider, "_read_host_record", return_value=None) as mock_read,
+        patch.object(ModalProviderInstance, "list_persisted_agent_data_for_host", return_value=[]) as mock_list_agent,
+    ):
+        modal_provider._list_all_host_and_agent_records(modal_provider.mngr_ctx.concurrency_group)
+        assert mock_read.call_count == 1
+        assert mock_list_agent.call_count == 1
+
+
+def test_list_all_host_and_agent_records_without_agents(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_and_agent_records with is_including_agents=False skips agent data."""
+    host_id = HostId.generate()
+    host_record = _make_host_record(host_id)
+
+    mock_entry = MagicMock()
+    mock_entry.path = f"/{host_id}.json"
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry]
+
+    with (
+        patch.object(modal_provider, "_read_host_record", return_value=host_record),
+        patch.object(ModalProviderInstance, "list_persisted_agent_data_for_host") as mock_list_agent,
+    ):
+        host_records, agent_data = modal_provider._list_all_host_and_agent_records(
+            modal_provider.mngr_ctx.concurrency_group, is_including_agents=False
+        )
+
+    assert len(host_records) == 1
+    assert agent_data == {}
+    mock_list_agent.assert_not_called()
+
+
+def test_list_all_host_and_agent_records_skips_none_host_records(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_and_agent_records filters out None results from _read_host_record."""
+    host_id = HostId.generate()
+
+    mock_entry = MagicMock()
+    mock_entry.path = f"/{host_id}.json"
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.return_value = [mock_entry]
+
+    with (
+        patch.object(modal_provider, "_read_host_record", return_value=None),
+        patch.object(ModalProviderInstance, "list_persisted_agent_data_for_host", return_value=[]),
+    ):
+        host_records, agent_data = modal_provider._list_all_host_and_agent_records(
+            modal_provider.mngr_ctx.concurrency_group
+        )
+
+    assert host_records == []
 
 
 # =============================================================================
@@ -1567,11 +1624,10 @@ def test_load_agent_refs_returns_agents_from_volume_data(
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(
             modal_provider,
-            "_list_all_persisted_agent_data",
-            return_value={host_id: agent_data},
+            "_list_all_host_and_agent_records",
+            return_value=([host_record], {host_id: agent_data}),
         ),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
@@ -1596,8 +1652,7 @@ def test_load_agent_refs_excludes_destroyed_hosts_by_default(
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
-        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=False)
 
@@ -1613,8 +1668,7 @@ def test_load_agent_refs_includes_destroyed_hosts_when_requested(
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
-        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=True)
 
@@ -1630,8 +1684,7 @@ def test_load_agent_refs_includes_running_hosts_from_host_records(
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value={host_id}),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
-        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([host_record], {})),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
 
@@ -1649,8 +1702,7 @@ def test_load_agent_refs_ignores_running_sandbox_without_host_record(
 
     with (
         patch.object(modal_provider, "_list_running_host_ids", return_value={orphan_host_id}),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
-        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([], {})),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
 

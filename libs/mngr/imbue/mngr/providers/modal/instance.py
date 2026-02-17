@@ -2290,44 +2290,6 @@ log "=== Shutdown script completed ==="
 
         return result
 
-    # FIXME: remove this, and the commented out tests for it, and make tests for _list_all_host_and_agent_records instead
-    # def _list_all_persisted_agent_data(
-    #     self,
-    #     cg: ConcurrencyGroup,
-    # ) -> dict[HostId, list[dict[str, Any]]]:
-    #     """Read all persisted agent data from the state volume for all hosts in parallel.
-    #
-    #     Returns a mapping from HostId to the list of agent data dicts for that host.
-    #     Agent data is stored at /{host_id}/{agent_id}.json on the state volume.
-    #     """
-    #     with trace_span("  _list_all_persisted_agent_data"):
-    #         volume = self._get_state_volume()
-    #
-    #         # List root directory to find host subdirectories
-    #         try:
-    #             root_entries = volume.listdir("/")
-    #         except (NotFoundError, FileNotFoundError):
-    #             return {}
-    #
-    #         # Identify host directories (entries that don't end in .json are directories)
-    #         host_ids: list[HostId] = []
-    #         for entry in root_entries:
-    #             name = entry.path.lstrip("/")
-    #             if not name.endswith(".json") and name.startswith("host-"):
-    #                 try:
-    #                     host_ids.append(HostId(name))
-    #                 except ValueError as e:
-    #                     logger.trace("Skipped non-host directory on volume: {} ({})", name, e)
-    #                     continue
-    #
-    #         # Read agent data for all hosts in parallel
-    #         future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
-    #         with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_agent_data", max_workers=32) as executor:
-    #             for host_id in host_ids:
-    #                 future_by_host_id[host_id] = executor.submit(self.list_persisted_agent_data_for_host, host_id)
-    #
-    #         return {host_id: future.result() for host_id, future in future_by_host_id.items()}
-
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Modal sandbox."""
         # Read host record from volume
