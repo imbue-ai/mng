@@ -216,16 +216,17 @@ def _classify_plugin_specifier(specifier: str) -> PluginSpecifierType:
 
 
 @pure
-def _parse_pypi_package_name(specifier: str) -> str:
+def _parse_pypi_package_name(specifier: str) -> str | None:
     """Extract the canonical package name from a PyPI requirement string.
 
     Parses specifiers like 'mngr-opencode>=1.0' and returns just the name
-    ('mngr-opencode'). Raises PluginSpecifierError on malformed input.
+    ('mngr-opencode'). Returns None if the specifier is not a valid PyPI
+    requirement.
     """
     try:
         req = Requirement(specifier)
-    except InvalidRequirement as e:
-        raise PluginSpecifierError(f"Invalid PyPI specifier '{specifier}': {e}") from e
+    except InvalidRequirement:
+        return None
     return req.name
 
 
@@ -275,7 +276,10 @@ def _resolve_package_name_for_removal(specifier: str, specifier_type: PluginSpec
     """
     match specifier_type:
         case PluginSpecifierType.PYPI_PACKAGE:
-            return _parse_pypi_package_name(specifier)
+            name = _parse_pypi_package_name(specifier)
+            if name is None:
+                raise PluginSpecifierError(f"Invalid package specifier: '{specifier}'")
+            return name
         case PluginSpecifierType.LOCAL_PATH:
             resolved = Path(specifier).expanduser().resolve()
             pyproject_path = resolved / "pyproject.toml"
@@ -511,7 +515,7 @@ def _resolve_package_name_after_install(
     """
     match specifier_type:
         case PluginSpecifierType.PYPI_PACKAGE:
-            return _parse_pypi_package_name(specifier)
+            return _parse_pypi_package_name(specifier) or specifier
         case PluginSpecifierType.LOCAL_PATH:
             try:
                 return _resolve_package_name_for_removal(specifier, specifier_type)
@@ -534,11 +538,13 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
     specifier_type = _classify_plugin_specifier(specifier)
 
     # Validate PyPI specifiers early to fail fast before running uv
-    if specifier_type == PluginSpecifierType.PYPI_PACKAGE:
-        try:
-            _parse_pypi_package_name(specifier)
-        except PluginSpecifierError as e:
-            raise AbortError(str(e)) from e
+    if specifier_type == PluginSpecifierType.PYPI_PACKAGE and _parse_pypi_package_name(specifier) is None:
+        raise AbortError(
+            f"Unrecognized plugin specifier '{specifier}'. Expected one of:\n"
+            "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
+            "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
+            "  - A git URL (e.g. git+https://github.com/user/repo.git)"
+        )
 
     command = _build_uv_pip_install_command(specifier, specifier_type)
 

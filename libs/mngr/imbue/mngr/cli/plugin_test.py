@@ -473,9 +473,8 @@ def test_parse_pypi_package_name_name_with_version() -> None:
 
 
 def test_parse_pypi_package_name_invalid_format() -> None:
-    """_parse_pypi_package_name should raise PluginSpecifierError for invalid specifiers."""
-    with pytest.raises(PluginSpecifierError, match="Invalid PyPI specifier"):
-        _parse_pypi_package_name("not a valid!!spec$$")
+    """_parse_pypi_package_name should return None for invalid specifiers."""
+    assert _parse_pypi_package_name("not a valid!!spec$$") is None
 
 
 # =============================================================================

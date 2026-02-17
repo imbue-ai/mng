@@ -320,6 +320,24 @@ def test_plugin_add_local_path_invalid_package_fails(
     assert result.exit_code != 0
 
 
+def test_plugin_add_bare_url_fails_with_helpful_message(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that adding a bare URL (without git+ prefix) fails with an error."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["add", "https://github.com/user/mngr-plugin.git"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
 # =============================================================================
 # Integration tests for plugin remove
 # =============================================================================
