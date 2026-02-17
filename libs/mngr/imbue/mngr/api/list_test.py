@@ -111,13 +111,13 @@ def test_write_completion_cache_deduplicates_names(
 # =============================================================================
 
 
-def testcompute_idle_seconds_returns_none_when_all_none() -> None:
+def test_compute_idle_seconds_returns_none_when_all_none() -> None:
     """compute_idle_seconds should return None when all activity times are None."""
     result = compute_idle_seconds(None, None, None)
     assert result is None
 
 
-def testcompute_idle_seconds_uses_most_recent_activity() -> None:
+def test_compute_idle_seconds_uses_most_recent_activity() -> None:
     """compute_idle_seconds should compute from the most recent activity time."""
     now = datetime.now(timezone.utc)
     old_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
@@ -129,7 +129,7 @@ def testcompute_idle_seconds_uses_most_recent_activity() -> None:
     assert result < 2.0
 
 
-def testcompute_idle_seconds_with_single_activity_time() -> None:
+def test_compute_idle_seconds_with_single_activity_time() -> None:
     """compute_idle_seconds should work with a single non-None activity time."""
     recent_time = datetime.now(timezone.utc)
 

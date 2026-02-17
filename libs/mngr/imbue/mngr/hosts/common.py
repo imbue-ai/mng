@@ -5,6 +5,8 @@ from datetime import datetime
 from datetime import timezone
 from typing import Final
 
+from loguru import logger
+
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.pure import pure
 from imbue.mngr.config.data_types import MngrConfig
@@ -129,7 +131,6 @@ def resolve_expected_process_name(
     return command.split()[0].split("/")[-1] if command else ""
 
 
-@pure
 def compute_idle_seconds(
     user_activity: datetime | None,
     agent_activity: datetime | None,
@@ -153,7 +154,8 @@ def timestamp_to_datetime(timestamp: int | None) -> datetime | None:
         return None
     try:
         return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-    except (ValueError, OSError):
+    except (ValueError, OSError) as e:
+        logger.trace("Failed to convert timestamp {} to datetime: {}", timestamp, e)
         return None
 
 

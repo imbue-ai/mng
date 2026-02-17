@@ -269,7 +269,7 @@ if [ -d '{host_dir}/agents' ]; then
         echo "USER_MTIME=$(stat -c %Y "${{agent_dir}}activity/user" 2>/dev/null)"
         echo "AGENT_MTIME=$(stat -c %Y "${{agent_dir}}activity/agent" 2>/dev/null)"
         echo "START_MTIME=$(stat -c %Y "${{agent_dir}}activity/start" 2>/dev/null)"
-        agent_name=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$data_file" | head -1)
+        agent_name=$(jq -r '.name // empty' "$data_file" 2>/dev/null)
         session_name='{prefix}'"$agent_name"
         tmux_info=$(tmux list-panes -t "${{session_name}}:0" -F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1)
         echo "TMUX_INFO=$tmux_info"
@@ -287,98 +287,100 @@ fi
 
 
 @pure
+def _parse_optional_int(value: str) -> int | None:
+    """Parse an optional integer from a key=value line's value portion."""
+    stripped = value.strip()
+    return int(stripped) if stripped else None
+
+
+@pure
+def _parse_optional_float(value: str) -> float | None:
+    """Parse an optional float from a key=value line's value portion."""
+    stripped = value.strip()
+    return float(stripped) if stripped else None
+
+
+def _extract_delimited_block(lines: list[str], idx: int, end_marker: str) -> tuple[str, int]:
+    """Extract lines between the current position and end_marker, returning the content and new index."""
+    collected: list[str] = []
+    while idx < len(lines) and lines[idx].strip() != end_marker:
+        collected.append(lines[idx])
+        idx += 1
+    return "\n".join(collected).strip(), idx
+
+
+def _parse_agent_section(lines: list[str], idx: int) -> tuple[dict[str, Any], int]:
+    """Parse a single agent section, returning the agent dict and new index."""
+    agent_raw: dict[str, Any] = {}
+
+    while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_END:
+        aline = lines[idx]
+        if aline.strip() == _SEP_AGENT_DATA_START:
+            idx += 1
+            agent_json_str, idx = _extract_delimited_block(lines, idx, _SEP_AGENT_DATA_END)
+            if agent_json_str:
+                try:
+                    agent_raw["data"] = json.loads(agent_json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse agent data.json in listing output: {}", e)
+        elif aline.startswith("USER_MTIME="):
+            agent_raw["user_activity_mtime"] = _parse_optional_int(aline[len("USER_MTIME=") :])
+        elif aline.startswith("AGENT_MTIME="):
+            agent_raw["agent_activity_mtime"] = _parse_optional_int(aline[len("AGENT_MTIME=") :])
+        elif aline.startswith("START_MTIME="):
+            agent_raw["start_activity_mtime"] = _parse_optional_int(aline[len("START_MTIME=") :])
+        elif aline.startswith("TMUX_INFO="):
+            val = aline[len("TMUX_INFO=") :].strip()
+            agent_raw["tmux_info"] = val if val else None
+        elif aline.startswith("ACTIVE="):
+            agent_raw["is_active"] = aline[len("ACTIVE=") :].strip() == "true"
+        elif aline.startswith("URL="):
+            val = aline[len("URL=") :].strip()
+            agent_raw["url"] = val if val else None
+        else:
+            pass
+        idx += 1
+
+    return agent_raw, idx
+
+
 def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
-    """Parse the output of the listing collection script."""
+    """Parse the structured output of the listing collection script."""
     result: dict[str, Any] = {}
     agents: list[dict[str, Any]] = []
-
     lines = stdout.split("\n")
     idx = 0
 
     while idx < len(lines):
         line = lines[idx]
 
-        # Key=value lines
         if line.startswith("UPTIME=") and "uptime_seconds" not in result:
-            val = line[len("UPTIME=") :].strip()
-            result["uptime_seconds"] = float(val) if val else None
+            result["uptime_seconds"] = _parse_optional_float(line[len("UPTIME=") :])
         elif line.startswith("BTIME=") and "btime" not in result:
-            val = line[len("BTIME=") :].strip()
-            result["btime"] = int(val) if val else None
+            result["btime"] = _parse_optional_int(line[len("BTIME=") :])
         elif line.startswith("LOCK_MTIME=") and "lock_mtime" not in result:
-            val = line[len("LOCK_MTIME=") :].strip()
-            result["lock_mtime"] = int(val) if val else None
+            result["lock_mtime"] = _parse_optional_int(line[len("LOCK_MTIME=") :])
         elif line.startswith("SSH_ACTIVITY_MTIME=") and "ssh_activity_mtime" not in result:
-            val = line[len("SSH_ACTIVITY_MTIME=") :].strip()
-            result["ssh_activity_mtime"] = int(val) if val else None
-
-        # Host data.json
+            result["ssh_activity_mtime"] = _parse_optional_int(line[len("SSH_ACTIVITY_MTIME=") :])
         elif line.strip() == _SEP_DATA_JSON_START:
             idx += 1
-            json_lines: list[str] = []
-            while idx < len(lines) and lines[idx].strip() != _SEP_DATA_JSON_END:
-                json_lines.append(lines[idx])
-                idx += 1
-            json_str = "\n".join(json_lines).strip()
+            json_str, idx = _extract_delimited_block(lines, idx, _SEP_DATA_JSON_END)
             if json_str:
                 try:
                     result["certified_data"] = json.loads(json_str)
                 except json.JSONDecodeError as e:
                     logger.warning("Failed to parse host data.json in listing output: {}", e)
-
-        # ps output
         elif line.strip() == _SEP_PS_START:
             idx += 1
-            ps_lines: list[str] = []
-            while idx < len(lines) and lines[idx].strip() != _SEP_PS_END:
-                ps_lines.append(lines[idx])
-                idx += 1
-            result["ps_output"] = "\n".join(ps_lines)
-
-        # Agent sections
+            ps_content, idx = _extract_delimited_block(lines, idx, _SEP_PS_END)
+            result["ps_output"] = ps_content
         elif line.strip().startswith(_SEP_AGENT_START):
-            agent_raw: dict[str, Any] = {}
             idx += 1
-            while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_END:
-                aline = lines[idx]
-                if aline.strip() == _SEP_AGENT_DATA_START:
-                    idx += 1
-                    agent_json_lines: list[str] = []
-                    while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_DATA_END:
-                        agent_json_lines.append(lines[idx])
-                        idx += 1
-                    agent_json_str = "\n".join(agent_json_lines).strip()
-                    if agent_json_str:
-                        try:
-                            agent_raw["data"] = json.loads(agent_json_str)
-                        except json.JSONDecodeError as e:
-                            logger.warning("Failed to parse agent data.json in listing output: {}", e)
-                elif aline.startswith("USER_MTIME="):
-                    val = aline[len("USER_MTIME=") :].strip()
-                    agent_raw["user_activity_mtime"] = int(val) if val else None
-                elif aline.startswith("AGENT_MTIME="):
-                    val = aline[len("AGENT_MTIME=") :].strip()
-                    agent_raw["agent_activity_mtime"] = int(val) if val else None
-                elif aline.startswith("START_MTIME="):
-                    val = aline[len("START_MTIME=") :].strip()
-                    agent_raw["start_activity_mtime"] = int(val) if val else None
-                elif aline.startswith("TMUX_INFO="):
-                    val = aline[len("TMUX_INFO=") :].strip()
-                    agent_raw["tmux_info"] = val if val else None
-                elif aline.startswith("ACTIVE="):
-                    agent_raw["is_active"] = aline[len("ACTIVE=") :].strip() == "true"
-                elif aline.startswith("URL="):
-                    val = aline[len("URL=") :].strip()
-                    agent_raw["url"] = val if val else None
-                else:
-                    pass
-                idx += 1
+            agent_raw, idx = _parse_agent_section(lines, idx)
             if "data" in agent_raw:
                 agents.append(agent_raw)
-
         else:
             pass
-
         idx += 1
 
     result["agents"] = agents
@@ -2321,90 +2323,88 @@ log "=== Shutdown script completed ==="
             activity_sources = ()
             idle_mode = IdleMode.IO
 
-        # SSH activity time for idle_seconds computation
-        ssh_activity_mtime = raw.get("ssh_activity_mtime")
-        ssh_activity = (
-            datetime.fromtimestamp(ssh_activity_mtime, tz=timezone.utc) if ssh_activity_mtime is not None else None
-        )
-
-        # ps output (shared across all agents on this host)
+        ssh_activity = timestamp_to_datetime(raw.get("ssh_activity_mtime"))
         ps_output = raw.get("ps_output", "")
 
         agent_infos: list[AgentInfo] = []
         for agent_raw in raw.get("agents", []):
-            agent_data = agent_raw.get("data", {})
-            agent_id_str = agent_data.get("id")
-            agent_name_str = agent_data.get("name")
-            if not agent_id_str or not agent_name_str:
-                continue
-
-            agent_id = AgentId(agent_id_str)
-            agent_name = AgentName(agent_name_str)
-            agent_type = str(agent_data.get("type", "unknown"))
-            command = CommandString(agent_data.get("command", "bash"))
-            work_dir = Path(agent_data.get("work_dir", "/"))
-            create_time_str = agent_data.get("create_time")
-            create_time = (
-                datetime.fromisoformat(create_time_str)
-                if create_time_str
-                else datetime(1970, 1, 1, tzinfo=timezone.utc)
-            )
-            start_on_boot = agent_data.get("start_on_boot", False)
-            labels = agent_data.get("labels", {})
-
-            # Activity times from mtimes
-            user_activity = timestamp_to_datetime(agent_raw.get("user_activity_mtime"))
-            agent_activity = timestamp_to_datetime(agent_raw.get("agent_activity_mtime"))
-            start_time = timestamp_to_datetime(agent_raw.get("start_activity_mtime"))
-
-            # Runtime from start_time
-            now = datetime.now(timezone.utc)
-            runtime_seconds = (now - start_time).total_seconds() if start_time else None
-
-            # Idle seconds
-            idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
-
-            # Lifecycle state from tmux info
-            tmux_info = agent_raw.get("tmux_info")
-            is_active = agent_raw.get("is_active", False)
-            # Resolve expected process name using agent type (handles overrides like ClaudeAgent)
-            expected_process_name = resolve_expected_process_name(agent_type, command, self.mngr_ctx.config)
-            state = determine_lifecycle_state(
-                tmux_info=tmux_info,
-                is_active=is_active,
-                expected_process_name=expected_process_name,
+            agent_info = self._build_single_agent_info(
+                agent_raw=agent_raw,
+                host_info=host_info,
+                ssh_activity=ssh_activity,
                 ps_output=ps_output,
+                idle_timeout_seconds=idle_timeout_seconds,
+                activity_sources=activity_sources,
+                idle_mode=idle_mode,
             )
-
-            # URL
-            url = agent_raw.get("url")
-
-            agent_infos.append(
-                AgentInfo(
-                    id=agent_id,
-                    name=agent_name,
-                    type=agent_type,
-                    command=command,
-                    work_dir=work_dir,
-                    create_time=create_time,
-                    start_on_boot=start_on_boot,
-                    state=state,
-                    url=url,
-                    start_time=start_time,
-                    runtime_seconds=runtime_seconds,
-                    user_activity_time=user_activity,
-                    agent_activity_time=agent_activity,
-                    idle_seconds=idle_seconds,
-                    idle_mode=idle_mode.value,
-                    idle_timeout_seconds=idle_timeout_seconds,
-                    activity_sources=tuple(s.value for s in activity_sources),
-                    labels=labels,
-                    host=host_info,
-                    plugin={},
-                )
-            )
+            if agent_info is not None:
+                agent_infos.append(agent_info)
 
         return agent_infos
+
+    def _build_single_agent_info(
+        self,
+        agent_raw: dict[str, Any],
+        host_info: HostInfo,
+        ssh_activity: datetime | None,
+        ps_output: str,
+        idle_timeout_seconds: int,
+        activity_sources: tuple[ActivitySource, ...],
+        idle_mode: IdleMode,
+    ) -> AgentInfo | None:
+        """Build a single AgentInfo from raw SSH-collected data."""
+        agent_data = agent_raw.get("data", {})
+        agent_id_str = agent_data.get("id")
+        agent_name_str = agent_data.get("name")
+        if not agent_id_str or not agent_name_str:
+            return None
+
+        agent_type = str(agent_data.get("type", "unknown"))
+        command = CommandString(agent_data.get("command", "bash"))
+        create_time_str = agent_data.get("create_time")
+        create_time = (
+            datetime.fromisoformat(create_time_str) if create_time_str else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        )
+
+        # Activity times and derived values
+        user_activity = timestamp_to_datetime(agent_raw.get("user_activity_mtime"))
+        agent_activity = timestamp_to_datetime(agent_raw.get("agent_activity_mtime"))
+        start_time = timestamp_to_datetime(agent_raw.get("start_activity_mtime"))
+        now = datetime.now(timezone.utc)
+        runtime_seconds = (now - start_time).total_seconds() if start_time else None
+        idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+
+        # Lifecycle state from tmux info
+        expected_process_name = resolve_expected_process_name(agent_type, command, self.mngr_ctx.config)
+        state = determine_lifecycle_state(
+            tmux_info=agent_raw.get("tmux_info"),
+            is_active=agent_raw.get("is_active", False),
+            expected_process_name=expected_process_name,
+            ps_output=ps_output,
+        )
+
+        return AgentInfo(
+            id=AgentId(agent_id_str),
+            name=AgentName(agent_name_str),
+            type=agent_type,
+            command=command,
+            work_dir=Path(agent_data.get("work_dir", "/")),
+            create_time=create_time,
+            start_on_boot=agent_data.get("start_on_boot", False),
+            state=state,
+            url=agent_raw.get("url"),
+            start_time=start_time,
+            runtime_seconds=runtime_seconds,
+            user_activity_time=user_activity,
+            agent_activity_time=agent_activity,
+            idle_seconds=idle_seconds,
+            idle_mode=idle_mode.value,
+            idle_timeout_seconds=idle_timeout_seconds,
+            activity_sources=tuple(s.value for s in activity_sources),
+            labels=agent_data.get("labels", {}),
+            host=host_info,
+            plugin={},
+        )
 
     # =========================================================================
     # Snapshot Methods
