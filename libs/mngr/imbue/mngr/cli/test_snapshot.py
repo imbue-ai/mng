@@ -172,8 +172,8 @@ def test_snapshot_create_mixed_identifier_classified_as_host(
 ) -> None:
     """Test that a positional arg not matching any agent is treated as a host identifier.
 
-    In the test env, the local provider resolves any name to its default host, which
-    doesn't support snapshots, so we get an error about unsupported snapshots.
+    The identifier is classified as a host (no agent match), and since the local
+    provider only accepts "localhost" as a host name, it fails with "not found".
     """
     result = cli_runner.invoke(
         snapshot,
@@ -181,10 +181,8 @@ def test_snapshot_create_mixed_identifier_classified_as_host(
         obj=plugin_manager,
         catch_exceptions=True,
     )
-    # The identifier is classified as a host (no agent match), resolved by the local
-    # provider, then fails because local doesn't support snapshots
     assert result.exit_code != 0
-    assert "does not support snapshots" in result.output or "Failed to create" in result.output
+    assert "Agent or host not found" in result.output
 
 
 def test_snapshot_list_nonexistent_agent_errors(

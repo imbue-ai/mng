@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Final
 from typing import Mapping
 from typing import Sequence
+from typing import assert_never
 
 import psutil
 from loguru import logger
@@ -214,7 +215,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this simply returns the local host since it
         is always running.
         """
-        local_host = self._create_host(HostName("local"))
+        local_host = self._create_host(HostName("localhost"))
 
         return local_host
 
@@ -247,13 +248,18 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         host_id = self.host_id
 
-        if isinstance(host, HostId):
-            if host != host_id:
-                logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
-                raise HostNotFoundError(host)
-        # For HostName, we accept "local" or any name since there's only one host
+        match host:
+            case HostId():
+                if host != host_id:
+                    logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
+                    raise HostNotFoundError(host)
+            case HostName():
+                if str(host) != "localhost":
+                    raise HostNotFoundError(host)
+            case _ as unreachable:
+                assert_never(unreachable)
 
-        return self._create_host(HostName("local"))
+        return self._create_host(HostName("localhost"))
 
     def list_hosts(
         self,
@@ -265,7 +271,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns a single-element list
         containing the local host.
         """
-        hosts = [self._create_host(HostName("local"))]
+        hosts = [self._create_host(HostName("localhost"))]
         logger.trace("Listed hosts for local provider {}", self.name)
         return hosts
 

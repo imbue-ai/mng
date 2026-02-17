@@ -44,7 +44,7 @@ def _create_running_test_agent(
     mngr_test_prefix: str,
 ) -> RunningTestAgent:
     """Create a real test agent with a running tmux session on the local provider."""
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
 
     agent_id = AgentId.generate()
     agent_name = AgentName(f"exec-test-{get_short_random_string()}")

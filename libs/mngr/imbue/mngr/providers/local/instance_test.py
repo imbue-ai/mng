@@ -115,7 +115,7 @@ def test_get_host_by_id(local_provider: LocalProviderInstance) -> None:
 
 def test_get_host_by_name(local_provider: LocalProviderInstance) -> None:
     host1 = local_provider.create_host(HostName("test"))
-    host2 = local_provider.get_host(HostName("local"))
+    host2 = local_provider.get_host(HostName("localhost"))
 
     assert host2.id == host1.id
 

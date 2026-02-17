@@ -25,7 +25,7 @@ def _create_stopped_agent(
     agent_name: str,
 ) -> Host:
     """Create an agent via the provider API without starting it (no tmux session)."""
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
     host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
