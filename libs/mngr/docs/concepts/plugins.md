@@ -85,12 +85,10 @@ These hooks can be used to customize behavior when interacting with individual a
 |-------------------------------------|-------------------------------------------------------------------------------------------------------|
 | `on_agent_collected`                | Called once per agent (per command where we collect this agent.)                                      |
 | `on_agent_created`                  | Called after an agent has been created                                                                 |
-| `on_agent_destroyed`               | Called before an agent is destroyed                                                                    |
 | `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
 | `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
 | `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
-| `on_before_agent_destroy`           | Before destroying an agent                                                                            |
-| `on_after_agent_destroy`            | After destroying an agent                                                                             |
+| `on_agent_destroyed`                | Called before an agent is destroyed                                                                    |
 
 ### Agent Provisioning Methods
 
