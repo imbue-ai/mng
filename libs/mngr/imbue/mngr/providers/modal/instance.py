@@ -772,32 +772,15 @@ class ModalProviderInstance(BaseProviderInstance):
         Returns a list of all HostRecord objects found on the volume.
         Host records are stored at /<host_id>.json.
         """
-        with trace_span("  _list_all_host_records", _is_trace_span_enabled=False):
-            volume = self._get_state_volume()
-
-            futures: list[Future[HostRecord | None]] = []
-            with ConcurrencyGroupExecutor(
-                parent_cg=cg, name="modal_list_all_host_records", max_workers=32
-            ) as executor:
-                # List files at the root of the volume
-                for entry in volume.listdir("/"):
-                    filename = entry.path
-                    # Host records are stored as <host_id>.json
-                    if filename.endswith(".json"):
-                        # Remove .json suffix (and any leading / if present)
-                        host_id_str = filename.lstrip("/")[:-5]
-                        host_id = HostId(host_id_str)
-                        futures.append(executor.submit(self._read_host_record, host_id))
-
-            result = [record for future in futures if (record := future.result()) is not None]
-            logger.trace("Listed all host records from volume")
-            return result
+        host_records, _agent_record_by_host_id = self._list_all_host_and_agent_records(cg, is_including_agents=False)
+        return host_records
 
     # FOLLOWUP: this takes the vast majority of the time for most commands, eg, is a significant performance bottleneck
     #  In order to work around that, we should cache this data locally. We'll need to invalidate that cache any time we mutate a host record, but otherwise it will really help us speed up listing (and all operations that use listing, which is basically everything, because we often need to find a host/agent by name or id)
     #  If we use the cache *only for mngr list*, we should be relatively safe--we can regenerate the cache after basically any command that changes it (and time it out), and then list will show you what you expect
-    # FIXME: usages of _list_all_host_records should be adopted to call this, and we can add an option to this so that it does NOT bother loading the agent data if you dont care about that
-    def _list_all_host_and_agent_records(self, cg: ConcurrencyGroup) -> tuple[list[HostRecord], dict[str, Any]]:
+    def _list_all_host_and_agent_records(
+        self, cg: ConcurrencyGroup, is_including_agents: bool = True
+    ) -> tuple[list[HostRecord], dict[str, Any]]:
         with trace_span("  _list_all_host_and_agent_records", _is_trace_span_enabled=False):
             volume = self._get_state_volume()
 
@@ -815,7 +798,10 @@ class ModalProviderInstance(BaseProviderInstance):
                         host_id_str = filename.lstrip("/")[:-5]
                         host_id = HostId(host_id_str)
                         futures.append(executor.submit(self._read_host_record, host_id))
-                        future_by_host_id[host_id] = executor.submit(self.list_persisted_agent_data_for_host, host_id)
+                        if is_including_agents:
+                            future_by_host_id[host_id] = executor.submit(
+                                self.list_persisted_agent_data_for_host, host_id
+                            )
 
             result = [record for future in futures if (record := future.result()) is not None]
             logger.trace("Listed all host records from volume")
