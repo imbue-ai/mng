@@ -116,6 +116,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         host_name=None,
         host_name_style="astronomy",
         tag=(),
+        label=(),
         project=None,
         host_env=(),
         host_env_file=(),

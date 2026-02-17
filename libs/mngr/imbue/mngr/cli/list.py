@@ -43,7 +43,7 @@ _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "host.name",
     "host.provider_name",
     "host.state",
-    "host.tags",
+    "labels",
 )
 
 # Custom header labels for fields that would otherwise generate ugly auto-generated headers.
@@ -53,6 +53,7 @@ _HEADER_LABELS: Final[dict[str, str]] = {
     "host.provider_name": "PROVIDER",
     "host.state": "HOST STATE",
     "host.tags": "TAGS",
+    "labels": "LABELS",
     "host.ssh.host": "SSH HOST",
     "idle_timeout_seconds": "IDLE TIMEOUT",
     "activity_sources": "ACTIVITY",
@@ -105,6 +106,7 @@ class ListCliOptions(CommonCliOptions):
     remote: bool
     provider: tuple[str, ...]
     project: tuple[str, ...]
+    label: tuple[str, ...]
     tag: tuple[str, ...]
     stdin: bool
     fields: str | None
@@ -155,7 +157,12 @@ class ListCliOptions(CommonCliOptions):
 @optgroup.option(
     "--project",
     multiple=True,
-    help="Show only agents on hosts tagged with this project (repeatable)",
+    help="Show only agents with this project label (repeatable)",
+)
+@optgroup.option(
+    "--label",
+    multiple=True,
+    help="Show only agents with this label (format: KEY=VALUE, repeatable)",
 )
 @optgroup.option(
     "--tag",
@@ -273,11 +280,22 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     if opts.local:
         include_filters.append('host.provider == "local"')
 
-    # --project X: alias for --include 'host.tags.project == "X"'
+    # --project X: alias for --include 'labels.project == "X"'
     # Multiple values are OR'd together
     if opts.project:
-        project_parts = [f'host.tags.project == "{p}"' for p in opts.project]
+        project_parts = [f'labels.project == "{p}"' for p in opts.project]
         include_filters.append(" || ".join(project_parts))
+
+    # --label K=V: alias for --include 'labels.K == "V"'
+    # Multiple values are OR'd together
+    if opts.label:
+        label_parts = []
+        for label_spec in opts.label:
+            if "=" not in label_spec:
+                raise click.BadParameter(f"Label must be in KEY=VALUE format, got: {label_spec}", param_hint="--label")
+            key, value = label_spec.split("=", 1)
+            label_parts.append(f'labels.{key} == "{value}"')
+        include_filters.append(" || ".join(label_parts))
 
     # --tag K=V: alias for --include 'host.tags.K == "V"'
     # Multiple values are OR'd together
@@ -533,11 +551,12 @@ _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
     "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
+    "labels": 10,
     "host.tags": 10,
 }
 _DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 10
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "host.tags"}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
@@ -1010,7 +1029,8 @@ Supports filtering, sorting, and multiple output formats.""",
         ("List only running agents", "mngr list --running"),
         ("List agents on Docker hosts", "mngr list --provider docker"),
         ("List agents for a project", "mngr list --project mngr"),
-        ("List agents with a specific tag", "mngr list --tag env=prod"),
+        ("List agents with a specific label", "mngr list --label env=prod"),
+        ("List agents with a specific host tag", "mngr list --tag env=prod"),
         ("List agents as JSON", "mngr list --format json"),
         ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
     ),
@@ -1025,6 +1045,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
+- `labels.project == "mngr"` - Match agents with a specific project label
 
 **Compound expressions:**
 - `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
@@ -1067,6 +1088,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
+- `labels` - Agent labels (key-value pairs, e.g., project=mngr)
+- `labels.$KEY` - Specific label value (e.g., `labels.project`)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):

@@ -366,3 +366,8 @@ class AgentReference(FrozenModel):
         """Return the list of permissions assigned to this agent."""
         permissions_value = self.certified_data.get("permissions", [])
         return tuple(Permission(p) for p in permissions_value)
+
+    @property
+    def labels(self) -> dict[str, str]:
+        """Return the labels attached to this agent."""
+        return dict(self.certified_data.get("labels", {}))
