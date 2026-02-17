@@ -94,6 +94,8 @@ class AgentInfo(FrozenModel):
         default=None, description="Activity sources used for idle detection"
     )
 
+    labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
+
     host: HostInfo = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
@@ -558,6 +560,7 @@ def _assemble_host_info(
                     idle_mode=activity_config.idle_mode.value,
                     idle_timeout_seconds=activity_config.idle_timeout_seconds,
                     activity_sources=tuple(s.value for s in activity_config.activity_sources),
+                    labels=agent.get_labels(),
                     host=host_info,
                     plugin={},
                 )
@@ -582,6 +585,7 @@ def _assemble_host_info(
                     agent_activity_time=None,
                     idle_seconds=None,
                     idle_mode=None,
+                    labels=agent_ref.labels,
                     host=host_info,
                     plugin={},
                 )

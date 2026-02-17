@@ -44,7 +44,8 @@ mngr list [OPTIONS]
 | `--local` | boolean | Show only local agents (alias for --include 'host.provider == "local"') | `False` |
 | `--remote` | boolean | Show only remote agents (alias for --exclude 'host.provider == "local"') | `False` |
 | `--provider` | text | Show only agents using specified provider (repeatable) | None |
-| `--project` | text | Show only agents on hosts tagged with this project (repeatable) | None |
+| `--project` | text | Show only agents with this project label (repeatable) | None |
+| `--label` | text | Show only agents with this label (format: KEY=VALUE, repeatable) | None |
 | `--tag` | text | Show only agents on hosts with this tag (format: KEY=VALUE, repeatable) | None |
 | `--stdin` | boolean | Read agent and host IDs or names from stdin (one per line) | `False` |
 
@@ -102,6 +103,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
+- `labels.project == "mngr"` - Match agents with a specific project label
 
 **Compound expressions:**
 - `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
@@ -145,6 +147,8 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
+- `labels` - Agent labels (key-value pairs, e.g., project=mngr)
+- `labels.$KEY` - Specific label value (e.g., `labels.project`)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
@@ -218,7 +222,13 @@ $ mngr list --provider docker
 $ mngr list --project mngr
 ```
 
-**List agents with a specific tag**
+**List agents with a specific label**
+
+```bash
+$ mngr list --label env=prod
+```
+
+**List agents with a specific host tag**
 
 ```bash
 $ mngr list --tag env=prod

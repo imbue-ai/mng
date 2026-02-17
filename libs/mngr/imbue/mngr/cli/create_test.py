@@ -7,6 +7,7 @@ import pytest
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.create import CreateCliOptions
+from imbue.mngr.cli.create import _parse_agent_opts
 from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _parse_project_name
 from imbue.mngr.cli.create import _resolve_source_location
@@ -519,3 +520,76 @@ def test_split_cli_args_preserves_separate_flag_and_value() -> None:
 def test_split_cli_args_empty() -> None:
     """Empty input should produce empty output."""
     assert _split_cli_args(()) == []
+
+
+# =============================================================================
+# Tests for --label option in _parse_agent_opts
+# =============================================================================
+
+
+def test_parse_agent_opts_includes_labels(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """--label KEY=VALUE options should be parsed into label_options.labels."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().label, ("project=mngr", "env=prod")),
+    )
+
+    result = _parse_agent_opts(
+        opts=opts,
+        initial_message=None,
+        resume_message=None,
+        source_location=source_location,
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    assert result.label_options.labels == {"project": "mngr", "env": "prod"}
+
+
+def test_parse_agent_opts_label_invalid_format_raises(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """--label without = should raise UserInputError."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+    opts = default_create_cli_opts.model_copy_update(
+        to_update(default_create_cli_opts.field_ref().label, ("invalid-no-equals",)),
+    )
+
+    with pytest.raises(UserInputError, match="KEY=VALUE"):
+        _parse_agent_opts(
+            opts=opts,
+            initial_message=None,
+            resume_message=None,
+            source_location=source_location,
+            mngr_ctx=temp_mngr_ctx,
+        )
+
+
+def test_parse_agent_opts_empty_labels_by_default(
+    default_create_cli_opts: CreateCliOptions,
+    local_provider: LocalProviderInstance,
+    temp_mngr_ctx: MngrContext,
+    temp_work_dir: Path,
+) -> None:
+    """Without --label, label_options.labels should be empty."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    source_location = HostLocation(host=local_host, path=temp_work_dir)
+
+    result = _parse_agent_opts(
+        opts=default_create_cli_opts,
+        initial_message=None,
+        resume_message=None,
+        source_location=source_location,
+        mngr_ctx=temp_mngr_ctx,
+    )
+
+    assert result.label_options.labels == {}

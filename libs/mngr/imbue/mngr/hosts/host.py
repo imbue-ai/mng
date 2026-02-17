@@ -1435,6 +1435,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "ready_timeout_seconds": options.ready_timeout_seconds,
                 "permissions": [],
                 "start_on_boot": False,
+                "labels": dict(options.label_options.labels),
             }
 
             data_path = state_dir / "data.json"

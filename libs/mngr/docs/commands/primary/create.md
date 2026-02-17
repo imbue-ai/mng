@@ -7,7 +7,7 @@
 
 ```text
 mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
-    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
@@ -58,8 +58,9 @@ By default, `mngr create` uses the "local" host. Use these options to change tha
 | ---- | ---- | ----------- | ------- |
 | `--in`, `--new-host` | text | Create a new host using provider (docker, modal, ...) | None |
 | `--host`, `--target-host` | text | Use an existing host (by name or ID) [default: local] | None |
-| `--project` | text | Project name for the agent [default: derived from git remote origin or folder name] | None |
-| `--tag` | text | Metadata tag KEY=VALUE [repeatable] | None |
+| `--project` | text | Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name] | None |
+| `--label` | text | Agent label KEY=VALUE [repeatable] | None |
+| `--tag` | text | Host metadata tag KEY=VALUE [repeatable] | None |
 | `--host-name` | text | Name for the new host | None |
 | `--host-name-style` | choice (`astronomy` &#x7C; `places` &#x7C; `cities` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `scientists`) | Auto-generated host name style | `astronomy` |
 
