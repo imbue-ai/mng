@@ -104,7 +104,7 @@ _EXPECTED_PROCESS_NAME_BY_AGENT_TYPE: Final[dict[str, str]] = {
 }
 
 # Common shell names for lifecycle state detection
-_SHELL_COMMANDS: Final[frozenset[str]] = frozenset({"bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"})
+SHELL_COMMANDS: Final[frozenset[str]] = frozenset({"bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"})
 
 
 @pure
@@ -220,12 +220,12 @@ def determine_lifecycle_state(
         return AgentLifecycleState.RUNNING if is_active else AgentLifecycleState.WAITING
 
     # Check for non-shell descendant processes
-    non_shell_processes = [p for p in descendant_names if p not in _SHELL_COMMANDS]
+    non_shell_processes = [p for p in descendant_names if p not in SHELL_COMMANDS]
     if non_shell_processes:
         return AgentLifecycleState.REPLACED
 
     # Current command is a shell -> agent probably finished
-    if current_command in _SHELL_COMMANDS:
+    if current_command in SHELL_COMMANDS:
         return AgentLifecycleState.DONE
 
     return AgentLifecycleState.REPLACED

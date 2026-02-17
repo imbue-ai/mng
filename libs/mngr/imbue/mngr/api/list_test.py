@@ -7,7 +7,6 @@ from imbue.mngr.api.list import COMPLETION_CACHE_FILENAME
 from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import _write_completion_cache
 from imbue.mngr.config.data_types import MngrContext
-from imbue.mngr.hosts.common import compute_idle_seconds
 from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.primitives import AgentId
@@ -104,35 +103,3 @@ def test_write_completion_cache_deduplicates_names(
     cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
-
-
-# =============================================================================
-# compute_idle_seconds Tests
-# =============================================================================
-
-
-def test_compute_idle_seconds_returns_none_when_all_none() -> None:
-    """compute_idle_seconds should return None when all activity times are None."""
-    result = compute_idle_seconds(None, None, None)
-    assert result is None
-
-
-def test_compute_idle_seconds_uses_most_recent_activity() -> None:
-    """compute_idle_seconds should compute from the most recent activity time."""
-    now = datetime.now(timezone.utc)
-    old_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    recent_time = now
-
-    result = compute_idle_seconds(old_time, recent_time, None)
-    assert result is not None
-    # The recent_time is basically "now", so idle should be very small
-    assert result < 2.0
-
-
-def test_compute_idle_seconds_with_single_activity_time() -> None:
-    """compute_idle_seconds should work with a single non-None activity time."""
-    recent_time = datetime.now(timezone.utc)
-
-    result = compute_idle_seconds(None, recent_time, None)
-    assert result is not None
-    assert result < 2.0

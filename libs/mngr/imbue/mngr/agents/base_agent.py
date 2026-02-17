@@ -18,6 +18,7 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
+from imbue.mngr.hosts.common import SHELL_COMMANDS
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
@@ -288,10 +289,7 @@ class BaseAgent(AgentInterface):
 
     def _is_shell_command(self, command: str) -> bool:
         """Check if a command string represents a shell."""
-        # Common shells - just check the basename directly since
-        # pane_current_command gives us the basename already
-        shells = ["bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]
-        return command in shells
+        return command in SHELL_COMMANDS
 
     def get_initial_message(self) -> str | None:
         data = self._read_data()
