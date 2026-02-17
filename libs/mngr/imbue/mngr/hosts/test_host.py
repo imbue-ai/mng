@@ -727,7 +727,6 @@ def _collect_pane_pids(host: Host, session_name: str) -> list[str]:
     return host._collect_session_pids(session_name)
 
 
-@pytest.mark.nomodal
 def test_procps_ps_command_available() -> None:
     """Verify that the `ps` command from procps is available.
 
@@ -751,7 +750,6 @@ def test_procps_ps_command_available() -> None:
         raise AssertionError("ps aux output invalid")
 
 
-@pytest.mark.nomodal
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -806,7 +804,6 @@ def test_stop_agent_kills_single_pane_processes(
     wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
-@pytest.mark.nomodal
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
