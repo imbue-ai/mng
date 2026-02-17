@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # This is a (very long) tutorial that covers most of the features of mngr with examples, as well as simple ways to do common tasks.
 # See the README.md for details on installation and higher level architecture.
 
@@ -78,8 +79,129 @@ mngr config set commands.create in modal
 #   as well as any important information about them (ex: where they're running, when they were last active, etc.)
 ##############################################################################
 
-# TODO: create all of the rest of the *section* headers, like we did for create and list
+##############################################################################
+# CONNECTING TO AGENTS
+#   If you've disconnected from an agent (or created one with --no-connect),
+#   you can reconnect to it at any time.
+##############################################################################
 
 
+##############################################################################
+# SENDING MESSAGES TO AGENTS
+#   You can send messages to running agents without connecting to them.
+#   This is useful for giving agents new instructions while they work.
+##############################################################################
 
+
+##############################################################################
+# EXECUTING COMMANDS ON AGENTS
+#   Run shell commands on an agent's host without connecting interactively.
+#   Useful for scripting, checking status, or running one-off operations.
+##############################################################################
+
+
+##############################################################################
+# OPENING AGENTS IN THE BROWSER
+#   Some agents expose web interfaces. "mngr open" launches them in your
+#   browser, so you can interact with agents visually.
+##############################################################################
+
+
+##############################################################################
+# PUSHING FILES TO AGENTS
+#   Push local files or git commits to a running agent. This is how you
+#   sync your local changes to an agent's workspace.
+##############################################################################
+
+
+##############################################################################
+# PULLING FILES FROM AGENTS
+#   Pull files or git commits from an agent back to your local machine.
+#   This is how you retrieve an agent's work.
+##############################################################################
+
+
+##############################################################################
+# PAIRING WITH AGENTS
+#   Continuously sync files between your local machine and an agent in
+#   real time. Great for working alongside an agent on the same codebase.
+##############################################################################
+
+
+##############################################################################
+# STARTING AND STOPPING AGENTS
+#   Stopped agents can be restarted, and running agents can be stopped to
+#   free resources. Stopping can optionally create a snapshot for later.
+##############################################################################
+
+
+##############################################################################
+# RENAMING AGENTS
+#   Rename an agent to something more descriptive, or to avoid name
+#   collisions.
+##############################################################################
+
+
+##############################################################################
+# DESTROYING AGENTS
+#   When you're done with an agent, destroy it to clean up all of its
+#   resources (host, snapshots, volumes, etc.).
+##############################################################################
+
+
+##############################################################################
+# CLONING AND MIGRATING AGENTS
+#   Clone an agent to create a copy of it (on the same or different host),
+#   or migrate an agent to move it to a different host entirely.
+##############################################################################
+
+
+##############################################################################
+# MANAGING SNAPSHOTS
+#   Snapshots capture the filesystem state of a host. You can create, list,
+#   and destroy them, and use them to restore or fork agents.
+##############################################################################
+
+
+##############################################################################
+# PROVISIONING AGENTS
+#   Re-run provisioning steps on an existing agent, such as installing
+#   packages, uploading files, or running setup commands.
+##############################################################################
+
+
+##############################################################################
+# MANAGING AGENT LIMITS
+#   Configure idle timeouts, activity tracking, permissions, and other
+#   runtime limits for agents and hosts.
+##############################################################################
+
+
+##############################################################################
+# CLEANING UP RESOURCES
+#   Bulk-destroy or stop agents based on filters like age, idle time, or
+#   provider. Also garbage-collect unused resources like orphaned snapshots
+#   and volumes.
+##############################################################################
+
+
+##############################################################################
+# VIEWING LOGS
+#   View log files for agents and hosts. Useful for debugging and
+#   monitoring what your agents are up to.
+##############################################################################
+
+
+##############################################################################
+# MANAGING PLUGINS
+#   List, enable, and disable plugins that extend mngr with new agent types,
+#   provider backends, and CLI commands.
+##############################################################################
+
+
+##############################################################################
+# CONFIGURATION
+#   Customize mngr's behavior via configuration files. Set defaults for
+#   commands, define create templates, and configure providers.
+##############################################################################
 
