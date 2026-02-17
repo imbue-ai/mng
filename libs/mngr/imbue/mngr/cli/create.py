@@ -878,10 +878,7 @@ def _handle_batch_create(
 
 
 def _output_batch_results(results: Sequence[CreateAgentResult], opts: OutputOptions) -> None:
-    """Output results for a batch of created agents.
-
-    Only called when count > 1, so len(results) is always >= 2.
-    """
+    """Output results for a batch of created agents."""
     if opts.console_level == LogLevel.NONE:
         return
 
