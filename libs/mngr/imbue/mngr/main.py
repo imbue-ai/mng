@@ -1,3 +1,4 @@
+import bdb
 from typing import Any
 
 import click
@@ -80,7 +81,7 @@ class AliasAwareGroup(click.Group):
             return super().invoke(ctx)
         except NotImplementedError as e:
             handle_not_implemented_error(e)
-        except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngrError):
+        except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngrError, bdb.BdbQuit):
             raise
         except Exception as e:
             if ctx.meta.get("is_error_reporting_enabled", False):
