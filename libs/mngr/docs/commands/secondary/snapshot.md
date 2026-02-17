@@ -20,7 +20,7 @@ Alias: snap
 
 Examples:
 
-  mngr snapshot create my-agent
+  mngr snapshot my-agent
 
   mngr snapshot list my-agent
 

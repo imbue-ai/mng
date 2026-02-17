@@ -2,6 +2,7 @@ from typing import Any
 from typing import assert_never
 
 import click
+from click import Context
 from click_option_group import optgroup
 from loguru import logger
 
@@ -349,7 +350,29 @@ def _emit_destroy_result(
 # =============================================================================
 
 
-@click.group(name="snapshot", invoke_without_command=True)
+class _SnapshotGroup(click.Group):
+    """Snapshot group that defaults to 'create' when no subcommand is given.
+
+    This is safe because the next argument must be a valid agent name,
+    so typos like ``mngr snapshot destory`` will fail with "agent not found"
+    rather than silently doing something wrong.
+    """
+
+    def invoke(self, ctx: Context) -> Any:
+        if not ctx.protected_args and not ctx.args:
+            ctx.protected_args.append("create")
+        return super().invoke(ctx)
+
+    def resolve_command(self, ctx: Context, args: list[str]) -> tuple[str | None, click.Command | None, list[str]]:
+        """Resolve command, defaulting to 'create' for unrecognized subcommands."""
+        if args:
+            cmd = self.get_command(ctx, args[0])
+            if cmd is None:
+                return super().resolve_command(ctx, ["create"] + args)
+        return super().resolve_command(ctx, args)
+
+
+@click.group(name="snapshot", cls=_SnapshotGroup)
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
@@ -365,14 +388,12 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
     \b
     Examples:
 
-      mngr snapshot create my-agent
+      mngr snapshot my-agent
 
       mngr snapshot list my-agent
 
       mngr snapshot destroy my-agent --all-snapshots --force
     """
-    if ctx.invoked_subcommand is None:
-        logger.info(ctx.get_help())
 
 
 # =============================================================================
