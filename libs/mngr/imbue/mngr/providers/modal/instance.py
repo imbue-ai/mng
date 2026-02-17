@@ -38,6 +38,7 @@ from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
@@ -47,11 +48,14 @@ from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostConfig
+from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
+from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
@@ -60,9 +64,15 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -197,6 +207,293 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
             raise ModalAuthError() from e
 
     return wrapper
+
+
+# =========================================================================
+# Listing Data Collection Helpers
+# =========================================================================
+
+# Unique delimiters for parsing the single-command output
+_SEP_DATA_JSON_START: Final[str] = "---MNGR_DATA_JSON_START---"
+_SEP_DATA_JSON_END: Final[str] = "---MNGR_DATA_JSON_END---"
+_SEP_AGENT_START: Final[str] = "---MNGR_AGENT_START:"
+_SEP_AGENT_END: Final[str] = "---MNGR_AGENT_END---"
+_SEP_AGENT_DATA_START: Final[str] = "---MNGR_AGENT_DATA_START---"
+_SEP_AGENT_DATA_END: Final[str] = "---MNGR_AGENT_DATA_END---"
+_SEP_PS_START: Final[str] = "---MNGR_PS_START---"
+_SEP_PS_END: Final[str] = "---MNGR_PS_END---"
+
+
+@pure
+def _build_listing_collection_script(host_dir: str, prefix: str) -> str:
+    """Build a shell script that collects all listing data in one command."""
+    return f"""
+# Uptime
+echo "UPTIME=$(cat /proc/uptime 2>/dev/null | awk '{{print $1}}')"
+
+# Boot time
+echo "BTIME=$(grep '^btime ' /proc/stat 2>/dev/null | awk '{{print $2}}')"
+
+# Lock file mtime
+echo "LOCK_MTIME=$(stat -c %Y '{host_dir}/host_lock' 2>/dev/null)"
+
+# SSH activity mtime
+echo "SSH_ACTIVITY_MTIME=$(stat -c %Y '{host_dir}/activity/ssh' 2>/dev/null)"
+
+# Host data.json
+echo '{_SEP_DATA_JSON_START}'
+cat '{host_dir}/data.json' 2>/dev/null || echo '{{}}'
+echo ''
+echo '{_SEP_DATA_JSON_END}'
+
+# ps output (shared by all agents for lifecycle detection)
+echo '{_SEP_PS_START}'
+ps -e -o pid=,ppid=,comm= 2>/dev/null
+echo '{_SEP_PS_END}'
+
+# Agents
+if [ -d '{host_dir}/agents' ]; then
+    for agent_dir in '{host_dir}/agents'/*/; do
+        [ -d "$agent_dir" ] || continue
+        data_file="${{agent_dir}}data.json"
+        [ -f "$data_file" ] || continue
+        agent_id=$(basename "$agent_dir")
+        echo '{_SEP_AGENT_START}'"$agent_id"'---'
+        echo '{_SEP_AGENT_DATA_START}'
+        cat "$data_file"
+        echo ''
+        echo '{_SEP_AGENT_DATA_END}'
+        echo "USER_MTIME=$(stat -c %Y "${{agent_dir}}activity/user" 2>/dev/null)"
+        echo "AGENT_MTIME=$(stat -c %Y "${{agent_dir}}activity/agent" 2>/dev/null)"
+        echo "START_MTIME=$(stat -c %Y "${{agent_dir}}activity/start" 2>/dev/null)"
+        agent_name=$(sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' "$data_file" | head -1)
+        session_name='{prefix}'"$agent_name"
+        tmux_info=$(tmux list-panes -t "${{session_name}}:0" -F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1)
+        echo "TMUX_INFO=$tmux_info"
+        if [ -f "${{agent_dir}}active" ]; then
+            echo "ACTIVE=true"
+        else
+            echo "ACTIVE=false"
+        fi
+        url=$(cat "${{agent_dir}}status/url" 2>/dev/null | tr -d '\\n')
+        echo "URL=$url"
+        echo '{_SEP_AGENT_END}'
+    done
+fi
+"""
+
+
+@pure
+def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
+    """Parse the output of the listing collection script."""
+    result: dict[str, Any] = {}
+    agents: list[dict[str, Any]] = []
+
+    lines = stdout.split("\n")
+    idx = 0
+
+    while idx < len(lines):
+        line = lines[idx]
+
+        # Key=value lines
+        if line.startswith("UPTIME=") and "uptime_seconds" not in result:
+            val = line[len("UPTIME=") :].strip()
+            result["uptime_seconds"] = float(val) if val else None
+        elif line.startswith("BTIME=") and "btime" not in result:
+            val = line[len("BTIME=") :].strip()
+            result["btime"] = int(val) if val else None
+        elif line.startswith("LOCK_MTIME=") and "lock_mtime" not in result:
+            val = line[len("LOCK_MTIME=") :].strip()
+            result["lock_mtime"] = int(val) if val else None
+        elif line.startswith("SSH_ACTIVITY_MTIME=") and "ssh_activity_mtime" not in result:
+            val = line[len("SSH_ACTIVITY_MTIME=") :].strip()
+            result["ssh_activity_mtime"] = int(val) if val else None
+
+        # Host data.json
+        elif line.strip() == _SEP_DATA_JSON_START:
+            idx += 1
+            json_lines: list[str] = []
+            while idx < len(lines) and lines[idx].strip() != _SEP_DATA_JSON_END:
+                json_lines.append(lines[idx])
+                idx += 1
+            json_str = "\n".join(json_lines).strip()
+            if json_str:
+                try:
+                    result["certified_data"] = json.loads(json_str)
+                except json.JSONDecodeError:
+                    pass
+
+        # ps output
+        elif line.strip() == _SEP_PS_START:
+            idx += 1
+            ps_lines: list[str] = []
+            while idx < len(lines) and lines[idx].strip() != _SEP_PS_END:
+                ps_lines.append(lines[idx])
+                idx += 1
+            result["ps_output"] = "\n".join(ps_lines)
+
+        # Agent sections
+        elif line.strip().startswith(_SEP_AGENT_START):
+            agent_raw: dict[str, Any] = {}
+            idx += 1
+            while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_END:
+                aline = lines[idx]
+                if aline.strip() == _SEP_AGENT_DATA_START:
+                    idx += 1
+                    agent_json_lines: list[str] = []
+                    while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_DATA_END:
+                        agent_json_lines.append(lines[idx])
+                        idx += 1
+                    agent_json_str = "\n".join(agent_json_lines).strip()
+                    if agent_json_str:
+                        try:
+                            agent_raw["data"] = json.loads(agent_json_str)
+                        except json.JSONDecodeError:
+                            pass
+                elif aline.startswith("USER_MTIME="):
+                    val = aline[len("USER_MTIME=") :].strip()
+                    agent_raw["user_activity_mtime"] = int(val) if val else None
+                elif aline.startswith("AGENT_MTIME="):
+                    val = aline[len("AGENT_MTIME=") :].strip()
+                    agent_raw["agent_activity_mtime"] = int(val) if val else None
+                elif aline.startswith("START_MTIME="):
+                    val = aline[len("START_MTIME=") :].strip()
+                    agent_raw["start_activity_mtime"] = int(val) if val else None
+                elif aline.startswith("TMUX_INFO="):
+                    val = aline[len("TMUX_INFO=") :].strip()
+                    agent_raw["tmux_info"] = val if val else None
+                elif aline.startswith("ACTIVE="):
+                    agent_raw["is_active"] = aline[len("ACTIVE=") :].strip() == "true"
+                elif aline.startswith("URL="):
+                    val = aline[len("URL=") :].strip()
+                    agent_raw["url"] = val if val else None
+                else:
+                    pass
+                idx += 1
+            if "data" in agent_raw:
+                agents.append(agent_raw)
+
+        else:
+            pass
+
+        idx += 1
+
+    result["agents"] = agents
+    return result
+
+
+@pure
+def _parse_boot_time_from_raw(btime: int | None) -> datetime | None:
+    """Convert a btime Unix timestamp to a datetime."""
+    if btime is None:
+        return None
+    try:
+        return datetime.fromtimestamp(btime, tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
+
+
+@pure
+def _mtime_to_datetime(mtime: int | None) -> datetime | None:
+    """Convert an mtime Unix timestamp to a datetime."""
+    if mtime is None:
+        return None
+    try:
+        return datetime.fromtimestamp(mtime, tz=timezone.utc)
+    except (ValueError, OSError):
+        return None
+
+
+@pure
+def _compute_idle_seconds(
+    user_activity: datetime | None,
+    agent_activity: datetime | None,
+    ssh_activity: datetime | None,
+) -> float | None:
+    """Compute idle seconds from the most recent activity time."""
+    latest_activity: datetime | None = None
+    for activity_time in (user_activity, agent_activity, ssh_activity):
+        if activity_time is not None:
+            if latest_activity is None or activity_time > latest_activity:
+                latest_activity = activity_time
+    if latest_activity is None:
+        return None
+    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
+
+
+@pure
+def _determine_lifecycle_state(
+    tmux_info: str | None,
+    is_active: bool,
+    expected_command: CommandString,
+    ps_output: str,
+) -> AgentLifecycleState:
+    """Determine agent lifecycle state from tmux info and ps output.
+
+    Replicates the logic from BaseAgent.get_lifecycle_state() but uses
+    pre-collected data instead of making SSH calls.
+    """
+    if not tmux_info:
+        return AgentLifecycleState.STOPPED
+
+    parts = tmux_info.split("|")
+    if len(parts) != 3:
+        return AgentLifecycleState.STOPPED
+
+    pane_dead, current_command, pane_pid = parts
+
+    if pane_dead == "1":
+        return AgentLifecycleState.DONE
+
+    # Extract expected basename
+    expected_basename = expected_command.split()[0].split("/")[-1] if expected_command else ""
+
+    if current_command == expected_basename:
+        return AgentLifecycleState.RUNNING if is_active else AgentLifecycleState.WAITING
+
+    # Check descendant processes
+    descendant_names = _get_descendant_process_names(pane_pid, ps_output)
+
+    if expected_basename in descendant_names:
+        return AgentLifecycleState.RUNNING if is_active else AgentLifecycleState.WAITING
+
+    # Check for non-shell descendant processes
+    shells = {"bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"}
+    non_shell_processes = [p for p in descendant_names if p not in shells]
+    if non_shell_processes:
+        return AgentLifecycleState.REPLACED
+
+    # Current command is a shell -> agent probably finished
+    if current_command in shells:
+        return AgentLifecycleState.DONE
+
+    return AgentLifecycleState.REPLACED
+
+
+@pure
+def _get_descendant_process_names(root_pid: str, ps_output: str) -> list[str]:
+    """Get names of all descendant processes from ps output."""
+    children_by_ppid: dict[str, list[str]] = {}
+    comm_by_pid: dict[str, str] = {}
+
+    for line in ps_output.strip().split("\n"):
+        line_parts = line.split()
+        if len(line_parts) >= 3:
+            pid, ppid, comm = line_parts[0], line_parts[1], line_parts[2]
+            comm_by_pid[pid] = comm
+            if ppid not in children_by_ppid:
+                children_by_ppid[ppid] = []
+            children_by_ppid[ppid].append(pid)
+
+    descendant_names: list[str] = []
+    queue = list(children_by_ppid.get(root_pid, []))
+    while queue:
+        pid = queue.pop(0)
+        if pid in comm_by_pid:
+            descendant_names.append(comm_by_pid[pid])
+        queue.extend(children_by_ppid.get(pid, []))
+
+    return descendant_names
 
 
 class SandboxConfig(HostConfig):
@@ -1986,6 +2283,237 @@ log "=== Shutdown script completed ==="
             disk_gb=None,
             gpu=None,
         )
+
+    # =========================================================================
+    # Optimized Listing
+    # =========================================================================
+
+    def build_host_listing_data(
+        self,
+        host_ref: HostReference,
+        agent_refs: Sequence[AgentReference],
+    ) -> tuple[HostInfo, list[AgentInfo]] | None:
+        """Build HostInfo and AgentInfo via a single SSH command."""
+        host = self.get_host(host_ref.host_id)
+
+        # For offline hosts, fall back to the default per-field collection
+        if not isinstance(host, Host):
+            return None
+
+        host_record = self._read_host_record(host_ref.host_id)
+
+        # Collect all data in one SSH command
+        raw = self._collect_all_listing_data_via_ssh(host)
+        if raw is None:
+            return None
+
+        # Build HostInfo from cached host record + SSH-collected data
+        host_info = self._build_host_info_from_raw(host, host_ref, host_record, raw)
+
+        # Build AgentInfo for each agent
+        certified_data = host_record.certified_host_data if host_record is not None else None
+        agent_infos = self._build_agent_infos_from_raw(host_info, certified_data, raw)
+
+        return host_info, agent_infos
+
+    def _collect_all_listing_data_via_ssh(self, host: Host) -> dict[str, Any] | None:
+        """Execute a single SSH command to collect all data needed for listing."""
+        host_dir = str(self.host_dir)
+        prefix = self.mngr_ctx.config.prefix
+
+        # Build a shell script that collects everything we need
+        script = _build_listing_collection_script(host_dir, prefix)
+
+        with log_span("Collecting listing data via single SSH command", host_id=str(host.id)):
+            result = host.execute_command(script, timeout_seconds=30.0)
+
+        if not result.success:
+            logger.warning("Failed to collect listing data from host {}: {}", host.id, result.stderr)
+            return None
+
+        return _parse_listing_collection_output(result.stdout)
+
+    def _build_host_info_from_raw(
+        self,
+        host: Host,
+        host_ref: HostReference,
+        host_record: HostRecord | None,
+        raw: dict[str, Any],
+    ) -> HostInfo:
+        """Construct HostInfo from cached host record and SSH-collected data."""
+        # SSH info from host connector (local data, no SSH needed)
+        ssh_info: SSHInfo | None = None
+        ssh_connection = host._get_ssh_connection_info()
+        if ssh_connection is not None:
+            user, hostname, port, key_path = ssh_connection
+            ssh_info = SSHInfo(
+                user=user,
+                host=hostname,
+                port=port,
+                key_path=key_path,
+                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+            )
+
+        # Boot time and uptime from SSH-collected data
+        boot_time = _parse_boot_time_from_raw(raw.get("btime"))
+        uptime_seconds = raw.get("uptime_seconds")
+
+        # Resources from cached host record (no remote call)
+        resource = self.get_host_resources(host)
+
+        # Lock status from SSH-collected data
+        lock_mtime = raw.get("lock_mtime")
+        is_locked = lock_mtime is not None
+        locked_time = datetime.fromtimestamp(lock_mtime, tz=timezone.utc) if lock_mtime is not None else None
+
+        # Certified data from SSH-collected data (parsed from data.json)
+        certified_data_dict = raw.get("certified_data")
+        if certified_data_dict is not None:
+            certified_data = CertifiedHostData(**certified_data_dict)
+        elif host_record is not None:
+            certified_data = host_record.certified_host_data
+        else:
+            now = datetime.now(timezone.utc)
+            certified_data = CertifiedHostData(
+                host_id=str(host.id),
+                host_name=str(host_ref.host_name),
+                created_at=now,
+                updated_at=now,
+            )
+
+        host_name = certified_data.host_name
+        host_plugin_data = certified_data.plugin
+
+        # Tags from cached host record (no Modal API call)
+        tags = dict(certified_data.user_tags)
+
+        # SSH activity from SSH-collected data
+        ssh_activity_mtime = raw.get("ssh_activity_mtime")
+        ssh_activity = (
+            datetime.fromtimestamp(ssh_activity_mtime, tz=timezone.utc) if ssh_activity_mtime is not None else None
+        )
+
+        # Snapshots from cached host record
+        snapshots = self.list_snapshots(host)
+
+        return HostInfo(
+            id=host.id,
+            name=host_name,
+            provider_name=host_ref.provider_name,
+            state=HostState.RUNNING,
+            image=certified_data.image,
+            tags=tags,
+            boot_time=boot_time,
+            uptime_seconds=uptime_seconds,
+            resource=resource,
+            ssh=ssh_info,
+            snapshots=snapshots,
+            is_locked=is_locked,
+            locked_time=locked_time,
+            plugin=host_plugin_data,
+            ssh_activity_time=ssh_activity,
+            failure_reason=certified_data.failure_reason,
+        )
+
+    def _build_agent_infos_from_raw(
+        self,
+        host_info: HostInfo,
+        certified_host_data: CertifiedHostData | None,
+        raw: dict[str, Any],
+    ) -> list[AgentInfo]:
+        """Build AgentInfo objects from SSH-collected agent data."""
+        # Activity config from certified data
+        if certified_host_data is not None:
+            idle_timeout_seconds = certified_host_data.idle_timeout_seconds
+            activity_sources = certified_host_data.activity_sources
+            idle_mode = certified_host_data.idle_mode
+        else:
+            idle_timeout_seconds = 3600
+            activity_sources = ()
+            idle_mode = IdleMode.IO
+
+        # SSH activity time for idle_seconds computation
+        ssh_activity_mtime = raw.get("ssh_activity_mtime")
+        ssh_activity = (
+            datetime.fromtimestamp(ssh_activity_mtime, tz=timezone.utc) if ssh_activity_mtime is not None else None
+        )
+
+        # ps output (shared across all agents on this host)
+        ps_output = raw.get("ps_output", "")
+
+        agent_infos: list[AgentInfo] = []
+        for agent_raw in raw.get("agents", []):
+            agent_data = agent_raw.get("data", {})
+            agent_id_str = agent_data.get("id")
+            agent_name_str = agent_data.get("name")
+            if not agent_id_str or not agent_name_str:
+                continue
+
+            agent_id = AgentId(agent_id_str)
+            agent_name = AgentName(agent_name_str)
+            agent_type = str(agent_data.get("type", "unknown"))
+            command = CommandString(agent_data.get("command", "bash"))
+            work_dir = Path(agent_data.get("work_dir", "/"))
+            create_time_str = agent_data.get("create_time")
+            create_time = (
+                datetime.fromisoformat(create_time_str)
+                if create_time_str
+                else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
+            start_on_boot = agent_data.get("start_on_boot", False)
+            labels = agent_data.get("labels", {})
+
+            # Activity times from mtimes
+            user_activity = _mtime_to_datetime(agent_raw.get("user_activity_mtime"))
+            agent_activity = _mtime_to_datetime(agent_raw.get("agent_activity_mtime"))
+            start_time = _mtime_to_datetime(agent_raw.get("start_activity_mtime"))
+
+            # Runtime from start_time
+            now = datetime.now(timezone.utc)
+            runtime_seconds = (now - start_time).total_seconds() if start_time else None
+
+            # Idle seconds
+            idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+
+            # Lifecycle state from tmux info
+            tmux_info = agent_raw.get("tmux_info")
+            is_active = agent_raw.get("is_active", False)
+            state = _determine_lifecycle_state(
+                tmux_info=tmux_info,
+                is_active=is_active,
+                expected_command=command,
+                ps_output=ps_output,
+            )
+
+            # URL
+            url = agent_raw.get("url")
+
+            agent_infos.append(
+                AgentInfo(
+                    id=agent_id,
+                    name=agent_name,
+                    type=agent_type,
+                    command=command,
+                    work_dir=work_dir,
+                    create_time=create_time,
+                    start_on_boot=start_on_boot,
+                    state=state,
+                    url=url,
+                    start_time=start_time,
+                    runtime_seconds=runtime_seconds,
+                    user_activity_time=user_activity,
+                    agent_activity_time=agent_activity,
+                    idle_seconds=idle_seconds,
+                    idle_mode=idle_mode.value,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                    activity_sources=tuple(s.value for s in activity_sources),
+                    labels=labels,
+                    host=host_info,
+                    plugin={},
+                )
+            )
+
+        return agent_infos
 
     # =========================================================================
     # Snapshot Methods

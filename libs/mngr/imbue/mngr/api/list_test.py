@@ -3,12 +3,12 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import COMPLETION_CACHE_FILENAME
 from imbue.mngr.api.list import ListResult
 from imbue.mngr.api.list import _compute_idle_seconds
 from imbue.mngr.api.list import _write_completion_cache
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState

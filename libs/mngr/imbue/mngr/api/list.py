@@ -31,6 +31,7 @@ from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.host import HostInterface
@@ -39,7 +40,6 @@ from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
-from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
@@ -65,40 +65,6 @@ def _compute_idle_seconds(
     if latest_activity is None:
         return None
     return (datetime.now(timezone.utc) - latest_activity).total_seconds()
-
-
-class AgentInfo(FrozenModel):
-    """Complete information about an agent for listing purposes.
-
-    This combines certified and reported data from the agent with host information.
-    """
-
-    id: AgentId = Field(description="Agent ID")
-    name: AgentName = Field(description="Agent name")
-    type: str = Field(description="Agent type (claude, codex, etc.)")
-    command: CommandString = Field(description="Command used to start the agent")
-    work_dir: Path = Field(description="Working directory")
-    create_time: datetime = Field(description="Creation timestamp")
-    start_on_boot: bool = Field(description="Whether agent starts on host boot")
-
-    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
-    url: str | None = Field(default=None, description="Agent URL (reported)")
-    start_time: datetime | None = Field(default=None, description="Last start time (reported)")
-    runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
-    user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
-    agent_activity_time: datetime | None = Field(default=None, description="Last agent activity (reported)")
-    idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
-    idle_mode: str | None = Field(default=None, description="Idle detection mode")
-    idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
-    activity_sources: tuple[str, ...] | None = Field(
-        default=None, description="Activity sources used for idle detection"
-    )
-
-    labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
-
-    host: HostInfo = Field(description="Host information")
-
-    plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 
 
 class ErrorInfo(FrozenModel):
@@ -439,6 +405,24 @@ def _assemble_host_info(
     result: ListResult,
     results_lock: Lock,
 ) -> None:
+    # Try the provider's optimized listing method first
+    listing_data = provider.build_host_listing_data(host_ref, agent_refs)
+    if listing_data is not None:
+        host_info, agent_infos = listing_data
+        for agent_info in agent_infos:
+            # Apply CEL filters if provided
+            if params.compiled_include_filters or params.compiled_exclude_filters:
+                if not _apply_cel_filters(
+                    agent_info, params.compiled_include_filters, params.compiled_exclude_filters
+                ):
+                    continue
+            with results_lock:
+                result.agents.append(agent_info)
+            if params.on_agent:
+                params.on_agent(agent_info)
+        return
+
+    # Fall back to per-field collection
     # get the host
     host = provider.get_host(host_ref.host_id)
 

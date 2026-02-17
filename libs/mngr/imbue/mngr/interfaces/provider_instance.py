@@ -11,6 +11,8 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.interfaces.data_types import AgentInfo
+from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
@@ -18,8 +20,10 @@ from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
@@ -155,6 +159,19 @@ class ProviderInstanceInterface(MutableModel, ABC):
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get CPU, memory, disk, and GPU resource information for a host."""
         ...
+
+    def build_host_listing_data(
+        self,
+        host_ref: HostReference,
+        agent_refs: Sequence[AgentReference],
+    ) -> tuple[HostInfo, list[AgentInfo]] | None:
+        """Build HostInfo and AgentInfo for a host in an optimized way for listing.
+
+        Providers can override this to collect all needed data in a single
+        operation (e.g., one SSH command) instead of making many individual calls.
+        Returns None to fall back to the default per-field collection.
+        """
+        return None
 
     # =========================================================================
     # Snapshot Methods
