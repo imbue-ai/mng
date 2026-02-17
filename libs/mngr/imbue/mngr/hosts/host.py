@@ -1454,6 +1454,10 @@ class Host(BaseHost, OnlineHostInterface):
             # Record CREATE activity for idle detection
             agent.record_activity(ActivitySource.CREATE)
 
+            # Notify plugins that the agent state directory was created
+            with log_span("Calling on_agent_state_dir_created hooks"):
+                self.mngr_ctx.pm.hook.on_agent_state_dir_created(agent=agent, host=self)
+
             return agent
 
     def _get_agent_state_dir(self, agent: AgentInterface) -> Path:
