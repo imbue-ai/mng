@@ -12,7 +12,7 @@ mngr [plugin|plug] <subcommand> [OPTIONS]
 
 Manage available and active plugins.
 
-View, enable, and disable plugins registered with mngr.
+Install, remove, view, enable, and disable plugins registered with mngr.
 
 Examples:
 

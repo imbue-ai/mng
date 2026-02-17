@@ -342,7 +342,7 @@ def _emit_plugin_remove_result(
 def plugin(ctx: click.Context, **kwargs: Any) -> None:
     """Manage available and active plugins.
 
-    View, enable, and disable plugins registered with mngr.
+    Install, remove, view, enable, and disable plugins registered with mngr.
 
     Examples:
 
