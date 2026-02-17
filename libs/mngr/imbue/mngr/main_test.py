@@ -21,11 +21,11 @@ def _make_test_group() -> click.Group:
     @group.command(name="create")
     @click.argument("name", required=False)
     def create_cmd(name: str | None) -> None:
-        click.echo(f"create called with name={name}")
+        print(f"create called with name={name}")
 
     @group.command(name="list")
     def list_cmd() -> None:
-        click.echo("list called")
+        print("list called")
 
     return group
 
