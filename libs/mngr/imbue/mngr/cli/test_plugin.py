@@ -291,3 +291,71 @@ def test_plugin_enable_unknown_plugin_warns_but_succeeds(
     assert config_path.exists()
     content = config_path.read_text()
     assert "enabled = true" in content
+
+
+# =============================================================================
+# Integration tests for plugin add
+# =============================================================================
+
+
+def test_plugin_add_local_path_invalid_package_fails(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that adding a non-package local directory fails with an error."""
+    monkeypatch.chdir(temp_git_repo)
+
+    # Create a temp directory that is not a valid Python package
+    non_package_dir = temp_git_repo / "not-a-package"
+    non_package_dir.mkdir()
+
+    result = cli_runner.invoke(
+        plugin,
+        ["add", str(non_package_dir)],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
+# =============================================================================
+# Integration tests for plugin remove
+# =============================================================================
+
+
+def test_plugin_remove_nonexistent_package_fails(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that removing a nonexistent package fails with an error."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["remove", "definitely-not-installed-package-xyz-999"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_plugin_remove_git_url_fails_with_error(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that removing via git URL fails with an error exit code."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["remove", "git+https://github.com/user/repo.git"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0

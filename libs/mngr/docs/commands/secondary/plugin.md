@@ -104,12 +104,27 @@ mngr plugin list [OPTIONS]
 
 ## mngr plugin add
 
-Add a plugin. [future]
+Install a plugin package.
+
+SPECIFIER can be a PyPI package name, a local path, or a git URL.
+
+Local paths (starting with '.', '/', or '~') are installed in editable mode.
+Git URLs must start with 'git+'.
+
+Examples:
+
+  mngr plugin add mngr-opencode
+
+  mngr plugin add mngr-opencode>=1.0
+
+  mngr plugin add ./my-plugin
+
+  mngr plugin add git+https://github.com/user/mngr-plugin.git
 
 **Usage:**
 
 ```text
-mngr plugin add [OPTIONS] NAME
+mngr plugin add [OPTIONS] SPECIFIER
 ```
 
 **Options:**
@@ -133,12 +148,22 @@ mngr plugin add [OPTIONS] NAME
 
 ## mngr plugin remove
 
-Remove a plugin. [future]
+Uninstall a plugin package.
+
+SPECIFIER can be a package name or a local path. For local paths, the
+package name is read from pyproject.toml. Git URLs are not supported --
+use the package name instead (find it with `mngr plugin list`).
+
+Examples:
+
+  mngr plugin remove mngr-opencode
+
+  mngr plugin remove ./my-plugin
 
 **Usage:**
 
 ```text
-mngr plugin remove [OPTIONS] NAME
+mngr plugin remove [OPTIONS] SPECIFIER
 ```
 
 **Options:**
@@ -280,6 +305,24 @@ $ mngr plugin list --format json
 
 ```bash
 $ mngr plugin list --fields name,enabled
+```
+
+**Install a plugin from PyPI**
+
+```bash
+$ mngr plugin add mngr-opencode
+```
+
+**Install a local plugin**
+
+```bash
+$ mngr plugin add ./my-plugin
+```
+
+**Remove a plugin**
+
+```bash
+$ mngr plugin remove mngr-opencode
 ```
 
 **Enable a plugin**

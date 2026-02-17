@@ -8,8 +8,8 @@ Only install plugins from sources you trust. Built-in plugins are maintained as 
 
 ```bash
 mngr plugin list              # Show installed plugins
-mngr plugin add <name>        # Install a plugin (pip/uv install) [future]
-mngr plugin remove <name>     # Uninstall a plugin [future]
+mngr plugin add <specifier>   # Install a plugin (pip/uv install)
+mngr plugin remove <specifier>  # Uninstall a plugin
 ```
 
 Plugins can be enabled/disabled without uninstalling:
