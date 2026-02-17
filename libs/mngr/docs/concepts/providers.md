@@ -56,7 +56,7 @@ Provider instances must handle:
 
 `mngr` handles higher-level concerns: agent lifecycle, idle detection, port forwarding, and file sync.
 
-See [`imbue/mngr/interfaces/provider_instance.py`](../../imbue/mngr/interfaces/provider_instance.py) and [`imbue/mngr/interfaces/provider_backend.py`](../../imbue/mngr/interfaces/provider_backend.py) for the full provider interfaces.
+See [`provider_instance.py`](../../imbue/mngr/interfaces/provider_instance.py) and [`provider_backend.py`](../../imbue/mngr/interfaces/provider_backend.py) for the full API that provider implementations must support.
 
 ## State Storage
 
