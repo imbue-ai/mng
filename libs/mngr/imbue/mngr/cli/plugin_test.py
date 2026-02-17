@@ -1,5 +1,4 @@
 import json
-import sys
 from pathlib import Path
 
 import pluggy
@@ -486,27 +485,20 @@ def test_validate_pypi_specifier_invalid_format() -> None:
 def test_build_uv_pip_install_command_local_path() -> None:
     """_build_uv_pip_install_command should use -e flag for local paths."""
     cmd = _build_uv_pip_install_command("./my-plugin", PluginSpecifierType.LOCAL_PATH)
-    assert cmd[0] == sys.executable
-    assert "-m" in cmd
-    assert "uv" in cmd
-    assert "pip" in cmd
-    assert "install" in cmd
-    assert "-e" in cmd
+    assert cmd == ("uv", "pip", "install", "-e", str(Path("./my-plugin").resolve()))
 
 
 def test_build_uv_pip_install_command_git_url() -> None:
     """_build_uv_pip_install_command should pass git URL directly."""
     url = "git+https://github.com/user/repo.git"
     cmd = _build_uv_pip_install_command(url, PluginSpecifierType.GIT_URL)
-    assert cmd[-1] == url
-    assert "-e" not in cmd
+    assert cmd == ("uv", "pip", "install", url)
 
 
 def test_build_uv_pip_install_command_pypi_package() -> None:
     """_build_uv_pip_install_command should pass package name directly."""
     cmd = _build_uv_pip_install_command("mngr-opencode", PluginSpecifierType.PYPI_PACKAGE)
-    assert cmd[-1] == "mngr-opencode"
-    assert "-e" not in cmd
+    assert cmd == ("uv", "pip", "install", "mngr-opencode")
 
 
 # =============================================================================
@@ -517,9 +509,7 @@ def test_build_uv_pip_install_command_pypi_package() -> None:
 def test_build_uv_pip_uninstall_command() -> None:
     """_build_uv_pip_uninstall_command should produce a valid uv pip uninstall command."""
     cmd = _build_uv_pip_uninstall_command("mngr-opencode")
-    assert cmd[0] == sys.executable
-    assert "uninstall" in cmd
-    assert cmd[-1] == "mngr-opencode"
+    assert cmd == ("uv", "pip", "uninstall", "mngr-opencode")
 
 
 # =============================================================================

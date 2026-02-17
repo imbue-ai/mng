@@ -1,6 +1,5 @@
 import importlib.metadata
 import os
-import sys
 import tomllib
 from enum import auto
 from pathlib import Path
@@ -236,11 +235,11 @@ def _build_uv_pip_install_command(specifier: str, specifier_type: PluginSpecifie
     match specifier_type:
         case PluginSpecifierType.LOCAL_PATH:
             resolved = str(Path(specifier).expanduser().resolve())
-            return (sys.executable, "-m", "uv", "pip", "install", "-e", resolved)
+            return ("uv", "pip", "install", "-e", resolved)
         case PluginSpecifierType.GIT_URL:
-            return (sys.executable, "-m", "uv", "pip", "install", specifier)
+            return ("uv", "pip", "install", specifier)
         case PluginSpecifierType.PYPI_PACKAGE:
-            return (sys.executable, "-m", "uv", "pip", "install", specifier)
+            return ("uv", "pip", "install", specifier)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -248,7 +247,7 @@ def _build_uv_pip_install_command(specifier: str, specifier_type: PluginSpecifie
 @pure
 def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
     """Build the uv pip uninstall command for a given package name."""
-    return (sys.executable, "-m", "uv", "pip", "uninstall", package_name)
+    return ("uv", "pip", "uninstall", package_name)
 
 
 def _resolve_package_name_for_removal(specifier: str, specifier_type: PluginSpecifierType) -> str:
