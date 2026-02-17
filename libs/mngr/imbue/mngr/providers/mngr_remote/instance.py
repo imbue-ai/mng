@@ -110,10 +110,14 @@ class MngrRemoteProviderInstance(BaseProviderInstance):
     def destroy_host(
         self,
         host: HostInterface | HostId,
-        delete_snapshots: bool = True,
     ) -> None:
         raise ProviderError(
             "Cannot destroy hosts through mngr remote provider. Use the remote mngr instance directly."
+        )
+
+    def delete_host(self, host: HostInterface) -> None:
+        raise ProviderError(
+            "Cannot delete hosts through mngr remote provider. Use the remote mngr instance directly."
         )
 
     def on_connection_error(self, host_id: HostId) -> None:
