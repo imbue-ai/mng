@@ -82,7 +82,6 @@ else
 
     # The uv installer creates an env file that adds its bin dir to PATH.
     # Source it so uv is available in this script without restarting the shell.
-    # shellcheck disable=SC1091
     [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 
     if ! command -v uv &>/dev/null; then
