@@ -3,19 +3,7 @@ name = "mngr"
 version = "0.1.0"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
-# [TODO] Add before merging: license, authors, readme, [project.urls]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-    "Operating System :: POSIX :: Linux",
-    "Operating System :: MacOS",
-    "Topic :: Software Development :: Build Tools",
-    "Typing :: Typed",
-]
+# [TODO] Add before merging: license, authors, readme, classifiers, [project.urls]
 dependencies = [
     "imbue-common",
     "cel-python>=0.1.5",
