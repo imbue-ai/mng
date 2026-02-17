@@ -216,12 +216,11 @@ def _classify_plugin_specifier(specifier: str) -> PluginSpecifierType:
 
 
 @pure
-def _validate_pypi_specifier(specifier: str) -> str:
-    """Validate that a specifier is a well-formed PyPI requirement string.
+def _parse_pypi_package_name(specifier: str) -> str:
+    """Extract the canonical package name from a PyPI requirement string.
 
-    Uses packaging.requirements.Requirement to parse the specifier, which
-    catches typos and also supports version constraints like 'mngr-opencode>=1.0'.
-    Returns the canonical package name from the parsed requirement.
+    Parses specifiers like 'mngr-opencode>=1.0' and returns just the name
+    ('mngr-opencode'). Raises PluginSpecifierError on malformed input.
     """
     try:
         req = Requirement(specifier)
@@ -276,7 +275,7 @@ def _resolve_package_name_for_removal(specifier: str, specifier_type: PluginSpec
     """
     match specifier_type:
         case PluginSpecifierType.PYPI_PACKAGE:
-            return _validate_pypi_specifier(specifier)
+            return _parse_pypi_package_name(specifier)
         case PluginSpecifierType.LOCAL_PATH:
             resolved = Path(specifier).expanduser().resolve()
             pyproject_path = resolved / "pyproject.toml"
@@ -512,7 +511,7 @@ def _resolve_package_name_after_install(
     """
     match specifier_type:
         case PluginSpecifierType.PYPI_PACKAGE:
-            return _validate_pypi_specifier(specifier)
+            return _parse_pypi_package_name(specifier)
         case PluginSpecifierType.LOCAL_PATH:
             try:
                 return _resolve_package_name_for_removal(specifier, specifier_type)
@@ -537,7 +536,7 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
     # Validate PyPI specifiers early to fail fast before running uv
     if specifier_type == PluginSpecifierType.PYPI_PACKAGE:
         try:
-            _validate_pypi_specifier(specifier)
+            _parse_pypi_package_name(specifier)
         except PluginSpecifierError as e:
             raise AbortError(str(e)) from e
 

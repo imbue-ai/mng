@@ -20,9 +20,9 @@ from imbue.mngr.cli.plugin import _gather_plugin_info
 from imbue.mngr.cli.plugin import _get_field_value
 from imbue.mngr.cli.plugin import _is_plugin_enabled
 from imbue.mngr.cli.plugin import _parse_fields
+from imbue.mngr.cli.plugin import _parse_pypi_package_name
 from imbue.mngr.cli.plugin import _resolve_package_name_for_removal
 from imbue.mngr.cli.plugin import _validate_plugin_name_is_known
-from imbue.mngr.cli.plugin import _validate_pypi_specifier
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -458,24 +458,24 @@ def test_classify_plugin_specifier_pypi_package() -> None:
 
 
 # =============================================================================
-# Tests for _validate_pypi_specifier
+# Tests for _parse_pypi_package_name
 # =============================================================================
 
 
-def test_validate_pypi_specifier_valid_name() -> None:
-    """_validate_pypi_specifier should return the package name for a valid specifier."""
-    assert _validate_pypi_specifier("mngr-opencode") == "mngr-opencode"
+def test_parse_pypi_package_name_valid_name() -> None:
+    """_parse_pypi_package_name should return the package name for a valid specifier."""
+    assert _parse_pypi_package_name("mngr-opencode") == "mngr-opencode"
 
 
-def test_validate_pypi_specifier_name_with_version() -> None:
-    """_validate_pypi_specifier should return the package name for specifiers with versions."""
-    assert _validate_pypi_specifier("mngr-opencode>=1.0") == "mngr-opencode"
+def test_parse_pypi_package_name_name_with_version() -> None:
+    """_parse_pypi_package_name should return the package name for specifiers with versions."""
+    assert _parse_pypi_package_name("mngr-opencode>=1.0") == "mngr-opencode"
 
 
-def test_validate_pypi_specifier_invalid_format() -> None:
-    """_validate_pypi_specifier should raise PluginSpecifierError for invalid specifiers."""
+def test_parse_pypi_package_name_invalid_format() -> None:
+    """_parse_pypi_package_name should raise PluginSpecifierError for invalid specifiers."""
     with pytest.raises(PluginSpecifierError, match="Invalid PyPI specifier"):
-        _validate_pypi_specifier("not a valid!!spec$$")
+        _parse_pypi_package_name("not a valid!!spec$$")
 
 
 # =============================================================================
