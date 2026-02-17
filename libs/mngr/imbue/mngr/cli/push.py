@@ -114,7 +114,7 @@ class PushCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def push(ctx: click.Context, **kwargs) -> None:
-    """Push files or git commits from local machine to an agent.
+    """Push files or git commits from local machine to an agent. [experimental]
 
     Syncs files or git state from a local directory to an agent's working directory.
     Default behavior uses rsync for efficient incremental file transfer.
@@ -261,7 +261,7 @@ def push(ctx: click.Context, **kwargs) -> None:
 # Register help metadata for git-style help formatting
 _PUSH_HELP_METADATA = CommandHelpMetadata(
     name="mngr-push",
-    one_line_description="Push files or git commits from local machine to an agent",
+    one_line_description="Push files or git commits from local machine to an agent [experimental]",
     synopsis="mngr push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]",
     description="""Push files or git commits from local machine to an agent.
 

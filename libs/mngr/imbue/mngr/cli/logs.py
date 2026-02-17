@@ -72,7 +72,7 @@ def _write_and_flush_stdout(content: str) -> None:
 @add_common_options
 @click.pass_context
 def logs(ctx: click.Context, **kwargs: Any) -> None:
-    """View log files from an agent or host.
+    """View log files from an agent or host. [experimental]
 
     TARGET is an agent name/ID or host name/ID. If a log file name is not
     specified, lists all available log files.
@@ -202,7 +202,7 @@ def _emit_log_content(
 # Register help metadata for git-style help formatting
 _LOGS_HELP_METADATA = CommandHelpMetadata(
     name="mngr-logs",
-    one_line_description="View log files from an agent or host",
+    one_line_description="View log files from an agent or host [experimental]",
     synopsis="mngr logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]",
     arguments_description=(
         "- `TARGET`: Agent or host name/ID whose logs to view\n"

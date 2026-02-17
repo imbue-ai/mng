@@ -96,7 +96,7 @@ class ExecCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def exec_command(ctx: click.Context, **kwargs: Any) -> None:
-    """Execute a shell command on one or more agents' hosts.
+    """Execute a shell command on one or more agents' hosts. [experimental]
 
     Runs COMMAND on the host(s) where the specified agent(s) are running,
     defaulting to each agent's work_dir. The command's stdout is printed to
@@ -298,7 +298,7 @@ def _emit_json_output(result: MultiExecResult) -> None:
 # Register help metadata for git-style help formatting
 _EXEC_HELP_METADATA = CommandHelpMetadata(
     name="mngr-exec",
-    one_line_description="Execute a shell command on one or more agents' hosts",
+    one_line_description="Execute a shell command on one or more agents' hosts [experimental]",
     synopsis="mngr [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]",
     arguments_description=(
         "- `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command\n"

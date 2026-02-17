@@ -79,7 +79,7 @@ def _output_result(
 @add_common_options
 @click.pass_context
 def rename(ctx: click.Context, **kwargs: Any) -> None:
-    """Rename an agent or host.
+    """Rename an agent or host. [experimental]
 
     Renames the agent's data.json and tmux session (if running).
     Git branch names are not renamed.
@@ -161,7 +161,7 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 _RENAME_HELP_METADATA = CommandHelpMetadata(
     name="mngr-rename",
-    one_line_description="Rename an agent or host",
+    one_line_description="Rename an agent or host [experimental]",
     synopsis="mngr [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
     arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
     description="""Rename an agent or host.
