@@ -6,7 +6,7 @@
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
-**manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `unison`):
+**manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `rsync`, `unison`):
 ```bash
 uv tool install mngr
 
@@ -130,7 +130,7 @@ From the repo where you would like a Dockerfile created.
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
-**Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `unison`):
+**Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `rsync`, `unison`):
 ```bash
 uv tool install mngr
 

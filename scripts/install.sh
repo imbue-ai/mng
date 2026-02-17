@@ -7,7 +7,7 @@
 # [TODO] Replace with vanity URL: curl -fsSL https://imbue.com/mngr/install.sh | bash
 #
 # This script:
-#   1. Installs system dependencies (tmux, jq, curl, unison)
+#   1. Installs system dependencies (tmux, jq, curl, rsync, unison)
 #   2. Installs uv (if not already installed)
 #   3. Installs mngr via uv tool install
 #
@@ -44,13 +44,9 @@ OS="$(detect_os)"
 
 # ── Install system dependencies ────────────────────────────────────────────────
 
-SYSTEM_DEPS=(tmux jq curl unison)
+SYSTEM_DEPS=(tmux jq curl rsync unison)
 
 install_system_deps_macos() {
-    if ! command -v brew &>/dev/null; then
-        error "Homebrew is required on macOS. Install it from https://brew.sh"
-    fi
-
     local missing=()
     for dep in "${SYSTEM_DEPS[@]}"; do
         if ! command -v "$dep" &>/dev/null; then
@@ -61,6 +57,10 @@ install_system_deps_macos() {
     if [ ${#missing[@]} -eq 0 ]; then
         info "All system dependencies already installed"
         return
+    fi
+
+    if ! command -v brew &>/dev/null; then
+        error "Missing dependencies: ${missing[*]}. Install them manually, or install Homebrew (https://brew.sh) and re-run this script."
     fi
 
     info "Installing system dependencies: ${missing[*]}"
