@@ -106,10 +106,7 @@ mngr plugin list [OPTIONS]
 
 Install a plugin package.
 
-NAME can be a PyPI package name, a local path, or a git URL.
-
-Local paths (starting with '.', '/', or '~') are installed in editable mode.
-Git URLs must start with 'git+'.
+Provide exactly one of NAME (positional), --path, or --git.
 
 Examples:
 
@@ -117,14 +114,14 @@ Examples:
 
   mngr plugin add mngr-opencode>=1.0
 
-  mngr plugin add ./my-plugin
+  mngr plugin add --path ./my-plugin
 
-  mngr plugin add git+https://github.com/user/mngr-plugin.git
+  mngr plugin add --git https://github.com/user/mngr-plugin.git
 
 **Usage:**
 
 ```text
-mngr plugin add [OPTIONS] NAME
+mngr plugin add [OPTIONS] [NAME]
 ```
 
 **Options:**
@@ -145,25 +142,31 @@ mngr plugin add [OPTIONS] NAME
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--path` | text | Install from a local path (editable mode) | None |
+| `--git` | text | Install from a git URL | None |
 
 ## mngr plugin remove
 
 Uninstall a plugin package.
 
-NAME can be a package name or a local path. For local paths, the
-package name is read from pyproject.toml. Git URLs are not supported --
-use the package name instead (find it with `mngr plugin list`).
+Provide exactly one of NAME (positional) or --path. For local paths,
+the package name is read from pyproject.toml.
 
 Examples:
 
   mngr plugin remove mngr-opencode
 
-  mngr plugin remove ./my-plugin
+  mngr plugin remove --path ./my-plugin
 
 **Usage:**
 
 ```text
-mngr plugin remove [OPTIONS] NAME
+mngr plugin remove [OPTIONS] [NAME]
 ```
 
 **Options:**
@@ -184,6 +187,12 @@ mngr plugin remove [OPTIONS] NAME
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--path` | text | Remove by local path (reads package name from pyproject.toml) | None |
 
 ## mngr plugin enable
 
@@ -316,13 +325,13 @@ $ mngr plugin add mngr-opencode
 **Install a local plugin**
 
 ```bash
-$ mngr plugin add ./my-plugin
+$ mngr plugin add --path ./my-plugin
 ```
 
 **Install a plugin from git**
 
 ```bash
-$ mngr plugin add git+https://github.com/user/mngr-plugin.git
+$ mngr plugin add --git https://github.com/user/mngr-plugin.git
 ```
 
 **Remove a plugin**

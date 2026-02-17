@@ -2,7 +2,6 @@ import importlib.metadata
 import os
 import re
 import tomllib
-from enum import auto
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -16,7 +15,6 @@ from pydantic import Field
 from tabulate import tabulate
 
 from imbue.concurrency_group.errors import ProcessError
-from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
@@ -58,7 +56,8 @@ class PluginCliOptions(CommonCliOptions):
     fields: str | None = None
     name: str | None = None
     scope: str | None = None
-    specifier: str | None = None
+    path: str | None = None
+    git: str | None = None
 
 
 class PluginInfo(FrozenModel):
@@ -198,24 +197,6 @@ def _parse_fields(fields_str: str | None) -> tuple[str, ...]:
     return tuple(f.strip() for f in fields_str.split(",") if f.strip())
 
 
-class PluginSpecifierType(UpperCaseStrEnum):
-    """Classification of a plugin specifier string."""
-
-    LOCAL_PATH = auto()
-    GIT_URL = auto()
-    PYPI_PACKAGE = auto()
-
-
-@pure
-def _classify_plugin_specifier(specifier: str) -> PluginSpecifierType:
-    """Classify a plugin specifier as a local path, git URL, or PyPI package name."""
-    if specifier.startswith((".", "/", "~")):
-        return PluginSpecifierType.LOCAL_PATH
-    if specifier.startswith("git+"):
-        return PluginSpecifierType.GIT_URL
-    return PluginSpecifierType.PYPI_PACKAGE
-
-
 @pure
 def _parse_pypi_package_name(specifier: str) -> str | None:
     """Extract the canonical package name from a PyPI requirement string.
@@ -231,19 +212,16 @@ def _parse_pypi_package_name(specifier: str) -> str | None:
     return req.name
 
 
+def _build_uv_pip_install_command_for_path(local_path: str) -> tuple[str, ...]:
+    """Build the uv pip install command for a local path (editable mode)."""
+    resolved = str(Path(local_path).expanduser().resolve())
+    return ("uv", "pip", "install", "-e", resolved)
+
+
 @pure
-def _build_uv_pip_install_command(specifier: str, specifier_type: PluginSpecifierType) -> tuple[str, ...]:
-    """Build the uv pip install command for a given specifier."""
-    match specifier_type:
-        case PluginSpecifierType.LOCAL_PATH:
-            resolved = str(Path(specifier).expanduser().resolve())
-            return ("uv", "pip", "install", "-e", resolved)
-        case PluginSpecifierType.GIT_URL:
-            return ("uv", "pip", "install", specifier)
-        case PluginSpecifierType.PYPI_PACKAGE:
-            return ("uv", "pip", "install", specifier)
-        case _ as unreachable:
-            assert_never(unreachable)
+def _build_uv_pip_install_command_for_name_or_url(specifier: str) -> tuple[str, ...]:
+    """Build the uv pip install command for a PyPI name or git URL."""
+    return ("uv", "pip", "install", specifier)
 
 
 @pure
@@ -435,16 +413,15 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @plugin.command(name="add")
-@click.argument("specifier", metavar="NAME")
+@click.argument("name", required=False, default=None)
+@click.option("--path", default=None, help="Install from a local path (editable mode)")
+@click.option("--git", default=None, help="Install from a git URL")
 @add_common_options
 @click.pass_context
-def plugin_add(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
+def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
     """Install a plugin package.
 
-    NAME can be a PyPI package name, a local path, or a git URL.
-
-    Local paths (starting with '.', '/', or '~') are installed in editable mode.
-    Git URLs must start with 'git+'.
+    Provide exactly one of NAME (positional), --path, or --git.
 
     Examples:
 
@@ -452,86 +429,68 @@ def plugin_add(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
 
       mngr plugin add mngr-opencode>=1.0
 
-      mngr plugin add ./my-plugin
+      mngr plugin add --path ./my-plugin
 
-      mngr plugin add git+https://github.com/user/mngr-plugin.git
+      mngr plugin add --git https://github.com/user/mngr-plugin.git
     """
     try:
-        _plugin_add_impl(ctx, specifier=specifier)
+        _plugin_add_impl(ctx)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
 
 
 @plugin.command(name="remove")
-@click.argument("specifier", metavar="NAME")
+@click.argument("name", required=False, default=None)
+@click.option("--path", default=None, help="Remove by local path (reads package name from pyproject.toml)")
 @add_common_options
 @click.pass_context
-def plugin_remove(ctx: click.Context, specifier: str, **kwargs: Any) -> None:
+def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
     """Uninstall a plugin package.
 
-    NAME can be a package name or a local path. For local paths, the
-    package name is read from pyproject.toml. Git URLs are not supported --
-    use the package name instead (find it with `mngr plugin list`).
+    Provide exactly one of NAME (positional) or --path. For local paths,
+    the package name is read from pyproject.toml.
 
     Examples:
 
       mngr plugin remove mngr-opencode
 
-      mngr plugin remove ./my-plugin
+      mngr plugin remove --path ./my-plugin
     """
     try:
-        _plugin_remove_impl(ctx, specifier=specifier)
+        _plugin_remove_impl(ctx)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
 
 
-def _resolve_package_name_after_install(
-    specifier: str,
-    specifier_type: PluginSpecifierType,
-    install_stderr: str,
-) -> str:
-    """Resolve the installed package name from a specifier after installation.
-
-    For PyPI packages, extracts the canonical name from the requirement string.
-    For local paths, reads the name from pyproject.toml (falls back to the raw specifier).
-    For git URLs, parses the uv install output to find the installed package name.
-    """
-    match specifier_type:
-        case PluginSpecifierType.PYPI_PACKAGE:
-            return _parse_pypi_package_name(specifier) or specifier
-        case PluginSpecifierType.LOCAL_PATH:
-            try:
-                return _read_package_name_from_pyproject(specifier)
-            except PluginSpecifierError:
-                return specifier
-        case PluginSpecifierType.GIT_URL:
-            return _extract_installed_package_name(install_stderr) or specifier
-        case _ as unreachable:
-            assert_never(unreachable)
-
-
-def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
+def _plugin_add_impl(ctx: click.Context) -> None:
     """Implementation of plugin add command."""
-    mngr_ctx, output_opts, _opts = setup_command_context(
+    mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="plugin",
         command_class=PluginCliOptions,
     )
 
-    specifier_type = _classify_plugin_specifier(specifier)
+    # Validate mutual exclusivity: exactly one of name, --path, --git
+    source_count = sum(x is not None for x in (opts.name, opts.path, opts.git))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME, --path, or --git")
+    if source_count > 1:
+        raise AbortError("NAME, --path, and --git are mutually exclusive")
 
-    # Validate PyPI specifiers early to fail fast before running uv
-    if specifier_type == PluginSpecifierType.PYPI_PACKAGE and _parse_pypi_package_name(specifier) is None:
-        raise AbortError(
-            f"Unrecognized plugin name '{specifier}'. Expected one of:\n"
-            "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
-            "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
-            "  - A git URL (e.g. git+https://github.com/user/repo.git)"
-        )
-
-    command = _build_uv_pip_install_command(specifier, specifier_type)
+    if opts.path is not None:
+        specifier = opts.path
+        command = _build_uv_pip_install_command_for_path(opts.path)
+    elif opts.git is not None:
+        specifier = opts.git
+        command = _build_uv_pip_install_command_for_name_or_url(opts.git)
+    else:
+        assert opts.name is not None
+        specifier = opts.name
+        if _parse_pypi_package_name(opts.name) is None:
+            raise AbortError(f"Invalid package name '{opts.name}'")
+        command = _build_uv_pip_install_command_for_name_or_url(opts.name)
 
     with log_span("Installing plugin package '{}'", specifier):
         try:
@@ -542,44 +501,47 @@ def _plugin_add_impl(ctx: click.Context, *, specifier: str) -> None:
                 original_exception=e,
             ) from e
 
-    resolved_package_name = _resolve_package_name_after_install(specifier, specifier_type, result.stderr)
+    # Resolve package name from the install
+    if opts.name is not None:
+        resolved_package_name = _parse_pypi_package_name(opts.name) or opts.name
+    elif opts.path is not None:
+        try:
+            resolved_package_name = _read_package_name_from_pyproject(opts.path)
+        except PluginSpecifierError:
+            resolved_package_name = opts.path
+    else:
+        assert opts.git is not None
+        resolved_package_name = _extract_installed_package_name(result.stderr) or opts.git
+
     has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
     _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
 
 
-def _plugin_remove_impl(ctx: click.Context, *, specifier: str) -> None:
+def _plugin_remove_impl(ctx: click.Context) -> None:
     """Implementation of plugin remove command."""
-    mngr_ctx, output_opts, _opts = setup_command_context(
+    mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="plugin",
         command_class=PluginCliOptions,
     )
 
-    specifier_type = _classify_plugin_specifier(specifier)
+    # Validate mutual exclusivity: exactly one of name, --path
+    source_count = sum(x is not None for x in (opts.name, opts.path))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME or --path")
+    if source_count > 1:
+        raise AbortError("NAME and --path are mutually exclusive")
 
-    # Resolve the package name from the specifier
-    match specifier_type:
-        case PluginSpecifierType.PYPI_PACKAGE:
-            package_name = _parse_pypi_package_name(specifier)
-            if package_name is None:
-                raise AbortError(
-                    f"Unrecognized plugin name '{specifier}'. Expected one of:\n"
-                    "  - A PyPI package name (e.g. mngr-opencode, mngr-opencode>=1.0)\n"
-                    "  - A local path (e.g. ./my-plugin, /path/to/plugin)\n"
-                    "  - A git URL (e.g. git+https://github.com/user/repo.git)"
-                )
-        case PluginSpecifierType.LOCAL_PATH:
-            try:
-                package_name = _read_package_name_from_pyproject(specifier)
-            except PluginSpecifierError as e:
-                raise AbortError(str(e)) from e
-        case PluginSpecifierType.GIT_URL:
-            raise AbortError(
-                "Cannot determine the package name from a git URL. "
-                "Use the package name instead (find it with `mngr plugin list`)"
-            )
-        case _ as unreachable:
-            assert_never(unreachable)
+    if opts.path is not None:
+        try:
+            package_name = _read_package_name_from_pyproject(opts.path)
+        except PluginSpecifierError as e:
+            raise AbortError(str(e)) from e
+    else:
+        assert opts.name is not None
+        package_name = _parse_pypi_package_name(opts.name)
+        if package_name is None:
+            raise AbortError(f"Invalid package name '{opts.name}'")
 
     # Verify the package is actually installed before trying to uninstall
     try:
@@ -766,8 +728,8 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
         ("List plugins as JSON", "mngr plugin list --format json"),
         ("Show specific fields", "mngr plugin list --fields name,enabled"),
         ("Install a plugin from PyPI", "mngr plugin add mngr-opencode"),
-        ("Install a local plugin", "mngr plugin add ./my-plugin"),
-        ("Install a plugin from git", "mngr plugin add git+https://github.com/user/mngr-plugin.git"),
+        ("Install a local plugin", "mngr plugin add --path ./my-plugin"),
+        ("Install a plugin from git", "mngr plugin add --git https://github.com/user/mngr-plugin.git"),
         ("Remove a plugin", "mngr plugin remove mngr-opencode"),
         ("Enable a plugin", "mngr plugin enable modal"),
         ("Disable a plugin", "mngr plugin disable modal --scope user"),

@@ -7,9 +7,12 @@ Plugins extend `mngr` with new agent types, providers, commands, and behaviors. 
 Only install plugins from sources you trust. Built-in plugins are maintained as part of mngr itself.
 
 ```bash
-mngr plugin list              # Show installed plugins
-mngr plugin add <specifier>   # Install a plugin (pip/uv install)
-mngr plugin remove <specifier>  # Uninstall a plugin
+mngr plugin list                           # Show installed plugins
+mngr plugin add mngr-opencode              # Install from PyPI
+mngr plugin add --path ./my-plugin         # Install from local path
+mngr plugin add --git https://github.com/user/repo.git  # Install from git
+mngr plugin remove mngr-opencode           # Uninstall by name
+mngr plugin remove --path ./my-plugin      # Uninstall by local path
 ```
 
 Plugins can be enabled/disabled without uninstalling:

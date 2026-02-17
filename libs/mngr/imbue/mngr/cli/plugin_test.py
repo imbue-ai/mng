@@ -7,10 +7,9 @@ from loguru import logger
 
 from imbue.mngr.cli.config import ConfigScope
 from imbue.mngr.cli.plugin import PluginInfo
-from imbue.mngr.cli.plugin import PluginSpecifierType
-from imbue.mngr.cli.plugin import _build_uv_pip_install_command
+from imbue.mngr.cli.plugin import _build_uv_pip_install_command_for_name_or_url
+from imbue.mngr.cli.plugin import _build_uv_pip_install_command_for_path
 from imbue.mngr.cli.plugin import _build_uv_pip_uninstall_command
-from imbue.mngr.cli.plugin import _classify_plugin_specifier
 from imbue.mngr.cli.plugin import _emit_plugin_add_result
 from imbue.mngr.cli.plugin import _emit_plugin_list
 from imbue.mngr.cli.plugin import _emit_plugin_remove_result
@@ -428,36 +427,6 @@ def test_emit_plugin_toggle_result_jsonl_has_event_type(capsys: pytest.CaptureFi
 
 
 # =============================================================================
-# Tests for _classify_plugin_specifier
-# =============================================================================
-
-
-def test_classify_plugin_specifier_relative_path() -> None:
-    """_classify_plugin_specifier should return LOCAL_PATH for relative paths."""
-    assert _classify_plugin_specifier("./my-plugin") == PluginSpecifierType.LOCAL_PATH
-
-
-def test_classify_plugin_specifier_absolute_path() -> None:
-    """_classify_plugin_specifier should return LOCAL_PATH for absolute paths."""
-    assert _classify_plugin_specifier("/home/user/my-plugin") == PluginSpecifierType.LOCAL_PATH
-
-
-def test_classify_plugin_specifier_home_path() -> None:
-    """_classify_plugin_specifier should return LOCAL_PATH for tilde paths."""
-    assert _classify_plugin_specifier("~/my-plugin") == PluginSpecifierType.LOCAL_PATH
-
-
-def test_classify_plugin_specifier_git_url() -> None:
-    """_classify_plugin_specifier should return GIT_URL for git+ URLs."""
-    assert _classify_plugin_specifier("git+https://github.com/user/repo.git") == PluginSpecifierType.GIT_URL
-
-
-def test_classify_plugin_specifier_pypi_package() -> None:
-    """_classify_plugin_specifier should return PYPI_PACKAGE for plain package names."""
-    assert _classify_plugin_specifier("mngr-opencode") == PluginSpecifierType.PYPI_PACKAGE
-
-
-# =============================================================================
 # Tests for _parse_pypi_package_name
 # =============================================================================
 
@@ -478,26 +447,26 @@ def test_parse_pypi_package_name_invalid_format() -> None:
 
 
 # =============================================================================
-# Tests for _build_uv_pip_install_command
+# Tests for _build_uv_pip_install_command_for_path / _build_uv_pip_install_command_for_name_or_url
 # =============================================================================
 
 
-def test_build_uv_pip_install_command_local_path() -> None:
-    """_build_uv_pip_install_command should use -e flag for local paths."""
-    cmd = _build_uv_pip_install_command("./my-plugin", PluginSpecifierType.LOCAL_PATH)
+def test_build_uv_pip_install_command_for_path() -> None:
+    """_build_uv_pip_install_command_for_path should use -e flag for local paths."""
+    cmd = _build_uv_pip_install_command_for_path("./my-plugin")
     assert cmd == ("uv", "pip", "install", "-e", str(Path("./my-plugin").resolve()))
 
 
-def test_build_uv_pip_install_command_git_url() -> None:
-    """_build_uv_pip_install_command should pass git URL directly."""
-    url = "git+https://github.com/user/repo.git"
-    cmd = _build_uv_pip_install_command(url, PluginSpecifierType.GIT_URL)
+def test_build_uv_pip_install_command_for_name_or_url_git() -> None:
+    """_build_uv_pip_install_command_for_name_or_url should pass git URL directly."""
+    url = "https://github.com/user/repo.git"
+    cmd = _build_uv_pip_install_command_for_name_or_url(url)
     assert cmd == ("uv", "pip", "install", url)
 
 
-def test_build_uv_pip_install_command_pypi_package() -> None:
-    """_build_uv_pip_install_command should pass package name directly."""
-    cmd = _build_uv_pip_install_command("mngr-opencode", PluginSpecifierType.PYPI_PACKAGE)
+def test_build_uv_pip_install_command_for_name_or_url_pypi() -> None:
+    """_build_uv_pip_install_command_for_name_or_url should pass package name directly."""
+    cmd = _build_uv_pip_install_command_for_name_or_url("mngr-opencode")
     assert cmd == ("uv", "pip", "install", "mngr-opencode")
 
 

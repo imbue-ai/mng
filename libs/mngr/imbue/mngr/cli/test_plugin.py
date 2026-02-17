@@ -313,25 +313,61 @@ def test_plugin_add_local_path_invalid_package_fails(
 
     result = cli_runner.invoke(
         plugin,
-        ["add", str(non_package_dir)],
+        ["add", "--path", str(non_package_dir)],
         obj=plugin_manager,
     )
 
     assert result.exit_code != 0
 
 
-def test_plugin_add_bare_url_fails_with_helpful_message(
+def test_plugin_add_no_source_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     temp_git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that adding a bare URL (without git+ prefix) fails with an error."""
+    """Test that calling add with no arguments fails."""
     monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
-        ["add", "https://github.com/user/mngr-plugin.git"],
+        ["add"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_plugin_add_name_and_path_mutually_exclusive(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that providing both NAME and --path fails."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["add", "mngr-opencode", "--path", "./my-plugin"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_plugin_add_invalid_name_fails(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that adding an invalid package name fails with a clear error."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["add", "not a valid!!spec$$"],
         obj=plugin_manager,
     )
 
@@ -361,18 +397,36 @@ def test_plugin_remove_nonexistent_package_fails(
     assert result.exit_code != 0
 
 
-def test_plugin_remove_git_url_fails_with_error(
+def test_plugin_remove_no_source_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     temp_git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Test that removing via git URL fails with an error exit code."""
+    """Test that calling remove with no arguments fails."""
     monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
-        ["remove", "git+https://github.com/user/repo.git"],
+        ["remove"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+
+
+def test_plugin_remove_name_and_path_mutually_exclusive(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that providing both NAME and --path fails."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        plugin,
+        ["remove", "mngr-opencode", "--path", "./my-plugin"],
         obj=plugin_manager,
     )
 
