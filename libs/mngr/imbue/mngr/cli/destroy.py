@@ -548,7 +548,12 @@ def _run_gc_in_background(mngr_ctx: MngrContext) -> None:
     process runs GC in the background, detached from the terminal. The child
     process is killed after _GC_BACKGROUND_TIMEOUT_SECONDS if it hasn't finished.
     """
-    pid = os.fork()
+    try:
+        pid = os.fork()
+    except OSError as e:
+        logger.warning("Failed to fork background GC process: {}", e)
+        logger.warning("This does not affect the destroy operation, which completed successfully")
+        return
 
     if pid > 0:
         # Parent process: return immediately
