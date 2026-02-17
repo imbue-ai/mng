@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # This is a (very long) tutorial that covers most of the features of mngr with examples, as well as simple ways to do common tasks.
 # See the README.md for details on installation and higher level architecture.
 
@@ -78,7 +79,7 @@ mngr my-task --from other-agent
 # you can run directly in the current directory without creating a worktree:
 mngr my-task --in-place
 # or explicitly choose to copy or git clone instead of the default worktree:
-# --copy creates an isolated copy, --clone creates a git clone sharing objects with the original repo
+# --copy creates an isolated copy, --clone creates a git clone sharing objects with the original repo (local agents only)
 
 # you can specify the base branch and create a new branch with a custom name:
 mngr my-task --base-branch main --new-branch feature/my-feature
