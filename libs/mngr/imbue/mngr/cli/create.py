@@ -858,7 +858,7 @@ def _handle_batch_create(
 
     # Override opts so each _handle_create iteration works correctly:
     # - ensure_clean=False: already checked above
-    # - await_ready=True: prevents background forking (os.fork), keeps creation sequential
+    # - await_ready=True: prevents the fork-based background creation path, keeps creation sequential
     per_agent_opts = opts.model_copy_update(
         to_update(opts.field_ref().ensure_clean, False),
         to_update(opts.field_ref().await_ready, True),
