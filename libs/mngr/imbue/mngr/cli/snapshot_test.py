@@ -1,3 +1,4 @@
+import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.snapshot import SnapshotCreateCliOptions
@@ -108,48 +109,74 @@ def test_snapshot_destroy_cli_options_fields() -> None:
 # =============================================================================
 
 
-def test_snapshot_bare_invocation_defaults_to_create() -> None:
-    """Running `mngr snapshot` with no args should forward to `snapshot create`,
-    not show help or error with 'Missing command'."""
-    runner = CliRunner()
-    result = runner.invoke(snapshot, [])
-    # The command will fail (no plugin manager context), but it should NOT
-    # show group help or say "Missing command" -- it should attempt to run create.
+def test_snapshot_bare_invocation_defaults_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr snapshot` with no args should forward to `snapshot create`."""
+    result = cli_runner.invoke(snapshot, [], obj=plugin_manager)
+    # Should attempt to run create (which errors asking for an agent),
+    # not show group help or say "Missing command".
     assert "Missing command" not in result.output
     assert "Commands:" not in result.output
+    assert "Must specify at least one agent" in result.output
 
 
-def test_snapshot_unrecognized_subcommand_forwards_to_create() -> None:
-    """Running `mngr snapshot my-agent` should forward to `snapshot create my-agent`."""
-    runner = CliRunner()
-    # "my-agent" is not a known subcommand (create/list/destroy), so it should
-    # be forwarded to create as the first positional arg. The command will fail
-    # (no real provider context), but the error should come from snapshot create,
-    # not from "No such command 'my-agent'".
-    result = runner.invoke(snapshot, ["my-agent"])
+def test_snapshot_unrecognized_subcommand_forwards_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr snapshot nonexistent` should forward to `snapshot create nonexistent`.
+
+    The local provider accepts any HostName (since there's only one host),
+    so "nonexistent" resolves to the local host and fails with "snapshots
+    not supported" rather than "not found". The key assertion is that it
+    does NOT say "No such command".
+    """
+    result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
     assert "No such command" not in result.output
+    # Confirms it ran snapshot create and got to the snapshot logic
+    assert "snapshot" in result.output.lower()
 
 
-def test_snapshot_explicit_create_still_works() -> None:
+def test_snapshot_implicit_create_prefixes_usage_errors(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Usage errors from implicitly-forwarded create should be prefixed."""
+    # "something" is not a subcommand, so it's forwarded to create as a
+    # positional arg. --all then conflicts ("Cannot specify both"), and the
+    # error should be prefixed with "snapshot create failed".
+    result = cli_runner.invoke(snapshot, ["something", "--all"], obj=plugin_manager)
+    assert "snapshot create failed" in result.output
+
+
+def test_snapshot_explicit_create_still_works(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
     """Running `mngr snapshot create --help` should still work."""
-    runner = CliRunner()
-    result = runner.invoke(snapshot, ["create", "--help"])
+    result = cli_runner.invoke(snapshot, ["create", "--help"], obj=plugin_manager)
     assert result.exit_code == 0
     assert "Create a snapshot" in result.output
 
 
-def test_snapshot_list_subcommand_not_forwarded() -> None:
+def test_snapshot_list_subcommand_not_forwarded(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
     """Running `mngr snapshot list` should NOT be forwarded to create."""
-    runner = CliRunner()
-    result = runner.invoke(snapshot, ["list", "--help"])
+    result = cli_runner.invoke(snapshot, ["list", "--help"], obj=plugin_manager)
     assert result.exit_code == 0
     assert "List snapshots" in result.output
 
 
-def test_snapshot_destroy_subcommand_not_forwarded() -> None:
+def test_snapshot_destroy_subcommand_not_forwarded(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
     """Running `mngr snapshot destroy` should NOT be forwarded to create."""
-    runner = CliRunner()
-    result = runner.invoke(snapshot, ["destroy", "--help"])
+    result = cli_runner.invoke(snapshot, ["destroy", "--help"], obj=plugin_manager)
     assert result.exit_code == 0
     assert "Destroy snapshots" in result.output
 

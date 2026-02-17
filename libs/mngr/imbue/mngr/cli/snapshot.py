@@ -104,8 +104,11 @@ class SnapshotDestroyCliOptions(CommonCliOptions):
 def _find_host_across_providers(
     host_identifier: str,
     mngr_ctx: MngrContext,
-) -> tuple[HostId, ProviderInstanceName]:
-    """Find a host by ID or name across all providers."""
+) -> tuple[HostId, ProviderInstanceName] | None:
+    """Find a host by ID or name across all providers.
+
+    Returns (host_id, provider_name) if found, or None if no provider has a matching host.
+    """
     for provider in get_all_provider_instances(mngr_ctx):
         try:
             host = provider.get_host(HostId(host_identifier))
@@ -117,7 +120,7 @@ def _find_host_across_providers(
             return host.id, provider.name
         except (HostNotFoundError, ValueError):
             pass
-    raise UserInputError(f"Host not found: {host_identifier}")
+    return None
 
 
 def _classify_mixed_identifiers(
@@ -184,9 +187,14 @@ def _resolve_snapshot_hosts(
             else:
                 seen_hosts[host_id_str] = (provider_name, agent_names)
 
-    # Resolve from host identifiers
+    # Resolve from host identifiers. These identifiers already failed agent
+    # lookup in _classify_mixed_identifiers, so if host lookup also fails,
+    # the error should mention both.
     for host_str in host_identifiers:
-        host_id, provider_name = _find_host_across_providers(host_str, mngr_ctx)
+        result = _find_host_across_providers(host_str, mngr_ctx)
+        if result is None:
+            raise UserInputError(f"Agent or host not found: {host_str}")
+        host_id, provider_name = result
         host_id_str = str(host_id)
         if host_id_str not in seen_hosts:
             seen_hosts[host_id_str] = (provider_name, [])
@@ -354,8 +362,8 @@ class _SnapshotGroup(click.Group):
     """Snapshot group that defaults to 'create' when no subcommand is given.
 
     This is safe because the next argument must be a valid agent name,
-    so typos like ``mngr snapshot destory`` will fail with "agent not found"
-    rather than silently doing something wrong.
+    so typos like ``mngr snapshot destory`` will fail with an error that
+    explains the implicit forwarding to ``snapshot create``.
     """
 
     def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
@@ -368,6 +376,7 @@ class _SnapshotGroup(click.Group):
         if args:
             cmd = self.get_command(ctx, args[0])
             if cmd is None:
+                ctx.meta["_snapshot_implicit_create"] = args[0]
                 return super().resolve_command(ctx, ["create"] + args)
         return super().resolve_command(ctx, args)
 
@@ -501,6 +510,14 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+    except (BaseMngrError, click.UsageError) as e:
+        # If the user typed e.g. `mngr snapshot destory`, resolve_command
+        # forwarded "destory" to `snapshot create`. Prefix the error so
+        # it's clear what happened.
+        implicit_arg = (ctx.parent.meta or {}).get("_snapshot_implicit_create") if ctx.parent else None
+        if implicit_arg is not None:
+            raise click.UsageError(f"snapshot create failed: {e}") from e
+        raise
 
 
 def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
