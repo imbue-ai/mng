@@ -6,8 +6,8 @@ from pathlib import Path
 
 from imbue.mngr.api.cleanup import execute_cleanup
 from imbue.mngr.api.data_types import CleanupResult
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.config.data_types import MngrContext
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
