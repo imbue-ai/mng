@@ -525,6 +525,15 @@ def test_read_package_name_from_pyproject_missing_file(tmp_path: Path) -> None:
         _read_package_name_from_pyproject(str(tmp_path))
 
 
+def test_read_package_name_from_pyproject_missing_name(tmp_path: Path) -> None:
+    """_read_package_name_from_pyproject should raise PluginSpecifierError if project.name is absent."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nversion = "0.1.0"\n')
+
+    with pytest.raises(PluginSpecifierError, match="does not have a project.name field"):
+        _read_package_name_from_pyproject(str(tmp_path))
+
+
 # =============================================================================
 # Tests for _emit_plugin_add_result
 # =============================================================================
