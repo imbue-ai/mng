@@ -30,16 +30,16 @@ from imbue.mngr.errors import AgentNotFoundOnHostError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ProviderInstanceNotFoundError
+from imbue.mngr.hosts.common import compute_idle_seconds
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentLifecycleState
-from imbue.mngr.primitives import AgentName
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import ErrorBehavior
@@ -49,56 +49,6 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mngr.utils.cel_utils import compile_cel_filters
-
-
-def _compute_idle_seconds(
-    user_activity: datetime | None,
-    agent_activity: datetime | None,
-    ssh_activity: datetime | None,
-) -> float | None:
-    """Compute idle seconds from the most recent activity time."""
-    latest_activity: datetime | None = None
-    for activity_time in (user_activity, agent_activity, ssh_activity):
-        if activity_time is not None:
-            if latest_activity is None or activity_time > latest_activity:
-                latest_activity = activity_time
-    if latest_activity is None:
-        return None
-    return (datetime.now(timezone.utc) - latest_activity).total_seconds()
-
-
-class AgentInfo(FrozenModel):
-    """Complete information about an agent for listing purposes.
-
-    This combines certified and reported data from the agent with host information.
-    """
-
-    id: AgentId = Field(description="Agent ID")
-    name: AgentName = Field(description="Agent name")
-    type: str = Field(description="Agent type (claude, codex, etc.)")
-    command: CommandString = Field(description="Command used to start the agent")
-    work_dir: Path = Field(description="Working directory")
-    create_time: datetime = Field(description="Creation timestamp")
-    start_on_boot: bool = Field(description="Whether agent starts on host boot")
-
-    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
-    url: str | None = Field(default=None, description="Agent URL (reported)")
-    start_time: datetime | None = Field(default=None, description="Last start time (reported)")
-    runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
-    user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
-    agent_activity_time: datetime | None = Field(default=None, description="Last agent activity (reported)")
-    idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
-    idle_mode: str | None = Field(default=None, description="Idle detection mode")
-    idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
-    activity_sources: tuple[str, ...] | None = Field(
-        default=None, description="Activity sources used for idle detection"
-    )
-
-    labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
-
-    host: HostInfo = Field(description="Host information")
-
-    plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 
 
 class ErrorInfo(FrozenModel):
@@ -389,7 +339,7 @@ def _process_provider_streaming(
     """
     try:
         # Phase 1: list hosts and get agent refs
-        provider_results = _load_agent_refs_from_provider(provider, include_destroyed=True, cg=cg)
+        provider_results = provider.load_agent_refs(cg=cg, include_destroyed=True)
 
         # Phase 2: immediately process hosts (fire on_agent for this provider)
         host_futures: list[Future[None]] = []
@@ -439,6 +389,24 @@ def _assemble_host_info(
     result: ListResult,
     results_lock: Lock,
 ) -> None:
+    # Try the provider's optimized listing method first
+    listing_data = provider.build_host_listing_data(host_ref, agent_refs)
+    if listing_data is not None:
+        host_info, agent_infos = listing_data
+        for agent_info in agent_infos:
+            # Apply CEL filters if provided
+            if params.compiled_include_filters or params.compiled_exclude_filters:
+                if not _apply_cel_filters(
+                    agent_info, params.compiled_include_filters, params.compiled_exclude_filters
+                ):
+                    continue
+            with results_lock:
+                result.agents.append(agent_info)
+            if params.on_agent:
+                params.on_agent(agent_info)
+        return
+
+    # Fall back to per-field collection
     # get the host
     host = provider.get_host(host_ref.host_id)
 
@@ -540,7 +508,7 @@ def _assemble_host_info(
                 runtime_seconds = (now - start_time).total_seconds() if start_time else None
 
                 # idle_seconds: include host-level ssh_activity; 0.0 if no activity yet
-                idle_seconds = _compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+                idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
                 agent_info = AgentInfo(
                     id=agent.id,
@@ -712,29 +680,6 @@ def _apply_cel_filters(
     )
 
 
-def _load_agent_refs_from_provider(
-    provider: BaseProviderInstance,
-    include_destroyed: bool,
-    cg: ConcurrencyGroup,
-) -> dict[HostReference, list[AgentReference]]:
-    """Load hosts from a provider and fetch agent references for each host in parallel."""
-    logger.trace("Loading hosts from provider {}", provider.name)
-    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
-    logger.trace("Loaded hosts from provider {}", provider.name)
-
-    future_by_host_ref: dict[HostReference, Future[list[AgentReference]]] = {}
-    with ConcurrencyGroupExecutor(parent_cg=cg, name=f"load_agents_{provider.name}", max_workers=32) as executor:
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=host.get_name(),
-                provider_name=provider.name,
-            )
-            future_by_host_ref[host_ref] = executor.submit(_get_agent_refs_robustly, host, provider)
-
-    return {host_ref: future.result() for host_ref, future in future_by_host_ref.items()}
-
-
 def _process_provider_for_host_listing(
     provider: BaseProviderInstance,
     agents_by_host: dict[HostReference, list[AgentReference]],
@@ -747,21 +692,11 @@ def _process_provider_for_host_listing(
     This function is run in a thread by load_all_agents_grouped_by_host.
     Results are merged into the shared agents_by_host dict under the results_lock.
     """
-    provider_results = _load_agent_refs_from_provider(provider, include_destroyed, cg)
+    provider_results = provider.load_agent_refs(cg=cg, include_destroyed=include_destroyed)
 
     # Merge results into the main dict under lock
     with results_lock:
         agents_by_host.update(provider_results)
-
-
-# retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
-    try:
-        return host.get_agent_references()
-    # retry once when there is a host connection error (the second time we'll probably end up
-    except HostConnectionError:
-        offline_host = provider.get_host(host.id)
-        return offline_host.get_agent_references()
 
 
 @log_call

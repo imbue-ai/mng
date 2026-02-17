@@ -9,7 +9,6 @@ import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.api.list import AgentErrorInfo
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import ErrorInfo
 from imbue.mngr.api.list import HostErrorInfo
 from imbue.mngr.api.list import ListResult
@@ -20,6 +19,7 @@ from imbue.mngr.api.list import list_agents
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import HostResources
