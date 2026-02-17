@@ -1,12 +1,13 @@
 # mngr: build your team of AI engineering agents
 
-**installation**:
+**quick install:**
 ```bash
-# quick install (installs system dependencies + mngr)
 # [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+```
 
-# or install directly if you already have uv (requires tmux, jq, curl, unison)
+**manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `unison`):
+```bash
 uv tool install mngr
 
 # or run without installing
@@ -123,18 +124,22 @@ From the repo where you would like a Dockerfile created.
 
 ## Installation
 
+**Quick install** (installs system dependencies + mngr automatically):
 ```bash
-# quick install (installs system dependencies + mngr)
 # [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+```
 
-# or install directly if you already have uv (requires tmux, jq, curl, unison)
+**Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `tmux`, `jq`, `curl`, `unison`):
+```bash
 uv tool install mngr
 
 # or run without installing
 uvx mngr
+```
 
-# for development
+**For development:**
+```bash
 git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
 ```
 
