@@ -2,6 +2,7 @@
 
 from collections.abc import Generator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 import click
@@ -19,39 +20,49 @@ from imbue.mngr.main import AliasAwareGroup
 from imbue.mngr.main import reset_plugin_manager
 from imbue.mngr.plugins import hookspecs
 
+# Module-level container for the marker file path, set by the fixture and read
+# by test commands. Same pattern as _captured_values in test_plugin_cli_commands.py.
+_marker_path_container: dict[str, Path | None] = {"path": None}
+
 
 class _LifecycleTracker:
-    """A test plugin that records lifecycle hook invocations."""
+    """A test plugin that records lifecycle hook invocations and marker file state."""
 
     def __init__(self) -> None:
         # Real plugins are plain classes with no __init__ (just @hookimpl methods).
         # We need __init__ here to hold per-instance test state.
-        self.hook_log: list[str] = []
+        self.hook_log: list[tuple[str, bool]] = []
         self.hook_data: dict[str, Any] = {}
+        self.marker_path: Path | None = None
+
+    def _marker_exists(self) -> bool:
+        if self.marker_path is None:
+            return False
+        return self.marker_path.exists()
 
     @hookimpl
     def on_startup(self) -> None:
-        self.hook_log.append("on_startup")
+        self.hook_log.append(("on_startup", self._marker_exists()))
 
     @hookimpl
     def on_shutdown(self) -> None:
-        self.hook_log.append("on_shutdown")
+        self.hook_log.append(("on_shutdown", self._marker_exists()))
 
     @hookimpl
     def on_before_command(self, command_name: str, command_params: dict[str, Any]) -> None:
-        self.hook_log.append("on_before_command")
+        self.hook_log.append(("on_before_command", self._marker_exists()))
         self.hook_data["before_command_name"] = command_name
         self.hook_data["before_command_params"] = command_params
 
     @hookimpl
     def on_after_command(self, command_name: str, command_params: dict[str, Any]) -> None:
-        self.hook_log.append("on_after_command")
+        self.hook_log.append(("on_after_command", self._marker_exists()))
         self.hook_data["after_command_name"] = command_name
         self.hook_data["after_command_params"] = command_params
 
     @hookimpl
     def on_error(self, command_name: str, command_params: dict[str, Any], error: BaseException) -> None:
-        self.hook_log.append("on_error")
+        self.hook_log.append(("on_error", self._marker_exists()))
         self.hook_data["error_command_name"] = command_name
         self.hook_data["error"] = error
 
@@ -64,12 +75,12 @@ class _AbortingPlugin:
         raise click.Abort()
 
 
-class _NoopCliOptions(CommonCliOptions):
-    """Minimal options class for the test 'noop' command."""
+class _TouchCliOptions(CommonCliOptions):
+    """Minimal options class for the test 'touch' command."""
 
 
-class _FailingCliOptions(CommonCliOptions):
-    """Minimal options class for the test 'failing' command."""
+class _TouchFailCliOptions(CommonCliOptions):
+    """Minimal options class for the test 'touch-fail' command."""
 
 
 @contextmanager
@@ -93,23 +104,29 @@ def _test_cli_with_plugins(
         pm.hook.on_startup()
         ctx.call_on_close(lambda: pm.hook.on_shutdown())
 
-    @click.command(name="noop")
+    @click.command(name="touch")
     @add_common_options
     @click.pass_context
-    def noop_cmd(ctx: click.Context, **kwargs: Any) -> None:
-        """A simple test command that does nothing."""
-        setup_command_context(ctx=ctx, command_name="noop", command_class=_NoopCliOptions)
+    def touch_cmd(ctx: click.Context, **kwargs: Any) -> None:
+        """A test command that creates a marker file."""
+        setup_command_context(ctx=ctx, command_name="touch", command_class=_TouchCliOptions)
+        marker_path = _marker_path_container["path"]
+        if marker_path is not None:
+            marker_path.touch()
 
-    @click.command(name="failing")
+    @click.command(name="touch-fail")
     @add_common_options
     @click.pass_context
-    def failing_cmd(ctx: click.Context, **kwargs: Any) -> None:
-        """A test command that raises an error after setup."""
-        setup_command_context(ctx=ctx, command_name="failing", command_class=_FailingCliOptions)
+    def touch_fail_cmd(ctx: click.Context, **kwargs: Any) -> None:
+        """A test command that creates a marker file then raises."""
+        setup_command_context(ctx=ctx, command_name="touch-fail", command_class=_TouchFailCliOptions)
+        marker_path = _marker_path_container["path"]
+        if marker_path is not None:
+            marker_path.touch()
         raise PluginMngrError("deliberate failure")
 
-    test_cli.add_command(noop_cmd)
-    test_cli.add_command(failing_cmd)
+    test_cli.add_command(touch_cmd)
+    test_cli.add_command(touch_fail_cmd)
 
     try:
         yield test_cli
@@ -126,7 +143,7 @@ class _LifecycleFixture:
         self.runner = runner
 
     @property
-    def hook_log(self) -> list[str]:
+    def hook_log(self) -> list[tuple[str, bool]]:
         return self.tracker.hook_log
 
     @property
@@ -135,41 +152,45 @@ class _LifecycleFixture:
 
 
 @pytest.fixture()
-def lifecycle_fixture() -> Generator[_LifecycleFixture, None, None]:
+def lifecycle_fixture(tmp_path: Path) -> Generator[_LifecycleFixture, None, None]:
     """Provide a test CLI with a lifecycle-tracking plugin and a runner."""
     tracker = _LifecycleTracker()
+    marker_path = tmp_path / "marker"
+    tracker.marker_path = marker_path
+    _marker_path_container["path"] = marker_path
     with _test_cli_with_plugins([tracker]) as cli:
         yield _LifecycleFixture(tracker=tracker, cli=cli, runner=CliRunner())
+    _marker_path_container["path"] = None
 
 
 # --- Tests ---
 
 
 def test_on_startup_called_on_cli_invocation(lifecycle_fixture: _LifecycleFixture) -> None:
-    """on_startup fires when the CLI group is invoked."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    """on_startup fires when the CLI group is invoked, before the marker file exists."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert "on_startup" in lifecycle_fixture.hook_log
+    assert ("on_startup", False) in lifecycle_fixture.hook_log
 
 
 def test_on_shutdown_called_after_cli_completes(lifecycle_fixture: _LifecycleFixture) -> None:
-    """on_shutdown fires when the CLI context closes."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    """on_shutdown fires when the CLI context closes, after the command created the marker."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert "on_shutdown" in lifecycle_fixture.hook_log
+    assert ("on_shutdown", True) in lifecycle_fixture.hook_log
 
 
 def test_on_before_command_called_with_correct_name(lifecycle_fixture: _LifecycleFixture) -> None:
-    """on_before_command receives the command name."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    """on_before_command receives the command name and fires before command work."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert "on_before_command" in lifecycle_fixture.hook_log
-    assert lifecycle_fixture.hook_data.get("before_command_name") == "noop"
+    assert ("on_before_command", False) in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("before_command_name") == "touch"
 
 
 def test_on_before_command_receives_params_dict(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_before_command receives a dict of command parameters."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
     params = lifecycle_fixture.hook_data.get("before_command_params")
     assert isinstance(params, dict)
@@ -178,58 +199,77 @@ def test_on_before_command_receives_params_dict(lifecycle_fixture: _LifecycleFix
 
 
 def test_on_after_command_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
-    """on_after_command fires after a successful command."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    """on_after_command fires after a successful command, seeing the marker file."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert "on_after_command" in lifecycle_fixture.hook_log
-    assert lifecycle_fixture.hook_data.get("after_command_name") == "noop"
+    assert ("on_after_command", True) in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("after_command_name") == "touch"
 
 
 def test_on_after_command_not_called_on_error(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_after_command does NOT fire when a command raises."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch-fail"])
 
-    assert "on_after_command" not in lifecycle_fixture.hook_log
+    hook_names = [name for name, _ in lifecycle_fixture.hook_log]
+    assert "on_after_command" not in hook_names
 
 
 def test_on_error_called_when_command_raises(lifecycle_fixture: _LifecycleFixture) -> None:
-    """on_error fires when a command raises an exception."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
+    """on_error fires when a command raises, seeing the marker the command created."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch-fail"])
 
-    assert "on_error" in lifecycle_fixture.hook_log
-    assert lifecycle_fixture.hook_data.get("error_command_name") == "failing"
+    assert ("on_error", True) in lifecycle_fixture.hook_log
+    assert lifecycle_fixture.hook_data.get("error_command_name") == "touch-fail"
     assert isinstance(lifecycle_fixture.hook_data.get("error"), PluginMngrError)
 
 
 def test_on_error_not_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
     """on_error does NOT fire when a command succeeds."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert "on_error" not in lifecycle_fixture.hook_log
+    hook_names = [name for name, _ in lifecycle_fixture.hook_log]
+    assert "on_error" not in hook_names
 
 
 def test_lifecycle_hook_ordering(lifecycle_fixture: _LifecycleFixture) -> None:
-    """Hooks fire in the correct order: startup, before, after, shutdown."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["noop"])
+    """Hooks fire in the correct order relative to command work."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch"])
 
-    assert lifecycle_fixture.hook_log == ["on_startup", "on_before_command", "on_after_command", "on_shutdown"]
+    assert lifecycle_fixture.hook_log == [
+        ("on_startup", False),
+        ("on_before_command", False),
+        ("on_after_command", True),
+        ("on_shutdown", True),
+    ]
 
 
 def test_lifecycle_hook_ordering_on_error(lifecycle_fixture: _LifecycleFixture) -> None:
-    """On error: startup, before, error, shutdown (no after)."""
-    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["failing"])
+    """On error: startup, before (no file), error (file exists), shutdown."""
+    lifecycle_fixture.runner.invoke(lifecycle_fixture.cli, ["touch-fail"])
 
-    assert lifecycle_fixture.hook_log == ["on_startup", "on_before_command", "on_error", "on_shutdown"]
+    assert lifecycle_fixture.hook_log == [
+        ("on_startup", False),
+        ("on_before_command", False),
+        ("on_error", True),
+        ("on_shutdown", True),
+    ]
 
 
-def test_on_before_command_can_abort_execution() -> None:
-    """A plugin raising in on_before_command aborts the command."""
+def test_on_before_command_can_abort_execution(tmp_path: Path) -> None:
+    """A plugin raising in on_before_command aborts the command and prevents file creation."""
     tracker = _LifecycleTracker()
+    marker_path = tmp_path / "marker"
+    tracker.marker_path = marker_path
+    _marker_path_container["path"] = marker_path
     with _test_cli_with_plugins([_AbortingPlugin(), tracker]) as cli:
         runner = CliRunner()
-        result = runner.invoke(cli, ["noop"])
+        result = runner.invoke(cli, ["touch"])
 
         # The command should have been aborted (non-zero exit or Abort)
         assert result.exit_code != 0
         # on_after_command should NOT have fired since the command was aborted
-        assert "on_after_command" not in tracker.hook_log
+        hook_names = [name for name, _ in tracker.hook_log]
+        assert "on_after_command" not in hook_names
+        # The marker file should not exist since command work was prevented
+        assert not marker_path.exists()
+    _marker_path_container["path"] = None
