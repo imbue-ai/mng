@@ -2059,12 +2059,7 @@ def test_new_tmux_window_inherits_env_vars(
             capture_output=True,
         )
 
-        # Send the command immediately. The keys are buffered in the pty and
-        # will be processed once the shell finishes initializing (sourcing env
-        # files, loading .zshrc/.bashrc, etc.). We don't check for pane content
-        # first because shell init (.zshenv/.zshrc errors, compdef failures,
-        # direnv output, etc.) can produce pane content before the shell is
-        # actually accepting commands.
+        # Keys sent before the shell is ready are buffered in the pty.
         window_target = f"{session_name}:user-window"
         subprocess.run(
             [
