@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pluggy
@@ -431,3 +432,119 @@ def test_plugin_remove_name_and_path_mutually_exclusive(
     )
 
     assert result.exit_code != 0
+
+
+# =============================================================================
+# Integration tests for plugin add/remove success path
+# =============================================================================
+
+_DUMMY_PLUGIN_NAME = "mngr-test-dummy-plugin"
+
+_DUMMY_PYPROJECT_TOML = """\
+[project]
+name = "mngr-test-dummy-plugin"
+version = "0.0.1"
+description = "Dummy plugin for integration testing"
+
+[project.entry-points.mngr]
+test-dummy = "mngr_test_dummy_plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+"""
+
+_DUMMY_PLUGIN_MODULE = """\
+import pluggy
+
+hookimpl = pluggy.HookimplMarker("mngr")
+
+
+@hookimpl
+def register_agent_type():
+    return ("test-dummy-agent", None, None)
+"""
+
+
+def _create_dummy_plugin_package(base_dir: Path) -> Path:
+    """Create a minimal mngr plugin package that registers an agent type.
+
+    Returns the path to the plugin directory.
+    """
+    plugin_dir = base_dir / "mngr-test-dummy-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "pyproject.toml").write_text(_DUMMY_PYPROJECT_TOML)
+    (plugin_dir / "mngr_test_dummy_plugin.py").write_text(_DUMMY_PLUGIN_MODULE)
+    return plugin_dir
+
+
+def _force_uninstall_dummy_plugin() -> None:
+    """Force-uninstall the dummy plugin package, ignoring errors."""
+    subprocess.run(
+        ["uv", "pip", "uninstall", _DUMMY_PLUGIN_NAME],
+        capture_output=True,
+    )
+
+
+def _run_mngr(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run a mngr command via `uv run mngr` and return the result."""
+    result = subprocess.run(
+        ["uv", "run", "mngr", *args],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"mngr {' '.join(args)} failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    return result
+
+
+@pytest.mark.timeout(60)
+def test_plugin_install_discover_and_remove(
+    tmp_path: Path,
+) -> None:
+    """Test that an installed plugin is discovered by mngr and can be removed.
+
+    Installs a dummy plugin (non-editable) into the current venv, then
+    verifies it appears in `mngr plugin list`, its hook fires (agent type
+    is registered), and `mngr plugin remove` cleans it up.
+
+    Uses `uv run mngr` subprocesses so each invocation starts a fresh Python
+    process that naturally discovers the plugin via setuptools entry points.
+
+    Non-editable install is used because editable installs create .pth files
+    that are not processed by already-running pytest-xdist worker processes,
+    causing import errors in their plugin_manager fixtures.
+    """
+    _force_uninstall_dummy_plugin()
+
+    plugin_dir = _create_dummy_plugin_package(tmp_path)
+
+    try:
+        # -- Install the plugin (non-editable, directly via uv) --
+        install_result = subprocess.run(
+            ["uv", "pip", "install", str(plugin_dir)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert install_result.returncode == 0, f"install failed: {install_result.stderr}"
+
+        # -- Verify the plugin shows up in `mngr plugin list` --
+        list_result = _run_mngr("plugin", "list", "--format", "json")
+        list_output = json.loads(list_result.stdout)
+        plugin_names = [p["name"] for p in list_output["plugins"]]
+        assert "test-dummy" in plugin_names
+
+        # -- Remove the plugin via `mngr plugin remove` --
+        remove_result = _run_mngr("plugin", "remove", _DUMMY_PLUGIN_NAME, "--format", "json")
+        remove_output = json.loads(remove_result.stdout)
+        assert remove_output["package"] == _DUMMY_PLUGIN_NAME
+
+        # -- Verify it no longer shows up --
+        list_after = _run_mngr("plugin", "list", "--format", "json")
+        list_after_output = json.loads(list_after.stdout)
+        plugin_names_after = [p["name"] for p in list_after_output["plugins"]]
+        assert "test-dummy" not in plugin_names_after
+
+    finally:
+        _force_uninstall_dummy_plugin()
