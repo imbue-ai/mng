@@ -253,7 +253,7 @@ class CreateCliOptions(CommonCliOptions):
     type=click.IntRange(min=1),
     default=1,
     show_default=True,
-    help="Number of agents to create (automatically disables connect when > 1)",
+    help="Number of agents to create (automatically disables connect when > 1) [experimental]",
 )
 @optgroup.option(
     "--name-style",
