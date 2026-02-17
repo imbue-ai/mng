@@ -74,7 +74,11 @@ for canonical, aliases in COMMAND_ALIASES.items():
 
 
 def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
-    """Call the on_error hook if command metadata was stored by setup_command_context."""
+    """Call the on_error hook if command metadata was stored by setup_command_context.
+
+    Note: if a plugin's on_error hook raises, it will mask the original command exception.
+    Plugins are responsible for not raising in their hooks.
+    """
     command_name = ctx.meta.get("hook_command_name")
     if command_name is not None:
         pm = get_or_create_plugin_manager()
@@ -91,7 +95,11 @@ class AliasAwareGroup(click.Group):
     def invoke(self, ctx: click.Context) -> Any:
         try:
             result = super().invoke(ctx)
-            # Call on_after_command if command metadata was stored by setup_command_context
+            # Call on_after_command if command metadata was stored by setup_command_context.
+            # Note: if a plugin's on_after_command raises, the exception falls through to
+            # the except blocks below, which will call _call_on_error_hook -- meaning
+            # on_error fires even though the command itself succeeded. This is intentional
+            # for now; plugins are responsible for not raising in their hooks.
             command_name = ctx.meta.get("hook_command_name")
             if command_name is not None:
                 pm = get_or_create_plugin_manager()

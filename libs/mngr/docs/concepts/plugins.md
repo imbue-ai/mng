@@ -33,7 +33,7 @@ Called at various points in the execution of any `mngr` command:
 
 | Hook                       | Description                                                                                                                                             |
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
+| `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models. [future]                            |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
 | `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
 | `on_startup`               | Runs when `mngr` starts up, before any command runs. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks. |
