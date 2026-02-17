@@ -120,6 +120,13 @@ def test_get_host_by_name(local_provider: LocalProviderInstance) -> None:
     assert host2.id == host1.id
 
 
+def test_get_host_with_wrong_name_raises_error(local_provider: LocalProviderInstance) -> None:
+    local_provider.create_host(HostName("test"))
+
+    with pytest.raises(HostNotFoundError):
+        local_provider.get_host(HostName("not-localhost"))
+
+
 def test_get_host_with_wrong_id_raises_error(local_provider: LocalProviderInstance) -> None:
     local_provider.create_host(HostName("test"))
     wrong_id = HostId.generate()
