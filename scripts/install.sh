@@ -7,7 +7,7 @@
 # [TODO] Replace with vanity URL: curl -fsSL https://imbue.com/mngr/install.sh | bash
 #
 # This script:
-#   1. Installs system dependencies (tmux, jq, curl, rsync, unison)
+#   1. Installs system dependencies (git, ssh, tmux, jq, curl, rsync, unison)
 #   2. Installs uv (if not already installed)
 #   3. Installs mngr via uv tool install
 #
@@ -44,7 +44,7 @@ OS="$(detect_os)"
 
 # ── Install system dependencies ────────────────────────────────────────────────
 
-SYSTEM_DEPS=(tmux jq curl rsync unison)
+SYSTEM_DEPS=(git ssh tmux jq curl rsync unison)
 
 install_system_deps_macos() {
     local missing=()
