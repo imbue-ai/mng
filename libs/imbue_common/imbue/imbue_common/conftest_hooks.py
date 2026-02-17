@@ -2,9 +2,19 @@
 
 Provides common test infrastructure:
 - Global test locking (prevents parallel pytest processes from conflicting)
-- Test suite timing limits
+- Test suite timing limits (configurable via PYTEST_MAX_DURATION env var)
+- xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
+
+Environment variables:
+- PYTEST_NUMPROCESSES: Override the number of xdist workers (default: 4, set in
+  pyproject.toml addopts). Set to e.g. 16 on machines with many cores, or 0 to
+  disable xdist. This overrides the -n value from pyproject.toml but NOT an
+  explicit -n passed on the command line.
+- PYTEST_MAX_DURATION: Override the maximum allowed test suite duration in seconds.
+  Without this, defaults are chosen based on test type and environment (see
+  _pytest_sessionfinish for details).
 
 Usage in each project's conftest.py:
     from imbue.imbue_common.conftest_hooks import register_conftest_hooks
@@ -19,6 +29,7 @@ by pytest. Without the guard, pytest_addoption would fail with duplicate option 
 import fcntl
 import json
 import os
+import sys
 import time
 from io import StringIO
 from pathlib import Path
@@ -351,6 +362,24 @@ def _pytest_configure(config: pytest.Config) -> None:
                 if controller_cov_report is not None and isinstance(controller_cov_report, dict):
                     controller_cov_report.pop("term-missing", None)
                     controller_cov_report.pop("term", None)
+
+    # Override xdist worker count from PYTEST_NUMPROCESSES env var.
+    # pyproject.toml sets -n 4 as the default (which is needed to activate xdist's
+    # DSession plugin during its pytest_configure, which runs before conftest hooks).
+    # This override lets different environments (local, CI, Modal) use different
+    # parallelism without changing pyproject.toml or passing -n on every invocation.
+    # An explicit -n on the command line takes priority over the env var.
+    numprocesses_env = os.environ.get("PYTEST_NUMPROCESSES")
+    if numprocesses_env is not None:
+        cli_has_n_flag = any(arg == "-n" or arg.startswith("-n") for arg in sys.argv[1:])
+        if not cli_has_n_flag:
+            n = int(numprocesses_env)
+            config.option.numprocesses = n
+            if n > 0:
+                config.option.tx = ["popen"] * n
+            else:
+                config.option.tx = []
+                config.option.dist = "no"
 
 
 def _pytest_collection_finish(session: pytest.Session) -> None:
