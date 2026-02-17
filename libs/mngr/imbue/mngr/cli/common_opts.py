@@ -134,7 +134,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "output_format",
         default="human",
         show_default=True,
-        help="Output format (human, json, jsonl); some commands also accept a template string",
+        help="Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields.",
     )(command)
     # Start the "Common" option group - applied last since decorators run in reverse order
     command = optgroup.group(COMMON_OPTIONS_GROUP_NAME)(command)
@@ -155,7 +155,7 @@ def setup_command_context(
     set up logging, and load plugin backends.
 
     Set is_format_template_supported=True for commands that handle
-    output_opts.format_template (currently only the list command).
+    output_opts.format_template.
     """
     # First parse options from CLI args to extract common parameters
     initial_opts = command_class(**ctx.params)
@@ -228,6 +228,11 @@ def setup_command_context(
     # Enter a log span for the command lifetime
     span = log_span("Started {} command", command_name)
     ctx.with_resource(span)
+
+    # Register error reporting state on the group context so AliasAwareGroup.invoke()
+    # can check it when catching unexpected exceptions
+    if ctx.parent is not None and mngr_ctx.config.is_error_reporting_enabled and is_interactive:
+        ctx.parent.meta["is_error_reporting_enabled"] = True
 
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mngr_ctx.config, command_name, cg)

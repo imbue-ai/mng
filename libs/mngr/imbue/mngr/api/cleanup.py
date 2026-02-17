@@ -7,12 +7,12 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.data_types import CleanupResult
 from imbue.mngr.api.data_types import GcResourceTypes
 from imbue.mngr.api.gc import gc as api_gc
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import list_agents
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import MngrError
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import CleanupAction

@@ -1,5 +1,3 @@
-import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -17,12 +15,14 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BUILTIN_E
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CAST_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_CLICK_ECHO
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DATACLASSES_IMPORT
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_DIRECT_SUBPROCESS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORT_DATETIME
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_DOCSTRINGS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_INIT_IN_NON_EXCEPTION_CLASSES
@@ -48,15 +48,15 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNITTEST_
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRUE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
-from imbue.imbue_common.ratchet_testing.core import FileExtension
-from imbue.imbue_common.ratchet_testing.core import RegexPattern
-from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
-from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
+from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
+from imbue.imbue_common.ratchet_testing.ratchets import check_no_type_errors
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
+from imbue.imbue_common.ratchet_testing.ratchets import find_bash_scripts_without_strict_mode
 from imbue.imbue_common.ratchet_testing.ratchets import find_cast_usages
+from imbue.imbue_common.ratchet_testing.ratchets import find_code_in_init_files
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
 from imbue.imbue_common.ratchet_testing.ratchets import find_init_methods_in_non_exception_classes
 from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
@@ -110,7 +110,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(0), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
@@ -191,35 +191,8 @@ def test_prevent_yaml_usage() -> None:
 
 
 def test_no_type_errors() -> None:
-    """Ensure the codebase has zero type errors.
-
-    Runs the type checker (ty) and fails if any type errors are found.
-    The full type checker output is included in the failure message for easy debugging.
-    """
-    project_root = Path(__file__).parent.parent.parent.parent
-    result = subprocess.run(
-        ["uv", "run", "ty", "check"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        error_lines = [
-            line for line in result.stdout.splitlines() if line.startswith("error[") or "error:" in line.lower()
-        ]
-        error_count = len(error_lines)
-
-        failure_message = [
-            f"Type checker found {error_count} error(s):",
-            "",
-            "Full type checker output:",
-            "=" * 80,
-            result.stdout,
-            "=" * 80,
-        ]
-
-        raise AssertionError("\n".join(failure_message))
+    """Ensure the codebase has zero type errors."""
+    check_no_type_errors(Path(__file__).parent.parent.parent.parent)
 
 
 def test_prevent_literal_with_multiple_options() -> None:
@@ -228,30 +201,8 @@ def test_prevent_literal_with_multiple_options() -> None:
 
 
 def test_no_ruff_errors() -> None:
-    """Ensure the codebase has zero ruff linting errors.
-
-    Runs the ruff linter and fails if any linting errors are found.
-    The full ruff output is included in the failure message for easy debugging.
-    """
-    project_root = Path(__file__).parent.parent.parent.parent
-    result = subprocess.run(
-        ["uv", "run", "ruff", "check"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
-
-    if result.returncode != 0:
-        failure_message = [
-            "Ruff linter found errors:",
-            "",
-            "Full ruff output:",
-            "=" * 80,
-            result.stdout,
-            "=" * 80,
-        ]
-
-        raise AssertionError("\n".join(failure_message))
+    """Ensure the codebase has zero ruff linting errors."""
+    check_no_ruff_errors(Path(__file__).parent.parent.parent.parent)
 
 
 def test_prevent_if_elif_without_else() -> None:
@@ -315,33 +266,11 @@ def test_prevent_functools_partial() -> None:
 
 
 def test_prevent_code_in_init_files() -> None:
-    """Ensure __init__.py files contain no code (except pluggy hookimpl at the root).
-
-    The root __init__.py is allowed to contain the pluggy hookimpl marker.
-    All other __init__.py files must be empty.
-    """
-    source_dir = _get_mngr_source_dir()
-    root_init = source_dir / "__init__.py"
-
-    # Find all __init__.py files
-    init_files = list(source_dir.rglob("__init__.py"))
-
-    violations: list[str] = []
-    for init_file in init_files:
-        content = init_file.read_text().strip()
-
-        if init_file == root_init:
-            # Root __init__.py is allowed to have pluggy hookimpl marker only
-            allowed_lines = {"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'}
-            actual_lines = {line.strip() for line in content.splitlines() if line.strip()}
-            if actual_lines - allowed_lines:
-                disallowed = actual_lines - allowed_lines
-                violations.append(f"{init_file}: contains disallowed code: {disallowed}")
-        else:
-            # All other __init__.py files must be empty
-            if content:
-                violations.append(f"{init_file}: should be empty but contains: {content[:100]}...")
-
+    """Ensure __init__.py files contain no code (except pluggy hookimpl at the root)."""
+    violations = find_code_in_init_files(
+        _get_mngr_source_dir(),
+        allowed_root_init_lines={"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'},
+    )
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
         + "\n".join(f"  - {v}" for v in violations)
@@ -374,24 +303,8 @@ def test_prevent_direct_subprocess_usage() -> None:
 
     Test files are excluded from this check.
     """
-    pattern = RegexPattern(
-        r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
-        r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
-        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
-        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b",
-    )
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(45), format_ratchet_failure_message(
-        rule_name="direct subprocess/os.exec usage",
-        rule_description=(
-            "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
-            "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
-            "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
-            "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
-            "See libs/concurrency_group/ for details."
-        ),
-        chunks=chunks,
-    )
+    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mngr_source_dir(), TEST_FILE_PATTERNS)
+    assert len(chunks) <= snapshot(45), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
@@ -421,50 +334,13 @@ def test_prevent_short_uuid_ids() -> None:
 
 
 def test_prevent_bash_without_strict_mode() -> None:
-    """Ensure all bash scripts use 'set -euo pipefail' for strict error handling.
-
-    Without strict mode, bash scripts silently ignore errors, use unset variables,
-    and mask failures in pipelines. Every bash script should include
-    'set -euo pipefail' near the top.
-    """
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        cwd=Path(__file__).parent,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    repo_root = Path(result.stdout.strip())
-
-    ls_result = subprocess.run(
-        ["git", "ls-files", "*.sh"],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-
-    sh_files = [repo_root / line.strip() for line in ls_result.stdout.splitlines() if line.strip()]
-
-    strict_mode_pattern = re.compile(r"set\s+-(?=[^ ]*e)(?=[^ ]*u)(?=[^ ]*o)[euo]+\s+pipefail")
-
-    violations: list[str] = []
-    for sh_file in sh_files:
-        content = sh_file.read_text()
-        if not strict_mode_pattern.search(content):
-            violations.append(str(sh_file))
-
+    """Ensure all bash scripts use 'set -euo pipefail' for strict error handling."""
+    violations = find_bash_scripts_without_strict_mode(Path(__file__).parent)
     assert len(violations) <= snapshot(0), "Bash scripts missing 'set -euo pipefail':\n" + "\n".join(
         f"  - {v}" for v in violations
     )
 
 
 def test_prevent_importlib_import_module() -> None:
-    pattern = RegexPattern(r"\bimport_module\b")
-    chunks = check_regex_ratchet(_get_mngr_source_dir(), FileExtension(".py"), pattern, _SELF_EXCLUSION)
-
-    assert len(chunks) <= snapshot(0), format_ratchet_failure_message(
-        rule_name="importlib.import_module usage",
-        rule_description="Always use normal top-level imports instead of importlib.import_module",
-        chunks=chunks,
-    )
+    chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mngr_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)

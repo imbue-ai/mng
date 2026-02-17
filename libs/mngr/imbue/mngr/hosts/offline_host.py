@@ -23,6 +23,50 @@ from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import ProviderInstanceName
+
+
+def validate_and_create_agent_reference(
+    agent_data: dict[str, Any],
+    host_id: HostId,
+    provider_name: ProviderInstanceName,
+) -> AgentReference | None:
+    """Validate agent data and create an AgentReference if valid.
+
+    Returns None if the agent data is malformed (missing or invalid id/name).
+    Logs warnings for malformed records.
+    """
+    agent_id_str = agent_data.get("id")
+    if agent_id_str is None:
+        logger.warning("Skipping malformed agent record for host {}: missing 'id': {}", host_id, agent_data)
+        return None
+    try:
+        agent_id = AgentId(agent_id_str)
+    except ValueError as e:
+        logger.opt(exception=e).warning(
+            "Skipping malformed agent record for host {}: invalid 'id': {}", host_id, agent_data
+        )
+        return None
+
+    agent_name_str = agent_data.get("name")
+    if agent_name_str is None:
+        logger.warning("Skipping malformed agent record for host {}: missing 'name': {}", host_id, agent_data)
+        return None
+    try:
+        agent_name = AgentName(agent_name_str)
+    except ValueError as e:
+        logger.opt(exception=e).warning(
+            "Skipping malformed agent record for host {}: invalid 'name': {}", host_id, agent_data
+        )
+        return None
+
+    return AgentReference(
+        host_id=host_id,
+        agent_id=agent_id,
+        agent_name=agent_name,
+        provider_name=provider_name,
+        certified_data=agent_data,
+    )
 
 
 class BaseHost(HostInterface):
@@ -110,37 +154,7 @@ class BaseHost(HostInterface):
         Returns None if the agent data is malformed (missing or invalid id/name).
         Logs warnings for malformed records.
         """
-        agent_id_str = agent_data.get("id")
-        if agent_id_str is None:
-            logger.warning("Skipping malformed agent record for host {}: missing 'id': {}", self.id, agent_data)
-            return None
-        try:
-            agent_id = AgentId(agent_id_str)
-        except ValueError as e:
-            logger.opt(exception=e).warning(
-                "Skipping malformed agent record for host {}: invalid 'id': {}", self.id, agent_data
-            )
-            return None
-
-        agent_name_str = agent_data.get("name")
-        if agent_name_str is None:
-            logger.warning("Skipping malformed agent record for host {}: missing 'name': {}", self.id, agent_data)
-            return None
-        try:
-            agent_name = AgentName(agent_name_str)
-        except ValueError as e:
-            logger.opt(exception=e).warning(
-                "Skipping malformed agent record for host {}: invalid 'name': {}", self.id, agent_data
-            )
-            return None
-
-        return AgentReference(
-            host_id=self.id,
-            agent_id=agent_id,
-            agent_name=agent_name,
-            provider_name=self.provider_instance.name,
-            certified_data=agent_data,
-        )
+        return validate_and_create_agent_reference(agent_data, self.id, self.provider_instance.name)
 
     def get_agent_references(self) -> list[AgentReference]:
         """Return a list of all agent references for this host.

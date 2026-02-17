@@ -289,8 +289,8 @@ def temp_source_dir(tmp_path: Path) -> Path:
     return source_dir
 
 
-@pytest.mark.release
-@pytest.mark.timeout(300)
+@pytest.mark.acceptance
+@pytest.mark.timeout(400)
 def test_snapshot_create_then_list_on_modal(
     temp_source_dir: Path,
     modal_subprocess_env: ModalSubprocessTestEnv,

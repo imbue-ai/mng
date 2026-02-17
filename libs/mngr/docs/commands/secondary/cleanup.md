@@ -10,7 +10,7 @@ mngr [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURA
 ```
 
 
-Destroy or stop agents and hosts to free up resources.
+Destroy or stop agents and hosts to free up resources. [experimental]
 
 When running interactively, provides an interactive interface for reviewing
 and selecting agents. Use --yes to skip prompts.
@@ -67,7 +67,7 @@ mngr cleanup [OPTIONS]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |

@@ -17,6 +17,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import AgentName
@@ -36,7 +37,7 @@ class RenameCliOptions(CommonCliOptions):
 def _output(message: str, output_opts: OutputOptions) -> None:
     """Output a message according to the format."""
     if output_opts.output_format == OutputFormat.HUMAN:
-        logger.info(message)
+        write_human_line(message)
 
 
 def _output_result(
@@ -57,7 +58,7 @@ def _output_result(
         case OutputFormat.JSONL:
             emit_event("rename_result", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Renamed agent: {} -> {}", old_name, new_name)
+            write_human_line("Renamed agent: {} -> {}", old_name, new_name)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -79,7 +80,7 @@ def _output_result(
 @add_common_options
 @click.pass_context
 def rename(ctx: click.Context, **kwargs: Any) -> None:
-    """Rename an agent or host.
+    """Rename an agent or host. [experimental]
 
     Renames the agent's data.json and tmux session (if running).
     Git branch names are not renamed.
@@ -161,7 +162,7 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 _RENAME_HELP_METADATA = CommandHelpMetadata(
     name="mngr-rename",
-    one_line_description="Rename an agent or host",
+    one_line_description="Rename an agent or host [experimental]",
     synopsis="mngr [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
     arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
     description="""Rename an agent or host.

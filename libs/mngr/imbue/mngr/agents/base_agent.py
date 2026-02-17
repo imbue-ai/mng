@@ -18,8 +18,8 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import SendMessageError
+from imbue.mngr.hosts.common import determine_lifecycle_state
 from imbue.mngr.interfaces.agent import AgentInterface
-from imbue.mngr.interfaces.agent import AgentStatus
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
@@ -119,6 +119,15 @@ class BaseAgent(AgentInterface):
         data["permissions"] = [str(p) for p in value]
         self._write_data(data)
 
+    def get_labels(self) -> dict[str, str]:
+        data = self._read_data()
+        return data.get("labels", {})
+
+    def set_labels(self, labels: Mapping[str, str]) -> None:
+        data = self._read_data()
+        data["labels"] = dict(labels)
+        self._write_data(data)
+
     def get_is_start_on_boot(self) -> bool:
         data = self._read_data()
         return data.get("start_on_boot", False)
@@ -142,81 +151,46 @@ class BaseAgent(AgentInterface):
     def get_lifecycle_state(self) -> AgentLifecycleState:
         """Get the lifecycle state of this agent using tmux format variables.
 
-        This method checks both the foreground process and descendant processes to handle
-        complex command constructs (like shell wrappers or fallback commands using ||).
+        Collects tmux state and ps output via SSH, then delegates to the shared
+        determine_lifecycle_state pure function for the actual state logic.
         """
         try:
             session_name = f"{self.mngr_ctx.config.prefix}{self.name}"
 
-            # Get pane state and pid in one command using tmux format variables (for the main window, :0, where the agent is assumed to be running)
-            # pane_dead: 0 if alive, 1 if dead
-            # pane_current_command: basename of the foreground process
-            # pane_pid: PID of the pane's shell process
+            # Get pane state and pid in one command
             result = self.host.execute_command(
                 f"tmux list-panes -t '{session_name}:0' "
                 f"-F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1",
                 timeout_seconds=5.0,
             )
+            tmux_info = result.stdout.strip() if result.success else None
 
-            if not result.success or not result.stdout.strip():
-                logger.trace("Determined agent {} lifecycle state: STOPPED (no tmux session)", self.name)
-                return AgentLifecycleState.STOPPED
-
-            parts = result.stdout.strip().split("|")
-            if len(parts) != 3:
-                logger.trace("Determined agent {} lifecycle state: STOPPED (malformed tmux output)", self.name)
-                return AgentLifecycleState.STOPPED
-
-            pane_dead, current_command, pane_pid = parts
-
-            # If pane's main process died, the agent is done
-            if pane_dead == "1":
-                logger.trace("Determined agent {} lifecycle state: DONE (pane process died)", self.name)
-                return AgentLifecycleState.DONE
-
-            # Check if current command matches expected command (by basename)
-            expected_basename = self.get_expected_process_name()
-            if current_command == expected_basename:
-                return self._check_waiting_state()
-
-            # Current command doesn't match expected - check descendant processes
-            # This handles complex shell constructs like "cmd1 || cmd2"
+            # Get ps output for descendant process detection
             ps_result = self.host.execute_command(
                 "ps -e -o pid=,ppid=,comm= 2>/dev/null",
                 timeout_seconds=5.0,
             )
+            ps_output = ps_result.stdout if ps_result.success else ""
 
-            if ps_result.success:
-                descendant_names = self._get_descendant_process_names(pane_pid, ps_result.stdout)
+            # Check if the active file exists
+            is_active = self._check_file_exists(self._get_agent_dir() / "active")
 
-                # Check if any descendant process matches the expected command
-                if expected_basename in descendant_names:
-                    return self._check_waiting_state()
+            expected_process_name = self.get_expected_process_name()
 
-                # Check for non-shell descendant processes
-                non_shell_processes = [p for p in descendant_names if not self._is_shell_command(p)]
-                if non_shell_processes:
-                    logger.trace(
-                        "Determined agent {} lifecycle state: REPLACED (non-shell descendant processes)", self.name
-                    )
-                    return AgentLifecycleState.REPLACED
-
-            # No matching descendant found
-            # If current command is a shell, the agent probably finished or never started (DONE)
-            # If it's not a shell, the agent was replaced by something else (REPLACED)
-            if self._is_shell_command(current_command):
-                logger.trace("Determined agent {} lifecycle state: DONE (shell command, no agent process)", self.name)
-                return AgentLifecycleState.DONE
-
-            logger.trace("Determined agent {} lifecycle state: REPLACED (unknown process)", self.name)
-            return AgentLifecycleState.REPLACED
+            state = determine_lifecycle_state(
+                tmux_info=tmux_info if tmux_info else None,
+                is_active=is_active,
+                expected_process_name=expected_process_name,
+                ps_output=ps_output,
+            )
+            logger.trace("Determined agent {} lifecycle state: {}", self.name, state)
+            return state
         except HostConnectionError:
             logger.trace("Determined agent {} lifecycle state: STOPPED (host connection error)", self.name)
             return AgentLifecycleState.STOPPED
 
     def _get_command_basename(self, command: CommandString) -> str:
         """Extract the basename from a command string."""
-        # Handle both "sleep 1000" and "/usr/bin/sleep 1000"
         return command.split()[0].split("/")[-1] if command else ""
 
     def get_expected_process_name(self) -> str:
@@ -227,32 +201,6 @@ class BaseAgent(AgentInterface):
         """
         return self._get_command_basename(self.get_command())
 
-    def _get_descendant_process_names(self, root_pid: str, ps_output: str) -> list[str]:
-        """Get names of all descendant processes from ps output."""
-        # Build maps: children_by_ppid and comm_by_pid
-        children_by_ppid: dict[str, list[str]] = {}
-        comm_by_pid: dict[str, str] = {}
-
-        for line in ps_output.strip().split("\n"):
-            line_parts = line.split()
-            if len(line_parts) >= 3:
-                pid, ppid, comm = line_parts[0], line_parts[1], line_parts[2]
-                comm_by_pid[pid] = comm
-                if ppid not in children_by_ppid:
-                    children_by_ppid[ppid] = []
-                children_by_ppid[ppid].append(pid)
-
-        # Find all descendant process names using BFS from root_pid
-        descendant_names: list[str] = []
-        queue = list(children_by_ppid.get(root_pid, []))
-        while queue:
-            pid = queue.pop(0)
-            if pid in comm_by_pid:
-                descendant_names.append(comm_by_pid[pid])
-            queue.extend(children_by_ppid.get(pid, []))
-
-        return descendant_names
-
     def _check_file_exists(self, path: Path) -> bool:
         """Check if a file exists on the host."""
         try:
@@ -260,30 +208,6 @@ class BaseAgent(AgentInterface):
             return True
         except FileNotFoundError:
             return False
-
-    def _check_waiting_state(self) -> AgentLifecycleState:
-        """Check if the agent is waiting and return WAITING or RUNNING state."""
-        active_path = self._get_agent_dir() / "active"
-        if self._check_file_exists(active_path):
-            logger.trace("Determined agent {} lifecycle state: RUNNING", self.name)
-            return AgentLifecycleState.RUNNING
-        else:
-            logger.trace("Determined agent {} lifecycle state: WAITING", self.name)
-            return AgentLifecycleState.WAITING
-
-    def _command_basename_matches(self, current: str, expected: str) -> bool:
-        """Check if current command basename matches expected command."""
-        # Extract basename from expected command
-        # Handle both "sleep 1000" and "/usr/bin/sleep 1000"
-        expected_basename = expected.split()[0].split("/")[-1]
-        return current == expected_basename
-
-    def _is_shell_command(self, command: str) -> bool:
-        """Check if a command string represents a shell."""
-        # Common shells - just check the basename directly since
-        # pane_current_command gives us the basename already
-        shells = ["bash", "sh", "zsh", "fish", "dash", "ksh", "tcsh", "csh"]
-        return command in shells
 
     def get_initial_message(self) -> str | None:
         data = self._read_data()
@@ -585,35 +509,6 @@ class BaseAgent(AgentInterface):
             return datetime.fromisoformat(content)
         except FileNotFoundError:
             return None
-
-    def get_reported_status_markdown(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.md"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status_html(self) -> str | None:
-        status_path = self._get_agent_dir() / "status" / "status.html"
-        try:
-            return self.host.read_text_file(status_path)
-        except FileNotFoundError:
-            return None
-
-    def get_reported_status(self) -> AgentStatus | None:
-        """Get the agent's reported status."""
-        status_markdown = self.get_reported_status_markdown()
-        status_html = self.get_reported_status_html()
-        status_line = status_markdown.split("\n")[0] if status_markdown else None
-
-        if status_line or status_markdown or status_html:
-            return AgentStatus(
-                line=status_line or "",
-                full=status_markdown or "",
-                html=status_html,
-            )
-
-        return None
 
     # =========================================================================
     # Activity

@@ -42,6 +42,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -53,6 +54,7 @@ from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import AgentDataOptions
 from imbue.mngr.interfaces.host import AgentEnvironmentOptions
 from imbue.mngr.interfaces.host import AgentGitOptions
+from imbue.mngr.interfaces.host import AgentLabelOptions
 from imbue.mngr.interfaces.host import AgentLifecycleOptions
 from imbue.mngr.interfaces.host import AgentPermissionsOptions
 from imbue.mngr.interfaces.host import AgentProvisioningOptions
@@ -194,6 +196,7 @@ class CreateCliOptions(CommonCliOptions):
     host_name: str | None
     host_name_style: str
     tag: tuple[str, ...]
+    label: tuple[str, ...]
     project: str | None
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
@@ -273,9 +276,10 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--host", "--target-host", help="Use an existing host (by name or ID) [default: local]")
 @optgroup.option(
     "--project",
-    help="Project name for the agent [default: derived from git remote origin or folder name]",
+    help="Project name for the agent (sets the 'project' label) [default: derived from git remote origin or folder name]",
 )
-@optgroup.option("--tag", multiple=True, help="Metadata tag KEY=VALUE [repeatable]")
+@optgroup.option("--label", multiple=True, help="Agent label KEY=VALUE [repeatable] [experimental]")
+@optgroup.option("--tag", multiple=True, help="Host metadata tag KEY=VALUE [repeatable]")
 @optgroup.option("--host-name", help="Name for the new host")
 @optgroup.option(
     "--host-name-style",
@@ -708,6 +712,26 @@ def _handle_create(
     # figure out the target host (if we just have a reference)
     resolved_target_host = _resolve_target_host(target_host, mngr_ctx, is_start_desired=opts.start_host)
 
+    # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
+    # This ensures local hosts get any --tag values.
+    if isinstance(resolved_target_host, OnlineHostInterface):
+        tags_to_add: dict[str, str] = {}
+        for tag_string in opts.tag:
+            if "=" in tag_string:
+                key, value = tag_string.split("=", 1)
+                tags_to_add[key.strip()] = value.strip()
+        if tags_to_add:
+            resolved_target_host.add_tags(tags_to_add)
+
+    # Set the project as a label on the agent (labels are agent-level, not host-level)
+    if project_name:
+        agent_opts = agent_opts.model_copy_update(
+            to_update(
+                agent_opts.field_ref().label_options,
+                AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": project_name}),
+            ),
+        )
+
     # figure out the source (this may snapshot the source agent if needed)
     snapshot = _snapshot_if_required(
         mngr_ctx=mngr_ctx,
@@ -918,7 +942,7 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
     # When creating a new host from an external source (--source-agent or --source-host),
     # validate that the project inferred from the source matches the project inferred from
     # the local working directory. If they differ, the user must specify --project explicitly
-    # to avoid silently tagging the new host with the wrong project.
+    # to avoid silently tagging the agent with the wrong project.
     is_external_source = opts.source_agent is not None or opts.source_host is not None
     is_creating_new_host = opts.new_host is not None
     if is_external_source and is_creating_new_host:
@@ -1142,6 +1166,16 @@ def _was_value_after_double_dash(value: str) -> bool:
     return value in args_after_dash
 
 
+@pure
+def _split_cli_args(args: tuple[str, ...]) -> list[str]:
+    """Shell-tokenize each CLI arg and flatten into a single list.
+
+    Handles cases like -b "--cpu 16" where the shell passes "--cpu 16" as a
+    single string that needs to be split into ["--cpu", "16"].
+    """
+    return [token for arg in args for token in shlex.split(arg)]
+
+
 def _parse_agent_opts(
     opts: CreateCliOptions,
     initial_message: str | None,
@@ -1247,6 +1281,15 @@ def _parse_agent_opts(
         granted_permissions=tuple(Permission(p) for p in opts.grant),
     )
 
+    # Parse label options
+    labels_dict: dict[str, str] = {}
+    for label_string in opts.label:
+        if "=" not in label_string:
+            raise UserInputError(f"Label must be in KEY=VALUE format, got: {label_string}")
+        key, value = label_string.split("=", 1)
+        labels_dict[key.strip()] = value.strip()
+    label_options = AgentLabelOptions(labels=labels_dict)
+
     # Parse provisioning options
     provisioning = AgentProvisioningOptions(
         user_commands=opts.user_command,
@@ -1317,6 +1360,7 @@ def _parse_agent_opts(
         environment=environment,
         lifecycle=lifecycle,
         permissions=permissions,
+        label_options=label_options,
         provisioning=provisioning,
     )
     return agent_opts
@@ -1371,16 +1415,13 @@ def _parse_target_host(
             parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
             parsed_host_name = generate_host_name(parsed_host_name_style)
 
-        # Parse tags and add the project tag
+        # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
             if "=" not in tag_string:
                 raise UserInputError(f"Tag must be in KEY=VALUE format, got: {tag_string}")
             key, value = tag_string.split("=", 1)
             tags_dict[key.strip()] = value.strip()
-
-        if project_name:
-            tags_dict["project"] = project_name
 
         tags = tags_dict
 
@@ -1389,12 +1430,12 @@ def _parse_target_host(
         host_env_files = tuple(Path(f) for f in opts.host_env_file)
 
         # Combine build args from both individual (-b) and bulk (--build-args) options
-        combined_build_args = list(opts.build_arg)
+        combined_build_args = _split_cli_args(opts.build_arg)
         if opts.build_args:
             combined_build_args = shlex.split(opts.build_args) + combined_build_args
 
         # Combine start args from both individual (-s) and bulk (--start-args) options
-        combined_start_args = list(opts.start_arg)
+        combined_start_args = _split_cli_args(opts.start_arg)
         if opts.start_args:
             combined_start_args.extend(shlex.split(opts.start_args))
 
@@ -1528,7 +1569,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
         case OutputFormat.JSONL:
             emit_event("created", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("Done.")
+            write_human_line("Done.")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -1538,7 +1579,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-create",
     one_line_description="Create and run an agent",
     synopsis="""mngr [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
-    [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
+    [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
     [--[no-]rsync] [--rsync-args <ARGS>] [--base-branch <BRANCH>] [--new-branch [<BRANCH-NAME>]] [--[no-]ensure-clean]
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]

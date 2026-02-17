@@ -526,6 +526,15 @@ class AgentLifecycleOptions(FrozenModel):
     )
 
 
+class AgentLabelOptions(FrozenModel):
+    """Label options for the agent."""
+
+    labels: dict[str, str] = Field(
+        default_factory=dict,
+        description="Key-value labels to attach to the agent",
+    )
+
+
 class AgentPermissionsOptions(FrozenModel):
     """Permissions options for the agent."""
 
@@ -730,6 +739,10 @@ class CreateAgentOptions(FrozenModel):
     permissions: AgentPermissionsOptions = Field(
         default_factory=AgentPermissionsOptions,
         description="Permissions options",
+    )
+    label_options: AgentLabelOptions = Field(
+        default_factory=AgentLabelOptions,
+        description="Label options",
     )
     provisioning: AgentProvisioningOptions = Field(
         default_factory=AgentProvisioningOptions,

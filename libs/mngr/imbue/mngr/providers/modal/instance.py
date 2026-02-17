@@ -37,21 +37,31 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.logging import trace_span
 from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.pure import pure
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
+from imbue.mngr.hosts.common import compute_idle_seconds
+from imbue.mngr.hosts.common import determine_lifecycle_state
+from imbue.mngr.hosts.common import resolve_expected_process_name
+from imbue.mngr.hosts.common import timestamp_to_datetime
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.hosts.offline_host import validate_and_create_agent_reference
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostConfig
+from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import PyinfraConnector
+from imbue.mngr.interfaces.data_types import SSHInfo
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeInfo
@@ -60,9 +70,14 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import AgentReference
+from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import HostState
+from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -197,6 +212,191 @@ def handle_modal_auth_error(func: Callable[P, T]) -> Callable[P, T]:
             raise ModalAuthError() from e
 
     return wrapper
+
+
+# =========================================================================
+# Listing Data Collection Helpers
+# =========================================================================
+
+# Unique delimiters for parsing the single-command output
+_SEP_DATA_JSON_START: Final[str] = "---MNGR_DATA_JSON_START---"
+_SEP_DATA_JSON_END: Final[str] = "---MNGR_DATA_JSON_END---"
+_SEP_AGENT_START: Final[str] = "---MNGR_AGENT_START:"
+_SEP_AGENT_END: Final[str] = "---MNGR_AGENT_END---"
+_SEP_AGENT_DATA_START: Final[str] = "---MNGR_AGENT_DATA_START---"
+_SEP_AGENT_DATA_END: Final[str] = "---MNGR_AGENT_DATA_END---"
+_SEP_PS_START: Final[str] = "---MNGR_PS_START---"
+_SEP_PS_END: Final[str] = "---MNGR_PS_END---"
+
+
+@pure
+def _build_listing_collection_script(host_dir: str, prefix: str) -> str:
+    """Build a shell script that collects all listing data in one command."""
+    return f"""
+# Uptime
+echo "UPTIME=$(cat /proc/uptime 2>/dev/null | awk '{{print $1}}')"
+
+# Boot time
+echo "BTIME=$(grep '^btime ' /proc/stat 2>/dev/null | awk '{{print $2}}')"
+
+# Lock file mtime
+echo "LOCK_MTIME=$(stat -c %Y '{host_dir}/host_lock' 2>/dev/null)"
+
+# SSH activity mtime
+echo "SSH_ACTIVITY_MTIME=$(stat -c %Y '{host_dir}/activity/ssh' 2>/dev/null)"
+
+# Host data.json
+echo '{_SEP_DATA_JSON_START}'
+cat '{host_dir}/data.json' 2>/dev/null || echo '{{}}'
+echo ''
+echo '{_SEP_DATA_JSON_END}'
+
+# ps output (shared by all agents for lifecycle detection)
+echo '{_SEP_PS_START}'
+ps -e -o pid=,ppid=,comm= 2>/dev/null
+echo '{_SEP_PS_END}'
+
+# Agents
+if [ -d '{host_dir}/agents' ]; then
+    for agent_dir in '{host_dir}/agents'/*/; do
+        [ -d "$agent_dir" ] || continue
+        data_file="${{agent_dir}}data.json"
+        [ -f "$data_file" ] || continue
+        agent_id=$(basename "$agent_dir")
+        echo '{_SEP_AGENT_START}'"$agent_id"'---'
+        echo '{_SEP_AGENT_DATA_START}'
+        cat "$data_file"
+        echo ''
+        echo '{_SEP_AGENT_DATA_END}'
+        echo "USER_MTIME=$(stat -c %Y "${{agent_dir}}activity/user" 2>/dev/null)"
+        echo "AGENT_MTIME=$(stat -c %Y "${{agent_dir}}activity/agent" 2>/dev/null)"
+        echo "START_MTIME=$(stat -c %Y "${{agent_dir}}activity/start" 2>/dev/null)"
+        agent_name=$(jq -r '.name // empty' "$data_file" 2>/dev/null)
+        session_name='{prefix}'"$agent_name"
+        tmux_info=$(tmux list-panes -t "${{session_name}}:0" -F '#{{pane_dead}}|#{{pane_current_command}}|#{{pane_pid}}' 2>/dev/null | head -n 1)
+        echo "TMUX_INFO=$tmux_info"
+        if [ -f "${{agent_dir}}active" ]; then
+            echo "ACTIVE=true"
+        else
+            echo "ACTIVE=false"
+        fi
+        url=$(cat "${{agent_dir}}status/url" 2>/dev/null | tr -d '\\n')
+        echo "URL=$url"
+        echo '{_SEP_AGENT_END}'
+    done
+fi
+"""
+
+
+@pure
+def _parse_optional_int(value: str) -> int | None:
+    """Parse an optional integer from a key=value line's value portion."""
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return None
+
+
+@pure
+def _parse_optional_float(value: str) -> float | None:
+    """Parse an optional float from a key=value line's value portion."""
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        return float(stripped)
+    except ValueError:
+        return None
+
+
+def _extract_delimited_block(lines: list[str], idx: int, end_marker: str) -> tuple[str, int]:
+    """Extract lines between the current position and end_marker, returning the content and new index."""
+    collected: list[str] = []
+    while idx < len(lines) and lines[idx].strip() != end_marker:
+        collected.append(lines[idx])
+        idx += 1
+    return "\n".join(collected).strip(), idx
+
+
+def _parse_agent_section(lines: list[str], idx: int) -> tuple[dict[str, Any], int]:
+    """Parse a single agent section, returning the agent dict and new index."""
+    agent_raw: dict[str, Any] = {}
+
+    while idx < len(lines) and lines[idx].strip() != _SEP_AGENT_END:
+        aline = lines[idx]
+        if aline.strip() == _SEP_AGENT_DATA_START:
+            idx += 1
+            agent_json_str, idx = _extract_delimited_block(lines, idx, _SEP_AGENT_DATA_END)
+            if agent_json_str:
+                try:
+                    agent_raw["data"] = json.loads(agent_json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse agent data.json in listing output: {}", e)
+        elif aline.startswith("USER_MTIME="):
+            agent_raw["user_activity_mtime"] = _parse_optional_int(aline[len("USER_MTIME=") :])
+        elif aline.startswith("AGENT_MTIME="):
+            agent_raw["agent_activity_mtime"] = _parse_optional_int(aline[len("AGENT_MTIME=") :])
+        elif aline.startswith("START_MTIME="):
+            agent_raw["start_activity_mtime"] = _parse_optional_int(aline[len("START_MTIME=") :])
+        elif aline.startswith("TMUX_INFO="):
+            val = aline[len("TMUX_INFO=") :].strip()
+            agent_raw["tmux_info"] = val if val else None
+        elif aline.startswith("ACTIVE="):
+            agent_raw["is_active"] = aline[len("ACTIVE=") :].strip() == "true"
+        elif aline.startswith("URL="):
+            val = aline[len("URL=") :].strip()
+            agent_raw["url"] = val if val else None
+        else:
+            pass
+        idx += 1
+
+    return agent_raw, idx
+
+
+def _parse_listing_collection_output(stdout: str) -> dict[str, Any]:
+    """Parse the structured output of the listing collection script."""
+    result: dict[str, Any] = {}
+    agents: list[dict[str, Any]] = []
+    lines = stdout.split("\n")
+    idx = 0
+
+    while idx < len(lines):
+        line = lines[idx]
+
+        if line.startswith("UPTIME=") and "uptime_seconds" not in result:
+            result["uptime_seconds"] = _parse_optional_float(line[len("UPTIME=") :])
+        elif line.startswith("BTIME=") and "btime" not in result:
+            result["btime"] = _parse_optional_int(line[len("BTIME=") :])
+        elif line.startswith("LOCK_MTIME=") and "lock_mtime" not in result:
+            result["lock_mtime"] = _parse_optional_int(line[len("LOCK_MTIME=") :])
+        elif line.startswith("SSH_ACTIVITY_MTIME=") and "ssh_activity_mtime" not in result:
+            result["ssh_activity_mtime"] = _parse_optional_int(line[len("SSH_ACTIVITY_MTIME=") :])
+        elif line.strip() == _SEP_DATA_JSON_START:
+            idx += 1
+            json_str, idx = _extract_delimited_block(lines, idx, _SEP_DATA_JSON_END)
+            if json_str:
+                try:
+                    result["certified_data"] = json.loads(json_str)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse host data.json in listing output: {}", e)
+        elif line.strip() == _SEP_PS_START:
+            idx += 1
+            ps_content, idx = _extract_delimited_block(lines, idx, _SEP_PS_END)
+            result["ps_output"] = ps_content
+        elif line.strip().startswith(_SEP_AGENT_START):
+            idx += 1
+            agent_raw, idx = _parse_agent_section(lines, idx)
+            if "data" in agent_raw:
+                agents.append(agent_raw)
+        else:
+            pass
+        idx += 1
+
+    result["agents"] = agents
+    return result
 
 
 class SandboxConfig(HostConfig):
@@ -401,12 +601,15 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get the host volume for reading data written by the sandbox.
 
         Returns a HostVolume wrapping the persistent volume mounted inside
-        the sandbox. Returns None if the volume does not exist.
+        the sandbox. Returns None if the volume does not exist or if
+        host volume creation is disabled.
 
         Probes the volume with a listdir to verify it actually exists, since
         modal.Volume.from_name returns a lazy reference that doesn't fail
         for deleted volumes.
         """
+        if not self.config.is_host_volume_created:
+            return None
         host_id = host.id if isinstance(host, HostInterface) else host
         volume_name = self._get_host_volume_name(host_id)
         try:
@@ -569,24 +772,43 @@ class ModalProviderInstance(BaseProviderInstance):
         Returns a list of all HostRecord objects found on the volume.
         Host records are stored at /<host_id>.json.
         """
-        volume = self._get_state_volume()
+        host_records, _agent_record_by_host_id = self._list_all_host_and_agent_records(cg, is_including_agents=False)
+        return host_records
 
-        futures: list[Future[HostRecord | None]] = []
-        with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_host_records", max_workers=32) as executor:
-            # List files at the root of the volume
-            for entry in volume.listdir("/"):
-                filename = entry.path
-                # Host records are stored as <host_id>.json
-                if filename.endswith(".json"):
-                    # Remove .json suffix (and any leading / if present)
-                    host_id_str = filename.lstrip("/")[:-5]
-                    host_id = HostId(host_id_str)
-                    futures.append(executor.submit(self._read_host_record, host_id))
+    # FOLLOWUP: this takes the vast majority of the time for most commands, eg, is a significant performance bottleneck
+    #  In order to work around that, we should cache this data locally. We'll need to invalidate that cache any time we mutate a host record, but otherwise it will really help us speed up listing (and all operations that use listing, which is basically everything, because we often need to find a host/agent by name or id)
+    #  If we use the cache *only for mngr list*, we should be relatively safe--we can regenerate the cache after basically any command that changes it (and time it out), and then list will show you what you expect
+    def _list_all_host_and_agent_records(
+        self, cg: ConcurrencyGroup, is_including_agents: bool = True
+    ) -> tuple[list[HostRecord], dict[str, Any]]:
+        with trace_span("  _list_all_host_and_agent_records", _is_trace_span_enabled=False):
+            volume = self._get_state_volume()
 
-        result = [record for future in futures if (record := future.result()) is not None]
-        logger.trace("Listed all host records from volume")
-        return result
+            futures: list[Future[HostRecord | None]] = []
+            future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
+            with ConcurrencyGroupExecutor(
+                parent_cg=cg, name="modal_list_all_host_records", max_workers=32
+            ) as executor:
+                # List files at the root of the volume
+                for entry in volume.listdir("/"):
+                    filename = entry.path
+                    # Host records are stored as <host_id>.json
+                    if filename.endswith(".json"):
+                        # Remove .json suffix (and any leading / if present)
+                        host_id_str = filename.lstrip("/")[:-5]
+                        host_id = HostId(host_id_str)
+                        futures.append(executor.submit(self._read_host_record, host_id))
+                        if is_including_agents:
+                            future_by_host_id[host_id] = executor.submit(
+                                self.list_persisted_agent_data_for_host, host_id
+                            )
 
+            result = [record for future in futures if (record := future.result()) is not None]
+            logger.trace("Listed all host records from volume")
+            other_result = {host_id: future.result() for host_id, future in future_by_host_id.items()}
+            return result, other_result
+
+    # FIXME: needs to be parallelized if there are many agents on a single host, pass in the concurrency group and use that if there are many entries
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
@@ -742,10 +964,12 @@ class ModalProviderInstance(BaseProviderInstance):
         for faster startup while supporting images without these tools.
         """
         # Build and execute the combined check-and-install command.
-        # Pass the host volume mount path so host_dir is symlinked to the volume.
+        # Pass the host volume mount path so host_dir is symlinked to the volume,
+        # or None to create host_dir as a regular directory.
+        effective_volume_mount_path = HOST_VOLUME_MOUNT_PATH if self.config.is_host_volume_created else None
         check_install_cmd = build_check_and_install_packages_command(
             str(self.host_dir),
-            host_volume_mount_path=HOST_VOLUME_MOUNT_PATH,
+            host_volume_mount_path=effective_volume_mount_path,
         )
         process = sandbox.exec("sh", "-c", check_install_cmd)
 
@@ -957,10 +1181,11 @@ class ModalProviderInstance(BaseProviderInstance):
             start_activity_watcher_cmd = build_start_activity_watcher_command(str(self.host_dir))
             sandbox.exec("sh", "-c", start_activity_watcher_cmd).wait()
 
-        # Start periodic volume sync to flush writes to the host volume
-        with log_span("Starting volume sync in sandbox"):
-            volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
-            sandbox.exec("sh", "-c", volume_sync_cmd).wait()
+        # Start periodic volume sync to flush writes to the host volume (only when a host volume is mounted)
+        if self.config.is_host_volume_created:
+            with log_span("Starting volume sync in sandbox"):
+                volume_sync_cmd = build_start_volume_sync_command(HOST_VOLUME_MOUNT_PATH, str(self.host_dir))
+                sandbox.exec("sh", "-c", volume_sync_cmd).wait()
 
         return host, ssh_host, ssh_port, host_public_key
 
@@ -978,6 +1203,17 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         sandbox_id = sandbox.object_id
         host_dir_str = str(host.host_dir)
+
+        # Build the optional volume sync section for the shutdown script
+        volume_sync_section = (
+            (
+                f"# Sync the host volume to ensure all data is flushed before snapshot\n"
+                f'log "Syncing host volume before shutdown..."\n'
+                f'sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"\n'
+            )
+            if self.config.is_host_volume_created
+            else ""
+        )
 
         # Create the shutdown script content
         # The script sends a POST request to the snapshot_and_shutdown endpoint
@@ -1041,11 +1277,7 @@ log "Gathering agents..."
 AGENTS=$(gather_agents)
 log "Agents: $AGENTS"
 
-# Sync the host volume to ensure all data is flushed before snapshot
-log "Syncing host volume before shutdown..."
-sync {HOST_VOLUME_MOUNT_PATH} 2>/dev/null || log "Warning: host volume sync failed"
-
-# Send the shutdown request with agent data and stop reason
+{volume_sync_section}# Send the shutdown request with agent data and stop reason
 # Use --max-time to prevent hanging if the endpoint is slow
 log "Sending shutdown request to $SNAPSHOT_URL"
 if ! RESPONSE=$(curl -s --max-time 30 -w "\\n%{{http_code}}" -X POST "$SNAPSHOT_URL" \\
@@ -1299,6 +1531,7 @@ log "=== Shutdown script completed ==="
     def _create_host_from_sandbox(
         self,
         sandbox: modal.Sandbox,
+        host_record: HostRecord | None = None,
     ) -> Host | None:
         """Create a Host object from a Modal sandbox.
 
@@ -1315,42 +1548,49 @@ log "=== Shutdown script completed ==="
         tags = sandbox.get_tags()
         host_id, name, user_tags = self._parse_sandbox_tags(tags)
 
-        # Read host metadata from the volume
-        host_record = self._read_host_record(host_id, use_cache=False)
-        if host_record is None:
-            logger.warning("Skipped sandbox {}: no host record on volume", sandbox.object_id)
-            return None
+        with trace_span("Everything else for {}", host_id, _is_trace_span_enabled=False):
+            # Read host metadata from the volume
+            if host_record is None:
+                with trace_span("Reading host record again pointlessly {}", host_id, _is_trace_span_enabled=False):
+                    host_record = self._read_host_record(host_id, use_cache=False)
+                    if host_record is None:
+                        logger.warning("Skipped sandbox {}: no host record on volume", sandbox.object_id)
+                        return None
 
-        # Failed hosts don't have SSH info and can't be connected to
-        if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
-            logger.warning("Skipped sandbox {}: host record missing SSH info (likely failed host)", sandbox.object_id)
-            return None
+            # Failed hosts don't have SSH info and can't be connected to
+            if host_record.ssh_host is None or host_record.ssh_port is None or host_record.ssh_host_public_key is None:
+                logger.warning(
+                    "Skipped sandbox {}: host record missing SSH info (likely failed host)", sandbox.object_id
+                )
+                return None
 
-        # Add the sandbox's host key to known_hosts so SSH connections will work
-        add_host_to_known_hosts(
-            self._known_hosts_path,
-            host_record.ssh_host,
-            host_record.ssh_port,
-            host_record.ssh_host_public_key,
-        )
+            # Add the sandbox's host key to known_hosts so SSH connections will work
+            with trace_span("Adding to known hosts {}", host_id, _is_trace_span_enabled=False):
+                add_host_to_known_hosts(
+                    self._known_hosts_path,
+                    host_record.ssh_host,
+                    host_record.ssh_port,
+                    host_record.ssh_host_public_key,
+                )
 
-        private_key_path, _ = self._get_ssh_keypair()
-        pyinfra_host = self._create_pyinfra_host(
-            host_record.ssh_host,
-            host_record.ssh_port,
-            private_key_path,
-        )
-        connector = PyinfraConnector(pyinfra_host)
+            with trace_span("Creating pyinfra {}", host_id, _is_trace_span_enabled=False):
+                private_key_path, _ = self._get_ssh_keypair()
+                pyinfra_host = self._create_pyinfra_host(
+                    host_record.ssh_host,
+                    host_record.ssh_port,
+                    private_key_path,
+                )
+                connector = PyinfraConnector(pyinfra_host)
 
-        return Host(
-            id=host_id,
-            connector=connector,
-            provider_instance=self,
-            mngr_ctx=self.mngr_ctx,
-            on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
-                callback_host_id, certified_data
-            ),
-        )
+            return Host(
+                id=host_id,
+                connector=connector,
+                provider_instance=self,
+                mngr_ctx=self.mngr_ctx,
+                on_updated_host_data=lambda callback_host_id, certified_data: self._on_certified_host_data_updated(
+                    callback_host_id, certified_data
+                ),
+            )
 
     def _create_host_from_host_record(
         self,
@@ -1428,9 +1668,10 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from build args
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
-            # Add the persistent host volume so all host_dir data is preserved
-            with log_span("Ensuring host volume for {}", host_id):
-                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+            # Add the persistent host volume so all host_dir data is preserved (if enabled)
+            if self.config.is_host_volume_created:
+                with log_span("Ensuring host volume for {}", host_id):
+                    sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
 
             with log_span(
                 "Creating Modal sandbox",
@@ -1701,8 +1942,9 @@ log "=== Shutdown script completed ==="
             # Build volume mounts from the stored config
             sandbox_volumes = _build_modal_volumes(config.volumes, self.environment_name)
 
-            # Re-attach the persistent host volume
-            sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
+            # Re-attach the persistent host volume (if enabled)
+            if self.config.is_host_volume_created:
+                sandbox_volumes[HOST_VOLUME_MOUNT_PATH] = self._build_host_volume(host_id)
 
             new_sandbox = modal.Sandbox.create(
                 image=modal_image,
@@ -1748,13 +1990,15 @@ log "=== Shutdown script completed ==="
         self._destroy_agents_on_host(host_id)
         self._clear_snapshots_from_host_record(host_id)
         # FOLLOWUP: once Modal enables deleting Images, this will be the place to do it
-        self._delete_host_volume(host_id)
+        if self.config.is_host_volume_created:
+            self._delete_host_volume(host_id)
 
     @handle_modal_auth_error
     def delete_host(self, host: HostInterface) -> None:
         self._destroy_agents_on_host(host.id)
         self._delete_host_record(host.id)
-        self._delete_host_volume(host.id)
+        if self.config.is_host_volume_created:
+            self._delete_host_volume(host.id)
 
     def _delete_host_volume(self, host_id: HostId) -> None:
         """Delete the persistent host volume, logging but not raising on failure."""
@@ -1786,10 +2030,19 @@ log "=== Shutdown script completed ==="
         self,
         host: HostId | HostName,
     ) -> HostInterface:
+        return self._get_host(host)
+
+    def _get_host(
+        self,
+        host: HostId | HostName,
+        host_record: HostRecord | None = None,
+    ) -> HostInterface:
         """Get a host by ID or name.
 
         First tries to find a running sandbox. If not found, falls back to
         the host record on the volume (for stopped hosts).
+
+        Allows you to pass in the HostRecord if you know if (an optimization so that it doesnt need to be loaded again)
         """
         if isinstance(host, HostId) and host in self._host_by_id_cache:
             return self._host_by_id_cache[host]
@@ -1797,12 +2050,14 @@ log "=== Shutdown script completed ==="
         host_obj: HostInterface | None = None
         if isinstance(host, HostId):
             # Try to find a running sandbox first
-            sandbox = self._find_sandbox_by_host_id(host)
+            with trace_span("Finding sandbox for {}", host, _is_trace_span_enabled=False):
+                sandbox = self._find_sandbox_by_host_id(host)
             if sandbox is not None:
-                try:
-                    host_obj = self._create_host_from_sandbox(sandbox)
-                except HostConnectionError as e:
-                    logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
+                with trace_span("Creating host object from sandbox for {}", host, _is_trace_span_enabled=False):
+                    try:
+                        host_obj = self._create_host_from_sandbox(sandbox, host_record)
+                    except HostConnectionError as e:
+                        logger.debug("Failed to create host from sandbox {}, assuming it is offline: {}", host, e)
 
             if host_obj is None:
                 # No sandbox or couldn't connect - try host record (for stopped hosts)
@@ -1945,6 +2200,96 @@ log "=== Shutdown script completed ==="
 
         return hosts
 
+    def _list_running_host_ids(self, cg: ConcurrencyGroup) -> set[HostId]:
+        """List host IDs of all running sandboxes, fetching tags in parallel.
+
+        Lists all sandboxes for this app, then fetches tags for each sandbox
+        concurrently to determine which hosts are running.
+        """
+        with trace_span("  _list_running_host_ids", _is_trace_span_enabled=False):
+            app = self._get_modal_app()
+            sandboxes = list(modal.Sandbox.list(app_id=app.app_id))
+
+            if not sandboxes:
+                return set()
+
+            # Fetch tags for all sandboxes in parallel
+            tag_futures: list[Future[dict[str, str]]] = []
+            with ConcurrencyGroupExecutor(parent_cg=cg, name="fetch_sandbox_tags", max_workers=32) as executor:
+                for sandbox in sandboxes:
+                    tag_futures.append(executor.submit(sandbox.get_tags))
+
+            running_host_ids: set[HostId] = set()
+            for future in tag_futures:
+                try:
+                    tags = future.result()
+                    if TAG_HOST_ID in tags:
+                        running_host_ids.add(HostId(tags[TAG_HOST_ID]))
+                except (KeyError, ValueError) as e:
+                    logger.warning("Skipped sandbox with invalid tags: {}", e)
+
+            logger.trace("Listed {} running host ID(s) for app={}", len(running_host_ids), self.app_name)
+            return running_host_ids
+
+    @handle_modal_auth_error
+    def load_agent_refs(
+        self,
+        cg: ConcurrencyGroup,
+        include_destroyed: bool = False,
+    ) -> dict[HostReference, list[AgentReference]]:
+        """Load hosts and agent references entirely from the state volume and sandbox list.
+
+        Optimized implementation that avoids SSH connections by reading all data
+        from the Modal state volume in parallel with listing running sandboxes.
+
+        Three operations run in parallel:
+        1. List running sandbox host IDs (with tags fetched in parallel)
+        2. Read all host records from the state volume
+        3. Read all agent data from the state volume (for all hosts)
+        """
+        with trace_span("Loading data for refs", _is_trace_span_enabled=False):
+            try:
+                with ConcurrencyGroupExecutor(
+                    parent_cg=cg, name=f"modal_load_agent_refs_{self.name}", max_workers=3
+                ) as executor:
+                    running_ids_future = executor.submit(self._list_running_host_ids, cg)
+                    host_and_agent_future = executor.submit(self._list_all_host_and_agent_records, cg)
+
+                running_host_ids = running_ids_future.result()
+                all_host_records, agent_data_by_host_id = host_and_agent_future.result()
+            except modal.exception.AuthError as e:
+                raise ModalAuthError() from e
+
+        # Build HostReference -> [AgentReference] mapping from host records
+        result: dict[HostReference, list[AgentReference]] = {}
+
+        for host_record in all_host_records:
+            host_id = HostId(host_record.certified_host_data.host_id)
+            host_name = HostName(host_record.certified_host_data.host_name)
+
+            is_running = host_id in running_host_ids
+            has_snapshots = len(host_record.certified_host_data.snapshots) > 0
+            is_failed = host_record.certified_host_data.failure_reason is not None
+
+            if not is_running and not is_failed and not has_snapshots and not include_destroyed:
+                continue
+
+            host_ref = HostReference(
+                host_id=host_id,
+                host_name=host_name,
+                provider_name=self.name,
+            )
+
+            agent_refs: list[AgentReference] = []
+            for agent_data in agent_data_by_host_id.get(host_id, []):
+                ref = validate_and_create_agent_reference(agent_data, host_id, self.name)
+                if ref is not None:
+                    agent_refs.append(ref)
+
+            result[host_ref] = agent_refs
+
+        return result
+
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Modal sandbox."""
         # Read host record from volume
@@ -1962,11 +2307,266 @@ log "=== Shutdown script completed ==="
         memory = host_record.config.memory
 
         return HostResources(
-            # Modal allows fractional CPUs (e.g., 0.5), but count must be at least 1
-            cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=None),
+            # Modal allows fractional CPUs (e.g., 0.5), but count must be at least 1.
+            # All Modal sandboxes run on the same CPU at ~1.85 GHz.
+            cpu=CpuResources(count=max(1, int(cpu)), frequency_ghz=1.85),
             memory_gb=memory,
             disk_gb=None,
             gpu=None,
+        )
+
+    # =========================================================================
+    # Optimized Listing
+    # =========================================================================
+
+    def build_host_listing_data(
+        self,
+        host_ref: HostReference,
+        agent_refs: Sequence[AgentReference],
+    ) -> tuple[HostInfo, list[AgentInfo]] | None:
+        """Build HostInfo and AgentInfo via a single SSH command."""
+        with trace_span("Building host listing data for {}", host_ref.host_id, _is_trace_span_enabled=False):
+            with trace_span("Reading host record for {}", host_ref.host_id, _is_trace_span_enabled=False):
+                host_record = self._read_host_record(host_ref.host_id)
+
+            with trace_span("Getting host for {}", host_ref.host_id, _is_trace_span_enabled=False):
+                host = self._get_host(host_ref.host_id, host_record)
+
+            # For offline hosts, fall back to the default per-field collection
+            if not isinstance(host, Host):
+                return None
+
+            # Collect all data in one SSH command
+            with trace_span("Collecting listing data for {}", host_ref.host_id, _is_trace_span_enabled=False):
+                raw = self._collect_all_listing_data_via_ssh(host)
+                if raw is None:
+                    return None
+
+            # Build HostInfo from cached host record + SSH-collected data
+            with trace_span("Assembling host info for {}", host_ref.host_id, _is_trace_span_enabled=False):
+                host_info = self._build_host_info_from_raw(host, host_ref, host_record, raw)
+
+            # Build AgentInfo for each agent
+            with trace_span("Assembling agent info for {}", host_ref.host_id, _is_trace_span_enabled=False):
+                certified_data = host_record.certified_host_data if host_record is not None else None
+                agent_infos = self._build_agent_infos_from_raw(host_info, certified_data, raw)
+
+            return host_info, agent_infos
+
+    def _collect_all_listing_data_via_ssh(self, host: Host) -> dict[str, Any] | None:
+        """Execute a single SSH command to collect all data needed for listing."""
+        host_dir = str(self.host_dir)
+        prefix = self.mngr_ctx.config.prefix
+
+        # Build a shell script that collects everything we need
+        script = _build_listing_collection_script(host_dir, prefix)
+
+        with log_span("Collecting listing data via single SSH command", host_id=str(host.id)):
+            result = host.execute_command(script, timeout_seconds=30.0)
+
+        if not result.success:
+            logger.warning("Failed to collect listing data from host {}: {}", host.id, result.stderr)
+            return None
+
+        return _parse_listing_collection_output(result.stdout)
+
+    def _build_host_info_from_raw(
+        self,
+        host: Host,
+        host_ref: HostReference,
+        host_record: HostRecord | None,
+        raw: dict[str, Any],
+    ) -> HostInfo:
+        """Construct HostInfo from cached host record and SSH-collected data."""
+        # SSH info from host connector (local data, no SSH needed)
+        ssh_info: SSHInfo | None = None
+        ssh_connection = host._get_ssh_connection_info()
+        if ssh_connection is not None:
+            user, hostname, port, key_path = ssh_connection
+            ssh_info = SSHInfo(
+                user=user,
+                host=hostname,
+                port=port,
+                key_path=key_path,
+                command=f"ssh -i {key_path} -p {port} {user}@{hostname}",
+            )
+
+        # Boot time and uptime from SSH-collected data
+        boot_time = timestamp_to_datetime(raw.get("btime"))
+        uptime_seconds = raw.get("uptime_seconds")
+
+        # Resources from cached host record (no remote call)
+        resource = self.get_host_resources(host)
+
+        # Lock status from SSH-collected data
+        lock_mtime = raw.get("lock_mtime")
+        is_locked = lock_mtime is not None
+        locked_time = datetime.fromtimestamp(lock_mtime, tz=timezone.utc) if lock_mtime is not None else None
+
+        # Certified data from SSH-collected data (parsed from data.json)
+        certified_data: CertifiedHostData | None = None
+        certified_data_dict = raw.get("certified_data")
+        if certified_data_dict is not None:
+            try:
+                certified_data = CertifiedHostData.model_validate(certified_data_dict)
+            except (ValueError, KeyError) as e:
+                logger.warning("Failed to validate host data.json from SSH output, falling back to volume: {}", e)
+        if certified_data is None and host_record is not None:
+            certified_data = host_record.certified_host_data
+        elif certified_data is None:
+            now = datetime.now(timezone.utc)
+            certified_data = CertifiedHostData(
+                host_id=str(host.id),
+                host_name=str(host_ref.host_name),
+                created_at=now,
+                updated_at=now,
+            )
+        else:
+            pass
+
+        host_name = certified_data.host_name
+        host_plugin_data = certified_data.plugin
+
+        # Tags from cached host record (no Modal API call)
+        tags = dict(certified_data.user_tags)
+
+        # SSH activity from SSH-collected data
+        ssh_activity_mtime = raw.get("ssh_activity_mtime")
+        ssh_activity = (
+            datetime.fromtimestamp(ssh_activity_mtime, tz=timezone.utc) if ssh_activity_mtime is not None else None
+        )
+
+        # Snapshots from cached host record
+        snapshots = self.list_snapshots(host)
+
+        return HostInfo(
+            id=host.id,
+            name=host_name,
+            provider_name=host_ref.provider_name,
+            state=HostState.RUNNING,
+            image=certified_data.image,
+            tags=tags,
+            boot_time=boot_time,
+            uptime_seconds=uptime_seconds,
+            resource=resource,
+            ssh=ssh_info,
+            snapshots=snapshots,
+            is_locked=is_locked,
+            locked_time=locked_time,
+            plugin=host_plugin_data,
+            ssh_activity_time=ssh_activity,
+            failure_reason=certified_data.failure_reason,
+        )
+
+    def _build_agent_infos_from_raw(
+        self,
+        host_info: HostInfo,
+        certified_host_data: CertifiedHostData | None,
+        raw: dict[str, Any],
+    ) -> list[AgentInfo]:
+        """Build AgentInfo objects from SSH-collected agent data."""
+        # Activity config from certified data
+        if certified_host_data is not None:
+            idle_timeout_seconds = certified_host_data.idle_timeout_seconds
+            activity_sources = certified_host_data.activity_sources
+            idle_mode = certified_host_data.idle_mode
+        else:
+            idle_timeout_seconds = 3600
+            activity_sources = ()
+            idle_mode = IdleMode.IO
+
+        ssh_activity = timestamp_to_datetime(raw.get("ssh_activity_mtime"))
+        ps_output = raw.get("ps_output", "")
+
+        agent_infos: list[AgentInfo] = []
+        for agent_raw in raw.get("agents", []):
+            try:
+                agent_info = self._build_single_agent_info(
+                    agent_raw=agent_raw,
+                    host_info=host_info,
+                    ssh_activity=ssh_activity,
+                    ps_output=ps_output,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                    activity_sources=activity_sources,
+                    idle_mode=idle_mode,
+                )
+                if agent_info is not None:
+                    agent_infos.append(agent_info)
+            except (ValueError, KeyError, TypeError) as e:
+                agent_id = agent_raw.get("data", {}).get("id", "unknown")
+                logger.warning("Failed to build listing info for agent {}: {}", agent_id, e)
+
+        return agent_infos
+
+    def _build_single_agent_info(
+        self,
+        agent_raw: dict[str, Any],
+        host_info: HostInfo,
+        ssh_activity: datetime | None,
+        ps_output: str,
+        idle_timeout_seconds: int,
+        activity_sources: tuple[ActivitySource, ...],
+        idle_mode: IdleMode,
+    ) -> AgentInfo | None:
+        """Build a single AgentInfo from raw SSH-collected data."""
+        agent_data = agent_raw.get("data", {})
+        agent_id_str = agent_data.get("id")
+        agent_name_str = agent_data.get("name")
+        if not agent_id_str or not agent_name_str:
+            logger.warning("Skipped agent with missing id or name in listing data: {}", agent_data)
+            return None
+
+        agent_type = str(agent_data.get("type", "unknown"))
+        command = CommandString(agent_data.get("command", "bash"))
+        create_time_str = agent_data.get("create_time")
+        try:
+            create_time = (
+                datetime.fromisoformat(create_time_str)
+                if create_time_str
+                else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning("Failed to parse create_time for agent {}: {}", agent_id_str, e)
+            create_time = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+        # Activity times and derived values
+        user_activity = timestamp_to_datetime(agent_raw.get("user_activity_mtime"))
+        agent_activity = timestamp_to_datetime(agent_raw.get("agent_activity_mtime"))
+        start_time = timestamp_to_datetime(agent_raw.get("start_activity_mtime"))
+        now = datetime.now(timezone.utc)
+        runtime_seconds = (now - start_time).total_seconds() if start_time else None
+        idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
+
+        # Lifecycle state from tmux info
+        expected_process_name = resolve_expected_process_name(agent_type, command, self.mngr_ctx.config)
+        state = determine_lifecycle_state(
+            tmux_info=agent_raw.get("tmux_info"),
+            is_active=agent_raw.get("is_active", False),
+            expected_process_name=expected_process_name,
+            ps_output=ps_output,
+        )
+
+        return AgentInfo(
+            id=AgentId(agent_id_str),
+            name=AgentName(agent_name_str),
+            type=agent_type,
+            command=command,
+            work_dir=Path(agent_data.get("work_dir", "/")),
+            create_time=create_time,
+            start_on_boot=agent_data.get("start_on_boot", False),
+            state=state,
+            url=agent_raw.get("url"),
+            start_time=start_time,
+            runtime_seconds=runtime_seconds,
+            user_activity_time=user_activity,
+            agent_activity_time=agent_activity,
+            idle_seconds=idle_seconds,
+            idle_mode=idle_mode.value,
+            idle_timeout_seconds=idle_timeout_seconds,
+            activity_sources=tuple(s.value for s in activity_sources),
+            labels=agent_data.get("labels", {}),
+            host=host_info,
+            plugin={},
         )
 
     # =========================================================================
@@ -2201,11 +2801,7 @@ log "=== Shutdown script completed ==="
         self,
         host: HostInterface | HostId,
     ) -> dict[str, str]:
-        """Get user-defined tags for a host (excludes internal mngr tags).
-
-        Reads from the volume, which persists even after sandbox termination.
-        Falls back to sandbox tags if volume record doesn't exist yet.
-        """
+        """Get user-defined tags for a host (excludes internal mngr tags)."""
         host_id = host.id if isinstance(host, HostInterface) else host
 
         # try getting live sandbox tags

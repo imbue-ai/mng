@@ -203,61 +203,6 @@ def test_lifecycle_state_done_when_no_process_in_pane(
         cleanup_tmux_session(session_name)
 
 
-def test_get_reported_status_returns_none_when_no_status_files(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns None when no status files exist."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    status = test_agent.get_reported_status()
-    assert status is None
-
-
-def test_get_reported_status_returns_status_with_markdown_only(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns AgentStatus with markdown content."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
-    status_dir = agent_dir / "status"
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    markdown_content = "Agent is running\nProcessing task 123"
-    (status_dir / "status.md").write_text(markdown_content)
-
-    status = test_agent.get_reported_status()
-    assert status is not None
-    assert status.line == "Agent is running"
-    assert status.full == markdown_content
-    assert status.html is None
-
-
-def test_get_reported_status_returns_status_with_html_and_markdown(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-) -> None:
-    """Test that get_reported_status returns AgentStatus with both markdown and html."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
-    status_dir = agent_dir / "status"
-    status_dir.mkdir(parents=True, exist_ok=True)
-
-    markdown_content = "Agent is running\nProcessing task 123"
-    html_content = "<html><body><h1>Agent is running</h1><p>Processing task 123</p></body></html>"
-    (status_dir / "status.md").write_text(markdown_content)
-    (status_dir / "status.html").write_text(html_content)
-
-    status = test_agent.get_reported_status()
-    assert status is not None
-    assert status.line == "Agent is running"
-    assert status.full == markdown_content
-    assert status.html == html_content
-
-
 def test_lifecycle_state_waiting_when_no_active_file(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,

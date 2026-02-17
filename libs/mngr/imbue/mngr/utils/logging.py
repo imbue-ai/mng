@@ -68,21 +68,6 @@ CLEAR_SCREEN: Final[str] = "\x1b[2J\x1b[H"
 _console_handler_ids: dict[str, int] = {}
 
 
-def _dynamic_stdout_sink(message: Any) -> None:
-    """Loguru sink that always writes to the current sys.stdout.
-
-    When loguru receives a stream via logger.add(sys.stdout), it captures the object
-    reference at that moment. If the stream is later replaced (e.g., by pytest's capture
-    mechanism) or closed, the handler writes to a stale/closed object, causing
-    ValueError("I/O operation on closed file").
-
-    This callable sink solves the problem by resolving sys.stdout at write time, so it
-    always writes to whatever sys.stdout currently points to.
-    """
-    sys.stdout.write(str(message))
-    sys.stdout.flush()
-
-
 def _dynamic_stderr_sink(message: Any) -> None:
     """Loguru sink that always writes to the current sys.stderr."""
     sys.stderr.write(str(message))
@@ -123,7 +108,7 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     """Configure logging based on output options and mngr context.
 
     Sets up:
-    - stdout logging for user-facing messages (clean format)
+    - stderr logging for user-facing messages (clean format)
     - stderr logging for structured diagnostic messages (detailed format)
     - File logging to custom path (if log_file_path provided) or
       ~/.mngr/logs/<timestamp>-<pid>.json (default)
@@ -151,19 +136,24 @@ def setup_logging(output_opts: OutputOptions, mngr_ctx: MngrContext) -> None:
     # Clear stored handler IDs from previous setup (if any)
     _console_handler_ids.clear()
 
-    # Set up stdout logging for user messages (clean format, with colored WARNING prefix).
+    # Set up stderr logging for user-facing messages (clean format, with colored WARNING prefix).
+    # All logger.* messages go to stderr; only explicit output (JSON, tables, etc.) goes to stdout.
     # We set colorize=False because we handle colors manually in _format_user_message.
-    # Use callable sinks so the handler always writes to the current sys.stdout/stderr,
-    # even if they get replaced (e.g., by pytest's capture mechanism).
+    # Use callable sinks so the handler always writes to the current sys.stderr,
+    # even if it gets replaced (e.g., by pytest's capture mechanism).
     if output_opts.console_level != LogLevel.NONE:
         handler_id = logger.add(
-            _dynamic_stdout_sink,
+            _dynamic_stderr_sink,
             level=output_opts.console_level,
             format=_format_user_message,
             colorize=False,
             diagnose=False,
         )
-        _console_handler_ids["stdout"] = handler_id
+        _console_handler_ids["console"] = handler_id
+
+    # FIXME: entirely remove output_opts.log_level and this whole notion of multiple console handler ids
+    #  we only actually use the console_level and file_level variables in practice.
+    #  don't worry about backwards compatibility--just completely remove the log_level option and simplify this stuff
 
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
@@ -334,9 +324,9 @@ class LoggingSuppressor:
     # Class-level state for the singleton suppressor
     _is_suppressed: bool = False
     _buffer: deque[BufferedMessage] = deque(maxlen=DEFAULT_BUFFER_SIZE)
-    _stdout_handler_id: int | None = None
+    _console_handler_id: int | None = None
     _stderr_handler_id: int | None = None
-    _suppressed_stdout_handler_id: int | None = None
+    _suppressed_console_handler_id: int | None = None
     _suppressed_stderr_handler_id: int | None = None
     _output_opts: OutputOptions | None = None
     # Original streams for restoration
@@ -367,9 +357,9 @@ class LoggingSuppressor:
 
         # Remove only the console handlers (preserving file logging)
         # The handler IDs are stored in _console_handler_ids by setup_logging()
-        if "stdout" in _console_handler_ids:
+        if "console" in _console_handler_ids:
             try:
-                logger.remove(_console_handler_ids["stdout"])
+                logger.remove(_console_handler_ids["console"])
             except ValueError:
                 pass
         if "stderr" in _console_handler_ids:
@@ -393,8 +383,8 @@ class LoggingSuppressor:
         # The loguru messages will be buffered via the sink functions, while direct
         # writes to sys.stdout/stderr will be buffered via the stream wrappers.
         if output_opts.console_level != LogLevel.NONE:
-            cls._suppressed_stdout_handler_id = logger.add(
-                cls._buffered_stdout_sink,
+            cls._suppressed_console_handler_id = logger.add(
+                cls._buffered_console_sink,
                 level=output_opts.console_level,
                 format=_format_user_message,
                 colorize=False,
@@ -420,9 +410,9 @@ class LoggingSuppressor:
             )
 
     @classmethod
-    def _buffered_stdout_sink(cls, message: Any) -> None:
-        """Sink function that buffers messages intended for stdout."""
-        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=False))
+    def _buffered_console_sink(cls, message: Any) -> None:
+        """Sink function that buffers messages intended for the console (stderr)."""
+        cls._buffer.append(BufferedMessage(formatted_message=str(message), is_stderr=True))
 
     @classmethod
     def _buffered_stderr_sink(cls, message: Any) -> None:
@@ -443,9 +433,9 @@ class LoggingSuppressor:
         output_opts = cls._output_opts
 
         # Remove the buffering handlers
-        if cls._suppressed_stdout_handler_id is not None:
-            logger.remove(cls._suppressed_stdout_handler_id)
-            cls._suppressed_stdout_handler_id = None
+        if cls._suppressed_console_handler_id is not None:
+            logger.remove(cls._suppressed_console_handler_id)
+            cls._suppressed_console_handler_id = None
         if cls._suppressed_stderr_handler_id is not None:
             logger.remove(cls._suppressed_stderr_handler_id)
             cls._suppressed_stderr_handler_id = None
@@ -483,13 +473,13 @@ class LoggingSuppressor:
         if output_opts is not None:
             if output_opts.console_level != LogLevel.NONE:
                 handler_id = logger.add(
-                    _dynamic_stdout_sink,
+                    _dynamic_stderr_sink,
                     level=output_opts.console_level,
                     format=_format_user_message,
                     colorize=False,
                     diagnose=False,
                 )
-                _console_handler_ids["stdout"] = handler_id
+                _console_handler_ids["console"] = handler_id
 
             if output_opts.log_level != LogLevel.NONE:
                 level_map = {

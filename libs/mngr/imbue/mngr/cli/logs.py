@@ -20,6 +20,8 @@ from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import UserInputError
@@ -70,10 +72,13 @@ def _write_and_flush_stdout(content: str) -> None:
 @add_common_options
 @click.pass_context
 def logs(ctx: click.Context, **kwargs: Any) -> None:
-    """View log files from an agent or host.
+    """View log files from an agent or host. [experimental]
 
     TARGET is an agent name/ID or host name/ID. If a log file name is not
     specified, lists all available log files.
+
+    When listing files, supports custom format templates via --format.
+    Available fields: name, size.
 
     \b
     Examples:
@@ -81,11 +86,13 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
       mngr logs my-agent output.log
       mngr logs my-agent output.log --tail 50
       mngr logs my-agent output.log --follow
+      mngr logs my-agent --format '{name}\\t{size}'
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="logs",
         command_class=LogsCliOptions,
+        is_format_template_supported=True,
     )
 
     # Validate mutually exclusive options
@@ -106,6 +113,13 @@ def logs(ctx: click.Context, **kwargs: Any) -> None:
         log_files = list_log_files(target)
         _emit_log_file_list(log_files, target.display_name, output_opts)
         return
+
+    # Format templates only apply to file listing, not to viewing file content
+    if output_opts.format_template is not None:
+        raise UserInputError(
+            "Format template strings are only supported when listing log files (without a filename argument). "
+            "Use --format human, --format json, or --format jsonl when viewing log content."
+        )
 
     if opts.follow:
         # Follow mode: poll and print new content
@@ -139,14 +153,18 @@ def _emit_log_file_list(
     output_opts: OutputOptions,
 ) -> None:
     """Emit the list of available log files."""
+    if output_opts.format_template is not None:
+        items = [{"name": lf.name, "size": str(lf.size)} for lf in log_files]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             if not log_files:
-                logger.info("No log files found for {}", display_name)
+                write_human_line("No log files found for {}", display_name)
             else:
-                logger.info("Log files for {}:", display_name)
+                write_human_line("Log files for {}:", display_name)
                 for log_file in log_files:
-                    logger.info("  {} ({} bytes)", log_file.name, log_file.size)
+                    write_human_line("  {} ({} bytes)", log_file.name, log_file.size)
         case OutputFormat.JSON | OutputFormat.JSONL:
             emit_final_json(
                 {
@@ -184,7 +202,7 @@ def _emit_log_content(
 # Register help metadata for git-style help formatting
 _LOGS_HELP_METADATA = CommandHelpMetadata(
     name="mngr-logs",
-    one_line_description="View log files from an agent or host",
+    one_line_description="View log files from an agent or host [experimental]",
     synopsis="mngr logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]",
     arguments_description=(
         "- `TARGET`: Agent or host name/ID whose logs to view\n"
@@ -198,8 +216,10 @@ The command first tries to match TARGET as an agent, then as a host.
 If LOG_FILE is not specified, lists all available log files.
 If LOG_FILE is specified, prints its contents.
 
-In follow mode (--follow), the command polls for new content and
-prints it as it appears, similar to 'tail -f'. Press Ctrl+C to stop.""",
+In follow mode (--follow), the command uses tail -f for real-time
+streaming when the host is online (locally or via SSH). When the host
+is offline, it falls back to polling the volume for new content.
+Press Ctrl+C to stop.""",
     examples=(
         ("List available log files for an agent", "mngr logs my-agent"),
         ("View a specific log file", "mngr logs my-agent output.log"),

@@ -845,32 +845,39 @@ class Host(BaseHost, OnlineHostInterface):
         Note that we override the base method in order to read more directly from the host,
         since that data is more likely to be up-to-date.
         """
-        agents_dir = self.host_dir / "agents"
-        if not self._is_directory(agents_dir):
-            logger.trace("Failed to find agents directory for host {}", self.id)
-            return []
+        with log_span("Loading all agents from host {}", self.id):
+            agents_dir = self.host_dir / "agents"
+            if not self._is_directory(agents_dir):
+                logger.trace("Failed to find agents directory for host {}", self.id)
+                return []
 
-        agent_refs: list[AgentReference] = []
-        for dir_name in self._list_directory(agents_dir):
-            agent_dir = agents_dir / dir_name
-            if self._is_directory(agent_dir):
-                data_path = agent_dir / "data.json"
-                try:
-                    content = self.read_text_file(data_path)
-                except FileNotFoundError:
-                    logger.warning("Could not load agent reference from {}", data_path)
-                    continue
-                try:
-                    data = json.loads(content)
-                except json.JSONDecodeError as e:
-                    logger.warning("Could not load agent reference from {} because json was invalid: {}", data_path, e)
-                    continue
-                ref = self._validate_and_create_agent_reference(data)
-                if ref is not None:
-                    agent_refs.append(ref)
+            with log_span("Listing agent dir for host {}", self.id):
+                dir_listing = self._list_directory(agents_dir)
 
-        logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
-        return agent_refs
+            with log_span("Listing agent files from dir for host {}", self.id):
+                agent_refs: list[AgentReference] = []
+                for dir_name in dir_listing:
+                    agent_dir = agents_dir / dir_name
+                    if self._is_directory(agent_dir):
+                        data_path = agent_dir / "data.json"
+                        try:
+                            content = self.read_text_file(data_path)
+                        except FileNotFoundError:
+                            logger.warning("Could not load agent reference from {}", data_path)
+                            continue
+                        try:
+                            data = json.loads(content)
+                        except json.JSONDecodeError as e:
+                            logger.warning(
+                                "Could not load agent reference from {} because json was invalid: {}", data_path, e
+                            )
+                            continue
+                        ref = self._validate_and_create_agent_reference(data)
+                        if ref is not None:
+                            agent_refs.append(ref)
+
+            logger.trace("Loaded {} agent reference(s) from host {}", len(agent_refs), self.id)
+            return agent_refs
 
     def _load_agent_from_dir(self, agent_dir: Path) -> AgentInterface | None:
         """Load an agent from its state directory."""
@@ -1435,6 +1442,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "ready_timeout_seconds": options.ready_timeout_seconds,
                 "permissions": [],
                 "start_on_boot": False,
+                "labels": dict(options.label_options.labels),
             }
 
             data_path = state_dir / "data.json"

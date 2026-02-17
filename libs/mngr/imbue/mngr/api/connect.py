@@ -66,14 +66,17 @@ def _build_ssh_activity_wrapper_script(session_name: str, host_dir: Path, agent_
     )
 
 
-def _build_ssh_args(
+def build_ssh_base_args(
     host: OnlineHostInterface,
-    connection_opts: ConnectionOptions,
+    is_unknown_host_allowed: bool = False,
 ) -> list[str]:
-    """Build the SSH command arguments for connecting to a remote host.
+    """Build base SSH command args for connecting to a remote host.
 
-    Returns the list of arguments for the SSH command (not including the
-    wrapper script or -t bash -c ... suffix).
+    Returns args like ["ssh", "-i", key, "-p", port, "-o", ..., "user@host"].
+    The caller appends the remote command or other options (e.g., -t).
+
+    Raises MngrError if no known_hosts file is configured and
+    is_unknown_host_allowed is False.
     """
     pyinfra_host = host.connector.host
     ssh_host = pyinfra_host.name
@@ -94,22 +97,28 @@ def _build_ssh_args(
     if ssh_known_hosts_file and ssh_known_hosts_file != "/dev/null":
         ssh_args.extend(["-o", f"UserKnownHostsFile={ssh_known_hosts_file}"])
         ssh_args.extend(["-o", "StrictHostKeyChecking=yes"])
-    elif connection_opts.is_unknown_host_allowed:
-        # Fall back to disabling host key checking if no known_hosts file
+    elif is_unknown_host_allowed:
         ssh_args.extend(["-o", "StrictHostKeyChecking=no"])
         ssh_args.extend(["-o", "UserKnownHostsFile=/dev/null"])
     else:
-        raise MngrError(
-            "You must specify a known_hosts file to connect to this host securely. "
-            "Alternatively, use --allow-unknown-host to bypass SSH host key verification."
-        )
+        raise MngrError("No known_hosts file is configured for this host. Cannot establish a secure SSH connection.")
 
-    if ssh_user:
-        ssh_args.append(f"{ssh_user}@{ssh_host}")
-    else:
-        ssh_args.append(ssh_host)
+    target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
+    ssh_args.append(target)
 
     return ssh_args
+
+
+def _build_ssh_args(
+    host: OnlineHostInterface,
+    connection_opts: ConnectionOptions,
+) -> list[str]:
+    """Build the SSH command arguments for connecting to a remote host.
+
+    Delegates to build_ssh_base_args, passing through the is_unknown_host_allowed
+    option from connection_opts.
+    """
+    return build_ssh_base_args(host, is_unknown_host_allowed=connection_opts.is_unknown_host_allowed)
 
 
 @pure

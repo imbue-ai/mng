@@ -1,4 +1,6 @@
 import ast
+import re
+import subprocess
 from pathlib import Path
 from typing import Final
 
@@ -415,3 +417,113 @@ def find_assert_isinstance_usages(
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)
+
+
+def check_no_type_errors(project_root: Path) -> None:
+    """Run the type checker (ty) and raise AssertionError if any type errors are found."""
+    result = subprocess.run(
+        ["uv", "run", "ty", "check"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        error_lines = [
+            line for line in result.stdout.splitlines() if line.startswith("error[") or "error:" in line.lower()
+        ]
+        error_count = len(error_lines)
+
+        failure_message = [
+            f"Type checker found {error_count} error(s):",
+            "",
+            "Full type checker output:",
+            "=" * 80,
+            result.stdout,
+            "=" * 80,
+        ]
+
+        raise AssertionError("\n".join(failure_message))
+
+
+def check_no_ruff_errors(project_root: Path) -> None:
+    """Run the ruff linter and raise AssertionError if any linting errors are found."""
+    result = subprocess.run(
+        ["uv", "run", "ruff", "check"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        failure_message = [
+            "Ruff linter found errors:",
+            "",
+            "Full ruff output:",
+            "=" * 80,
+            result.stdout,
+            "=" * 80,
+        ]
+
+        raise AssertionError("\n".join(failure_message))
+
+
+def find_bash_scripts_without_strict_mode(cwd: Path) -> list[str]:
+    """Find bash scripts missing 'set -euo pipefail' in the git repo containing cwd."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    repo_root = Path(result.stdout.strip())
+
+    ls_result = subprocess.run(
+        ["git", "ls-files", "*.sh"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    sh_files = [repo_root / line.strip() for line in ls_result.stdout.splitlines() if line.strip()]
+
+    strict_mode_pattern = re.compile(r"set\s+-(?=[^ ]*e)(?=[^ ]*u)(?=[^ ]*o)[euo]+\s+pipefail")
+
+    violations: list[str] = []
+    for sh_file in sh_files:
+        content = sh_file.read_text()
+        if not strict_mode_pattern.search(content):
+            violations.append(str(sh_file))
+
+    return violations
+
+
+def find_code_in_init_files(
+    source_dir: Path,
+    allowed_root_init_lines: set[str] | None = None,
+) -> list[str]:
+    """Find __init__.py files that contain code.
+
+    The root __init__.py (directly under source_dir) may optionally contain
+    specific allowed lines (e.g., pluggy hookimpl marker). All other __init__.py
+    files must be empty.
+    """
+    root_init = source_dir / "__init__.py"
+    init_files = list(source_dir.rglob("__init__.py"))
+
+    violations: list[str] = []
+    for init_file in init_files:
+        content = init_file.read_text().strip()
+
+        if init_file == root_init and allowed_root_init_lines is not None:
+            actual_lines = {line.strip() for line in content.splitlines() if line.strip()}
+            disallowed = actual_lines - allowed_root_init_lines
+            if disallowed:
+                violations.append(f"{init_file}: contains disallowed code: {disallowed}")
+        else:
+            if content:
+                violations.append(f"{init_file}: should be empty but contains: {content[:100]}...")
+
+    return violations

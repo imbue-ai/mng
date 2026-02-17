@@ -2,9 +2,19 @@
 
 Provides common test infrastructure:
 - Global test locking (prevents parallel pytest processes from conflicting)
-- Test suite timing limits
+- Test suite timing limits (configurable via PYTEST_MAX_DURATION env var)
+- xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
+
+Environment variables:
+- PYTEST_NUMPROCESSES: Override the number of xdist workers (default: 4, set in
+  pyproject.toml addopts). Set to e.g. 16 on machines with many cores, or 0 to
+  disable xdist. This overrides the -n value from pyproject.toml but NOT an
+  explicit -n passed on the command line.
+- PYTEST_MAX_DURATION: Override the maximum allowed test suite duration in seconds.
+  Without this, defaults are chosen based on test type and environment (see
+  _pytest_sessionfinish for details).
 
 Usage in each project's conftest.py:
     from imbue.imbue_common.conftest_hooks import register_conftest_hooks
@@ -19,6 +29,7 @@ by pytest. Without the guard, pytest_addoption would fail with duplicate option 
 import fcntl
 import json
 import os
+import sys
 import time
 from io import StringIO
 from pathlib import Path
@@ -247,24 +258,24 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
         # There are 4 types of tests, each with different time limits in CI:
         # - unit tests: fast, local, no network (run with integration tests)
         # - integration tests: local, no network, used for coverage calculation
-        # - acceptance tests: run on all branches except main, have network/Modal/etc access
-        # - release tests: only run on main, comprehensive tests for release readiness
+        # - acceptance tests: run on all branches except release, have network/Modal/etc access
+        # - release tests: only run on release, comprehensive tests for release readiness
 
         # Allow explicit override via environment variable (useful for generating test timings)
         if "PYTEST_MAX_DURATION" in os.environ:
             max_duration = float(os.environ["PYTEST_MAX_DURATION"])
         # release tests have the highest limit, since there can be many more of them, and they can take a really long time
         elif os.environ.get("IS_RELEASE", "0") == "1":
-            # this limit applies to the test suite that runs against "main" in GitHub CI
+            # this limit applies to the test suite that runs against "release" in GitHub CI
             max_duration = 10 * 60.0
         # acceptance tests have a somewhat higher limit (than integration and unit)
         elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
-            # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
+            # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and has access to network, Modal, etc)
             max_duration = 6 * 60.0
         # integration tests have a lower limit
         else:
             if "CI" in os.environ:
-                # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and which is basically just used for calculating coverage)
+                # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and which is basically just used for calculating coverage)
                 # typically integration tests and unit tests are run locally, so we want them to be fast
                 max_duration = 80.0
             else:
@@ -351,6 +362,24 @@ def _pytest_configure(config: pytest.Config) -> None:
                 if controller_cov_report is not None and isinstance(controller_cov_report, dict):
                     controller_cov_report.pop("term-missing", None)
                     controller_cov_report.pop("term", None)
+
+    # Override xdist worker count from PYTEST_NUMPROCESSES env var.
+    # pyproject.toml sets -n 4 as the default (which is needed to activate xdist's
+    # DSession plugin during its pytest_configure, which runs before conftest hooks).
+    # This override lets different environments (local, CI, Modal) use different
+    # parallelism without changing pyproject.toml or passing -n on every invocation.
+    # An explicit -n on the command line takes priority over the env var.
+    numprocesses_env = os.environ.get("PYTEST_NUMPROCESSES")
+    if numprocesses_env is not None:
+        cli_has_n_flag = any(arg == "-n" or arg.startswith("-n") for arg in sys.argv[1:])
+        if not cli_has_n_flag:
+            n = int(numprocesses_env)
+            config.option.numprocesses = n
+            if n > 0:
+                config.option.tx = ["popen"] * n
+            else:
+                config.option.tx = []
+                config.option.dist = "no"
 
 
 def _pytest_collection_finish(session: pytest.Session) -> None:

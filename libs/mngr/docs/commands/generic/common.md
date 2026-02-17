@@ -2,7 +2,7 @@
 
 ### Output Format
 
-- `--format [human|json|jsonl|FORMAT]`: Output format for command results. Some commands (e.g. `list`) also accept a format template string. When a template is provided, fields use `{field.name}` syntax and shell escape sequences (`\t`, `\n`) are interpreted. Example: `mngr list --format '{name}\t{state}'` [default: human]
+- `--format [human|json|jsonl|FORMAT]`: Output format for command results. Many commands also accept a format template string. When a template is provided, fields use `{field.name}` syntax and shell escape sequences (`\t`, `\n`) are interpreted. One line is output per item. Example: `mngr list --format '{name}\t{state}'`. See each command's help for available fields. [default: human]
 - `--json`: Alias for `--format json`
 - `--jsonl`: Alias for `--format jsonl`
 

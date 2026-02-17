@@ -5,7 +5,8 @@ from datetime import datetime
 from datetime import timezone
 from io import StringIO
 
-from loguru import logger
+import pluggy
+from click.testing import CliRunner
 
 from imbue.mngr.cli.conftest import make_test_agent_info
 from imbue.mngr.cli.list import _StreamingHumanRenderer
@@ -16,12 +17,14 @@ from imbue.mngr.cli.list import _format_streaming_agent_row
 from imbue.mngr.cli.list import _format_streaming_header_row
 from imbue.mngr.cli.list import _format_value_as_string
 from imbue.mngr.cli.list import _get_field_value
+from imbue.mngr.cli.list import _get_header_label
 from imbue.mngr.cli.list import _get_sortable_value
 from imbue.mngr.cli.list import _is_streaming_eligible
 from imbue.mngr.cli.list import _parse_slice_spec
 from imbue.mngr.cli.list import _render_format_template
 from imbue.mngr.cli.list import _should_use_streaming_mode
 from imbue.mngr.cli.list import _sort_agents
+from imbue.mngr.cli.list import list_command
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import AgentName
@@ -473,7 +476,7 @@ def test_get_field_value_host_plugin_whole_dict() -> None:
     """_get_field_value should format a dict value when accessing a plugin namespace."""
     agent = make_test_agent_info(host_plugin={"aws": {"iam_user": "admin"}})
     result = _get_field_value(agent, "host.plugin.aws")
-    assert result == "{'iam_user': 'admin'}"
+    assert result == "iam_user=admin"
 
 
 # =============================================================================
@@ -560,13 +563,13 @@ def test_sort_agents_by_name_descending() -> None:
 # =============================================================================
 
 
-def test_format_streaming_header_row_uses_uppercase_fields() -> None:
-    """_format_streaming_header_row should produce uppercase, dot-replaced headers."""
+def test_format_streaming_header_row_uses_custom_labels() -> None:
+    """_format_streaming_header_row should produce custom header labels."""
     fields = ["name", "host.name", "state"]
     widths = _compute_column_widths(fields, 120)
     result = _format_streaming_header_row(fields, widths)
     assert "NAME" in result
-    assert "HOST_NAME" in result
+    assert "HOST" in result
     assert "STATE" in result
 
 
@@ -646,21 +649,17 @@ def test_streaming_renderer_tty_shows_count_after_agent() -> None:
     assert "(1 found)" in output
 
 
-def test_streaming_renderer_finish_no_agents_shows_no_agents_found() -> None:
+def test_streaming_renderer_finish_no_agents_shows_no_agents_found(capsys) -> None:
     """Streaming renderer should indicate no agents when finishing with zero results."""
     captured = StringIO()
 
-    # Capture loguru output to the same StringIO by adding a temporary sink
-    sink_id = logger.add(captured, format="{message}", level="INFO")
-    try:
-        renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
-        renderer.start()
-        renderer.finish()
-    finally:
-        logger.remove(sink_id)
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+    renderer.finish()
 
-    output = captured.getvalue()
-    assert "No agents found" in output
+    # write_human_line writes to sys.stdout, so check captured stdout
+    stdout_output = capsys.readouterr().out
+    assert "No agents found" in stdout_output
 
 
 def test_streaming_renderer_thread_safety() -> None:
@@ -1013,3 +1012,193 @@ def test_streaming_template_emitter_thread_safety() -> None:
     output = captured.getvalue()
     lines = [line for line in output.strip().split("\n") if line]
     assert len(lines) == agent_count
+
+
+# =============================================================================
+# Tests for _format_value_as_string with dict and tuple values
+# =============================================================================
+
+
+def test_format_value_as_string_formats_dict_as_key_value_pairs() -> None:
+    """_format_value_as_string should format dicts as 'key=value' pairs."""
+    result = _format_value_as_string({"project": "mngr", "env": "prod"})
+    assert result == "project=mngr, env=prod"
+
+
+def test_format_value_as_string_returns_empty_for_empty_dict() -> None:
+    """_format_value_as_string should return empty string for empty dicts."""
+    result = _format_value_as_string({})
+    assert result == ""
+
+
+def test_format_value_as_string_formats_tuple_as_comma_separated() -> None:
+    """_format_value_as_string should format tuples as comma-separated values."""
+    result = _format_value_as_string(("USER", "AGENT", "SSH"))
+    assert result == "USER, AGENT, SSH"
+
+
+# =============================================================================
+# Tests for _get_header_label
+# =============================================================================
+
+
+def test_get_header_label_returns_custom_label_for_known_fields() -> None:
+    """_get_header_label should return custom labels for configured fields."""
+    assert _get_header_label("host.name") == "HOST"
+    assert _get_header_label("host.provider_name") == "PROVIDER"
+    assert _get_header_label("host.tags") == "TAGS"
+    assert _get_header_label("labels") == "LABELS"
+
+
+def test_get_header_label_returns_uppercased_field_for_unknown_fields() -> None:
+    """_get_header_label should uppercase and replace dots with spaces for unknown fields."""
+    assert _get_header_label("name") == "NAME"
+    assert _get_header_label("some.nested.field") == "SOME NESTED FIELD"
+
+
+# =============================================================================
+# Tests for _get_field_value with tags
+# =============================================================================
+
+
+def test_get_field_value_formats_host_tags_as_key_value_pairs() -> None:
+    """_get_field_value should format host.tags dict as 'key=value' pairs."""
+    agent = make_test_agent_info(host_tags={"project": "mngr"})
+    result = _get_field_value(agent, "host.tags")
+    assert result == "project=mngr"
+
+
+def test_get_field_value_returns_empty_for_empty_tags() -> None:
+    """_get_field_value should return empty string for empty tags."""
+    agent = make_test_agent_info()
+    result = _get_field_value(agent, "host.tags")
+    assert result == ""
+
+
+# =============================================================================
+# Tests for --project and --tag CLI option parsing
+# =============================================================================
+
+
+def test_project_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--project should filter to agents with the specified project label."""
+    # Use --project with a non-existent project to verify the filter works
+    # (should return no agents since no local agents have this label)
+    result = cli_runner.invoke(
+        list_command,
+        ["--project", "nonexistent-project-849213"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_tag_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--tag should filter to agents with the specified tag key=value."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--tag", "env=nonexistent-849213"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_tag_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--tag should reject values not in KEY=VALUE format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--tag", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for --label CLI option parsing
+# =============================================================================
+
+
+def test_label_option_generates_cel_filter(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should filter to agents with the specified label key=value."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "env=nonexistent-293847"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_label_option_rejects_invalid_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--label should reject values not in KEY=VALUE format."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--label", "invalid-no-equals"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "KEY=VALUE" in result.output
+
+
+# =============================================================================
+# Tests for labels display in _get_field_value
+# =============================================================================
+
+
+def test_get_field_value_formats_labels_as_key_value_pairs() -> None:
+    """_get_field_value should format labels dict as 'key=value' pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels")
+    assert result == "project=mngr"
+
+
+def test_get_field_value_returns_empty_for_empty_labels() -> None:
+    """_get_field_value should return empty string for empty labels."""
+    agent = make_test_agent_info()
+    result = _get_field_value(agent, "labels")
+    assert result == ""
+
+
+def test_get_field_value_formats_multiple_labels() -> None:
+    """_get_field_value should format multiple labels as comma-separated pairs."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels")
+    # Dict ordering is guaranteed in Python 3.7+ so we can check exact output
+    assert "project=mngr" in result
+    assert "env=prod" in result
+
+
+def test_get_field_value_accesses_specific_label() -> None:
+    """_get_field_value should access a specific label via dot notation."""
+    agent = make_test_agent_info(labels={"project": "mngr", "env": "prod"})
+    result = _get_field_value(agent, "labels.project")
+    assert result == "mngr"
+
+
+def test_get_field_value_returns_empty_for_missing_label() -> None:
+    """_get_field_value should return empty for a label key that does not exist."""
+    agent = make_test_agent_info(labels={"project": "mngr"})
+    result = _get_field_value(agent, "labels.nonexistent")
+    assert result == ""

@@ -368,7 +368,7 @@ class LocalProviderInstance(BaseProviderInstance):
     def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the local volume for a host.
 
-        Returns a HostVolume backed by the host_dir (which is ~/.mngr/hosts/{host_id}/).
+        Returns a HostVolume backed by the host_dir (which is ~/.mngr/).
         The directory is created if it doesn't exist.
         """
         self.host_dir.mkdir(parents=True, exist_ok=True)

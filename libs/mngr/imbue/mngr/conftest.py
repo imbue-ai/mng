@@ -28,7 +28,6 @@ from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
 from imbue.mngr.providers.local.instance import LocalProviderInstance
-from imbue.mngr.providers.local.instance import get_or_create_local_host_id
 from imbue.mngr.providers.modal.backend import ModalProviderBackend
 from imbue.mngr.providers.registry import load_local_backend_only
 from imbue.mngr.providers.registry import reset_backend_registry
@@ -316,7 +315,7 @@ def temp_config(temp_host_dir: Path, mngr_test_prefix: str) -> MngrConfig:
 
     Use this fixture when calling API functions that need a config.
     """
-    return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix)
+    return MngrConfig(default_host_dir=temp_host_dir, prefix=mngr_test_prefix, is_error_reporting_enabled=False)
 
 
 def make_mngr_ctx(
@@ -371,28 +370,22 @@ def interactive_mngr_ctx(
 
 @pytest.fixture
 def local_provider(temp_host_dir: Path, temp_mngr_ctx: MngrContext) -> LocalProviderInstance:
-    """Create a LocalProviderInstance with a per-host temporary directory."""
-    host_id = get_or_create_local_host_id(temp_host_dir)
-    per_host_dir = temp_host_dir / "hosts" / str(host_id)
-    per_host_dir.mkdir(parents=True, exist_ok=True)
+    """Create a LocalProviderInstance with a temporary host directory."""
     return LocalProviderInstance(
         name=ProviderInstanceName("local"),
-        host_dir=per_host_dir,
+        host_dir=temp_host_dir,
         mngr_ctx=temp_mngr_ctx,
     )
 
 
 @pytest.fixture
 def per_host_dir(temp_host_dir: Path) -> Path:
-    """Get the per-host directory for the local provider.
+    """Get the host directory for the local provider.
 
     This is the directory where host-scoped data lives: agents/, data.json,
-    activity/, etc. Located at {temp_host_dir}/hosts/{host_id}/.
+    activity/, etc. This is the same as temp_host_dir (e.g. ~/.mngr/).
     """
-    host_id = get_or_create_local_host_id(temp_host_dir)
-    result = temp_host_dir / "hosts" / str(host_id)
-    result.mkdir(parents=True, exist_ok=True)
-    return result
+    return temp_host_dir
 
 
 @pytest.fixture

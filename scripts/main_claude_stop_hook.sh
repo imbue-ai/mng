@@ -71,6 +71,7 @@ if ! git rev-parse --verify "origin/$BASE_BRANCH" >/dev/null 2>&1; then
     log_info "Pushing base branch to origin (not yet present remotely)..."
     if ! retry_command 3 git push origin "$BASE_BRANCH"; then
         log_error "Failed to push base branch after retries"
+        notify_user || echo "No notify_user function defined, skipping."
         exit 1
     fi
 fi
@@ -151,6 +152,7 @@ if [[ -f .claude/reviewed_commits ]]; then
             echo "ERROR: This hook has been run 3 times at the same commit." >&2
             echo "ERROR: The agent appears to be stuck and unable to make progress." >&2
             echo "ERROR: Please investigate and resolve the issue manually." >&2
+            notify_user || echo "No notify_user function defined, skipping."
             exit 1
         fi
     fi
@@ -216,9 +218,11 @@ done
 
 # If either had a non-2 failure, propagate it
 if [[ $PR_CI_EXIT -ne 0 ]]; then
+    notify_user || echo "No notify_user function defined, skipping."
     exit $PR_CI_EXIT
 fi
 if [[ $REVIEWER_EXIT -ne 0 ]]; then
+    notify_user || echo "No notify_user function defined, skipping."
     exit $REVIEWER_EXIT
 fi
 

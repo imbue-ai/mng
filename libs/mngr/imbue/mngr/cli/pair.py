@@ -17,6 +17,7 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import ConflictMode
@@ -57,7 +58,7 @@ def _emit_pair_started(
         case OutputFormat.JSON | OutputFormat.JSONL:
             emit_event("pair_started", data, output_opts.output_format)
         case OutputFormat.HUMAN:
-            logger.info("Pairing {} <-> {}", source_path, target_path)
+            write_human_line("Pairing {} <-> {}", source_path, target_path)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -69,7 +70,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
         case OutputFormat.JSON | OutputFormat.JSONL:
             emit_event("pair_stopped", data, output_opts.output_format)
         case OutputFormat.HUMAN:
-            logger.info("Pairing stopped")
+            write_human_line("Pairing stopped")
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -130,7 +131,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def pair(ctx: click.Context, **kwargs) -> None:
-    """Continuously sync files between an agent and local directory.
+    """Continuously sync files between an agent and local directory. [experimental]
 
     This command establishes a bidirectional file sync between an agent's working
     directory and a local directory. Changes are watched and synced in real-time.
@@ -241,7 +242,7 @@ def pair(ctx: click.Context, **kwargs) -> None:
 # Register help metadata for git-style help formatting
 _PAIR_HELP_METADATA = CommandHelpMetadata(
     name="mngr-pair",
-    one_line_description="Continuously sync files between an agent and local directory",
+    one_line_description="Continuously sync files between an agent and local directory [experimental]",
     synopsis="mngr pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
     description="""Continuously sync files between an agent and local directory.
 
