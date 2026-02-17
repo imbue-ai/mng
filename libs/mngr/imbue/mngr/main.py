@@ -5,7 +5,6 @@ import click
 import pluggy
 from click.shell_completion import CompletionItem
 from click_option_group import OptionGroup
-from loguru import logger
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.ask import ask
@@ -78,15 +77,12 @@ def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
     """Call the on_error hook if command metadata was stored by setup_command_context."""
     command_name = ctx.meta.get("hook_command_name")
     if command_name is not None:
-        try:
-            pm = get_or_create_plugin_manager()
-            pm.hook.on_error(
-                command_name=command_name,
-                command_params=ctx.meta.get("hook_command_params", {}),
-                error=error,
-            )
-        except Exception:
-            logger.exception("Plugin on_error hook raised an exception")
+        pm = get_or_create_plugin_manager()
+        pm.hook.on_error(
+            command_name=command_name,
+            command_params=ctx.meta.get("hook_command_params", {}),
+            error=error,
+        )
 
 
 class AliasAwareGroup(click.Group):
