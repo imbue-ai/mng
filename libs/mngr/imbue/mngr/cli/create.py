@@ -730,13 +730,7 @@ def _handle_create(
     # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
     # This ensures local hosts get any --tag values.
     if isinstance(resolved_target_host, OnlineHostInterface):
-        tags_to_add: dict[str, str] = {}
-        for tag_string in opts.tag:
-            if "=" in tag_string:
-                key, value = tag_string.split("=", 1)
-                tags_to_add[key.strip()] = value.strip()
-        if tags_to_add:
-            resolved_target_host.add_tags(tags_to_add)
+        _apply_tags_to_host(resolved_target_host, opts.tag)
 
     # Set the project as a label on the agent (labels are agent-level, not host-level)
     if project_name:
@@ -873,13 +867,7 @@ def _handle_batch_create(
 
         # Set tags once on the shared host
         if isinstance(shared_resolved_target, OnlineHostInterface):
-            tags_to_add: dict[str, str] = {}
-            for tag_string in opts.tag:
-                if "=" in tag_string:
-                    key, value = tag_string.split("=", 1)
-                    tags_to_add[key.strip()] = value.strip()
-            if tags_to_add:
-                shared_resolved_target.add_tags(tags_to_add)
+            _apply_tags_to_host(shared_resolved_target, opts.tag)
 
     # Create agents sequentially
     results: list[CreateAgentResult] = []
@@ -1650,6 +1638,17 @@ def _parse_source_string(source_str: str) -> ParsedSourceString:
 
 
 # === Helper Functions (stubs) ===
+
+
+def _apply_tags_to_host(host: OnlineHostInterface, tag_strings: tuple[str, ...]) -> None:
+    """Parse KEY=VALUE tag strings and apply them to an existing host."""
+    tags_to_add: dict[str, str] = {}
+    for tag_string in tag_strings:
+        if "=" in tag_string:
+            key, value = tag_string.split("=", 1)
+            tags_to_add[key.strip()] = value.strip()
+    if tags_to_add:
+        host.add_tags(tags_to_add)
 
 
 def _ensure_clean_work_dir(location: HostLocation) -> None:
