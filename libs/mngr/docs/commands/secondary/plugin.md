@@ -319,6 +319,12 @@ $ mngr plugin add mngr-opencode
 $ mngr plugin add ./my-plugin
 ```
 
+**Install a plugin from git**
+
+```bash
+$ mngr plugin add git+https://github.com/user/mngr-plugin.git
+```
+
 **Remove a plugin**
 
 ```bash

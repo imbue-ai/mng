@@ -752,6 +752,7 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
         ("Show specific fields", "mngr plugin list --fields name,enabled"),
         ("Install a plugin from PyPI", "mngr plugin add mngr-opencode"),
         ("Install a local plugin", "mngr plugin add ./my-plugin"),
+        ("Install a plugin from git", "mngr plugin add git+https://github.com/user/mngr-plugin.git"),
         ("Remove a plugin", "mngr plugin remove mngr-opencode"),
         ("Enable a plugin", "mngr plugin enable modal"),
         ("Disable a plugin", "mngr plugin disable modal --scope user"),
