@@ -40,9 +40,9 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          MNGR_VERSION=$(python -c "import tomllib; print(tomllib.load(open('libs/mngr/pyproject.toml', 'rb'))['project']['version'])")
-          COMMON_VERSION=$(python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
-          CG_VERSION=$(python -c "import tomllib; print(tomllib.load(open('libs/concurrency_group/pyproject.toml', 'rb'))['project']['version'])")
+          MNGR_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mngr/pyproject.toml', 'rb'))['project']['version'])")
+          COMMON_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
+          CG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/concurrency_group/pyproject.toml', 'rb'))['project']['version'])")
 
           echo "mngr version: $MNGR_VERSION"
           echo "imbue-common version: $COMMON_VERSION"
