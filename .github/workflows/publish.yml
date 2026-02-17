@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write  # Required for PyPI trusted publishing (OIDC)
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
