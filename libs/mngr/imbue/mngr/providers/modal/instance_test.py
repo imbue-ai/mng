@@ -1498,6 +1498,59 @@ def test_list_all_persisted_agent_data_reads_agent_data_for_host_dirs(
 
 
 # =============================================================================
+# Tests for _list_running_host_ids
+# =============================================================================
+
+
+def test_list_running_host_ids_returns_empty_when_no_sandboxes(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids returns empty set when no sandboxes exist."""
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = []
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == set()
+
+
+def test_list_running_host_ids_fetches_tags_in_parallel(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids fetches tags for all sandboxes and extracts host IDs."""
+    host_id_1 = HostId.generate()
+    host_id_2 = HostId.generate()
+
+    sandbox_1 = MagicMock()
+    sandbox_1.get_tags.return_value = {TAG_HOST_ID: str(host_id_1), TAG_HOST_NAME: "host-1"}
+    sandbox_2 = MagicMock()
+    sandbox_2.get_tags.return_value = {TAG_HOST_ID: str(host_id_2), TAG_HOST_NAME: "host-2"}
+
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = [sandbox_1, sandbox_2]
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == {host_id_1, host_id_2}
+
+
+def test_list_running_host_ids_skips_sandboxes_without_host_id_tag(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_running_host_ids skips sandboxes that don't have the host ID tag."""
+    host_id = HostId.generate()
+
+    sandbox_with_tag = MagicMock()
+    sandbox_with_tag.get_tags.return_value = {TAG_HOST_ID: str(host_id)}
+    sandbox_without_tag = MagicMock()
+    sandbox_without_tag.get_tags.return_value = {"some_other_tag": "value"}
+
+    with patch.object(modal, "Sandbox") as mock_sandbox_cls:
+        mock_sandbox_cls.list.return_value = [sandbox_with_tag, sandbox_without_tag]
+        result = modal_provider._list_running_host_ids(modal_provider.mngr_ctx.concurrency_group)
+
+    assert result == {host_id}
+
+
+# =============================================================================
 # Tests for load_agent_refs (optimized modal implementation)
 # =============================================================================
 
@@ -1513,7 +1566,7 @@ def test_load_agent_refs_returns_agents_from_volume_data(
     agent_data = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
 
     with (
-        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(
             modal_provider,
@@ -1542,7 +1595,7 @@ def test_load_agent_refs_excludes_destroyed_hosts_by_default(
     host_record = _make_host_record(host_id, snapshots=[])
 
     with (
-        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
     ):
@@ -1559,39 +1612,13 @@ def test_load_agent_refs_includes_destroyed_hosts_when_requested(
     host_record = _make_host_record(host_id, snapshots=[])
 
     with (
-        patch.object(modal_provider, "_list_sandboxes", return_value=[]),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
     ):
         result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group, include_destroyed=True)
 
     assert len(result) == 1
-
-
-def test_load_agent_refs_includes_running_sandbox_without_host_record(
-    modal_provider: ModalProviderInstance,
-) -> None:
-    """load_agent_refs includes running sandboxes even without host records (eventual consistency)."""
-    host_id = HostId.generate()
-
-    mock_sandbox = MagicMock()
-    mock_sandbox.get_tags.return_value = {
-        TAG_HOST_ID: str(host_id),
-        TAG_HOST_NAME: "orphan-host",
-    }
-
-    with (
-        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
-        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
-        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
-    ):
-        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
-
-    assert len(result) == 1
-    host_ref = next(iter(result.keys()))
-    assert host_ref.host_id == host_id
-    assert host_ref.host_name == "orphan-host"
-    assert result[host_ref] == []
 
 
 def test_load_agent_refs_includes_running_hosts_from_host_records(
@@ -1601,14 +1628,8 @@ def test_load_agent_refs_includes_running_hosts_from_host_records(
     host_id = HostId.generate()
     host_record = _make_host_record(host_id, host_name="running-host", snapshots=[])
 
-    mock_sandbox = MagicMock()
-    mock_sandbox.get_tags.return_value = {
-        TAG_HOST_ID: str(host_id),
-        TAG_HOST_NAME: "running-host",
-    }
-
     with (
-        patch.object(modal_provider, "_list_sandboxes", return_value=[mock_sandbox]),
+        patch.object(modal_provider, "_list_running_host_ids", return_value={host_id}),
         patch.object(modal_provider, "_list_all_host_records", return_value=[host_record]),
         patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
     ):
@@ -1618,3 +1639,19 @@ def test_load_agent_refs_includes_running_hosts_from_host_records(
     assert len(result) == 1
     host_ref = next(iter(result.keys()))
     assert host_ref.host_id == host_id
+
+
+def test_load_agent_refs_ignores_running_sandbox_without_host_record(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """load_agent_refs does not create entries for sandboxes that have no host record."""
+    orphan_host_id = HostId.generate()
+
+    with (
+        patch.object(modal_provider, "_list_running_host_ids", return_value={orphan_host_id}),
+        patch.object(modal_provider, "_list_all_host_records", return_value=[]),
+        patch.object(modal_provider, "_list_all_persisted_agent_data", return_value={}),
+    ):
+        result = modal_provider.load_agent_refs(cg=modal_provider.mngr_ctx.concurrency_group)
+
+    assert len(result) == 0

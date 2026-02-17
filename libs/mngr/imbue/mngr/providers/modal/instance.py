@@ -1965,6 +1965,36 @@ log "=== Shutdown script completed ==="
 
         return hosts
 
+    def _list_running_host_ids(self, cg: ConcurrencyGroup) -> set[HostId]:
+        """List host IDs of all running sandboxes, fetching tags in parallel.
+
+        Lists all sandboxes for this app, then fetches tags for each sandbox
+        concurrently to determine which hosts are running.
+        """
+        app = self._get_modal_app()
+        sandboxes = list(modal.Sandbox.list(app_id=app.app_id))
+
+        if not sandboxes:
+            return set()
+
+        # Fetch tags for all sandboxes in parallel
+        tag_futures: list[Future[dict[str, str]]] = []
+        with ConcurrencyGroupExecutor(parent_cg=cg, name="fetch_sandbox_tags", max_workers=32) as executor:
+            for sandbox in sandboxes:
+                tag_futures.append(executor.submit(sandbox.get_tags))
+
+        running_host_ids: set[HostId] = set()
+        for future in tag_futures:
+            try:
+                tags = future.result()
+                if TAG_HOST_ID in tags:
+                    running_host_ids.add(HostId(tags[TAG_HOST_ID]))
+            except (KeyError, ValueError) as e:
+                logger.warning("Skipped sandbox with invalid tags: {}", e)
+
+        logger.trace("Listed {} running host ID(s) for app={}", len(running_host_ids), self.app_name)
+        return running_host_ids
+
     @handle_modal_auth_error
     def load_agent_refs(
         self,
@@ -1977,50 +2007,35 @@ log "=== Shutdown script completed ==="
         from the Modal state volume in parallel with listing running sandboxes.
 
         Three operations run in parallel:
-        1. List running sandboxes (to determine which hosts are online)
+        1. List running sandbox host IDs (with tags fetched in parallel)
         2. Read all host records from the state volume
         3. Read all agent data from the state volume (for all hosts)
         """
-        # Phase 1: Fetch sandboxes, host records, and all agent data in parallel
         try:
             with ConcurrencyGroupExecutor(
                 parent_cg=cg, name=f"modal_load_agent_refs_{self.name}", max_workers=3
             ) as executor:
-                sandboxes_future = executor.submit(self._list_sandboxes)
+                running_ids_future = executor.submit(self._list_running_host_ids, cg)
                 host_records_future = executor.submit(self._list_all_host_records, cg)
                 all_agent_data_future = executor.submit(self._list_all_persisted_agent_data, cg)
 
-            sandboxes = sandboxes_future.result()
+            running_host_ids = running_ids_future.result()
             all_host_records = host_records_future.result()
             agent_data_by_host_id = all_agent_data_future.result()
         except modal.exception.AuthError as e:
             raise ModalAuthError() from e
 
-        # Build set of running host IDs from sandbox tags
-        running_host_ids: set[HostId] = set()
-        for sandbox in sandboxes:
-            try:
-                tags = sandbox.get_tags()
-                host_id = HostId(tags[TAG_HOST_ID])
-                running_host_ids.add(host_id)
-            except (KeyError, ValueError) as e:
-                logger.warning("Skipped sandbox with invalid tags: {}", e)
-                continue
-
-        # Phase 2: Build HostReference -> [AgentReference] mapping
+        # Build HostReference -> [AgentReference] mapping from host records
         result: dict[HostReference, list[AgentReference]] = {}
-        processed_host_ids: set[HostId] = set()
 
         for host_record in all_host_records:
             host_id = HostId(host_record.certified_host_data.host_id)
             host_name = HostName(host_record.certified_host_data.host_name)
-            processed_host_ids.add(host_id)
 
             is_running = host_id in running_host_ids
             has_snapshots = len(host_record.certified_host_data.snapshots) > 0
             is_failed = host_record.certified_host_data.failure_reason is not None
 
-            # Apply the same filtering logic as list_hosts
             if not is_running and not is_failed and not has_snapshots and not include_destroyed:
                 continue
 
@@ -2037,23 +2052,6 @@ log "=== Shutdown script completed ==="
                     agent_refs.append(ref)
 
             result[host_ref] = agent_refs
-
-        # Include running sandboxes without host records (eventual consistency)
-        for sandbox in sandboxes:
-            try:
-                tags = sandbox.get_tags()
-                host_id = HostId(tags[TAG_HOST_ID])
-            except (KeyError, ValueError):
-                continue
-            if host_id in processed_host_ids:
-                continue
-            host_name = HostName(tags.get(TAG_HOST_NAME, str(host_id)))
-            host_ref = HostReference(
-                host_id=host_id,
-                host_name=host_name,
-                provider_name=self.name,
-            )
-            result[host_ref] = []
 
         return result
 
