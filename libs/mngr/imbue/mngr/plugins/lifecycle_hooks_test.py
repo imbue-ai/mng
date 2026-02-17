@@ -14,7 +14,7 @@ from imbue.mngr import hookimpl
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
-from imbue.mngr.errors import BaseMngrError
+from imbue.mngr.errors import PluginMngrError
 from imbue.mngr.main import AliasAwareGroup
 from imbue.mngr.main import reset_plugin_manager
 from imbue.mngr.plugins import hookspecs
@@ -104,7 +104,7 @@ def _test_cli_with_plugins(
     def failing_cmd(ctx: click.Context, **kwargs: Any) -> None:
         """A test command that raises an error after setup."""
         setup_command_context(ctx=ctx, command_name="failing", command_class=_FailingCliOptions)
-        raise BaseMngrError("deliberate failure")
+        raise PluginMngrError("deliberate failure")
 
     test_cli.add_command(noino_cmd)
     test_cli.add_command(failing_cmd)
@@ -196,7 +196,7 @@ def test_on_error_called_when_command_raises(lifecycle_fixture: _LifecycleFixtur
 
     assert "on_error" in lifecycle_fixture.hook_log
     assert lifecycle_fixture.hook_data.get("error_command_name") == "failing"
-    assert isinstance(lifecycle_fixture.hook_data.get("error"), BaseMngrError)
+    assert isinstance(lifecycle_fixture.hook_data.get("error"), PluginMngrError)
 
 
 def test_on_error_not_called_on_success(lifecycle_fixture: _LifecycleFixture) -> None:
