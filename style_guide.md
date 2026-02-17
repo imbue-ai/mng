@@ -308,6 +308,8 @@ def categorize_todo_by_priority_and_age(
 
 Never write if/elif chains without a final else clause. The else clause ensures all cases are handled and makes it explicit when an unexpected condition occurs.
 
+Prefer to use match statements when matching against enums or other finite sets of values.
+
 # Validation
 
 All validation should be done purely through pydantic and types, not with ad-hoc code
@@ -438,7 +440,11 @@ def example_exception_handling_with_chaining() -> None:
         raise TodoError(f"Invalid value: {user_input}") from None
 ```
 
-Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point
+Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point.
+
+Always log errors that are caught (at the appropriate level--trace or debug if this is expected, or warning if this is from us trying to make the code more robust and there's no other choice, error only if this is a more general top level error handler)
+
+Each try/except blocks should only span a single statement, and should catch precisely the errors that we want to handle from that statement.
 
 ```python
 from pathlib import Path
