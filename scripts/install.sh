@@ -80,14 +80,10 @@ else
     info "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    # Source the env file that the uv installer creates so uv is on PATH
-    if [ -f "$HOME/.local/bin/env" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.local/bin/env"
-    elif [ -f "$HOME/.cargo/env" ]; then
-        # shellcheck disable=SC1091
-        . "$HOME/.cargo/env"
-    fi
+    # The uv installer creates an env file that adds its bin dir to PATH.
+    # Source it so uv is available in this script without restarting the shell.
+    # shellcheck disable=SC1091
+    [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 
     if ! command -v uv &>/dev/null; then
         error "uv was installed but is not on PATH. Restart your shell and run this script again."
