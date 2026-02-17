@@ -197,7 +197,7 @@ def _parse_fields(fields_str: str | None) -> tuple[str, ...]:
 @add_common_options
 @click.pass_context
 def plugin(ctx: click.Context, **kwargs: Any) -> None:
-    """Manage available and active plugins.
+    """Manage available and active plugins. [experimental]
 
     View, enable, and disable plugins registered with mngr.
 
@@ -230,7 +230,7 @@ def plugin(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_list(ctx: click.Context, **kwargs: Any) -> None:
-    """List discovered plugins.
+    """List discovered plugins. [experimental]
 
     Shows all plugins registered with mngr, including built-in plugins
     and any externally installed plugins.
@@ -309,7 +309,7 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
-    """Enable a plugin.
+    """Enable a plugin. [experimental]
 
     Sets plugins.<name>.enabled = true in the configuration file at the
     specified scope.
@@ -341,7 +341,7 @@ def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_disable(ctx: click.Context, **kwargs: Any) -> None:
-    """Disable a plugin.
+    """Disable a plugin. [experimental]
 
     Sets plugins.<name>.enabled = false in the configuration file at the
     specified scope.
@@ -445,7 +445,7 @@ def _emit_plugin_toggle_result(
 # Register help metadata for git-style help formatting
 _PLUGIN_HELP_METADATA = CommandHelpMetadata(
     name="mngr-plugin",
-    one_line_description="Manage available and active plugins",
+    one_line_description="Manage available and active plugins [experimental]",
     synopsis="mngr [plugin|plug] <subcommand> [OPTIONS]",
     description="""Manage available and active plugins.
 

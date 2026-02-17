@@ -10,7 +10,7 @@ mngr push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]
 ```
 
 
-Push files or git commits from local machine to an agent.
+Push files or git commits from local machine to an agent. [experimental]
 
 Syncs files or git state from a local directory to an agent's working directory.
 Default behavior uses rsync for efficient incremental file transfer.
@@ -80,7 +80,7 @@ mngr push [OPTIONS] TARGET SOURCE
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
