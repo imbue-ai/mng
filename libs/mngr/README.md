@@ -2,8 +2,14 @@
 
 **installation**:
 ```bash
-# TODO: update installation instructions to be better before release
-git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
+# quick install (installs system dependencies + mngr)
+curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+
+# or install directly if you already have uv
+uv tool install mngr
+
+# or run without installing
+uvx mngr
 ```
 
 **mngr is *very* simple to use:**
@@ -117,16 +123,17 @@ From the repo where you would like a Dockerfile created.
 ## Installation
 
 ```bash
-# for now, you can install like this:
-git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
+# quick install (installs system dependencies + mngr)
+curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 
-# TODO: update installation instructions before release, for now, see above for installation
-# run immediately without installing
-# uvx mngr
-# or install as a tool
-# uv tool install mngr
-# or install globally so that you can use across your projects
-# curl -fsSL https://imbue.com/mngr/install.sh | bash
+# or install directly if you already have uv
+uv tool install mngr
+
+# or run without installing
+uvx mngr
+
+# for development
+git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mngr
 ```
 
 ## Shell Completion
