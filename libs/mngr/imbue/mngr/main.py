@@ -98,11 +98,14 @@ class AliasAwareGroup(click.Group):
             # Call on_after_command if command metadata was stored by setup_command_context
             command_name = ctx.meta.get("hook_command_name")
             if command_name is not None:
-                pm = get_or_create_plugin_manager()
-                pm.hook.on_after_command(
-                    command_name=command_name,
-                    command_params=ctx.meta.get("hook_command_params", {}),
-                )
+                try:
+                    pm = get_or_create_plugin_manager()
+                    pm.hook.on_after_command(
+                        command_name=command_name,
+                        command_params=ctx.meta.get("hook_command_params", {}),
+                    )
+                except Exception:
+                    logger.exception("Plugin on_after_command hook raised an exception")
             return result
         except NotImplementedError as e:
             _call_on_error_hook(ctx, e)
