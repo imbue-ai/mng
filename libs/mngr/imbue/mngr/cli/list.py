@@ -17,7 +17,6 @@ from tabulate import tabulate
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
-from imbue.mngr.api.list import AgentInfo
 from imbue.mngr.api.list import ErrorInfo
 from imbue.mngr.api.list import list_agents as api_list_agents
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -28,21 +27,37 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import render_format_template
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.cli.watch_mode import run_watch_loop
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.interfaces.data_types import AgentInfo
 from imbue.mngr.primitives import AgentLifecycleState
 from imbue.mngr.primitives import ErrorBehavior
 from imbue.mngr.primitives import OutputFormat
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
+    "state",
     "host.name",
     "host.provider_name",
     "host.state",
-    "state",
-    "status",
+    "labels",
 )
+
+# Custom header labels for fields that would otherwise generate ugly auto-generated headers.
+# Fields not listed here use the default: field.upper().replace(".", " ")
+_HEADER_LABELS: Final[dict[str, str]] = {
+    "host.name": "HOST",
+    "host.provider_name": "PROVIDER",
+    "host.state": "HOST STATE",
+    "host.tags": "TAGS",
+    "labels": "LABELS",
+    "host.ssh.host": "SSH HOST",
+    "idle_timeout_seconds": "IDLE TIMEOUT",
+    "activity_sources": "ACTIVITY",
+}
 
 
 @pure
@@ -90,6 +105,9 @@ class ListCliOptions(CommonCliOptions):
     local: bool
     remote: bool
     provider: tuple[str, ...]
+    project: tuple[str, ...]
+    label: tuple[str, ...]
+    tag: tuple[str, ...]
     stdin: bool
     fields: str | None
     sort: str
@@ -135,6 +153,21 @@ class ListCliOptions(CommonCliOptions):
     "--provider",
     multiple=True,
     help="Show only agents using specified provider (repeatable)",
+)
+@optgroup.option(
+    "--project",
+    multiple=True,
+    help="Show only agents with this project label (repeatable)",
+)
+@optgroup.option(
+    "--label",
+    multiple=True,
+    help="Show only agents with this label (format: KEY=VALUE, repeatable) [experimental]",
+)
+@optgroup.option(
+    "--tag",
+    multiple=True,
+    help="Show only agents on hosts with this tag (format: KEY=VALUE, repeatable)",
 )
 @optgroup.option(
     "--stdin",
@@ -246,6 +279,34 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
         include_filters.append(f'state == "{AgentLifecycleState.STOPPED.value}"')
     if opts.local:
         include_filters.append('host.provider == "local"')
+
+    # --project X: alias for --include 'labels.project == "X"'
+    # Multiple values are OR'd together
+    if opts.project:
+        project_parts = [f'labels.project == "{p}"' for p in opts.project]
+        include_filters.append(" || ".join(project_parts))
+
+    # --label K=V: alias for --include 'labels.K == "V"'
+    # Multiple values are OR'd together
+    if opts.label:
+        label_parts = []
+        for label_spec in opts.label:
+            if "=" not in label_spec:
+                raise click.BadParameter(f"Label must be in KEY=VALUE format, got: {label_spec}", param_hint="--label")
+            key, value = label_spec.split("=", 1)
+            label_parts.append(f'labels.{key} == "{value}"')
+        include_filters.append(" || ".join(label_parts))
+
+    # --tag K=V: alias for --include 'host.tags.K == "V"'
+    # Multiple values are OR'd together
+    if opts.tag:
+        tag_parts = []
+        for tag_spec in opts.tag:
+            if "=" not in tag_spec:
+                raise click.BadParameter(f"Tag must be in KEY=VALUE format, got: {tag_spec}", param_hint="--tag")
+            key, value = tag_spec.split("=", 1)
+            tag_parts.append(f'host.tags.{key} == "{value}"')
+        include_filters.append(" || ".join(tag_parts))
 
     # Build list of exclude filters
     exclude_filters = list(opts.exclude)
@@ -482,21 +543,21 @@ class _StreamingTemplateEmitter(MutableModel):
             self._count += 1
 
 
-# Minimum column widths for streaming output (left-justified, not truncated)
+# Minimum column widths for streaming output (left-justified, not truncated).
+# These are the minimum data widths; actual column width is max(min_width, header_length).
 _MIN_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "name": 20,
-    "host.name": 15,
+    "name": 15,
+    "host.name": 10,
     "host.provider_name": 10,
     "host.state": 10,
     "state": 10,
-    "status": 30,
+    "labels": 10,
+    "host.tags": 10,
 }
-_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 15
+_DEFAULT_MIN_COLUMN_WIDTH: Final[int] = 10
 # Columns that get extra space when the terminal is wider than the minimum
-_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "status", "host.name"}
-_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {
-    "host.name": 20,
-}
+_EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels"}
+_MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
@@ -572,7 +633,15 @@ class _StreamingHumanRenderer(MutableModel):
                 self.output.flush()
 
             if self._count == 0:
-                logger.info("No agents found")
+                write_human_line("No agents found")
+
+
+@pure
+def _get_header_label(field: str) -> str:
+    """Get the display label for a column header."""
+    if field in _HEADER_LABELS:
+        return _HEADER_LABELS[field]
+    return field.upper().replace(".", " ")
 
 
 @pure
@@ -580,10 +649,12 @@ def _compute_column_widths(fields: Sequence[str], terminal_width: int) -> dict[s
     """Compute column widths sized to the terminal, distributing extra space to expandable columns."""
     separator_total = len(_COLUMN_SEPARATOR) * max(len(fields) - 1, 0)
 
-    # Start with minimum widths
+    # Start with minimum widths, ensuring each column is at least as wide as its header
     width_by_field: dict[str, int] = {}
     for field in fields:
-        width_by_field[field] = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        min_data_width = _MIN_COLUMN_WIDTHS.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
+        header_width = len(_get_header_label(field))
+        width_by_field[field] = max(min_data_width, header_width)
 
     min_total = sum(width_by_field.values()) + separator_total
     extra_space = max(terminal_width - min_total, 0)
@@ -615,7 +686,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
     parts: list[str] = []
     for field in fields:
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
-        value = field.upper().replace(".", "_")
+        value = _get_header_label(field)
         parts.append(value.ljust(width))
     return _COLUMN_SEPARATOR.join(parts)
 
@@ -678,7 +749,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
             # Template mode: silent empty output (consistent with scripting use)
             pass
         elif params.output_opts.output_format == OutputFormat.HUMAN:
-            logger.info("No agents found")
+            write_human_line("No agents found")
         elif params.output_opts.output_format == OutputFormat.JSON:
             emit_final_json({"agents": [], "errors": result.errors})
         else:
@@ -729,10 +800,7 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
 
 
 def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
-    """Emit human-readable table output with optional field selection.
-
-    If fields is None, uses default fields (name, host, provider, host.state, state, status).
-    """
+    """Emit human-readable table output with optional field selection."""
     if not agents:
         return
 
@@ -746,7 +814,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate headers
     for field in fields:
-        headers.append(field.upper().replace(".", "_"))
+        headers.append(_get_header_label(field))
 
     # Generate rows
     for agent in agents:
@@ -758,7 +826,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
 
     # Generate table
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    logger.info("\n" + table)
+    write_human_line("\n" + table)
 
 
 def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:
@@ -806,14 +874,17 @@ def _format_value_as_string(value: Any) -> str:
     """Convert a value to string representation for display."""
     if value is None:
         return ""
+    elif isinstance(value, dict):
+        if not value:
+            return ""
+        return ", ".join(f"{k}={v}" for k, v in value.items())
     elif isinstance(value, Enum):
         return str(value.value)
-    elif hasattr(value, "line"):
-        # For AgentStatus objects which have a 'line' attribute
-        return str(value.line)
     elif hasattr(value, "name") and hasattr(value, "id"):
         # For objects like SnapshotInfo that have both name and id, prefer name
         return str(value.name)
+    elif isinstance(value, (tuple, list)) and not isinstance(value, str):
+        return ", ".join(_format_value_as_string(item) for item in value)
     elif isinstance(value, str):
         return value
     else:
@@ -931,34 +1002,16 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 def _render_format_template(template: str, agent: AgentInfo) -> str:
     """Expand a str.format()-style template using agent field values.
 
-    Uses string.Formatter().parse() to extract field names, resolves each via
-    _get_field_value(), then assembles the output. This avoids str.format_map()
-    because Python's format machinery interprets dots as attribute access, but
-    our field names use dots as part of the field path (e.g. "host.name").
+    Pre-resolves field names via _get_field_value() (which supports nested
+    attribute access and bracket notation on AgentInfo), then delegates
+    template expansion to the shared render_format_template helper.
     """
-    parts: list[str] = []
-    for literal_text, field_name, format_spec, conversion in string.Formatter().parse(template):
-        parts.append(literal_text)
-        if field_name is None:
-            continue
-        # Resolve the field value
-        value = _get_field_value(agent, field_name)
-        # Apply conversion (!s, !r, !a)
-        if conversion is None:
-            pass
-        elif conversion == "s":
-            value = str(value)
-        elif conversion == "r":
-            value = repr(value)
-        elif conversion == "a":
-            value = ascii(value)
-        else:
-            raise AssertionError(f"Unknown conversion: {conversion!r}")
-        # Apply format spec (e.g. ">20")
-        if format_spec:
-            value = format(value, format_spec)
-        parts.append(value)
-    return "".join(parts)
+    # Pre-resolve all referenced field names using the agent-specific field resolver
+    field_values: dict[str, str] = {}
+    for _, field_name, _, _ in string.Formatter().parse(template):
+        if field_name is not None:
+            field_values[field_name] = _get_field_value(agent, field_name)
+    return render_format_template(template, field_values)
 
 
 # Register help metadata for git-style help formatting
@@ -975,6 +1028,9 @@ Supports filtering, sorting, and multiple output formats.""",
         ("List all agents", "mngr list"),
         ("List only running agents", "mngr list --running"),
         ("List agents on Docker hosts", "mngr list --provider docker"),
+        ("List agents for a project", "mngr list --project mngr"),
+        ("List agents with a specific label", "mngr list --label env=prod"),
+        ("List agents with a specific host tag", "mngr list --tag env=prod"),
         ("List agents as JSON", "mngr list --format json"),
         ("Filter with CEL expression", "mngr list --include 'name.contains(\"prod\")'"),
     ),
@@ -989,6 +1045,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state == "RUNNING"` - Match running agents
 - `host.provider == "docker"` - Match agents on Docker hosts
 - `type == "claude"` - Match agents of type "claude"
+- `labels.project == "mngr"` - Match agents with a specific project label
 
 **Compound expressions:**
 - `state == "RUNNING" && host.provider == "modal"` - Running agents on Modal
@@ -1019,31 +1076,30 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `type` - Agent type (claude, codex, etc.)
 - `command` - The command used to start the agent
 - `url` - URL where the agent can be accessed (if reported)
-- `status` - Status as reported by the agent
-  - `status.line` - A single line summary
-  - `status.full` - A longer description of the current status
-  - `status.html` - Full HTML status report (if available)
 - `work_dir` - Working directory for this agent
 - `create_time` - Creation timestamp
 - `start_time` - Timestamp for when the agent was last started
 - `runtime_seconds` - How long the agent has been running
 - `user_activity_time` - Timestamp of the last user activity
 - `agent_activity_time` - Timestamp of the last agent activity
-- `ssh_activity_time` - Timestamp when we last noticed an active SSH connection
 - `idle_seconds` - How long since the agent was active
 - `idle_mode` - Idle detection mode
+- `idle_timeout_seconds` - Idle timeout before host stops
+- `activity_sources` - Activity sources used for idle detection
 - `start_on_boot` - Whether the agent is set to start on host boot
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
+- `labels` - Agent labels (key-value pairs, e.g., project=mngr)
+- `labels.$KEY` - Specific label value (e.g., `labels.project`)
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
 - `host.name` - Host name
 - `host.id` - Host ID
-- `host.host` - Hostname where the host is running (ssh.host for remote, localhost for local)
 - `host.provider_name` - Host provider (local, docker, modal, etc.) (in CEL filters, use `host.provider`)
 - `host.state` - Current host state (RUNNING, STOPPED, BUILDING, etc.)
 - `host.image` - Host image (Docker image name, Modal image ID, etc.)
 - `host.tags` - Metadata tags for the host
+- `host.ssh_activity_time` - Timestamp of the last SSH connection to the host
 - `host.boot_time` - When the host was last started
 - `host.uptime_seconds` - How long the host has been running
 - `host.resource` - Resource limits for the host

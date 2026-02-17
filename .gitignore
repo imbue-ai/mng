@@ -252,6 +252,10 @@ scripts/notify_user.local.sh
 .mngr/dev/build/
 .mngr/dev/secrets/
 
+# Offload caches and local files
+.offload-image-cache
+.offload/**
+
 # Changelings deploy-time build artifacts
 .changelings/
 

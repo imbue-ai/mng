@@ -26,6 +26,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
 from imbue.mngr.cli.output_helpers import emit_info
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.errors import MngrError
 from imbue.mngr.primitives import OutputFormat
 
@@ -339,10 +340,10 @@ def _show_command_summary(output_format: OutputFormat) -> None:
     metadata = get_all_help_metadata()
     match output_format:
         case OutputFormat.HUMAN:
-            logger.info("Available mngr commands:\n")
+            write_human_line("Available mngr commands:\n")
             for name, meta in metadata.items():
-                logger.info("  mngr {:<12} {}", name, meta.one_line_description)
-            logger.info('\nAsk a question: mngr ask "how do I create an agent?"')
+                write_human_line("  mngr {:<12} {}", name, meta.one_line_description)
+            write_human_line('\nAsk a question: mngr ask "how do I create an agent?"')
         case OutputFormat.JSON:
             commands = {name: meta.one_line_description for name, meta in metadata.items()}
             emit_final_json({"commands": commands})
@@ -371,7 +372,7 @@ class AskCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
-    """Chat with mngr for help.
+    """Chat with mngr for help. [experimental]
 
     Ask mngr a question and it will generate the appropriate CLI command.
     If no query is provided, shows general help.
@@ -464,7 +465,7 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 # Register help metadata for git-style help formatting
 _ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
     name="mngr-ask",
-    one_line_description="Chat with mngr for help",
+    one_line_description="Chat with mngr for help [experimental]",
     synopsis="mngr ask [--execute] QUERY...",
     description="""Chat directly with mngr for help -- it can create the
 necessary CLI call for pretty much anything you want to do.

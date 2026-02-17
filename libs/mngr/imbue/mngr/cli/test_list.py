@@ -486,8 +486,8 @@ def test_list_command_with_nested_fields(
 
         assert result.exit_code == 0
         assert "NAME" in result.output
-        assert "HOST_NAME" in result.output
-        assert "HOST_PROVIDER_NAME" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
         assert agent_name in result.output
         assert "@local" in result.output
         assert "local" in result.output
@@ -534,10 +534,10 @@ def test_list_command_with_host_and_provider_fields(
 
         assert result.exit_code == 0
         assert "NAME" in result.output
-        assert "HOST_STATE" in result.output
+        assert "HOST STATE" in result.output
         assert "STATE" in result.output
-        assert "HOST_NAME" in result.output
-        assert "HOST_PROVIDER_NAME" in result.output
+        assert "HOST" in result.output
+        assert "PROVIDER" in result.output
         assert agent_name in result.output
         # States should show in uppercase
         assert AgentLifecycleState.RUNNING.value in result.output or AgentLifecycleState.STOPPED.value in result.output
@@ -632,9 +632,8 @@ def test_list_command_with_running_filter_alias(
         data = json.loads(json_result.output)
         agents = data["agents"]
         agent_id = next(a["id"] for a in agents if a["name"] == agent_name)
-        # Find the per-host directory under hosts/
-        hosts_subdir = list((host_dir / "hosts").iterdir())[0]
-        active_file = hosts_subdir / "agents" / agent_id / "active"
+        # The host_dir is the mngr data directory directly
+        active_file = host_dir / "agents" / agent_id / "active"
         active_file.write_text("")
 
         # List with --running should show the agent

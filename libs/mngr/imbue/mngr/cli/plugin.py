@@ -25,6 +25,8 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -141,6 +143,10 @@ def _emit_plugin_list(
     fields: tuple[str, ...],
 ) -> None:
     """Emit the plugin list in the appropriate output format."""
+    if output_opts.format_template is not None:
+        items = [{f: _get_field_value(p, f) for f in DEFAULT_FIELDS} for p in plugins]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             _emit_plugin_list_human(plugins, fields)
@@ -155,7 +161,7 @@ def _emit_plugin_list(
 def _emit_plugin_list_human(plugins: list[PluginInfo], fields: tuple[str, ...]) -> None:
     """Emit plugin list in human-readable table format."""
     if not plugins:
-        logger.info("No plugins found.")
+        write_human_line("No plugins found.")
         return
 
     headers = [f.upper() for f in fields]
@@ -164,7 +170,7 @@ def _emit_plugin_list_human(plugins: list[PluginInfo], fields: tuple[str, ...]) 
         rows.append([_get_field_value(p, f) for f in fields])
 
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    logger.info("\n" + table)
+    write_human_line("\n" + table)
 
 
 def _emit_plugin_list_json(plugins: list[PluginInfo], fields: tuple[str, ...]) -> None:
@@ -191,7 +197,7 @@ def _parse_fields(fields_str: str | None) -> tuple[str, ...]:
 @add_common_options
 @click.pass_context
 def plugin(ctx: click.Context, **kwargs: Any) -> None:
-    """Manage available and active plugins.
+    """Manage available and active plugins. [experimental]
 
     View, enable, and disable plugins registered with mngr.
 
@@ -224,10 +230,13 @@ def plugin(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_list(ctx: click.Context, **kwargs: Any) -> None:
-    """List discovered plugins.
+    """List discovered plugins. [experimental]
 
     Shows all plugins registered with mngr, including built-in plugins
     and any externally installed plugins.
+
+    Supports custom format templates via --format. Available fields:
+    name, version, description, enabled.
 
     Examples:
 
@@ -238,6 +247,8 @@ def plugin_list(ctx: click.Context, **kwargs: Any) -> None:
       mngr plugin list --format json
 
       mngr plugin list --fields name,enabled
+
+      mngr plugin list --format '{name}\\t{enabled}'
     """
     try:
         _plugin_list_impl(ctx, **kwargs)
@@ -252,6 +263,7 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="plugin",
         command_class=PluginCliOptions,
+        is_format_template_supported=True,
     )
 
     all_plugins = _gather_plugin_info(mngr_ctx)
@@ -297,7 +309,7 @@ def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
-    """Enable a plugin.
+    """Enable a plugin. [experimental]
 
     Sets plugins.<name>.enabled = true in the configuration file at the
     specified scope.
@@ -329,7 +341,7 @@ def plugin_enable(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_disable(ctx: click.Context, **kwargs: Any) -> None:
-    """Disable a plugin.
+    """Disable a plugin. [experimental]
 
     Sets plugins.<name>.enabled = false in the configuration file at the
     specified scope.
@@ -406,7 +418,7 @@ def _emit_plugin_toggle_result(
     match output_opts.output_format:
         case OutputFormat.HUMAN:
             action = "Enabled" if is_enabled else "Disabled"
-            logger.info("{} plugin '{}' in {} ({})", action, name, scope.value.lower(), config_path)
+            write_human_line("{} plugin '{}' in {} ({})", action, name, scope.value.lower(), config_path)
         case OutputFormat.JSON:
             emit_final_json(
                 {
@@ -433,7 +445,7 @@ def _emit_plugin_toggle_result(
 # Register help metadata for git-style help formatting
 _PLUGIN_HELP_METADATA = CommandHelpMetadata(
     name="mngr-plugin",
-    one_line_description="Manage available and active plugins",
+    one_line_description="Manage available and active plugins [experimental]",
     synopsis="mngr [plugin|plug] <subcommand> [OPTIONS]",
     description="""Manage available and active plugins.
 

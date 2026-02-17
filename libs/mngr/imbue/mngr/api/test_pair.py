@@ -477,7 +477,7 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path, cg: ConcurrencyGrou
         syncer.stop()
 
 
-@pytest.mark.release
+@pytest.mark.acceptance
 def test_unison_syncer_handles_large_files(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer correctly syncs large files (50MB)."""
     source = tmp_path / "source"

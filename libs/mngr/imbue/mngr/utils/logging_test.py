@@ -522,12 +522,14 @@ def test_remove_console_handlers_when_no_handlers_exist() -> None:
 def test_setup_logging_writes_to_current_stderr_after_stream_replacement(
     temp_mngr_ctx: MngrContext,
 ) -> None:
-    """Loguru handlers should write to the current sys.stderr, not a stale reference.
+    """All loguru handlers should write to the current sys.stderr, not a stale reference.
 
     This is a regression test for a bug where logger.add(sys.stderr) captured the
     stream object at add time. If sys.stderr was later replaced (e.g., by pytest's
     capture mechanism), the handler would write to the old (possibly closed) stream,
     causing ValueError("I/O operation on closed file").
+
+    Both the user-facing handler and the diagnostic handler write to stderr.
     """
     output_opts = OutputOptions(
         output_format=OutputFormat.HUMAN,

@@ -17,6 +17,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import ErrorBehavior
@@ -255,19 +256,19 @@ def _emit_human_output(result: MessageResult) -> None:
     """Emit human-readable output."""
     if result.successful_agents:
         for agent_name in result.successful_agents:
-            logger.info("Message sent to: {}", agent_name)
+            write_human_line("Message sent to: {}", agent_name)
 
     if result.failed_agents:
         for agent_name, error in result.failed_agents:
             logger.error("Failed to send message to {}: {}", agent_name, error)
 
     if not result.successful_agents and not result.failed_agents:
-        logger.info("No agents found to send message to")
+        write_human_line("No agents found to send message to")
     elif result.successful_agents:
-        logger.info("Successfully sent message to {} agent(s)", len(result.successful_agents))
+        write_human_line("Successfully sent message to {} agent(s)", len(result.successful_agents))
     else:
         # Only failed agents, no successful ones - failures already logged above
-        logger.info("Failed to send message to {} agent(s)", len(result.failed_agents))
+        write_human_line("Failed to send message to {} agent(s)", len(result.failed_agents))
 
 
 def _emit_json_output(result: MessageResult) -> None:

@@ -21,6 +21,8 @@ from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import AgentNotFoundError
@@ -181,6 +183,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
     Use with caution! This operation is irreversible.
 
+    Supports custom format templates via --format. Available fields: name.
+
     Examples:
 
       mngr destroy my-agent
@@ -192,6 +196,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
       mngr destroy --session mngr-my-agent
 
       mngr destroy --all --force
+
+      mngr destroy --all --force --format '{name}'
     """
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
@@ -199,6 +205,7 @@ def destroy(ctx: click.Context, **kwargs) -> None:
         ctx=ctx,
         command_name="destroy",
         command_class=DestroyCliOptions,
+        is_format_template_supported=True,
     )
 
     # Filter agents to destroy using CEL expressions like:
@@ -397,14 +404,14 @@ def _find_agents_to_destroy(
 
 def _confirm_destruction(targets: _DestroyTargets) -> None:
     """Prompt user to confirm destruction of agents."""
-    logger.info("\nThe following agents will be destroyed:")
+    write_human_line("\nThe following agents will be destroyed:")
     for agent, _ in targets.online_agents:
-        logger.info("  - {}", agent.name)
+        write_human_line("  - {}", agent.name)
     for offline in targets.offline_hosts:
         for name in offline.agent_names:
-            logger.info("  - {} (on offline host)", name)
+            write_human_line("  - {} (on offline host)", name)
 
-    logger.info("\nThis action is irreversible!")
+    write_human_line("\nThis action is irreversible!")
 
     if not click.confirm("Are you sure you want to continue?"):
         raise click.Abort()
@@ -430,12 +437,12 @@ def _output_targets(
         case OutputFormat.JSONL:
             emit_event("agents_list", {"agents": agent_data}, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
-            logger.info("\n{}", prefix)
+            write_human_line("\n{}", prefix)
             for agent, host in targets.online_agents:
-                logger.info("  - {} (on host {})", agent.name, host.id)
+                write_human_line("  - {} (on host {})", agent.name, host.id)
             for offline in targets.offline_hosts:
                 for name in offline.agent_names:
-                    logger.info("  - {} (on offline host {})", name, offline.host.id)
+                    write_human_line("  - {} (on offline host {})", name, offline.host.id)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -443,11 +450,15 @@ def _output_targets(
 def _output(message: str, output_opts: OutputOptions) -> None:
     """Output a message according to the format."""
     if output_opts.output_format == OutputFormat.HUMAN:
-        logger.info(message)
+        write_human_line(message)
 
 
 def _output_result(destroyed_agents: Sequence[AgentName], output_opts: OutputOptions) -> None:
     """Output the final result."""
+    if output_opts.format_template is not None:
+        items = [{"name": str(n)} for n in destroyed_agents]
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     result_data = {"destroyed_agents": [str(n) for n in destroyed_agents], "count": len(destroyed_agents)}
     match output_opts.output_format:
         case OutputFormat.JSON:
@@ -456,7 +467,7 @@ def _output_result(destroyed_agents: Sequence[AgentName], output_opts: OutputOpt
             emit_event("destroy_result", result_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if destroyed_agents:
-                logger.info("\nSuccessfully destroyed {} agent(s)", len(destroyed_agents))
+                write_human_line("\nSuccessfully destroyed {} agent(s)", len(destroyed_agents))
         case _ as unreachable:
             assert_never(unreachable)
 

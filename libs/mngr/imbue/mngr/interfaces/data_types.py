@@ -23,6 +23,10 @@ from imbue.imbue_common.primitives import NonNegativeInt
 from imbue.mngr.errors import InvalidRelativePathError
 from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.primitives import ActivitySource
+from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentLifecycleState
+from imbue.mngr.primitives import AgentName
+from imbue.mngr.primitives import CommandString
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import IdleMode
@@ -432,14 +436,48 @@ class HostInfo(FrozenModel):
     )
     locked_time: datetime | None = Field(default=None, description="When the host was locked")
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-defined fields")
+    ssh_activity_time: datetime | None = Field(
+        default=None,
+        description="Last SSH activity time (from host-level activity/ssh file mtime)",
+    )
     failure_reason: str | None = Field(
         default=None,
         description="Reason for failure if the host failed during creation",
     )
-    build_log: str | None = Field(
-        default=None,
-        description="Build log output if the host failed during creation",
+
+
+class AgentInfo(FrozenModel):
+    """Complete information about an agent for listing purposes.
+
+    This combines certified and reported data from the agent with host information.
+    """
+
+    id: AgentId = Field(description="Agent ID")
+    name: AgentName = Field(description="Agent name")
+    type: str = Field(description="Agent type (claude, codex, etc.)")
+    command: CommandString = Field(description="Command used to start the agent")
+    work_dir: Path = Field(description="Working directory")
+    create_time: datetime = Field(description="Creation timestamp")
+    start_on_boot: bool = Field(description="Whether agent starts on host boot")
+
+    state: AgentLifecycleState = Field(description="Agent lifecycle state (STOPPED/RUNNING/WAITING/REPLACED/DONE)")
+    url: str | None = Field(default=None, description="Agent URL (reported)")
+    start_time: datetime | None = Field(default=None, description="Last start time (reported)")
+    runtime_seconds: float | None = Field(default=None, description="Runtime in seconds")
+    user_activity_time: datetime | None = Field(default=None, description="Last user activity (reported)")
+    agent_activity_time: datetime | None = Field(default=None, description="Last agent activity (reported)")
+    idle_seconds: float | None = Field(default=None, description="Idle time in seconds")
+    idle_mode: str | None = Field(default=None, description="Idle detection mode")
+    idle_timeout_seconds: int | None = Field(default=None, description="Idle timeout in seconds")
+    activity_sources: tuple[str, ...] | None = Field(
+        default=None, description="Activity sources used for idle detection"
     )
+
+    labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
+
+    host: HostInfo = Field(description="Host information")
+
+    plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 
 
 class RelativePath(PurePosixPath):

@@ -101,7 +101,7 @@ Once a host becomes idle, it transitions to the `stopping` state.
 Stopping is triggered by any of the following:
 
 1. A script that is injected and started during host startup (which periodically checks for idleness, and stops the host when idle)
-2. The `mngr enforce` command (as a backup in case the inner script has failed) [future]
+2. Provider-level limits (e.g., Modal's sandbox timeout) as a backup in case the inner script fails
 3. The user manually stopping the host via `mngr stop`
 
 When a host is "stopping", it performs these steps:

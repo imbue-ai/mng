@@ -19,9 +19,11 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
+from imbue.mngr.cli.output_helpers import emit_format_template_lines
 from imbue.mngr.cli.output_helpers import emit_info
 from imbue.mngr.cli.output_helpers import format_size
 from imbue.mngr.cli.output_helpers import on_error
+from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
 from imbue.mngr.errors import BaseMngrError
@@ -258,7 +260,7 @@ def _emit_create_result(
             emit_event("create_result", event_data, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if created:
-                logger.info("Created {} snapshot(s)", len(created))
+                write_human_line("Created {} snapshot(s)", len(created))
             if errors:
                 logger.warning("Failed to create {} snapshot(s)", len(errors))
         case _ as unreachable:
@@ -271,6 +273,21 @@ def _emit_list_snapshots(
     output_opts: OutputOptions,
 ) -> None:
     """Emit output for snapshot list."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for host_id, snap in all_snapshots:
+            items.append(
+                {
+                    "id": str(snap.id),
+                    "name": str(snap.name),
+                    "created_at": snap.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    "size": format_size(snap.size_bytes) if snap.size_bytes is not None else "-",
+                    "size_bytes": str(snap.size_bytes) if snap.size_bytes is not None else "",
+                    "host_id": host_id,
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             data = [
@@ -290,15 +307,15 @@ def _emit_list_snapshots(
                 )
         case OutputFormat.HUMAN:
             if not all_snapshots:
-                logger.info("No snapshots found")
+                write_human_line("No snapshots found")
                 return
             # Table header
-            logger.info("{:<40} {:<25} {:<22} {:<12} {}", "ID", "NAME", "CREATED", "SIZE", "HOST")
-            logger.info("{}", "-" * 110)
+            write_human_line("{:<40} {:<25} {:<22} {:<12} {}", "ID", "NAME", "CREATED", "SIZE", "HOST")
+            write_human_line("{}", "-" * 110)
             for host_id, snap in all_snapshots:
                 size_str = format_size(snap.size_bytes) if snap.size_bytes is not None else "-"
                 created_str = snap.created_at.strftime("%Y-%m-%d %H:%M:%S")
-                logger.info(
+                write_human_line(
                     "{:<40} {:<25} {:<22} {:<12} {}",
                     str(snap.id),
                     str(snap.name),
@@ -322,7 +339,7 @@ def _emit_destroy_result(
             emit_event("destroy_result", {"count": len(destroyed)}, OutputFormat.JSONL)
         case OutputFormat.HUMAN:
             if destroyed:
-                logger.info("Destroyed {} snapshot(s)", len(destroyed))
+                write_human_line("Destroyed {} snapshot(s)", len(destroyed))
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -336,7 +353,7 @@ def _emit_destroy_result(
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
-    """Create, list, and destroy host snapshots.
+    """Create, list, and destroy host snapshots. [experimental]
 
     Snapshots capture the complete state of an agent's host, allowing it
     to be restored later. Because the snapshot is at the host level, the
@@ -449,7 +466,7 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
-    """Create a snapshot of agent host(s).
+    """Create a snapshot of agent host(s). [experimental]
 
     Positional arguments can be agent names/IDs or host names/IDs. Each
     identifier is automatically resolved: if it matches a known agent, that
@@ -615,9 +632,12 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
-    """List snapshots for agent host(s).
+    """List snapshots for agent host(s). [experimental]
 
     Shows snapshot ID, name, creation time, size, and host for each snapshot.
+
+    Supports custom format templates via --format. Available fields:
+    id, name, created_at, size, size_bytes, host_id.
 
     \b
     Examples:
@@ -629,11 +649,14 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
       mngr snapshot list my-agent --limit 5
 
       mngr snapshot list my-agent --format json
+
+      mngr snapshot list my-agent --format '{name}\\t{size}\\t{host_id}'
     """
     mngr_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="snapshot_list",
         command_class=SnapshotListCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot list command")
 
@@ -734,7 +757,7 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
-    """Destroy snapshots for agent host(s).
+    """Destroy snapshots for agent host(s). [experimental]
 
     Requires either --snapshot (to delete specific snapshots) or --all-snapshots
     (to delete all snapshots for the resolved hosts). A confirmation prompt is
@@ -818,11 +841,11 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 
     # Confirmation prompt (human mode only, unless --force)
     if not opts.force and output_opts.output_format == OutputFormat.HUMAN:
-        logger.info("The following {} snapshot(s) will be destroyed:", len(snapshots_to_delete))
+        write_human_line("The following {} snapshot(s) will be destroyed:", len(snapshots_to_delete))
         for host_id_str, _prov, snap_id, snap_name in snapshots_to_delete:
-            logger.info("  - {} ({}) on host {}", snap_id, snap_name, host_id_str)
+            write_human_line("  - {} ({}) on host {}", snap_id, snap_name, host_id_str)
         if not click.confirm("Proceed?"):
-            logger.info("Aborted")
+            write_human_line("Aborted")
             return
 
     # Delete snapshots
@@ -856,7 +879,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 
 _SNAPSHOT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-snapshot",
-    one_line_description="Create, list, and destroy host snapshots",
+    one_line_description="Create, list, and destroy host snapshots [experimental]",
     synopsis="mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
     description="""Create, list, and destroy snapshots of agent hosts.
 

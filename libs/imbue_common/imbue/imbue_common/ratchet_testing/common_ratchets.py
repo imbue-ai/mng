@@ -366,3 +366,29 @@ PREVENT_ASSERT_ISINSTANCE = RatchetRuleInfo(
         "handled and catch new variants at compile time. See style guide for examples."
     ),
 )
+
+
+# --- Process management ---
+
+PREVENT_DIRECT_SUBPROCESS = RegexRatchetRule(
+    rule_name="direct subprocess/os.exec usage",
+    rule_description=(
+        "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
+        "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
+        "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
+        "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
+        "See libs/concurrency_group/ for details."
+    ),
+    pattern_string=(
+        r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
+        r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
+        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
+        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b"
+    ),
+)
+
+PREVENT_IMPORTLIB_IMPORT_MODULE = RegexRatchetRule(
+    rule_name="importlib.import_module usage",
+    rule_description="Always use normal top-level imports instead of importlib.import_module",
+    pattern_string=r"\bimport_module\b",
+)

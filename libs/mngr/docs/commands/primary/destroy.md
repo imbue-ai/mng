@@ -16,6 +16,8 @@ When the last agent on a host is destroyed, the host itself is also destroyed.
 
 Use with caution! This operation is irreversible.
 
+Supports custom format templates via --format. Available fields: name.
+
 Examples:
 
   mngr destroy my-agent
@@ -27,6 +29,8 @@ Examples:
   mngr destroy --session mngr-my-agent
 
   mngr destroy --all --force
+
+  mngr destroy --all --force --format '{name}'
 
 **Usage:**
 
@@ -63,7 +67,7 @@ mngr destroy [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl); some commands also accept a template string | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |

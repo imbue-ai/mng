@@ -308,6 +308,8 @@ def categorize_todo_by_priority_and_age(
 
 Never write if/elif chains without a final else clause. The else clause ensures all cases are handled and makes it explicit when an unexpected condition occurs.
 
+Prefer to use match statements when matching against enums or other finite sets of values.
+
 # Validation
 
 All validation should be done purely through pydantic and types, not with ad-hoc code
@@ -438,7 +440,11 @@ def example_exception_handling_with_chaining() -> None:
         raise TodoError(f"Invalid value: {user_input}") from None
 ```
 
-Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point
+Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point.
+
+Always log errors that are caught (at the appropriate level--trace or debug if this is expected, or warning if this is from us trying to make the code more robust and there's no other choice, error only if this is a more general top level error handler)
+
+Each try/except blocks should only span a single statement, and should catch precisely the errors that we want to handle from that statement.
 
 ```python
 from pathlib import Path
@@ -1662,7 +1668,7 @@ There are 4 types of tests: unit tests, integration tests, acceptance tests, and
 1. unit tests: put them in `(src)/**/*_test.py`. They test small, isolated pieces of functionality (ex: a single function or method). They answer the question: "is this code mostly working?" Run locally and are super fast.
 2. integration tests: put them in `(src)/**/test_*.py`. They answer the question: "does our program behave in the way that we want?" by testing "end to end" functionality. Run locally with no network access, don't take too long, and are used for calculating coverage.
 3. acceptance tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, credentials, etc). Run on all branches in CI.
-4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to main. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
+4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to release. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
 
 ### Unit Tests
 
@@ -1778,13 +1784,13 @@ def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
     ...
 ```
 
-Acceptance tests run on all branches in CI (except main, since release tests are a superset). They must pass before a PR can be merged.
+Acceptance tests run on all branches in CI. They must pass before a PR can be merged.
 
 Acceptance tests can sometimes be flaky. This is ok. Make it possible to easily retry and re-run them if they fail.
 
 ### Release Tests
 
-Release tests are comprehensive tests that only run when pushing to main. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
+Release tests are comprehensive tests that only run when pushing to the special "release" branch. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
 
 Create release tests in the source package folder, using files that start with "test_" (same location as integration tests).
 
