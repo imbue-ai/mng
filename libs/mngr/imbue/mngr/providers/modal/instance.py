@@ -2258,12 +2258,16 @@ log "=== Shutdown script completed ==="
         locked_time = datetime.fromtimestamp(lock_mtime, tz=timezone.utc) if lock_mtime is not None else None
 
         # Certified data from SSH-collected data (parsed from data.json)
+        certified_data: CertifiedHostData | None = None
         certified_data_dict = raw.get("certified_data")
         if certified_data_dict is not None:
-            certified_data = CertifiedHostData(**certified_data_dict)
-        elif host_record is not None:
+            try:
+                certified_data = CertifiedHostData.model_validate(certified_data_dict)
+            except (ValueError, KeyError) as e:
+                logger.warning("Failed to validate host data.json from SSH output, falling back to volume: {}", e)
+        if certified_data is None and host_record is not None:
             certified_data = host_record.certified_host_data
-        else:
+        elif certified_data is None:
             now = datetime.now(timezone.utc)
             certified_data = CertifiedHostData(
                 host_id=str(host.id),
@@ -2271,6 +2275,8 @@ log "=== Shutdown script completed ==="
                 created_at=now,
                 updated_at=now,
             )
+        else:
+            pass
 
         host_name = certified_data.host_name
         host_plugin_data = certified_data.plugin
@@ -2328,17 +2334,21 @@ log "=== Shutdown script completed ==="
 
         agent_infos: list[AgentInfo] = []
         for agent_raw in raw.get("agents", []):
-            agent_info = self._build_single_agent_info(
-                agent_raw=agent_raw,
-                host_info=host_info,
-                ssh_activity=ssh_activity,
-                ps_output=ps_output,
-                idle_timeout_seconds=idle_timeout_seconds,
-                activity_sources=activity_sources,
-                idle_mode=idle_mode,
-            )
-            if agent_info is not None:
-                agent_infos.append(agent_info)
+            try:
+                agent_info = self._build_single_agent_info(
+                    agent_raw=agent_raw,
+                    host_info=host_info,
+                    ssh_activity=ssh_activity,
+                    ps_output=ps_output,
+                    idle_timeout_seconds=idle_timeout_seconds,
+                    activity_sources=activity_sources,
+                    idle_mode=idle_mode,
+                )
+                if agent_info is not None:
+                    agent_infos.append(agent_info)
+            except (ValueError, KeyError, TypeError) as e:
+                agent_id = agent_raw.get("data", {}).get("id", "unknown")
+                logger.warning("Failed to build listing info for agent {}: {}", agent_id, e)
 
         return agent_infos
 
@@ -2357,14 +2367,21 @@ log "=== Shutdown script completed ==="
         agent_id_str = agent_data.get("id")
         agent_name_str = agent_data.get("name")
         if not agent_id_str or not agent_name_str:
+            logger.warning("Skipped agent with missing id or name in listing data: {}", agent_data)
             return None
 
         agent_type = str(agent_data.get("type", "unknown"))
         command = CommandString(agent_data.get("command", "bash"))
         create_time_str = agent_data.get("create_time")
-        create_time = (
-            datetime.fromisoformat(create_time_str) if create_time_str else datetime(1970, 1, 1, tzinfo=timezone.utc)
-        )
+        try:
+            create_time = (
+                datetime.fromisoformat(create_time_str)
+                if create_time_str
+                else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning("Failed to parse create_time for agent {}: {}", agent_id_str, e)
+            create_time = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
         # Activity times and derived values
         user_activity = timestamp_to_datetime(agent_raw.get("user_activity_mtime"))
