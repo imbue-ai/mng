@@ -835,7 +835,7 @@ def _handle_batch_create(
     output_opts: OutputOptions,
     opts: CreateCliOptions,
 ) -> None:
-    """Handle creation of multiple agents in a single command."""
+    """Handle creation of multiple agents by delegating to _handle_create in a loop."""
     # Validate batch-incompatible options
     if opts.positional_name or opts.name:
         raise UserInputError(
@@ -848,72 +848,30 @@ def _handle_batch_create(
     if opts.await_agent_stopped:
         raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
 
-    # Shared setup (done once, but each iteration below is otherwise
-    # equivalent to running `mngr create` independently)
-    agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
-    source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
-    project_name = _parse_project_name(source_location, opts, mngr_ctx)
-    host_lifecycle = _parse_host_lifecycle_options(opts)
-
-    # Ensure source is clean once before creating any agents
+    # Ensure source is clean once upfront (rather than per-iteration)
     if opts.ensure_clean:
+        agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
+        source_location = _resolve_source_location(
+            opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host
+        )
         _ensure_clean_work_dir(source_location)
 
-    # Create agents sequentially (each iteration is equivalent to a separate `mngr create`)
+    # Override opts so each _handle_create iteration works correctly:
+    # - ensure_clean=False: already checked above
+    # - await_ready=True: prevents background forking (os.fork), keeps creation sequential
+    per_agent_opts = opts.model_copy_update(
+        to_update(opts.field_ref().ensure_clean, False),
+        to_update(opts.field_ref().await_ready, True),
+    )
+
+    # Create agents sequentially, each iteration equivalent to a standalone `mngr create`
     results: list[CreateAgentResult] = []
     for agent_idx in range(opts.count):
-        # Parse agent options (auto-generates a unique name each time since name is None)
-        agent_opts = _parse_agent_opts(
-            opts=opts,
-            initial_message=None,
-            resume_message=None,
-            source_location=source_location,
-            mngr_ctx=mngr_ctx,
-        )
-
-        # Set project label on agent
-        if project_name:
-            agent_opts = agent_opts.model_copy_update(
-                to_update(
-                    agent_opts.field_ref().label_options,
-                    AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": project_name}),
-                ),
-            )
-
-        # Parse and resolve target host (fresh each iteration, so --in creates a new host each time)
-        target_host_ref = _parse_target_host(
-            opts=opts,
-            project_name=project_name,
-            agent_and_host_loader=agent_and_host_loader,
-            lifecycle=host_lifecycle,
-        )
-        resolved_target = _resolve_target_host(target_host_ref, mngr_ctx, is_start_desired=opts.start_host)
-
-        # Set tags on existing hosts
-        if isinstance(resolved_target, OnlineHostInterface):
-            _apply_tags_to_host(resolved_target, opts.tag)
-
-        # Early work dir creation for existing hosts (same logic as single-create path)
-        is_work_dir_created = False
-        if agent_opts.is_copy_immediate and isinstance(resolved_target, OnlineHostInterface):
-            work_dir_path = resolved_target.create_agent_work_dir(
-                source_location.host, source_location.path, agent_opts
-            )
-            agent_opts = agent_opts.model_copy_update(
-                to_update(agent_opts.field_ref().target_path, work_dir_path),
-            )
-            is_work_dir_created = True
-
-        # Create the agent
-        logger.info("Creating agent {} ({}/{})...", agent_opts.name, agent_idx + 1, opts.count)
-        create_result = api_create(
-            source_location=source_location,
-            target_host=resolved_target,
-            agent_options=agent_opts,
-            mngr_ctx=mngr_ctx,
-            create_work_dir=not is_work_dir_created,
-        )
-        results.append(create_result)
+        logger.info("Creating agent ({}/{})...", agent_idx + 1, opts.count)
+        result = _handle_create(mngr_ctx, output_opts, per_agent_opts)
+        if result is not None:
+            create_result, _, _, _, _ = result
+            results.append(create_result)
 
     # Output all results
     _output_batch_results(results, output_opts)

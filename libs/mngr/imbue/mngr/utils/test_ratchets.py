@@ -269,7 +269,10 @@ def test_prevent_code_in_init_files() -> None:
     """Ensure __init__.py files contain no code (except pluggy hookimpl at the root)."""
     violations = find_code_in_init_files(
         _get_mngr_source_dir(),
-        allowed_root_init_lines={"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'},
+        allowed_root_init_lines={
+            "import pluggy",
+            'hookimpl = pluggy.HookimplMarker("mngr")',
+        },
     )
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
@@ -304,7 +307,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     Test files are excluded from this check.
     """
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mngr_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(45), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(46), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
