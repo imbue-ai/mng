@@ -1,7 +1,10 @@
+from click.testing import CliRunner
+
 from imbue.mngr.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mngr.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mngr.cli.snapshot import SnapshotListCliOptions
 from imbue.mngr.cli.snapshot import _classify_mixed_identifiers
+from imbue.mngr.cli.snapshot import snapshot
 from imbue.mngr.config.data_types import MngrContext
 
 # =============================================================================
@@ -98,6 +101,57 @@ def test_snapshot_destroy_cli_options_fields() -> None:
     )
     assert opts.snapshots == ("snap-123",)
     assert opts.force is True
+
+
+# =============================================================================
+# _SnapshotGroup default-to-create tests
+# =============================================================================
+
+
+def test_snapshot_bare_invocation_defaults_to_create() -> None:
+    """Running `mngr snapshot` with no args should forward to `snapshot create`,
+    not show help or error with 'Missing command'."""
+    runner = CliRunner()
+    result = runner.invoke(snapshot, [])
+    # The command will fail (no plugin manager context), but it should NOT
+    # show group help or say "Missing command" -- it should attempt to run create.
+    assert "Missing command" not in result.output
+    assert "Commands:" not in result.output
+
+
+def test_snapshot_unrecognized_subcommand_forwards_to_create() -> None:
+    """Running `mngr snapshot my-agent` should forward to `snapshot create my-agent`."""
+    runner = CliRunner()
+    # "my-agent" is not a known subcommand (create/list/destroy), so it should
+    # be forwarded to create as the first positional arg. The command will fail
+    # (no real provider context), but the error should come from snapshot create,
+    # not from "No such command 'my-agent'".
+    result = runner.invoke(snapshot, ["my-agent"])
+    assert "No such command" not in result.output
+
+
+def test_snapshot_explicit_create_still_works() -> None:
+    """Running `mngr snapshot create --help` should still work."""
+    runner = CliRunner()
+    result = runner.invoke(snapshot, ["create", "--help"])
+    assert result.exit_code == 0
+    assert "Create a snapshot" in result.output
+
+
+def test_snapshot_list_subcommand_not_forwarded() -> None:
+    """Running `mngr snapshot list` should NOT be forwarded to create."""
+    runner = CliRunner()
+    result = runner.invoke(snapshot, ["list", "--help"])
+    assert result.exit_code == 0
+    assert "List snapshots" in result.output
+
+
+def test_snapshot_destroy_subcommand_not_forwarded() -> None:
+    """Running `mngr snapshot destroy` should NOT be forwarded to create."""
+    runner = CliRunner()
+    result = runner.invoke(snapshot, ["destroy", "--help"])
+    assert result.exit_code == 0
+    assert "Destroy snapshots" in result.output
 
 
 # =============================================================================

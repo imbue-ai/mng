@@ -81,12 +81,12 @@ class AliasAwareGroup(click.Group):
     ``mngr my-task`` is equivalent to ``mngr create my-task``).
     """
 
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if not args:
+            args = ["create"]
+        return super().parse_args(ctx, args)
+
     def invoke(self, ctx: click.Context) -> Any:
-        # Default to 'create' when no subcommand is given.
-        # Mutate the list in place rather than reassigning the property,
-        # since Click's type stubs mark protected_args as read-only.
-        if not ctx.protected_args and not ctx.args:
-            ctx.protected_args.append("create")
         try:
             return super().invoke(ctx)
         except NotImplementedError as e:

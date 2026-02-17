@@ -358,10 +358,10 @@ class _SnapshotGroup(click.Group):
     rather than silently doing something wrong.
     """
 
-    def invoke(self, ctx: Context) -> Any:
-        if not ctx.protected_args and not ctx.args:
-            ctx.protected_args.append("create")
-        return super().invoke(ctx)
+    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
+        if not args:
+            args = ["create"]
+        return super().parse_args(ctx, args)
 
     def resolve_command(self, ctx: Context, args: list[str]) -> tuple[str | None, click.Command | None, list[str]]:
         """Resolve command, defaulting to 'create' for unrecognized subcommands."""
