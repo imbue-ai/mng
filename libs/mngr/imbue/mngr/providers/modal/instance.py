@@ -46,6 +46,7 @@ from imbue.mngr.errors import ModalAuthError
 from imbue.mngr.errors import SnapshotNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.hosts.offline_host import OfflineHost
+from imbue.mngr.hosts.offline_host import validate_and_create_agent_reference
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import CpuResources
@@ -60,8 +61,10 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
@@ -1961,6 +1964,133 @@ log "=== Shutdown script completed ==="
             self._host_by_id_cache[host.id] = host
 
         return hosts
+
+    @handle_modal_auth_error
+    def load_agent_refs(
+        self,
+        cg: ConcurrencyGroup,
+        include_destroyed: bool = False,
+    ) -> dict[HostReference, list[AgentReference]]:
+        """Load hosts and agent references entirely from the state volume and sandbox list.
+
+        Optimized implementation that avoids SSH connections by reading all data
+        from the Modal state volume in parallel with listing running sandboxes.
+
+        Three operations run in parallel:
+        1. List running sandboxes (to determine which hosts are online)
+        2. Read all host records from the state volume
+        3. Read all agent data from the state volume (for all hosts)
+        """
+        # Phase 1: Fetch sandboxes, host records, and all agent data in parallel
+        try:
+            with ConcurrencyGroupExecutor(
+                parent_cg=cg, name=f"modal_load_agent_refs_{self.name}", max_workers=3
+            ) as executor:
+                sandboxes_future = executor.submit(self._list_sandboxes)
+                host_records_future = executor.submit(self._list_all_host_records, cg)
+                all_agent_data_future = executor.submit(self._list_all_persisted_agent_data, cg)
+
+            sandboxes = sandboxes_future.result()
+            all_host_records = host_records_future.result()
+            agent_data_by_host_id = all_agent_data_future.result()
+        except modal.exception.AuthError as e:
+            raise ModalAuthError() from e
+
+        # Build set of running host IDs from sandbox tags
+        running_host_ids: set[HostId] = set()
+        for sandbox in sandboxes:
+            try:
+                tags = sandbox.get_tags()
+                host_id = HostId(tags[TAG_HOST_ID])
+                running_host_ids.add(host_id)
+            except (KeyError, ValueError) as e:
+                logger.warning("Skipped sandbox with invalid tags: {}", e)
+                continue
+
+        # Phase 2: Build HostReference -> [AgentReference] mapping
+        result: dict[HostReference, list[AgentReference]] = {}
+        processed_host_ids: set[HostId] = set()
+
+        for host_record in all_host_records:
+            host_id = HostId(host_record.certified_host_data.host_id)
+            host_name = HostName(host_record.certified_host_data.host_name)
+            processed_host_ids.add(host_id)
+
+            is_running = host_id in running_host_ids
+            has_snapshots = len(host_record.certified_host_data.snapshots) > 0
+            is_failed = host_record.certified_host_data.failure_reason is not None
+
+            # Apply the same filtering logic as list_hosts
+            if not is_running and not is_failed and not has_snapshots and not include_destroyed:
+                continue
+
+            host_ref = HostReference(
+                host_id=host_id,
+                host_name=host_name,
+                provider_name=self.name,
+            )
+
+            agent_refs: list[AgentReference] = []
+            for agent_data in agent_data_by_host_id.get(host_id, []):
+                ref = validate_and_create_agent_reference(agent_data, host_id, self.name)
+                if ref is not None:
+                    agent_refs.append(ref)
+
+            result[host_ref] = agent_refs
+
+        # Include running sandboxes without host records (eventual consistency)
+        for sandbox in sandboxes:
+            try:
+                tags = sandbox.get_tags()
+                host_id = HostId(tags[TAG_HOST_ID])
+            except (KeyError, ValueError):
+                continue
+            if host_id in processed_host_ids:
+                continue
+            host_name = HostName(tags.get(TAG_HOST_NAME, str(host_id)))
+            host_ref = HostReference(
+                host_id=host_id,
+                host_name=host_name,
+                provider_name=self.name,
+            )
+            result[host_ref] = []
+
+        return result
+
+    def _list_all_persisted_agent_data(
+        self,
+        cg: ConcurrencyGroup,
+    ) -> dict[HostId, list[dict[str, Any]]]:
+        """Read all persisted agent data from the state volume for all hosts in parallel.
+
+        Returns a mapping from HostId to the list of agent data dicts for that host.
+        Agent data is stored at /{host_id}/{agent_id}.json on the state volume.
+        """
+        volume = self._get_state_volume()
+
+        # List root directory to find host subdirectories
+        try:
+            root_entries = volume.listdir("/")
+        except (NotFoundError, FileNotFoundError):
+            return {}
+
+        # Identify host directories (entries that don't end in .json are directories)
+        host_ids: list[HostId] = []
+        for entry in root_entries:
+            name = entry.path.lstrip("/")
+            if not name.endswith(".json") and name.startswith("host-"):
+                try:
+                    host_ids.append(HostId(name))
+                except ValueError:
+                    continue
+
+        # Read agent data for all hosts in parallel
+        future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
+        with ConcurrencyGroupExecutor(parent_cg=cg, name="modal_list_all_agent_data", max_workers=32) as executor:
+            for host_id in host_ids:
+                future_by_host_id[host_id] = executor.submit(self.list_persisted_agent_data_for_host, host_id)
+
+        return {host_id: future.result() for host_id, future in future_by_host_id.items()}
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Modal sandbox."""

@@ -1,13 +1,16 @@
 from abc import ABC
 from abc import abstractmethod
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Mapping
 from typing import Sequence
 
+from loguru import logger
 from pydantic import Field
 from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.data_types import HostLifecycleOptions
 from imbue.mngr.config.data_types import MngrContext
@@ -18,8 +21,10 @@ from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import AgentId
+from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
@@ -150,6 +155,37 @@ class ProviderInstanceInterface(MutableModel, ABC):
     ) -> list[HostInterface]:
         """List all hosts managed by this provider instance."""
         ...
+
+    def load_agent_refs(
+        self,
+        cg: ConcurrencyGroup,
+        include_destroyed: bool = False,
+    ) -> dict[HostReference, list[AgentReference]]:
+        """Load hosts from this provider and fetch agent references for each host.
+
+        Returns a mapping from HostReference to the list of AgentReferences on that host.
+        Providers may override this to optimize data fetching (e.g. by reading all
+        host and agent data in parallel from a shared volume instead of SSH-ing into
+        each host individually).
+
+        The default implementation calls list_hosts() and then get_agent_references()
+        on each host in parallel.
+        """
+        logger.trace("Loading hosts from provider {}", self.name)
+        hosts = self.list_hosts(cg=cg, include_destroyed=include_destroyed)
+        logger.trace("Loaded {} host(s) from provider {}", len(hosts), self.name)
+
+        future_by_host_ref: dict[HostReference, Future[list[AgentReference]]] = {}
+        with ConcurrencyGroupExecutor(parent_cg=cg, name=f"load_agents_{self.name}", max_workers=32) as executor:
+            for host in hosts:
+                host_ref = HostReference(
+                    host_id=host.id,
+                    host_name=host.get_name(),
+                    provider_name=self.name,
+                )
+                future_by_host_ref[host_ref] = executor.submit(host.get_agent_references)
+
+        return {host_ref: future.result() for host_ref, future in future_by_host_ref.items()}
 
     @abstractmethod
     def get_host_resources(self, host: HostInterface) -> HostResources:

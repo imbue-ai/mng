@@ -33,7 +33,6 @@ from imbue.mngr.errors import ProviderInstanceNotFoundError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import HostInfo
 from imbue.mngr.interfaces.data_types import SSHInfo
-from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ActivitySource
@@ -389,7 +388,7 @@ def _process_provider_streaming(
     """
     try:
         # Phase 1: list hosts and get agent refs
-        provider_results = _load_agent_refs_from_provider(provider, include_destroyed=True, cg=cg)
+        provider_results = provider.load_agent_refs(cg=cg, include_destroyed=True)
 
         # Phase 2: immediately process hosts (fire on_agent for this provider)
         host_futures: list[Future[None]] = []
@@ -712,29 +711,6 @@ def _apply_cel_filters(
     )
 
 
-def _load_agent_refs_from_provider(
-    provider: BaseProviderInstance,
-    include_destroyed: bool,
-    cg: ConcurrencyGroup,
-) -> dict[HostReference, list[AgentReference]]:
-    """Load hosts from a provider and fetch agent references for each host in parallel."""
-    logger.trace("Loading hosts from provider {}", provider.name)
-    hosts = provider.list_hosts(include_destroyed=include_destroyed, cg=cg)
-    logger.trace("Loaded hosts from provider {}", provider.name)
-
-    future_by_host_ref: dict[HostReference, Future[list[AgentReference]]] = {}
-    with ConcurrencyGroupExecutor(parent_cg=cg, name=f"load_agents_{provider.name}", max_workers=32) as executor:
-        for host in hosts:
-            host_ref = HostReference(
-                host_id=host.id,
-                host_name=host.get_name(),
-                provider_name=provider.name,
-            )
-            future_by_host_ref[host_ref] = executor.submit(_get_agent_refs_robustly, host, provider)
-
-    return {host_ref: future.result() for host_ref, future in future_by_host_ref.items()}
-
-
 def _process_provider_for_host_listing(
     provider: BaseProviderInstance,
     agents_by_host: dict[HostReference, list[AgentReference]],
@@ -747,21 +723,11 @@ def _process_provider_for_host_listing(
     This function is run in a thread by load_all_agents_grouped_by_host.
     Results are merged into the shared agents_by_host dict under the results_lock.
     """
-    provider_results = _load_agent_refs_from_provider(provider, include_destroyed, cg)
+    provider_results = provider.load_agent_refs(cg=cg, include_destroyed=include_destroyed)
 
     # Merge results into the main dict under lock
     with results_lock:
         agents_by_host.update(provider_results)
-
-
-# retries via offline info if the host connection errors out
-def _get_agent_refs_robustly(host: HostInterface, provider: BaseProviderInstance) -> list[AgentReference]:
-    try:
-        return host.get_agent_references()
-    # retry once when there is a host connection error (the second time we'll probably end up
-    except HostConnectionError:
-        offline_host = provider.get_host(host.id)
-        return offline_host.get_agent_references()
 
 
 @log_call
