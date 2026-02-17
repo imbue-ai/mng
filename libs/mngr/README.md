@@ -30,10 +30,10 @@ mngr --help
 
 **mngr is fast:**
 ```bash
-> time mngr local-hello  --initial-message "Just say hello" --no-connect --in local
+> time mngr local-hello  --message "Just say hello" --no-connect --in local
 # (time results)
 
-> time mngr remote-hello --initial-message "Just say hello" --no-connect --in modal
+> time mngr remote-hello --message "Just say hello" --no-connect --in modal
 # (time results)
 
 > time mngr list
@@ -43,7 +43,7 @@ mngr --help
 **mngr itself is free, *and* the cheapest way to run remote agents (they shut down when idle):**
 
 ```bash
-mngr create --in modal --no-connect --initial-message "just say 'hello'" --idle-timeout 60 -- --model sonnet
+mngr create --in modal --no-connect --message "just say 'hello'" --idle-timeout 60 -- --model sonnet
 # costs $0.001 for inference
 # costs $0.0001 for compute because it shuts down 60 seconds after the agent completes
 ```
