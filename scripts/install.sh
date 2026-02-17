@@ -118,8 +118,13 @@ printf "\n"
 printf "  2. Install Claude Code (for the claude agent type):\n"
 printf "     ${DIM}npm install -g @anthropic-ai/claude-code${RESET}\n"
 printf "\n"
+if [ "$OS" = "macos" ]; then
 printf "  3. Enable shell completion (zsh):\n"
 printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=zsh_source mngr)\"' >> ~/.zshrc${RESET}\n"
+else
+printf "  3. Enable shell completion (bash):\n"
+printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=bash_source mngr)\"' >> ~/.bashrc${RESET}\n"
+fi
 printf "\n"
 printf "  4. Get started:\n"
 printf "     ${DIM}mngr --help${RESET}\n"
