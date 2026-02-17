@@ -237,6 +237,14 @@ def setup_command_context(
     # Run pre-command scripts if configured for this command
     _run_pre_command_scripts(mngr_ctx.config, command_name, cg)
 
+    # Store command metadata for lifecycle hooks (on_after_command, on_error)
+    if ctx.parent is not None:
+        ctx.parent.meta["hook_command_name"] = command_name
+        ctx.parent.meta["hook_command_params"] = updated_params
+
+    # Call on_before_command hook (plugins can raise to abort)
+    pm.hook.on_before_command(command_name=command_name, command_params=updated_params)
+
     return mngr_ctx, output_opts, opts
 
 

@@ -196,3 +196,40 @@ def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
                 )
             return None
     """
+
+
+# --- Program lifecycle hooks ---
+
+
+@hookspec
+def on_post_install(plugin_name: str) -> None:
+    """Called after a plugin is installed or upgraded."""
+
+
+@hookspec
+def on_startup() -> None:
+    """Called when mngr starts up, before any command runs."""
+
+
+@hookspec
+def on_before_command(command_name: str, command_params: dict[str, Any]) -> None:
+    """Called before any command executes.
+
+    Receives the command name and a dict of the resolved command parameters.
+    Plugins can raise an exception to abort execution.
+    """
+
+
+@hookspec
+def on_after_command(command_name: str, command_params: dict[str, Any]) -> None:
+    """Called after a command completes successfully."""
+
+
+@hookspec
+def on_error(command_name: str, command_params: dict[str, Any], error: BaseException) -> None:
+    """Called when a command raises an exception."""
+
+
+@hookspec
+def on_shutdown() -> None:
+    """Called when mngr is shutting down, after the command has completed."""
