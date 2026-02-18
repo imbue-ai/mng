@@ -6,6 +6,7 @@ requires-python = ">=3.11"
 license = "MIT"
 readme = "README.md"
 authors = [
+    {name = "Imbue"},
     {name = "Josh Albrecht"},
     {name = "Evan Ryan Gunter"},
 ]
