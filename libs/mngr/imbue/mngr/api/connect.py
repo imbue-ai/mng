@@ -139,6 +139,16 @@ def _determine_post_disconnect_action(
         return None
 
 
+def resolve_connect_command(
+    cli_connect_command: str | None,
+    mngr_ctx: MngrContext,
+) -> str | None:
+    """Resolve the connect command from a CLI option or global config."""
+    if cli_connect_command is not None:
+        return cli_connect_command
+    return mngr_ctx.config.connect_command
+
+
 def run_connect_command(
     connect_command: str,
     agent_name: str,

@@ -1366,75 +1366,51 @@ def test_read_macos_keychain_credential_returns_none_on_process_setup_error() ->
     assert result is None
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_keychain_on_local_macos(
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_on_local(
     credential_check_host: Host,
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
-    """_has_api_credentials_available returns True on local macOS when keychain has credentials."""
+    """_has_api_credentials_available returns True on local host when credentials file exists."""
     config = ClaudeAgentConfig(check_installation=False)
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.is_macos",
-        return_value=True,
-    ):
-        with patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._read_macos_keychain_credential",
-            return_value='{"claudeAiOauth": {"accessToken": "test-token"}}',
-        ):
-            assert (
-                _has_api_credentials_available(
-                    credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
-                )
-                is True
-            )
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_keychain_on_remote_with_sync_enabled(
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_on_remote_with_sync_enabled(
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
-    """_has_api_credentials_available returns True on remote host when keychain has credentials and sync is enabled."""
+    """_has_api_credentials_available returns True on remote host when credentials file exists and sync is enabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=True)
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.is_macos",
-        return_value=True,
-    ):
-        with patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._read_macos_keychain_credential",
-            return_value="some-credential",
-        ):
-            assert (
-                _has_api_credentials_available(
-                    _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
-                )
-                is True
-            )
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_ignores_keychain_on_remote_with_sync_disabled(
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabled(
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
-    """_has_api_credentials_available returns False on remote host when sync is disabled even with keychain credentials."""
+    """_has_api_credentials_available returns False on remote host when sync is disabled even with credentials file."""
     config = ClaudeAgentConfig(
         check_installation=False,
         sync_claude_credentials=False,
         sync_claude_json=False,
     )
 
-    with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent.is_macos",
-        return_value=True,
-    ):
-        with patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._read_macos_keychain_credential",
-            return_value="some-credential",
-        ):
-            assert (
-                _has_api_credentials_available(
-                    _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
-                )
-                is False
-            )
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )

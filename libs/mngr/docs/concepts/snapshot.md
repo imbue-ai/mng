@@ -35,7 +35,7 @@ By default, hosts are paused during snapshotting to improve consistency. This ca
 Snapshot support varies by [provider](./providers.md):
 
 - **Local**: Not supported
-- **Docker** [future]: `docker commit` (incremental relative to container start, can be slow for large containers)
+- **Docker**: `docker commit` (incremental relative to container start, can be slow for large containers)
 - **Modal**: Native snapshots (fast, fully incremental since the last snapshot)
 
 ## Managing Snapshots
