@@ -54,7 +54,7 @@ def _create_testable_agent(
     on_destroy_should_raise: bool = False,
 ) -> tuple[_TestableAgent, Host]:
     """Create a _TestableAgent with proper filesystem setup."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent_id = AgentId.generate()
@@ -96,7 +96,7 @@ def host_with_agents_dir(
     temp_host_dir: Path,
 ) -> tuple[Host, Path]:
     """Create a Host with an agents directory for testing."""
-    host = local_provider.create_host(HostName("test-agent-refs"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
     agents_dir = local_provider.host_dir / "agents"
     agents_dir.mkdir(parents=True, exist_ok=True)
@@ -138,7 +138,7 @@ def test_get_agent_references_returns_empty_when_no_agents_dir(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that get_agent_references returns empty list when no agents directory exists."""
-    host = local_provider.create_host(HostName("test-no-agents"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     # Don't create agents directory
@@ -355,7 +355,7 @@ def _create_test_agent(
     temp_work_dir: Path,
 ) -> BaseAgent:
     """Create a minimal test agent for command building tests."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent_id = AgentId.generate()

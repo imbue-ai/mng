@@ -108,7 +108,7 @@ def test_built_instance_can_create_host(tmp_path: Path, temp_mngr_ctx: MngrConte
         mngr_ctx=temp_mngr_ctx,
     )
 
-    host = instance.create_host(HostName("test"))
+    host = instance.create_host(HostName("localhost"))
     assert host is not None
     assert host.id is not None
 
@@ -151,7 +151,7 @@ def test_multiple_instances_with_different_names(
     assert instance1.name == ProviderInstanceName("local-1")
     assert instance2.name == ProviderInstanceName("local-2")
 
-    host1 = instance1.create_host(HostName("test"))
-    host2 = instance2.create_host(HostName("test"))
+    host1 = instance1.create_host(HostName("localhost"))
+    host2 = instance2.create_host(HostName("localhost"))
 
     assert host1.id != host2.id

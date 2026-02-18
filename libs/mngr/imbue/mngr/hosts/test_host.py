@@ -57,7 +57,7 @@ from imbue.mngr.utils.testing import local_sshd
 @pytest.fixture
 def host_with_temp_dir(local_provider: LocalProviderInstance) -> tuple[Host, Path]:
     """Create a Host using the local provider and its per-host directory."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
     return host, host.host_dir
 
@@ -655,7 +655,7 @@ def test_unset_vars_applied_during_agent_start(
         mngr_ctx=mngr_ctx_with_unset,
     )
 
-    host = provider_with_unset.create_host(HostName("test-unset-vars"))
+    host = provider_with_unset.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -736,7 +736,7 @@ def test_stop_agent_kills_single_pane_processes(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-stop-single"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -790,7 +790,7 @@ def test_stop_agent_kills_multi_pane_processes(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-stop-multi"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -850,7 +850,7 @@ def test_start_agent_creates_process_group(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-pgid"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -907,7 +907,7 @@ def test_start_agent_starts_process_activity_monitor(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-activity-monitor"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -977,7 +977,7 @@ def test_additional_commands_stored_in_agent_data(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-additional-cmds-stored"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -1020,7 +1020,7 @@ def test_start_agent_creates_additional_tmux_windows(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-additional-windows"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -1077,7 +1077,7 @@ def test_start_agent_additional_windows_run_commands(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-additional-commands"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -1932,7 +1932,7 @@ def test_start_agent_has_access_to_env_vars(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-env-start"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     # Create a marker file path where the agent will write the env var value
@@ -1994,7 +1994,7 @@ def test_new_tmux_window_inherits_env_vars(
         host_dir=per_host_dir,
         mngr_ctx=mngr_ctx,
     )
-    host = provider.create_host(HostName("test-new-window"))
+    host = provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     marker_file = temp_work_dir / "new_window_marker.txt"

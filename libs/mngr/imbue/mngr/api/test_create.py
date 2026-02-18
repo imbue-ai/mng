@@ -133,7 +133,7 @@ def test_create_agent_with_new_host(
 
         target_host = NewHostOptions(
             provider=LOCAL_PROVIDER_NAME,
-            name=HostName("test-host"),
+            name=HostName("localhost"),
         )
 
         result = create(

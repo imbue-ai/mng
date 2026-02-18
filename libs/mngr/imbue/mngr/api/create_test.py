@@ -13,7 +13,7 @@ def test_write_host_env_vars_writes_explicit_env_vars(
     temp_host_dir: Path,
 ) -> None:
     """Test that _write_host_env_vars writes explicit env vars to the host env file."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     environment = HostEnvironmentOptions(
@@ -36,7 +36,7 @@ def test_write_host_env_vars_reads_env_files(
     tmp_path: Path,
 ) -> None:
     """Test that _write_host_env_vars reads env files and writes to the host env file."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     env_file = tmp_path / "test.env"
@@ -59,7 +59,7 @@ def test_write_host_env_vars_explicit_overrides_file(
     tmp_path: Path,
 ) -> None:
     """Test that explicit env vars override values from env files."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     env_file = tmp_path / "test.env"
@@ -82,7 +82,7 @@ def test_write_host_env_vars_skips_when_empty(
     temp_host_dir: Path,
 ) -> None:
     """Test that _write_host_env_vars does nothing when no env vars or files are specified."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     environment = HostEnvironmentOptions()
