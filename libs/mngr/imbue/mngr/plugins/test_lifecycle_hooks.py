@@ -1,9 +1,3 @@
-"""Integration tests for program lifecycle hooks (on_startup, on_shutdown, on_before_command, etc.).
-
-These tests exercise hooks through the real CLI entry point, real AliasAwareGroup.invoke(),
-and real commands calling setup_command_context -- not a synthetic test CLI.
-"""
-
 from typing import Any
 
 import click
@@ -115,6 +109,15 @@ def test_on_after_command_receives_correct_command_name(
     assert after_calls[0][1]["command_name"] == "list"
 
 
+def test_alias_resolves_to_canonical_command_name(lifecycle_tracker: _LifecycleTracker, cli_runner: CliRunner) -> None:
+    """Invoking via alias (ls) still reports the canonical command name (list) to hooks."""
+    cli_runner.invoke(cli, ["ls"])
+
+    before_calls = [(name, data) for name, data in lifecycle_tracker.calls if name == "on_before_command"]
+    assert len(before_calls) == 1
+    assert before_calls[0][1]["command_name"] == "list"
+
+
 # --- Error path (mngr destroy nonexistent) ---
 
 
@@ -176,25 +179,23 @@ def test_plugin_can_abort_via_on_before_command(
 
 
 def test_multiple_plugin_hooks_all_fire(
-    lifecycle_tracker: _LifecycleTracker,
     plugin_manager: pluggy.PluginManager,
     cli_runner: CliRunner,
 ) -> None:
     """When multiple tracker plugins are registered, both record all hooks."""
+    tracker1 = _LifecycleTracker()
     tracker2 = _LifecycleTracker()
+    plugin_manager.register(tracker1)
     plugin_manager.register(tracker2)
+    imbue.mngr.main._plugin_manager_container["pm"] = plugin_manager
 
     cli_runner.invoke(cli, ["list"])
 
-    assert lifecycle_tracker.hook_names == [
+    expected = [
         "on_startup",
         "on_before_command",
         "on_after_command",
         "on_shutdown",
     ]
-    assert tracker2.hook_names == [
-        "on_startup",
-        "on_before_command",
-        "on_after_command",
-        "on_shutdown",
-    ]
+    assert tracker1.hook_names == expected
+    assert tracker2.hook_names == expected
