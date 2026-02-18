@@ -471,7 +471,10 @@ def _collect_positional_or_keyword_violations(
             if node.name.startswith("_"):
                 continue
 
-            # Get the POSITIONAL_OR_KEYWORD args
+            # ast.arguments has three lists of params: posonlyargs (before /),
+            # args (between / and *, i.e. POSITIONAL_OR_KEYWORD), and kwonlyargs
+            # (after *). We want to flag any non-empty "args" on public functions.
+            # See https://docs.python.org/3/library/ast.html#ast.arguments
             positional_or_keyword_args = node.args.args
 
             # For methods, exempt self/cls (the first arg)
