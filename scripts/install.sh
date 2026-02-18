@@ -7,8 +7,8 @@
 #
 # This script:
 #   1. Checks for prerequisites (curl, ssh)
-#   2. Prompts to install system dependencies (git, tmux, jq, rsync, unison)
-#   3. Installs uv (if not already installed)
+#   2. Prompts to install system dependencies (uv, git, tmux, jq, rsync, unison)
+#   3. Installs uv via its own installer (if not already installed)
 #   4. Installs mngr via uv tool install
 #
 set -euo pipefail
@@ -52,9 +52,14 @@ done
 
 # ── Install system dependencies ────────────────────────────────────────────────
 
-CORE_DEPS=(git tmux jq)
+CORE_DEPS=(uv git tmux jq)
 OPTIONAL_DEPS=(rsync unison)
 ALL_DEPS=("${CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}")
+
+# uv is a core dep but has its own installer (not brew/apt), so we filter
+# it out before passing to install_deps. The "Install uv" section below
+# handles it separately.
+BREW_APT_CORE_DEPS=(git tmux jq)
 
 find_missing() {
     local deps=("$@")
@@ -98,6 +103,7 @@ if [ ${#missing_all[@]} -eq 0 ]; then
 else
     printf "\n"
     printf "mngr needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
+    printf "  uv will be installed automatically via its own installer.\n"
     printf "  rsync and unison are optional (needed for push/pull/pair).\n"
     printf "\n"
     printf "  [a] Install all (%s)\n" "${missing_all[*]}"
@@ -112,13 +118,21 @@ else
     # Read from /dev/tty since stdin may be piped
     read -r choice < /dev/tty
 
+    # Filter out uv from brew/apt install lists (it has its own installer)
+    # shellcheck disable=SC2207
+    brew_apt_missing_all=($(find_missing "${BREW_APT_CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}"))
+    # shellcheck disable=SC2207
+    brew_apt_missing_core=($(find_missing "${BREW_APT_CORE_DEPS[@]}"))
+
     case "$choice" in
         a|A|y|Y|"")
-            install_deps "${missing_all[@]}"
+            if [ ${#brew_apt_missing_all[@]} -gt 0 ]; then
+                install_deps "${brew_apt_missing_all[@]}"
+            fi
             ;;
         c|C)
-            if [ ${#missing_core[@]} -gt 0 ]; then
-                install_deps "${missing_core[@]}"
+            if [ ${#brew_apt_missing_core[@]} -gt 0 ]; then
+                install_deps "${brew_apt_missing_core[@]}"
             else
                 info "Core dependencies already installed"
             fi
