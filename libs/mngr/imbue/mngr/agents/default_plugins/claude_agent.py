@@ -23,6 +23,7 @@ from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hook
 from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import check_effort_callout_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
+from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
@@ -471,6 +472,38 @@ class ClaudeAgent(BaseAgent):
         with log_span("Configuring readiness hooks in {}", settings_path):
             host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
 
+    def _ensure_no_blocking_dialogs(self, source_path: Path, mngr_ctx: MngrContext) -> None:
+        """Ensure all known Claude startup dialogs are dismissed for source_path.
+
+        For auto-approve mode, silently dismisses all dialogs. For interactive
+        mode, prompts the user for each undismissed dialog. For non-interactive
+        mode, raises the appropriate error.
+        """
+        if mngr_ctx.is_auto_approve:
+            ensure_claude_dialogs_dismissed(source_path)
+            return
+
+        try:
+            check_claude_dialogs_dismissed(source_path)
+        except ClaudeDirectoryNotTrustedError:
+            if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
+                add_claude_trust_for_path(source_path)
+            else:
+                raise
+            # Re-check remaining dialogs after fixing trust
+            try:
+                check_effort_callout_dismissed()
+            except ClaudeEffortCalloutNotDismissedError:
+                if mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal():
+                    dismiss_effort_callout()
+                else:
+                    raise
+        except ClaudeEffortCalloutNotDismissedError:
+            if mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal():
+                dismiss_effort_callout()
+            else:
+                raise
+
     def provision(
         self,
         host: OnlineHostInterface,
@@ -479,36 +512,15 @@ class ClaudeAgent(BaseAgent):
     ) -> None:
         """Extend trust for worktrees and install Claude if needed.
 
-        For worktree-mode agents, copies the source directory's Claude trust
-        config to the new worktree. If the source directory isn't yet trusted,
-        interactive runs prompt the user to add trust (re-raising if declined);
-        non-interactive runs re-raise the error. Also ensures all known Claude
-        startup dialogs are dismissed to prevent them from intercepting
-        automated input.
+        For worktree-mode agents, ensures all Claude startup dialogs are
+        dismissed and extends trust to the worktree.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
-                try:
-                    extend_claude_trust_to_worktree(source_path, self.work_dir)
-                except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_trust(source_path)):
-                        add_claude_trust_for_path(source_path)
-                        extend_claude_trust_to_worktree(source_path, self.work_dir)
-                    else:
-                        raise
-
-                # Ensure effort callout is dismissed
-                try:
-                    check_effort_callout_dismissed()
-                except ClaudeEffortCalloutNotDismissedError:
-                    if mngr_ctx.is_auto_approve or (
-                        mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal()
-                    ):
-                        dismiss_effort_callout()
-                    else:
-                        raise
+                self._ensure_no_blocking_dialogs(source_path, mngr_ctx)
+                extend_claude_trust_to_worktree(source_path, self.work_dir)
 
         config = self._get_claude_config()
 
