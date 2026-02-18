@@ -548,23 +548,46 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mngr_ctx.field_ref().is_auto_approve, True),
         )
 
-    # Batch creation: create multiple agents in one command
+    # Resolve defaults that depend on other args. We use ctx.get_parameter_source() to
+    # distinguish "user explicitly passed --foo" from "defaulted to --foo", so we can
+    # auto-adjust defaults without overriding explicit user intent.
     is_batch = opts.count > 1
-    if is_batch:
-        # Error if user explicitly passed --connect
+    updates: list[tuple[str, object]] = []
+
+    # --await-agent-stopped implies --no-connect (unless user explicitly passed --connect)
+    if opts.await_agent_stopped and opts.connect:
         connect_source = ctx.get_parameter_source("connect")
-        if opts.connect and connect_source == click.core.ParameterSource.COMMANDLINE:
+        if connect_source == click.core.ParameterSource.COMMANDLINE:
+            raise UserInputError(
+                "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
+            )
+        updates.append(to_update(opts.field_ref().connect, False))
+
+    # batch implies --no-connect (unless user explicitly passed --connect)
+    if is_batch and opts.connect:
+        connect_source = ctx.get_parameter_source("connect")
+        if connect_source == click.core.ParameterSource.COMMANDLINE:
             raise UserInputError(
                 "Cannot use --connect with -n/--count > 1. Batch create automatically disables connect."
             )
-        # Default to --no-connect --await-ready (foreground, sequential, returns results).
-        # User can pass --no-await-ready explicitly for fire-and-forget.
+        updates.append(to_update(opts.field_ref().connect, False))
+
+    # batch defaults to --await-ready (foreground, sequential, returns results).
+    # User can pass --no-await-ready explicitly for fire-and-forget.
+    if is_batch:
         await_ready_source = ctx.get_parameter_source("await_ready")
-        is_await_ready_explicit = await_ready_source == click.core.ParameterSource.COMMANDLINE
-        opts = opts.model_copy_update(
-            to_update(opts.field_ref().connect, False),
-            *([to_update(opts.field_ref().await_ready, True)] if not is_await_ready_explicit else []),
-        )
+        if await_ready_source != click.core.ParameterSource.COMMANDLINE:
+            updates.append(to_update(opts.field_ref().await_ready, True))
+
+    # --await-agent-stopped implies --await-ready
+    if opts.await_agent_stopped and opts.await_ready is None:
+        updates.append(to_update(opts.field_ref().await_ready, True))
+
+    # --no-connect defaults to --no-await-ready (background creation)
+    # (this is the existing default, just made explicit here for clarity)
+
+    if updates:
+        opts = opts.model_copy_update(*updates)
 
     # Per-invocation setup (validation, editor session, source resolution, etc.)
     setup = _setup_create(mngr_ctx, output_opts, opts)
@@ -585,7 +608,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     _finish_create(results, setup, output_opts)
 
 
-class _CreateSetup(MutableModel):
+class _CreateSetup(FrozenModel):
     """Per-invocation state shared across all agents in a create command."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -616,63 +639,71 @@ def _setup_create(
         if opts.reuse:
             raise UserInputError("Cannot use --reuse with -n/--count > 1.")
 
-    # Validate message options
+    # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
+
+    # Validate that both --resume-message and --resume-message-file are not provided
     if opts.resume_message is not None and opts.resume_message_file is not None:
         raise UserInputError("Cannot provide both --resume-message and --resume-message-file")
-    if opts.await_agent_stopped and opts.connect:
-        raise UserInputError(
-            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
-        )
 
     # Early validation: --edit-message cannot be used with background creation
+    # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
+    # We check this BEFORE creating the editor session to avoid starting an editor subprocess
+    # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
     if opts.edit_message:
-        early_should_await_ready = opts.await_ready
-        if early_should_await_ready is None:
-            if opts.await_agent_stopped:
-                early_should_await_ready = True
-            else:
-                early_should_await_ready = opts.connect
-        if not opts.connect and not early_should_await_ready:
+        if not opts.connect and not opts.await_ready:
             raise UserInputError(
                 "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
                 "Use --await-ready to wait for agent creation."
             )
 
-    # Read message content from file or flag
+    # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
     initial_message_content: str | None
     if opts.message_file is not None:
-        initial_message_content = Path(opts.message_file).read_text()
+        message_file_path = Path(opts.message_file)
+        initial_message_content = message_file_path.read_text()
     elif opts.message is not None:
         initial_message_content = opts.message
     else:
         initial_message_content = None
 
-    # Read resume message content
+    # Read resume message from file if --resume-message-file is provided
     resume_message_content: str | None
     if opts.resume_message_file is not None:
-        resume_message_content = Path(opts.resume_message_file).read_text()
+        resume_message_file_path = Path(opts.resume_message_file)
+        resume_message_content = resume_message_file_path.read_text()
     elif opts.resume_message is not None:
         resume_message_content = opts.resume_message
     else:
         resume_message_content = None
 
-    # Start editor session if --edit-message (runs in parallel with agent creation)
+    # If --edit-message is set, start the editor immediately
+    # The editor runs in parallel with agent creation
+    # We suppress logging while the editor is open to avoid writing to the terminal
     editor_session: EditorSession | None = None
     if opts.edit_message:
         editor_session = EditorSession.create(initial_content=initial_message_content)
+        # Enable logging suppression before starting the editor so that
+        # log messages don't interfere with the editor's terminal output
         LoggingSuppressor.enable(output_opts)
+        # Start editor with callback that restores logging when it exits
         editor_session.start(on_exit=_on_editor_exit)
-        # Don't pass message to api_create; we'll send it after the editor finishes
+        # When using editor, don't pass message to api_create (we'll send it after editor finishes)
         initial_message = None
     else:
         initial_message = initial_message_content
 
-    # Resolve source and project
+    # Create a lazy loader for agents grouped by host (only loads if needed)
     agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
+
+    # figure out where the source data is coming from
     source_location = _resolve_source_location(opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host)
+
+    # figure out the project label, in case we need that
     project_name = _parse_project_name(source_location, opts, mngr_ctx)
+
+    # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
 
     return _CreateSetup(
@@ -693,7 +724,7 @@ def _create_one_agent(
     setup: _CreateSetup,
 ) -> tuple[CreateAgentResult, ConnectionOptions] | None:
     """Per-agent creation: parse opts, resolve host, create agent."""
-    # Parse target host (fresh each time, so --in creates a new host per agent)
+    # Parse target host (existing or new)
     target_host = _parse_target_host(
         opts=opts,
         project_name=setup.project_name,
@@ -701,7 +732,7 @@ def _create_one_agent(
         lifecycle=setup.host_lifecycle,
     )
 
-    # Parse agent options (generates unique name each time for batch)
+    # Parse agent options
     agent_opts = _parse_agent_opts(
         opts=opts,
         initial_message=setup.initial_message,
@@ -710,7 +741,7 @@ def _create_one_agent(
         mngr_ctx=mngr_ctx,
     )
 
-    # Parse connection options
+    # parse the connection options
     connection_opts = ConnectionOptions(
         is_reconnect=opts.reconnect,
         is_interactive=opts.interactive,
@@ -720,7 +751,7 @@ def _create_one_agent(
         attach_command=opts.attach_command,
     )
 
-    # If --reuse is set, try to find and reuse an existing agent
+    # If --reuse is set, try to find and reuse an existing agent with the same name
     if opts.reuse and agent_opts.name is not None:
         reuse_result = _try_reuse_existing_agent(
             agent_name=agent_opts.name,
@@ -749,7 +780,10 @@ def _create_one_agent(
 
             return CreateAgentResult(agent=agent, host=host), connection_opts
 
-    # Ensure source is clean
+    # If ensure-clean is set, verify the source work_dir is clean.
+    # Skip the check when using worktree mode with an explicit --base-branch, since the
+    # worktree will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant.
     is_worktree_from_other_branch = (
         agent_opts.git is not None
         and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
@@ -758,14 +792,15 @@ def _create_one_agent(
     if opts.ensure_clean and not is_worktree_from_other_branch:
         _ensure_clean_work_dir(setup.source_location)
 
-    # Resolve target host
+    # figure out the target host (if we just have a reference)
     resolved_target_host = _resolve_target_host(target_host, mngr_ctx, is_start_desired=opts.start_host)
 
-    # Set tags on existing hosts
+    # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
+    # This ensures local hosts get any --tag values.
     if isinstance(resolved_target_host, OnlineHostInterface):
         _apply_tags_to_host(resolved_target_host, opts.tag)
 
-    # Set project label on agent
+    # Set the project as a label on the agent (labels are agent-level, not host-level)
     if setup.project_name:
         agent_opts = agent_opts.model_copy_update(
             to_update(
@@ -774,14 +809,16 @@ def _create_one_agent(
             ),
         )
 
-    # Snapshot source if required
+    # figure out the source (this may snapshot the source agent if needed)
     snapshot = _snapshot_if_required(
         mngr_ctx=mngr_ctx,
         snapshot_source=opts.snapshot_source,
         source_location=setup.source_location,
     )
 
-    # Create work_dir immediately if needed
+    # create work_dir immediately (if necessary)
+    # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
+    # and obviously only matters if we're not creating a new host
     is_work_dir_created: bool
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_path = resolved_target_host.create_agent_work_dir(
@@ -796,16 +833,10 @@ def _create_one_agent(
     else:
         is_work_dir_created = False
 
-    # Determine whether to wait for agent to be ready
-    should_await_ready = opts.await_ready
-    if should_await_ready is None:
-        if opts.await_agent_stopped:
-            should_await_ready = True
-        else:
-            should_await_ready = opts.connect
-
-    # Background creation (fire-and-forget)
-    if not opts.connect and not should_await_ready:
+    # If --no-connect and --no-await-ready, run api_create in background
+    # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
+    # starting an editor subprocess that would need to be cleaned up
+    if not opts.connect and not opts.await_ready:
         _create_agent_in_background(
             setup.source_location,
             resolved_target_host,
