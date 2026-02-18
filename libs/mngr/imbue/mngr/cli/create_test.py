@@ -651,18 +651,18 @@ def test_handle_batch_create_rejects_reuse(
         _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
 
 
-def test_handle_batch_create_rejects_message(
+def test_handle_batch_create_rejects_edit_message(
     default_create_cli_opts: CreateCliOptions,
     temp_mngr_ctx: MngrContext,
 ) -> None:
-    """Batch create rejects --message."""
+    """Batch create rejects --edit-message."""
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().count, 3),
         to_update(default_create_cli_opts.field_ref().connect, False),
-        to_update(default_create_cli_opts.field_ref().message, "hello"),
+        to_update(default_create_cli_opts.field_ref().edit_message, True),
     )
 
-    with pytest.raises(UserInputError, match="Cannot use --message"):
+    with pytest.raises(UserInputError, match="Cannot use --edit-message"):
         _handle_batch_create(temp_mngr_ctx, OutputOptions(), opts)
 
 

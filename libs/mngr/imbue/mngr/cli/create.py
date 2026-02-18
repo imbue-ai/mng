@@ -847,8 +847,8 @@ def _handle_batch_create(
         )
     if opts.reuse:
         raise UserInputError("Cannot use --reuse with -n/--count > 1.")
-    if opts.message or opts.message_file or opts.edit_message:
-        raise UserInputError("Cannot use --message/--message-file/--edit-message with -n/--count > 1.")
+    if opts.edit_message:
+        raise UserInputError("Cannot use --edit-message with -n/--count > 1.")
     if opts.await_agent_stopped:
         raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
 
