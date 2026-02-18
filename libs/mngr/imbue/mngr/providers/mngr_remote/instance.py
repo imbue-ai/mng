@@ -1,27 +1,35 @@
 from collections.abc import Mapping
 from collections.abc import Sequence
+from datetime import datetime
+from datetime import timezone
+from typing import Any
 
 from loguru import logger
 from pydantic import Field
+from pydantic import PrivateAttr
 from pydantic import SecretStr
 from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.data_types import HostLifecycleOptions
+from imbue.mngr.errors import HostNotFoundError
 from imbue.mngr.errors import ProviderError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.interfaces.data_types import CertifiedHostData
 from imbue.mngr.interfaces.data_types import HostResources
 from imbue.mngr.interfaces.data_types import SnapshotInfo
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostState
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.mngr_remote.client import MngrRemoteClient
+from imbue.mngr.providers.mngr_remote.remote_host import RemoteHost
 
 
 class MngrRemoteProviderInstance(BaseProviderInstance):
@@ -36,6 +44,8 @@ class MngrRemoteProviderInstance(BaseProviderInstance):
 
     remote_url: str = Field(frozen=True, description="Base URL of the remote mngr API server")
     remote_token: SecretStr = Field(frozen=True, description="Bearer token for the remote API server")
+
+    _host_cache: dict[HostId, RemoteHost] = PrivateAttr(default_factory=dict)
 
     def _get_client(self) -> MngrRemoteClient:
         """Create a client for the remote API server."""
@@ -66,19 +76,87 @@ class MngrRemoteProviderInstance(BaseProviderInstance):
         cg: ConcurrencyGroup,
         include_destroyed: bool = False,
     ) -> list[HostInterface]:
-        """List hosts from the remote API. Returns empty list since hosts are remote.
+        """List hosts from the remote API server.
 
-        Agent data is accessed via list_persisted_agent_data_for_host().
+        Fetches agents from the remote API, groups them by host, and creates
+        RemoteHost objects for each unique host found. Raises ProviderError
+        if the remote server is unreachable (propagated through the listing
+        pipeline as a ProviderErrorInfo).
         """
-        return []
+        all_agents = self._get_client().list_agents()
+
+        # Group agents by host ID
+        agents_by_host: dict[str, list[dict[str, Any]]] = {}
+        host_data_by_id: dict[str, dict[str, Any]] = {}
+        for agent in all_agents:
+            host_info = agent.get("host", {})
+            host_id_str = host_info.get("id")
+            if host_id_str is None:
+                logger.warning("Skipping agent without host ID from remote API: {}", agent.get("id"))
+                continue
+            agents_by_host.setdefault(host_id_str, []).append(agent)
+            if host_id_str not in host_data_by_id:
+                host_data_by_id[host_id_str] = host_info
+
+        # Create RemoteHost objects for each unique host
+        self._host_cache.clear()
+        hosts: list[HostInterface] = []
+        now = datetime.now(timezone.utc)
+        for host_id_str, host_info in host_data_by_id.items():
+            host_id = HostId(host_id_str)
+
+            state_str = host_info.get("state")
+            remote_state = HostState(state_str) if state_str else HostState.RUNNING
+
+            certified_data = CertifiedHostData(
+                host_id=host_id_str,
+                host_name=host_info.get("name", host_id_str),
+                created_at=now,
+                updated_at=now,
+                user_tags=host_info.get("tags", {}),
+                image=host_info.get("image"),
+                # stop_reason is not used by RemoteHost.get_state() but set for consistency
+                stop_reason=state_str,
+            )
+
+            remote_host = RemoteHost(
+                id=host_id,
+                provider_instance=self,
+                mngr_ctx=self.mngr_ctx,
+                certified_host_data=certified_data,
+                remote_state=remote_state,
+                remote_agent_data=tuple(agents_by_host[host_id_str]),
+            )
+            hosts.append(remote_host)
+            self._host_cache[host_id] = remote_host
+
+        return hosts
 
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict]:
-        """Fetch agent data from the remote API server."""
-        try:
-            all_agents = self._get_client().list_agents()
-            return [a for a in all_agents if a.get("host", {}).get("id") == str(host_id)]
-        except ProviderError:
-            return []
+        """Fetch agent data from the remote API server.
+
+        Returns cached data if available from a prior list_hosts() call,
+        otherwise fetches fresh from the API. Raises ProviderError if
+        the remote server is unreachable.
+        """
+        cached_host = self._host_cache.get(host_id)
+        if cached_host is not None:
+            return list(cached_host.remote_agent_data)
+
+        all_agents = self._get_client().list_agents()
+        return [a for a in all_agents if a.get("host", {}).get("id") == str(host_id)]
+
+    def get_host(self, host: HostId | HostName) -> HostInterface:
+        """Return a cached host from the most recent list_hosts() call."""
+        if isinstance(host, HostId):
+            cached = self._host_cache.get(host)
+            if cached is not None:
+                return cached
+        else:
+            for cached_host in self._host_cache.values():
+                if cached_host.get_name() == host:
+                    return cached_host
+        raise HostNotFoundError(host)
 
     def create_host(
         self,
@@ -122,9 +200,6 @@ class MngrRemoteProviderInstance(BaseProviderInstance):
 
     def on_connection_error(self, host_id: HostId) -> None:
         logger.debug("Connection error for remote host {}", host_id)
-
-    def get_host(self, host: HostId | HostName) -> HostInterface:
-        raise ProviderError("Cannot access individual hosts through mngr remote provider.")
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
         raise ProviderError("Cannot query host resources through mngr remote provider.")

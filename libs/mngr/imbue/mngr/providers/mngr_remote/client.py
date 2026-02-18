@@ -30,6 +30,13 @@ class MngrRemoteClient(FrozenModel):
             response = httpx.get(self._url("/api/agents"), headers=self._headers(), timeout=30.0)
             response.raise_for_status()
             data = response.json()
+            for error in data.get("errors", []):
+                logger.warning(
+                    "Remote mngr at {} reported error: {} - {}",
+                    self.base_url,
+                    error.get("error_type", "unknown"),
+                    error.get("message", "unknown"),
+                )
             return data.get("agents", [])
         except httpx.HTTPError as e:
             logger.warning("Failed to fetch agents from remote mngr at {}: {}", self.base_url, e)
