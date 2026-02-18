@@ -37,6 +37,8 @@ from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
+from imbue.mngr.cli.common_opts import error_if_param_explicit
+from imbue.mngr.cli.common_opts import is_param_explicit
 from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.env_utils import resolve_env_vars
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
@@ -548,46 +550,42 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mngr_ctx.field_ref().is_auto_approve, True),
         )
 
-    # Resolve defaults that depend on other args. We use ctx.get_parameter_source() to
-    # distinguish "user explicitly passed --foo" from "defaulted to --foo", so we can
-    # auto-adjust defaults without overriding explicit user intent.
+    # Resolve defaults that depend on other args. override_default_or_error changes the
+    # default but raises if the user explicitly passed a conflicting value on the command line.
+    # override_default_if_not_explicit changes the default but silently skips if explicit.
     is_batch = opts.count > 1
-    updates: list[tuple[str, object]] = []
 
-    # --await-agent-stopped implies --no-connect (unless user explicitly passed --connect)
+    # --await-agent-stopped implies --no-connect
     if opts.await_agent_stopped and opts.connect:
-        connect_source = ctx.get_parameter_source("connect")
-        if connect_source == click.core.ParameterSource.COMMANDLINE:
-            raise UserInputError(
-                "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
-            )
-        updates.append(to_update(opts.field_ref().connect, False))
+        error_if_param_explicit(
+            ctx,
+            "connect",
+            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().connect, False))
 
-    # batch implies --no-connect (unless user explicitly passed --connect)
+    # batch implies --no-connect
     if is_batch and opts.connect:
-        connect_source = ctx.get_parameter_source("connect")
-        if connect_source == click.core.ParameterSource.COMMANDLINE:
-            raise UserInputError(
-                "Cannot use --connect with -n/--count > 1. Batch create automatically disables connect."
-            )
-        updates.append(to_update(opts.field_ref().connect, False))
+        error_if_param_explicit(
+            ctx,
+            "connect",
+            "Cannot use --connect with -n/--count > 1. Batch create automatically disables connect.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().connect, False))
 
     # batch defaults to --await-ready (foreground, sequential, returns results).
     # User can pass --no-await-ready explicitly for fire-and-forget.
-    if is_batch:
-        await_ready_source = ctx.get_parameter_source("await_ready")
-        if await_ready_source != click.core.ParameterSource.COMMANDLINE:
-            updates.append(to_update(opts.field_ref().await_ready, True))
+    if is_batch and not is_param_explicit(ctx, "await_ready"):
+        opts = opts.model_copy_update(to_update(opts.field_ref().await_ready, True))
 
     # --await-agent-stopped implies --await-ready
-    if opts.await_agent_stopped and opts.await_ready is None:
-        updates.append(to_update(opts.field_ref().await_ready, True))
-
-    # --no-connect defaults to --no-await-ready (background creation)
-    # (this is the existing default, just made explicit here for clarity)
-
-    if updates:
-        opts = opts.model_copy_update(*updates)
+    if opts.await_agent_stopped:
+        error_if_param_explicit(
+            ctx,
+            "await_ready",
+            "Cannot use --await-agent-stopped and --no-await-ready together.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().await_ready, True))
 
     # Per-invocation setup (validation, editor session, source resolution, etc.)
     setup = _setup_create(mngr_ctx, output_opts, opts)
