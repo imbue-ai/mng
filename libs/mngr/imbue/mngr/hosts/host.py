@@ -1898,11 +1898,14 @@ class Host(BaseHost, OnlineHostInterface):
                 command = self._get_agent_command(agent)
                 additional_commands = self._get_agent_additional_commands(agent)
 
-                show_onboarding = False
+                onboarding_text: str | None = None
                 if is_onboarding_needed:
                     is_onboarding_needed = False
                     onboarding_marker.touch()
-                    show_onboarding = True
+                    if os.environ.get("TMUX"):
+                        onboarding_text = ONBOARDING_TEXT_TMUX_USER
+                    else:
+                        onboarding_text = ONBOARDING_TEXT
 
                 session_name = f"{self.mngr_ctx.config.prefix}{agent.name}"
                 with log_span("Starting agent {} in tmux session {}", agent.name, session_name):
@@ -1916,7 +1919,7 @@ class Host(BaseHost, OnlineHostInterface):
                         tmux_config_path=tmux_config_path,
                         unset_vars=self.mngr_ctx.config.unset_vars,
                         host_dir=self.host_dir,
-                        show_onboarding=show_onboarding,
+                        onboarding_text=onboarding_text,
                     )
                     result = self.execute_command(combined_command, cwd=agent.work_dir)
                     if not result.success:
@@ -2111,6 +2114,26 @@ To reconnect later, run:
 
 This popup won't show again in future sessions."""
 
+ONBOARDING_TEXT_TMUX_USER = """\
+Welcome to your first agent!
+
+Mngr runs your agents in tmux sessions.
+If you have never used tmux, here is the official tutorial:
+https://github.com/tmux/tmux/wiki/Getting-Started
+
+Here are some useful keybindings:
+
+  Ctrl-b d     Detach (return to shell)
+  Ctrl-b [     Scroll / copy mode
+  Ctrl-q       Destroy agent
+  Ctrl-t       Stop agent
+
+To reconnect later, run:
+
+  mngr connect
+
+This popup won't show again in future sessions."""
+
 
 @pure
 def _build_start_agent_shell_command(
@@ -2122,7 +2145,7 @@ def _build_start_agent_shell_command(
     tmux_config_path: Path,
     unset_vars: Sequence[str],
     host_dir: Path,
-    show_onboarding: bool = False,
+    onboarding_text: str | None = None,
 ) -> str:
     """Build a single shell command that starts an agent and its tmux session.
 
@@ -2174,14 +2197,14 @@ def _build_start_agent_shell_command(
     # before send-keys triggers the agent command, because fast-exiting
     # commands (e.g. echo && exit 0) can destroy the session before later
     # steps in the && chain execute.
-    if show_onboarding:
+    if onboarding_text is not None:
         # The popup appends a blank line and "Press Enter to continue..." after the text
-        full_text = ONBOARDING_TEXT + "\n\nPress Enter to continue..."
+        full_text = onboarding_text + "\n\nPress Enter to continue..."
         lines = full_text.split("\n")
         # +2 for the tmux popup border
         popup_w = max(len(line) for line in lines) + 4
         popup_h = len(lines) + 2
-        printf_text = ONBOARDING_TEXT.replace('"', '\\"').replace("\n", "\\n")
+        printf_text = onboarding_text.replace('"', '\\"').replace("\n", "\\n")
         popup_shell_cmd = f'printf "{printf_text}\\n\\nPress Enter to continue...\\n" && read'
         # Escape double quotes for the tmux command context: display-popup -E "..."
         tmux_escaped = popup_shell_cmd.replace('"', '\\"')
