@@ -1,9 +1,13 @@
+from pathlib import Path
+
 import click
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.snapshot import snapshot
+from imbue.mngr.config.loader import reset_default_command_cache
 from imbue.mngr.main import cli
 
 # =============================================================================
@@ -120,3 +124,113 @@ def test_mngr_snapshot_unrecognized_forwards_to_create(
     """Running `mngr snapshot nonexistent` should forward to `snapshot create nonexistent`."""
     result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
     assert "No such command" not in result.output
+
+
+# =============================================================================
+# Configurable default command tests
+# =============================================================================
+
+
+def _make_config_key_group(
+    invocation_record: dict[str, str | None],
+    config_key: str,
+) -> click.Group:
+    """Build a DefaultCommandGroup with a _config_key and 'create', 'list', 'stop' subcommands."""
+
+    class _TestGroup(DefaultCommandGroup):
+        _config_key = config_key
+
+    @click.group(cls=_TestGroup)
+    def group() -> None:
+        pass
+
+    @group.command(name="create")
+    @click.argument("name", required=False)
+    def create_cmd(name: str | None) -> None:
+        invocation_record["command"] = "create"
+        invocation_record["name"] = name
+
+    @group.command(name="list")
+    def list_cmd() -> None:
+        invocation_record["command"] = "list"
+
+    @group.command(name="stop")
+    def stop_cmd() -> None:
+        invocation_record["command"] = "stop"
+
+    return group
+
+
+def test_config_key_custom_default(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """A group with _config_key should use default_subcommand from config."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = "list"\n')
+    monkeypatch.chdir(temp_git_repo)
+
+    record: dict[str, str | None] = {}
+    group = _make_config_key_group(record, config_key="testgrp")
+    runner = CliRunner()
+    result = runner.invoke(group, [])
+    assert result.exit_code == 0
+    assert record["command"] == "list"
+
+
+def test_config_key_disabled_shows_help(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """When default_subcommand is empty string, bare invocation shows help."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
+    monkeypatch.chdir(temp_git_repo)
+
+    record: dict[str, str | None] = {}
+    group = _make_config_key_group(record, config_key="testgrp")
+    runner = CliRunner()
+    result = runner.invoke(group, [])
+    # With no default, click should show help (which contains "Commands:")
+    assert "Commands:" in result.output or "Usage:" in result.output
+    assert "command" not in record
+
+
+def test_config_key_disabled_unrecognized_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """When default_subcommand is empty string, unrecognized command shows error."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
+    monkeypatch.chdir(temp_git_repo)
+
+    record: dict[str, str | None] = {}
+    group = _make_config_key_group(record, config_key="testgrp")
+    runner = CliRunner()
+    result = runner.invoke(group, ["nonexistent"])
+    assert result.exit_code != 0
+    assert "No such command" in result.output
+
+
+def test_no_config_key_uses_default_command_attribute() -> None:
+    """A group without _config_key should use the _default_command attribute."""
+    record: dict[str, str | None] = {}
+    # _make_test_group creates a plain DefaultCommandGroup (no _config_key)
+    group = _make_test_group(record)
+    runner = CliRunner()
+    result = runner.invoke(group, [])
+    assert result.exit_code == 0
+    assert record["command"] == "create"

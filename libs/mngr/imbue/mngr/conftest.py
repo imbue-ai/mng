@@ -24,6 +24,7 @@ from imbue.mngr.agents.agent_registry import reset_agent_registry
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import PROFILES_DIRNAME
+from imbue.mngr.config.loader import reset_default_command_cache
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import UserId
@@ -411,9 +412,10 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     # Reset the module-level plugin manager singleton before each test
     imbue.mngr.main.reset_plugin_manager()
 
-    # Clear the registries to ensure clean state
+    # Clear the registries and caches to ensure clean state
     reset_backend_registry()
     reset_agent_registry()
+    reset_default_command_cache()
 
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
@@ -433,6 +435,7 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     imbue.mngr.main.reset_plugin_manager()
     reset_backend_registry()
     reset_agent_registry()
+    reset_default_command_cache()
 
     # Clean up Modal app contexts to prevent async cleanup errors
     ModalProviderBackend.reset_app_registry()

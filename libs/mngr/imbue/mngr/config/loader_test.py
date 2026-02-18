@@ -29,6 +29,8 @@ from imbue.mngr.config.loader import _parse_plugins
 from imbue.mngr.config.loader import _parse_providers
 from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.config.loader import load_config
+from imbue.mngr.config.loader import read_default_command
+from imbue.mngr.config.loader import reset_default_command_cache
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.main import cli
@@ -884,3 +886,128 @@ def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_tom
     mngr_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
 
     assert mngr_ctx.config.default_destroyed_host_persisted_seconds == 86400.0
+
+
+# =============================================================================
+# Tests for _parse_commands with default_subcommand
+# =============================================================================
+
+
+def test_parse_commands_extracts_default_subcommand() -> None:
+    """_parse_commands should extract default_subcommand from raw defaults."""
+    raw = {"mngr": {"default_subcommand": "list", "connect": False}}
+    result = _parse_commands(raw)
+    assert result["mngr"].default_subcommand == "list"
+    # default_subcommand should NOT appear in the defaults dict
+    assert "default_subcommand" not in result["mngr"].defaults
+    assert result["mngr"].defaults["connect"] is False
+
+
+def test_parse_commands_handles_missing_default_subcommand() -> None:
+    """_parse_commands should set default_subcommand to None when absent."""
+    raw = {"create": {"new_host": "docker"}}
+    result = _parse_commands(raw)
+    assert result["create"].default_subcommand is None
+    assert result["create"].defaults["new_host"] == "docker"
+
+
+def test_parse_commands_empty_string_default_subcommand() -> None:
+    """_parse_commands should preserve empty string default_subcommand."""
+    raw = {"mngr": {"default_subcommand": ""}}
+    result = _parse_commands(raw)
+    assert result["mngr"].default_subcommand == ""
+
+
+# =============================================================================
+# Tests for read_default_command / reset_default_command_cache
+# =============================================================================
+
+
+def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """read_default_command should return 'create' when no config files exist."""
+    reset_default_command_cache()
+    monkeypatch.setenv("MNGR_HOST_DIR", str(tmp_path / "nonexistent"))
+    monkeypatch.setenv("MNGR_ROOT_NAME", "mngr-test-nocfg")
+    assert read_default_command("mngr") == "create"
+
+
+def test_read_default_command_reads_from_project_config(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """read_default_command should read default_subcommand from project config."""
+    reset_default_command_cache()
+
+    # Create project config file
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = config_dir / "settings.toml"
+    settings_path.write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
+
+    # Point config at the git repo
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_default_command("mngr")
+    assert result == "list"
+
+
+def test_read_default_command_local_overrides_project(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """read_default_command should let local config override project config."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Project sets "list"
+    (config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
+    # Local sets "stop"
+    (config_dir / "settings.local.toml").write_text('[commands.mngr]\ndefault_subcommand = "stop"\n')
+
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_default_command("mngr")
+    assert result == "stop"
+
+
+def test_read_default_command_empty_string_disables(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """read_default_command should return empty string when config disables defaulting."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = ""\n')
+
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_default_command("mngr")
+    assert result == ""
+
+
+def test_read_default_command_independent_command_names(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mngr_test_root_name: str,
+) -> None:
+    """read_default_command should handle multiple command names independently."""
+    reset_default_command_cache()
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text(
+        '[commands.mngr]\ndefault_subcommand = "list"\n\n[commands.snapshot]\ndefault_subcommand = "destroy"\n'
+    )
+
+    monkeypatch.chdir(temp_git_repo)
+
+    assert read_default_command("mngr") == "list"
+    assert read_default_command("snapshot") == "destroy"
+    # Unconfigured groups still get "create"
+    assert read_default_command("other") == "create"
