@@ -95,9 +95,11 @@ def test_cli_create_via_subprocess(
                 "--no-copy-work-dir",
                 "--no-ensure-clean",
                 # Note: --agent-cmd automatically implies --agent-type generic
-                # Disable modal to avoid auth errors in CI
+                # Disable external providers to avoid connection errors in CI
                 "--disable-plugin",
                 "modal",
+                "--disable-plugin",
+                "docker",
             ],
             capture_output=True,
             text=True,

@@ -15,6 +15,7 @@ def test_start_cli_options_fields() -> None:
         start_all=False,
         dry_run=True,
         connect=False,
+        connect_command=None,
         host=(),
         include=(),
         exclude=(),
