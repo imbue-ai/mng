@@ -16,7 +16,6 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.push import push_git
-from imbue.mngr.errors import BinaryNotInstalledError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
@@ -162,21 +161,29 @@ class UnisonSyncer(MutableModel):
         return not self._running_process.is_finished()
 
 
-_UNISON = SystemDependency(binary="unison", purpose="pair mode", install_hint="")
-_UNISON_FSMONITOR = SystemDependency(binary="unison-fsmonitor", purpose="pair mode", install_hint="")
+_UNISON = SystemDependency(
+    binary="unison",
+    purpose="pair mode",
+    macos_hint="brew install unison",
+    linux_hint="sudo apt-get install unison. On other systems, see: https://github.com/bcpierce00/unison",
+)
+_UNISON_FSMONITOR = SystemDependency(
+    binary="unison-fsmonitor",
+    purpose="pair mode (file watching on macOS)",
+    macos_hint="brew install autozimu/formulas/unison-fsmonitor",
+    linux_hint="Not required on Linux (inotify provides built-in filesystem monitoring)",
+)
 
 
-def check_unison_installed() -> bool:
-    """Check if unison (and unison-fsmonitor on macOS) are available in PATH.
+def require_unison() -> None:
+    """Require unison (and unison-fsmonitor on macOS).
 
     On Linux, only unison is required because inotify provides built-in filesystem
     monitoring. On macOS, unison-fsmonitor is also required for file watching.
     """
-    if not _UNISON.is_available():
-        return False
+    _UNISON.require()
     if platform.system() == "Darwin":
-        return _UNISON_FSMONITOR.is_available()
-    return True
+        _UNISON_FSMONITOR.require()
 
 
 def determine_git_sync_actions(
@@ -325,15 +332,7 @@ def pair_files(
     the context manager exits.
     """
     # Check unison is installed
-    if not check_unison_installed():
-        if platform.system() == "Darwin":
-            install_hint = "On macOS: brew install unison && brew install autozimu/formulas/unison-fsmonitor"
-        else:
-            install_hint = (
-                "On Ubuntu/Debian: sudo apt-get install unison. "
-                "On other systems, see: https://github.com/bcpierce00/unison"
-            )
-        raise BinaryNotInstalledError("unison", "pair mode", install_hint)
+    require_unison()
 
     # Validate directories exist
     if not agent_path.is_dir():

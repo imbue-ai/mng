@@ -1,3 +1,4 @@
+import platform
 import shutil
 
 from pydantic import Field
@@ -11,7 +12,15 @@ class SystemDependency(FrozenModel):
 
     binary: str = Field(description="Name of the binary on PATH")
     purpose: str = Field(description="What this binary is used for")
-    install_hint: str = Field(description="Human-readable installation instructions")
+    macos_hint: str = Field(description="Installation instructions for macOS")
+    linux_hint: str = Field(description="Installation instructions for Linux")
+
+    @property
+    def install_hint(self) -> str:
+        """Return the installation hint for the current platform."""
+        if platform.system() == "Darwin":
+            return self.macos_hint
+        return self.linux_hint
 
     def is_available(self) -> bool:
         """Check if this binary is available on PATH."""
@@ -26,23 +35,27 @@ class SystemDependency(FrozenModel):
 RSYNC = SystemDependency(
     binary="rsync",
     purpose="file sync",
-    install_hint="On macOS: brew install rsync. On Linux: sudo apt-get install rsync.",
+    macos_hint="brew install rsync",
+    linux_hint="sudo apt-get install rsync",
 )
 
 TMUX = SystemDependency(
     binary="tmux",
     purpose="agent session management",
-    install_hint="On macOS: brew install tmux. On Linux: sudo apt-get install tmux.",
+    macos_hint="brew install tmux",
+    linux_hint="sudo apt-get install tmux",
 )
 
 GIT = SystemDependency(
     binary="git",
     purpose="source control",
-    install_hint="On macOS: brew install git. On Linux: sudo apt-get install git.",
+    macos_hint="brew install git",
+    linux_hint="sudo apt-get install git",
 )
 
 JQ = SystemDependency(
     binary="jq",
     purpose="JSON processing",
-    install_hint="On macOS: brew install jq. On Linux: sudo apt-get install jq.",
+    macos_hint="brew install jq",
+    linux_hint="sudo apt-get install jq",
 )
