@@ -17,6 +17,7 @@ from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.errors import AgentError
 from imbue.mngr.errors import HostConnectionError
 from imbue.mngr.hosts.host import Host
+from imbue.mngr.hosts.host import ONBOARDING_TEXT
 from imbue.mngr.hosts.host import _build_start_agent_shell_command
 from imbue.mngr.hosts.host import _is_socket_closed_os_error
 from imbue.mngr.hosts.host import _parse_boot_time_output
@@ -391,6 +392,7 @@ def _build_command_with_defaults(
     host_dir: Path,
     additional_commands: list[NamedCommand] | None = None,
     unset_vars: list[str] | None = None,
+    show_onboarding: bool = False,
 ) -> str:
     """Call _build_start_agent_shell_command with standard test defaults."""
     return _build_start_agent_shell_command(
@@ -402,6 +404,7 @@ def _build_command_with_defaults(
         tmux_config_path=Path("/tmp/tmux.conf"),
         unset_vars=unset_vars if unset_vars is not None else [],
         host_dir=host_dir,
+        show_onboarding=show_onboarding,
     )
 
 
@@ -557,6 +560,48 @@ def test_build_start_agent_shell_command_default_command_uses_user_shell(
 
     # The default-command should exec into the saved user shell, not hardcoded bash
     assert "MNGR_SAVED_DEFAULT_TMUX_COMMAND:-bash" in result
+
+
+def test_build_start_agent_shell_command_includes_onboarding_hook(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """When show_onboarding is True, the output should contain set-hook with display-popup."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir, show_onboarding=True)
+
+    assert "set-hook" in result
+    assert "display-popup" in result
+    assert "client-attached" in result
+
+
+def test_build_start_agent_shell_command_no_onboarding_hook_by_default(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """When show_onboarding is False (default), no hook or popup should appear."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    assert "set-hook" not in result
+    assert "display-popup" not in result
+    assert "client-attached" not in result
+
+
+# =========================================================================
+# Tests for onboarding helpers
+# =========================================================================
+
+
+def test_onboarding_text_contains_keybindings() -> None:
+    """The onboarding text should contain all documented keybindings."""
+    assert "Ctrl-b d" in ONBOARDING_TEXT
+    assert "Ctrl-b [" in ONBOARDING_TEXT
+    assert "Ctrl-q" in ONBOARDING_TEXT
+    assert "Ctrl-t" in ONBOARDING_TEXT
+    assert "mngr connect" in ONBOARDING_TEXT
 
 
 # =========================================================================
