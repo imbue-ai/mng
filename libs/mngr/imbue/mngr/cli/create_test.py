@@ -18,7 +18,6 @@ from imbue.mngr.cli.create import _parse_host_lifecycle_options
 from imbue.mngr.cli.create import _parse_project_name
 from imbue.mngr.cli.create import _resolve_source_location
 from imbue.mngr.cli.create import _resolve_target_host
-from imbue.mngr.cli.create import _setup_create
 from imbue.mngr.cli.create import _split_cli_args
 from imbue.mngr.cli.create import _try_reuse_existing_agent
 from imbue.mngr.config.data_types import MngrContext
@@ -602,56 +601,6 @@ def test_parse_agent_opts_empty_labels_by_default(
     )
 
     assert result.label_options.labels == {}
-
-
-# =============================================================================
-# Tests for _setup_create batch validation
-# =============================================================================
-
-
-def test_setup_create_rejects_positional_name_for_batch(
-    default_create_cli_opts: CreateCliOptions,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Batch create rejects positional name since names must be auto-generated."""
-    opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().count, 3),
-        to_update(default_create_cli_opts.field_ref().positional_name, "my-agent"),
-        to_update(default_create_cli_opts.field_ref().connect, False),
-    )
-
-    with pytest.raises(UserInputError, match="Cannot specify agent name"):
-        _setup_create(temp_mngr_ctx, OutputOptions(), opts)
-
-
-def test_setup_create_rejects_named_option_for_batch(
-    default_create_cli_opts: CreateCliOptions,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Batch create rejects --name since names must be auto-generated."""
-    opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().count, 3),
-        to_update(default_create_cli_opts.field_ref().name, "my-agent"),
-        to_update(default_create_cli_opts.field_ref().connect, False),
-    )
-
-    with pytest.raises(UserInputError, match="Cannot specify agent name"):
-        _setup_create(temp_mngr_ctx, OutputOptions(), opts)
-
-
-def test_setup_create_rejects_reuse_for_batch(
-    default_create_cli_opts: CreateCliOptions,
-    temp_mngr_ctx: MngrContext,
-) -> None:
-    """Batch create rejects --reuse since it doesn't make sense for batch."""
-    opts = default_create_cli_opts.model_copy_update(
-        to_update(default_create_cli_opts.field_ref().count, 3),
-        to_update(default_create_cli_opts.field_ref().connect, False),
-        to_update(default_create_cli_opts.field_ref().reuse, True),
-    )
-
-    with pytest.raises(UserInputError, match="Cannot use --reuse"):
-        _setup_create(temp_mngr_ctx, OutputOptions(), opts)
 
 
 # =============================================================================

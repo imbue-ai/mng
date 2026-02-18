@@ -554,6 +554,32 @@ def create(ctx: click.Context, **kwargs) -> None:
     # user explicitly passed a conflicting value. is_param_explicit checks without raising.
     is_batch = opts.count > 1
 
+    # batch implies no explicit name (names are auto-generated)
+    if is_batch and opts.positional_name:
+        error_if_param_explicit(
+            ctx,
+            "positional_name",
+            "Cannot specify agent name with -n/--count > 1. Names are auto-generated for batch creation.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().positional_name, None))
+
+    if is_batch and opts.name:
+        error_if_param_explicit(
+            ctx,
+            "name",
+            "Cannot specify --name with -n/--count > 1. Names are auto-generated for batch creation.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().name, None))
+
+    # batch implies --no-reuse
+    if is_batch and opts.reuse:
+        error_if_param_explicit(
+            ctx,
+            "reuse",
+            "Cannot use --reuse with -n/--count > 1.",
+        )
+        opts = opts.model_copy_update(to_update(opts.field_ref().reuse, False))
+
     # --await-agent-stopped implies --no-connect
     if opts.await_agent_stopped and opts.connect:
         error_if_param_explicit(
@@ -627,15 +653,6 @@ def _setup_create(
     opts: CreateCliOptions,
 ) -> _CreateSetup:
     """Per-invocation setup: validation, message resolution, editor session, source resolution."""
-    # Validate batch-incompatible options
-    if opts.count > 1:
-        if opts.positional_name or opts.name:
-            raise UserInputError(
-                "Cannot specify agent name with -n/--count > 1. Names are auto-generated for batch creation."
-            )
-        if opts.reuse:
-            raise UserInputError("Cannot use --reuse with -n/--count > 1.")
-
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
