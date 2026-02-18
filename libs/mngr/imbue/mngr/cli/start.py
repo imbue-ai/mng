@@ -8,6 +8,7 @@ from loguru import logger
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.connect import resolve_connect_command
 from imbue.mngr.api.connect import run_connect_command
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import ensure_host_started
@@ -288,10 +289,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
 
     # Connect if requested and we started exactly one agent
     if opts.connect and last_started_agent is not None and last_started_host is not None:
-        # Check for custom connect command: CLI flag > global config > builtin
-        resolved_command = (
-            opts.connect_command if opts.connect_command is not None else mngr_ctx.config.connect_command
-        )
+        resolved_command = resolve_connect_command(opts.connect_command, mngr_ctx)
         if resolved_command is not None:
             session_name = f"{mngr_ctx.config.prefix}{last_started_agent.name}"
             run_connect_command(

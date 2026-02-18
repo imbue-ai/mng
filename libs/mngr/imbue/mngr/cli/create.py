@@ -18,6 +18,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.connect import resolve_connect_command
 from imbue.mngr.api.connect import run_connect_command
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
@@ -817,16 +818,6 @@ def _handle_create(
     return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
-def _resolve_connect_command(
-    opts_connect_command: str | None,
-    mngr_ctx: MngrContext,
-) -> str | None:
-    """Resolve the connect command from CLI option or global config."""
-    if opts_connect_command is not None:
-        return opts_connect_command
-    return mngr_ctx.config.connect_command
-
-
 def _post_create(
     create_result: CreateAgentResult,
     connection_opts: ConnectionOptions,
@@ -840,7 +831,7 @@ def _post_create(
 
     # If --connect is set, connect to the agent (or run the custom connect command)
     if opts.connect:
-        resolved_connect_command = _resolve_connect_command(opts.connect_command, mngr_ctx)
+        resolved_connect_command = resolve_connect_command(opts.connect_command, mngr_ctx)
         if resolved_connect_command is not None:
             session_name = f"{mngr_ctx.config.prefix}{create_result.agent.name}"
             run_connect_command(
