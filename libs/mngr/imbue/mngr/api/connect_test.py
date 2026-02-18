@@ -1,5 +1,6 @@
 """Unit tests for the connect API module."""
 
+import os
 import shlex
 import subprocess
 from datetime import datetime
@@ -21,6 +22,7 @@ from imbue.mngr.api.connect import _build_ssh_activity_wrapper_script
 from imbue.mngr.api.connect import _build_ssh_args
 from imbue.mngr.api.connect import _determine_post_disconnect_action
 from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.connect import run_connect_command
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.config.data_types import AgentTypeConfig
 from imbue.mngr.config.data_types import MngrConfig
@@ -531,3 +533,48 @@ def test_connect_to_agent_local_raises_nested_tmux_error_when_tmux_is_set(
     assert expected_session in str(exc_info.value)
     assert exc_info.value.user_help_text is not None
     assert "is_nested_tmux_allowed" in exc_info.value.user_help_text
+
+
+# =========================================================================
+# Tests for run_connect_command
+# =========================================================================
+
+
+def test_run_connect_command_sets_env_vars_and_execs(tmp_path: Path) -> None:
+    """Test that run_connect_command sets env vars and execs via sh.
+
+    Since run_connect_command replaces the process via os.execvpe, we fork and run
+    it in the child. The command writes env vars to a temp file so the parent can verify.
+    """
+    output_file = tmp_path / "connect_env_output.txt"
+    command = f'echo "$MNGR_AGENT_NAME $MNGR_SESSION_NAME $MNGR_HOST_IS_LOCAL" > {output_file}'
+
+    pid = os.fork()
+    if pid == 0:
+        run_connect_command(command, "my-agent", "mngr-my-agent", is_local=True)
+        os._exit(1)
+    else:
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status)
+        assert os.WEXITSTATUS(status) == 0
+
+        content = output_file.read_text().strip()
+        assert content == "my-agent mngr-my-agent true"
+
+
+def test_run_connect_command_sets_host_is_local_false_for_remote(tmp_path: Path) -> None:
+    """Test that MNGR_HOST_IS_LOCAL is 'false' when is_local=False."""
+    output_file = tmp_path / "connect_env_output_remote.txt"
+    command = f'echo "$MNGR_HOST_IS_LOCAL" > {output_file}'
+
+    pid = os.fork()
+    if pid == 0:
+        run_connect_command(command, "remote-agent", "mngr-remote-agent", is_local=False)
+        os._exit(1)
+    else:
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status)
+        assert os.WEXITSTATUS(status) == 0
+
+        content = output_file.read_text().strip()
+        assert content == "false"

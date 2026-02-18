@@ -12,10 +12,13 @@ import pluggy
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
+from imbue.mngr.agents.default_plugins.claude_agent import _read_macos_keychain_credential
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -1035,6 +1038,12 @@ def credential_check_host(local_provider: LocalProviderInstance, tmp_path: Path,
 
 
 @pytest.fixture()
+def credential_check_cg(temp_mngr_ctx: MngrContext) -> ConcurrencyGroup:
+    """Provide the concurrency group for credential check tests."""
+    return temp_mngr_ctx.concurrency_group
+
+
+@pytest.fixture()
 def _local_credentials_file() -> None:
     """Create a ~/.claude/.credentials.json file for testing."""
     credentials_dir = Path.home() / ".claude"
@@ -1051,26 +1060,40 @@ def _make_non_local_host() -> OnlineHostInterface:
 
 
 def test_has_api_credentials_detects_env_var_on_local_host(
-    credential_check_host: Host, monkeypatch: pytest.MonkeyPatch
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in os.environ on local host."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
     config = ClaudeAgentConfig(check_installation=False)
 
-    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
-def test_has_api_credentials_ignores_env_var_on_remote_host(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_api_credentials_ignores_env_var_on_remote_host(
+    credential_check_cg: ConcurrencyGroup, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """_has_api_credentials_available ignores os.environ ANTHROPIC_API_KEY for remote hosts."""
     config = ClaudeAgentConfig(check_installation=False)
 
     # Set the key locally -- remote hosts should still return False because they don't inherit os.environ
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
-    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_agent_env_var(credential_check_host: Host) -> None:
+def test_has_api_credentials_detects_agent_env_var(
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup
+) -> None:
     """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in agent env vars."""
     config = ClaudeAgentConfig(check_installation=False)
     options = CreateAgentOptions(
@@ -1080,48 +1103,79 @@ def test_has_api_credentials_detects_agent_env_var(credential_check_host: Host) 
         ),
     )
 
-    assert _has_api_credentials_available(credential_check_host, options, config) is True
+    assert _has_api_credentials_available(credential_check_host, options, config, credential_check_cg) is True
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_host_env_var(credential_check_host: Host) -> None:
+def test_has_api_credentials_detects_host_env_var(
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup
+) -> None:
     """_has_api_credentials_available returns True when ANTHROPIC_API_KEY is in host env vars."""
     config = ClaudeAgentConfig(check_installation=False)
     credential_check_host.set_env_var("ANTHROPIC_API_KEY", "sk-test-key")
 
-    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
-def test_has_api_credentials_detects_credentials_file_local(credential_check_host: Host) -> None:
+def test_has_api_credentials_detects_credentials_file_local(
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup
+) -> None:
     """_has_api_credentials_available returns True when credentials file exists on local host."""
     config = ClaudeAgentConfig(check_installation=False)
 
-    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
-def test_has_api_credentials_detects_credentials_file_remote_with_sync() -> None:
+def test_has_api_credentials_detects_credentials_file_remote_with_sync(credential_check_cg: ConcurrencyGroup) -> None:
     """_has_api_credentials_available returns True when credentials file exists and sync is enabled for remote."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=True)
 
-    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_returns_false_when_no_credentials(credential_check_host: Host) -> None:
+def test_has_api_credentials_returns_false_when_no_credentials(
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup
+) -> None:
     """_has_api_credentials_available returns False when no credential source is available."""
     config = ClaudeAgentConfig(check_installation=False)
 
-    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
-def test_has_api_credentials_returns_false_remote_no_sync() -> None:
+def test_has_api_credentials_returns_false_remote_no_sync(credential_check_cg: ConcurrencyGroup) -> None:
     """_has_api_credentials_available returns False for remote host when credentials exist but sync is disabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=False)
 
-    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )
 
 
 # =============================================================================
@@ -1173,30 +1227,49 @@ def test_claude_json_has_primary_api_key_returns_false_when_invalid_json() -> No
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_primary_api_key_local(credential_check_host: Host) -> None:
+def test_has_api_credentials_detects_primary_api_key_local(
+    credential_check_host: Host, credential_check_cg: ConcurrencyGroup
+) -> None:
     """_has_api_credentials_available returns True when primaryApiKey exists in ~/.claude.json on local host."""
     _write_claude_json_with_primary_api_key()
     config = ClaudeAgentConfig(check_installation=False)
 
-    assert _has_api_credentials_available(credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_detects_primary_api_key_remote_with_sync() -> None:
+def test_has_api_credentials_detects_primary_api_key_remote_with_sync(credential_check_cg: ConcurrencyGroup) -> None:
     """_has_api_credentials_available returns True when primaryApiKey exists and sync_claude_json is enabled."""
     _write_claude_json_with_primary_api_key()
     config = ClaudeAgentConfig(check_installation=False, sync_claude_json=True)
 
-    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is True
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
-def test_has_api_credentials_returns_false_primary_api_key_remote_no_sync() -> None:
+def test_has_api_credentials_returns_false_primary_api_key_remote_no_sync(
+    credential_check_cg: ConcurrencyGroup,
+) -> None:
     """_has_api_credentials_available returns False when primaryApiKey exists but sync_claude_json is disabled."""
     _write_claude_json_with_primary_api_key()
     config = ClaudeAgentConfig(check_installation=False, sync_claude_json=False)
 
-    assert _has_api_credentials_available(_make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config) is False
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )
 
 
 @pytest.mark.usefixtures("_no_api_key_in_env")
@@ -1234,3 +1307,110 @@ def test_on_before_provisioning_succeeds_with_credentials(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
     agent.on_before_provisioning(host=host, options=_DEFAULT_CREDENTIAL_CHECK_OPTIONS, mngr_ctx=temp_mngr_ctx)
+
+
+# =============================================================================
+# macOS Keychain Credential Tests
+# =============================================================================
+
+
+def _make_mock_cg_with_result(result: FinishedProcess | Exception) -> ConcurrencyGroup:
+    """Create a mock ConcurrencyGroup that returns the given result from run_process_to_completion."""
+
+    def _run(*args: object, **kwargs: object) -> FinishedProcess:
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    return cast(ConcurrencyGroup, SimpleNamespace(run_process_to_completion=_run))
+
+
+def test_read_macos_keychain_credential_returns_value_on_success() -> None:
+    """_read_macos_keychain_credential returns the stripped stdout on success."""
+    mock_cg = _make_mock_cg_with_result(
+        FinishedProcess(
+            command=("security",),
+            returncode=0,
+            stdout="test-credential-value\n",
+            stderr="",
+            is_output_already_logged=False,
+        )
+    )
+
+    result = _read_macos_keychain_credential("some-label", mock_cg)
+
+    assert result == "test-credential-value"
+
+
+def test_read_macos_keychain_credential_returns_none_on_nonzero_exit() -> None:
+    """_read_macos_keychain_credential returns None when security returns non-zero exit code."""
+    mock_cg = _make_mock_cg_with_result(
+        FinishedProcess(
+            command=("security",), returncode=44, stdout="", stderr="not found", is_output_already_logged=False
+        )
+    )
+
+    result = _read_macos_keychain_credential("nonexistent-label", mock_cg)
+
+    assert result is None
+
+
+def test_read_macos_keychain_credential_returns_none_on_process_setup_error() -> None:
+    """_read_macos_keychain_credential returns None when security binary is not found."""
+    mock_cg = _make_mock_cg_with_result(
+        ProcessSetupError(command=("security",), stdout="", stderr="", is_output_already_logged=False)
+    )
+
+    result = _read_macos_keychain_credential("some-label", mock_cg)
+
+    assert result is None
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_on_local(
+    credential_check_host: Host,
+    credential_check_cg: ConcurrencyGroup,
+) -> None:
+    """_has_api_credentials_available returns True on local host when credentials file exists."""
+    config = ClaudeAgentConfig(check_installation=False)
+
+    assert (
+        _has_api_credentials_available(
+            credential_check_host, _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_detects_credentials_file_on_remote_with_sync_enabled(
+    credential_check_cg: ConcurrencyGroup,
+) -> None:
+    """_has_api_credentials_available returns True on remote host when credentials file exists and sync is enabled."""
+    config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=True)
+
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is True
+    )
+
+
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
+def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabled(
+    credential_check_cg: ConcurrencyGroup,
+) -> None:
+    """_has_api_credentials_available returns False on remote host when sync is disabled even with credentials file."""
+    config = ClaudeAgentConfig(
+        check_installation=False,
+        sync_claude_credentials=False,
+        sync_claude_json=False,
+    )
+
+    assert (
+        _has_api_credentials_available(
+            _make_non_local_host(), _DEFAULT_CREDENTIAL_CHECK_OPTIONS, config, credential_check_cg
+        )
+        is False
+    )

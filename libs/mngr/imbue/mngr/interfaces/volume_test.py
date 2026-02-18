@@ -45,6 +45,12 @@ class InMemoryVolume(BaseVolume):
         for k in to_delete:
             del self.files[k]
 
+    def remove_directory(self, path: str) -> None:
+        prefix = path.rstrip("/") + "/"
+        to_delete = [k for k in self.files if k.startswith(prefix) or k == path.rstrip("/")]
+        for k in to_delete:
+            del self.files[k]
+
     def write_files(self, file_contents_by_path: Mapping[str, bytes]) -> None:
         self.files.update(file_contents_by_path)
 

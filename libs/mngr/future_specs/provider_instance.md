@@ -17,7 +17,7 @@ The ProviderInstance follows a stateless, delegation-based design:
 ```
 ProviderBackend (factory)          ProviderInstance (configured endpoint)
 ─────────────────────────          ───────────────────────────────────────
-docker backend            ──────►  local_docker instance
+docker backend            ──────►  docker instance
                           ──────►  remote_docker instance (ssh://server)
 
 modal backend             ──────►  my-modal-prod app

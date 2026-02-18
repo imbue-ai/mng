@@ -36,11 +36,11 @@ Runs agents directly on your machine with no isolation. Always available--no con
 
 Runs agents in [Modal](https://modal.com) sandboxes with full isolation. Requires a Modal account. See [Modal Provider](../core_plugins/providers/modal.md) for details.
 
-### docker [future]
+### docker
 
-Runs agents in Docker containers on your local machine. Automatically available as long as `docker` is installed.
+Runs agents in Docker containers. Available as long as `docker` is installed.
 
-Provides container isolation while keeping everything local. Uses `docker` commands directly to manage containers.
+Provides container isolation while keeping everything local or on a remote Docker daemon. Uses SSH for host operations after initial container setup.
 
 ## Responsibilities
 

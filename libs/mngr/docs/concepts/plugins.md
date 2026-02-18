@@ -129,7 +129,7 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 And for the basic provider backends:
 
 - **local**: Local host backend
-- **docker** [future]: Docker-based host backend
+- **docker**: Docker-based host backend
 - **modal**: Modal cloud host backend
 - **ssh**: SSH-based host backend (connects to pre-configured hosts)
 
