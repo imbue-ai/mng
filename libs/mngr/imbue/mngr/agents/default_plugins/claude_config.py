@@ -338,6 +338,21 @@ def check_claude_dialogs_dismissed(source_path: Path) -> None:
     check_effort_callout_dismissed()
 
 
+def ensure_claude_dialogs_dismissed(source_path: Path) -> None:
+    """Ensure all known Claude startup dialogs are marked as dismissed.
+
+    Sets the necessary fields in ~/.claude.json so that Claude Code can start
+    without showing any dialogs. This is the remediation for errors raised by
+    check_claude_dialogs_dismissed.
+
+    Sets:
+    - Trust: marks source_path as trusted (hasTrustDialogAccepted=true)
+    - Effort callout: sets effortCalloutDismissed=true
+    """
+    add_claude_trust_for_path(source_path)
+    dismiss_effort_callout()
+
+
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
     """Find the project configuration for a path or its closest ancestor.
 
