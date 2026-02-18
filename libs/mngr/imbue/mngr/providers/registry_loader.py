@@ -1,14 +1,3 @@
-"""Heavy backend loading logic, separated from registry.py for fast tab completion.
-
-registry.py is imported at CLI startup (via main.py). By keeping the heavyweight
-backend module imports here instead, tab-completion (which never executes commands)
-avoids paying the ~370ms cost of importing Modal, Docker, SSH, and local backends.
-
-The loading functions in this module are called lazily -- either from
-setup_command_context() (normal command execution) or from the facade functions
-in registry.py (for callers that don't know about this split).
-"""
-
 import pluggy
 
 import imbue.mngr.providers.docker.backend as docker_backend_module
