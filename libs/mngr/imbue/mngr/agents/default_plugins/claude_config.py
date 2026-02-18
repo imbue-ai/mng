@@ -37,6 +37,23 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
         )
 
 
+class ClaudeEffortCalloutNotDismissedError(ConfigError):
+    """The effort callout has not been dismissed in Claude's global config.
+
+    Claude Code shows an effort callout on startup when effortCalloutDismissed
+    is not set to true in ~/.claude.json. When mngr uses tmux send-keys to
+    deliver the initial prompt, the keystrokes may interact with this callout
+    instead of the prompt, causing the intended message to be lost.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Claude Code's effort callout has not been dismissed in ~/.claude.json. "
+            "Either run Claude Code manually and dismiss the callout, "
+            "or run `mngr create` interactively (without --no-connect) to be prompted."
+        )
+
+
 def get_claude_config_path() -> Path:
     """Return the path to the Claude config file (~/.claude.json)."""
     return Path.home() / ".claude.json"
@@ -270,6 +287,55 @@ def remove_claude_trust_for_path(path: Path) -> bool:
 
     logger.trace("Removed Claude trust entry for {}", path)
     return True
+
+
+def check_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
+    """Check that all known Claude startup dialogs have been dismissed.
+
+    Verifies that ~/.claude.json is configured so that Claude Code can start
+    without showing any dialogs that could intercept automated input.
+
+    Checks:
+    - Trust dialog: source_path (or ancestor) has hasTrustDialogAccepted=true
+      (only when source_path is provided)
+    - Effort callout: global effortCalloutDismissed is true
+
+    Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
+    Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
+    been dismissed.
+    """
+    if source_path is not None:
+        check_source_directory_trusted(source_path)
+
+    config_path = get_claude_config_path()
+    config = _read_claude_config(config_path)
+
+    if not config.get("effortCalloutDismissed", False):
+        raise ClaudeEffortCalloutNotDismissedError()
+
+
+def ensure_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
+    """Ensure all known Claude startup dialogs are marked as dismissed.
+
+    Sets the necessary fields in ~/.claude.json so that Claude Code can start
+    without showing any dialogs. This is the remediation for errors raised by
+    check_claude_dialogs_dismissed.
+
+    Sets:
+    - Trust: marks source_path as trusted (only when source_path is provided)
+    - Effort callout: sets effortCalloutDismissed=true
+    """
+    if source_path is not None:
+        add_claude_trust_for_path(source_path)
+
+    with _claude_config_lock() as config_path:
+        config = _read_claude_config(config_path)
+        if config.get("effortCalloutDismissed", False):
+            return
+        config["effortCalloutDismissed"] = True
+        _write_claude_config_atomic(config_path, config)
+
+    logger.trace("Dismissed Claude startup dialogs in config")
 
 
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
