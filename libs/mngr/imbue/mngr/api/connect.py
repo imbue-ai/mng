@@ -139,6 +139,25 @@ def _determine_post_disconnect_action(
         return None
 
 
+def run_connect_command(
+    connect_command: str,
+    agent_name: str,
+    session_name: str,
+    is_local: bool,
+) -> None:
+    """Run a custom connect command instead of the builtin connect_to_agent.
+
+    Sets environment variables so the command can reference the agent,
+    then replaces the current process.
+    """
+    env = dict(os.environ)
+    env["MNGR_AGENT_NAME"] = agent_name
+    env["MNGR_SESSION_NAME"] = session_name
+    env["MNGR_HOST_IS_LOCAL"] = "true" if is_local else "false"
+    logger.debug("Running custom connect command: {}", connect_command)
+    os.execvpe("sh", ["sh", "-c", connect_command], env)
+
+
 def connect_to_agent(
     agent: AgentInterface,
     host: OnlineHostInterface,
