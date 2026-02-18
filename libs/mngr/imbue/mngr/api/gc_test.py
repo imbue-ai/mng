@@ -192,11 +192,12 @@ def test_compile_and_apply_cel_filters_include_not_matching() -> None:
     assert not _apply_cel_filters(snapshot, include_filters, exclude_filters)
 
 
-def test_gc_machines_skips_local_hosts(local_provider: LocalProviderInstance) -> None:
+def test_gc_machines_skips_local_hosts(local_provider: LocalProviderInstance, temp_mngr_ctx: MngrContext) -> None:
     """Test that gc_machines skips local hosts even when they have no agents."""
     result = GcResult()
 
     gc_machines(
+        mngr_ctx=temp_mngr_ctx,
         providers=[local_provider],
         include_filters=(),
         exclude_filters=(),
@@ -250,6 +251,7 @@ def _run_gc_machines(provider: MockProviderInstance, *, dry_run: bool = False) -
     """Run gc_machines on a single provider and return the result."""
     result = GcResult()
     gc_machines(
+        mngr_ctx=provider.mngr_ctx,
         providers=[provider],
         include_filters=(),
         exclude_filters=(),

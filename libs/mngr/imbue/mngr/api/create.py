@@ -81,15 +81,27 @@ def create(
     )
 
     # Determine which provider to use and get the host
+    is_new_host = isinstance(target_host, NewHostOptions)
     with log_span("Resolving target host"):
         host = resolve_target_host(target_host, mngr_ctx)
+
+    # Notify plugins that a new host was created (only for new hosts)
+    if is_new_host:
+        with log_span("Calling on_host_created hooks"):
+            mngr_ctx.pm.hook.on_host_created(host=host)
 
     # while we are deploying an agent, lock the host:
     with host.lock_cooperatively():
         # Create the agent's work_dir on the host
         if create_work_dir:
+            with log_span("Calling on_before_initial_file_copy hooks"):
+                mngr_ctx.pm.hook.on_before_initial_file_copy(agent_options=agent_options, host=host)
             with log_span("Creating agent work directory from source {}", source_location.path):
                 work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+            with log_span("Calling on_after_initial_file_copy hooks"):
+                mngr_ctx.pm.hook.on_after_initial_file_copy(
+                    agent_options=agent_options, host=host, work_dir_path=work_dir_path
+                )
         else:
             # Work dir was already created (e.g. by CLI's early copy).
             # Use target_path if set (it should contain the actual work_dir path),
@@ -103,8 +115,12 @@ def create(
             agent = host.create_agent_state(work_dir_path, agent_options)
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
+        with log_span("Calling on_before_provisioning hooks"):
+            mngr_ctx.pm.hook.on_before_provisioning(agent=agent, host=host)
         with log_span("Provisioning agent {}", agent.name):
             host.provision_agent(agent, agent_options, mngr_ctx)
+        with log_span("Calling on_after_provisioning hooks"):
+            mngr_ctx.pm.hook.on_after_provisioning(agent=agent, host=host)
 
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
@@ -170,6 +186,8 @@ def resolve_target_host(
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
+        with log_span("Calling on_before_host_create hooks"):
+            mngr_ctx.pm.hook.on_before_host_create(name=target_host.name, provider_name=target_host.provider)
         provider = get_provider_instance(target_host.provider, mngr_ctx)
         with log_span(
             "Creating new host '{}' using provider '{}'",

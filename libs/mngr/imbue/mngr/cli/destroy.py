@@ -291,7 +291,9 @@ def destroy(ctx: click.Context, **kwargs) -> None:
                 )
                 continue
 
+            mngr_ctx.pm.hook.on_before_agent_destroy(agent=agent, host=host)
             host.destroy_agent(agent)
+            mngr_ctx.pm.hook.on_agent_destroyed(agent=agent, host=host)
             destroyed_agents.append(agent.name)
             _output(f"Destroyed agent: {agent.name}", output_opts)
 
@@ -302,7 +304,9 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     for offline in targets.offline_hosts:
         try:
             _output(f"Destroying offline host with {len(offline.agent_names)} agent(s)...", output_opts)
+            mngr_ctx.pm.hook.on_before_host_destroy(host=offline.host)
             offline.provider.destroy_host(offline.host)
+            mngr_ctx.pm.hook.on_host_destroyed(host=offline.host)
             destroyed_agents.extend(offline.agent_names)
             for name in offline.agent_names:
                 _output(f"Destroyed agent: {name} (via host destruction)", output_opts)
