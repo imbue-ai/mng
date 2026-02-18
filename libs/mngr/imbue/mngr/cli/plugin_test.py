@@ -8,7 +8,12 @@ import pytest
 from loguru import logger
 
 from imbue.mngr.cli.config import ConfigScope
+from imbue.mngr.cli.output_helpers import AbortError
+from imbue.mngr.cli.plugin import PluginCliOptions
 from imbue.mngr.cli.plugin import PluginInfo
+from imbue.mngr.cli.plugin import _GitSource
+from imbue.mngr.cli.plugin import _PathSource
+from imbue.mngr.cli.plugin import _PypiSource
 from imbue.mngr.cli.plugin import _build_uv_pip_install_command_for_name_or_url
 from imbue.mngr.cli.plugin import _build_uv_pip_install_command_for_path
 from imbue.mngr.cli.plugin import _build_uv_pip_uninstall_command
@@ -20,8 +25,10 @@ from imbue.mngr.cli.plugin import _gather_plugin_info
 from imbue.mngr.cli.plugin import _get_field_value
 from imbue.mngr.cli.plugin import _get_installed_package_names
 from imbue.mngr.cli.plugin import _is_plugin_enabled
+from imbue.mngr.cli.plugin import _parse_add_source
 from imbue.mngr.cli.plugin import _parse_fields
 from imbue.mngr.cli.plugin import _parse_pypi_package_name
+from imbue.mngr.cli.plugin import _parse_remove_source
 from imbue.mngr.cli.plugin import _read_package_name_from_pyproject
 from imbue.mngr.cli.plugin import _validate_plugin_name_is_known
 from imbue.mngr.config.data_types import MngrConfig
@@ -604,3 +611,138 @@ def test_emit_plugin_remove_result_jsonl_format(capsys: pytest.CaptureFixture[st
     data = json.loads(captured.out.strip())
     assert data["event"] == "plugin_removed"
     assert data["package"] == "mngr-opencode"
+
+
+# =============================================================================
+# Helpers for _parse_add_source / _parse_remove_source tests
+# =============================================================================
+
+
+def _make_plugin_cli_options(
+    name: str | None = None,
+    path: str | None = None,
+    git: str | None = None,
+) -> PluginCliOptions:
+    """Create a PluginCliOptions with the given source fields and minimal defaults."""
+    return PluginCliOptions(
+        output_format="human",
+        quiet=False,
+        verbose=0,
+        log_file=None,
+        log_commands=None,
+        log_command_output=None,
+        log_env_vars=None,
+        project_context_path=None,
+        plugin=(),
+        disable_plugin=(),
+        name=name,
+        path=path,
+        git=git,
+    )
+
+
+# =============================================================================
+# Tests for _parse_add_source
+# =============================================================================
+
+
+def test_parse_add_source_no_source_raises_abort() -> None:
+    """_parse_add_source should raise AbortError when no source is provided."""
+    opts = _make_plugin_cli_options()
+    with pytest.raises(AbortError, match="Provide exactly one of NAME, --path, or --git"):
+        _parse_add_source(opts)
+
+
+def test_parse_add_source_multiple_sources_raises_abort() -> None:
+    """_parse_add_source should raise AbortError when multiple sources are provided."""
+    opts = _make_plugin_cli_options(name="mngr-opencode", path="./my-plugin")
+    with pytest.raises(AbortError, match="mutually exclusive"):
+        _parse_add_source(opts)
+
+
+def test_parse_add_source_name_and_git_raises_abort() -> None:
+    """_parse_add_source should raise AbortError when name and git are both provided."""
+    opts = _make_plugin_cli_options(name="mngr-opencode", git="https://github.com/user/repo.git")
+    with pytest.raises(AbortError, match="mutually exclusive"):
+        _parse_add_source(opts)
+
+
+def test_parse_add_source_valid_pypi_name() -> None:
+    """_parse_add_source should return _PypiSource for a valid PyPI name."""
+    opts = _make_plugin_cli_options(name="mngr-opencode")
+    source = _parse_add_source(opts)
+    assert isinstance(source, _PypiSource)
+    assert source.name == "mngr-opencode"
+
+
+def test_parse_add_source_valid_pypi_name_with_version() -> None:
+    """_parse_add_source should return _PypiSource for a name with version constraint."""
+    opts = _make_plugin_cli_options(name="mngr-opencode>=1.0")
+    source = _parse_add_source(opts)
+    assert isinstance(source, _PypiSource)
+    assert source.name == "mngr-opencode>=1.0"
+
+
+def test_parse_add_source_valid_path() -> None:
+    """_parse_add_source should return _PathSource for a path."""
+    opts = _make_plugin_cli_options(path="./my-plugin")
+    source = _parse_add_source(opts)
+    assert isinstance(source, _PathSource)
+    assert source.path == "./my-plugin"
+
+
+def test_parse_add_source_valid_git_url() -> None:
+    """_parse_add_source should return _GitSource for a git URL."""
+    opts = _make_plugin_cli_options(git="https://github.com/user/repo.git")
+    source = _parse_add_source(opts)
+    assert isinstance(source, _GitSource)
+    assert source.url == "https://github.com/user/repo.git"
+
+
+def test_parse_add_source_invalid_name_raises_abort() -> None:
+    """_parse_add_source should raise AbortError for an invalid package name."""
+    opts = _make_plugin_cli_options(name="not a valid!!spec$$")
+    with pytest.raises(AbortError, match="Invalid package name"):
+        _parse_add_source(opts)
+
+
+# =============================================================================
+# Tests for _parse_remove_source
+# =============================================================================
+
+
+def test_parse_remove_source_no_source_raises_abort() -> None:
+    """_parse_remove_source should raise AbortError when no source is provided."""
+    opts = _make_plugin_cli_options()
+    with pytest.raises(AbortError, match="Provide exactly one of NAME or --path"):
+        _parse_remove_source(opts)
+
+
+def test_parse_remove_source_multiple_sources_raises_abort() -> None:
+    """_parse_remove_source should raise AbortError when both name and path are provided."""
+    opts = _make_plugin_cli_options(name="mngr-opencode", path="./my-plugin")
+    with pytest.raises(AbortError, match="mutually exclusive"):
+        _parse_remove_source(opts)
+
+
+def test_parse_remove_source_valid_pypi_name() -> None:
+    """_parse_remove_source should return _PypiSource for a valid PyPI name."""
+    opts = _make_plugin_cli_options(name="mngr-opencode")
+    source = _parse_remove_source(opts)
+    assert isinstance(source, _PypiSource)
+    assert source.name == "mngr-opencode"
+
+
+def test_parse_remove_source_valid_path() -> None:
+    """_parse_remove_source should return _PathSource for a path."""
+    opts = _make_plugin_cli_options(path="./my-plugin")
+    source = _parse_remove_source(opts)
+    assert isinstance(source, _PathSource)
+    assert source.path == "./my-plugin"
+
+
+def test_parse_remove_source_invalid_name_raises_abort() -> None:
+    """_parse_remove_source should raise AbortError for an invalid package name."""
+    opts = _make_plugin_cli_options(name="not a valid!!spec$$")
+    with pytest.raises(AbortError, match="Invalid package name"):
+        _parse_remove_source(opts)

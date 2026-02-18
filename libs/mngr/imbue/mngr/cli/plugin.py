@@ -255,7 +255,7 @@ def _read_package_name_from_pyproject(local_path: str) -> str:
     pyproject_path = resolved / "pyproject.toml"
     if not pyproject_path.exists():
         raise PluginSpecifierError(f"No pyproject.toml found at '{resolved}' -- cannot determine package name")
-    with open(pyproject_path, "rb") as f:
+    with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
     name = data.get("project", {}).get("name")
     if not name:
@@ -473,25 +473,26 @@ def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
 class _PypiSource(FrozenModel):
     """Plugin source: a PyPI package name (possibly with version constraint)."""
 
-    name: str
+    name: str = Field(description="PyPI package specifier (e.g. 'mngr-opencode>=1.0')")
 
 
 class _PathSource(FrozenModel):
     """Plugin source: a local filesystem path."""
 
-    path: str
+    path: str = Field(description="Local filesystem path to the plugin package")
 
 
 class _GitSource(FrozenModel):
     """Plugin source: a git URL."""
 
-    url: str
+    url: str = Field(description="Git repository URL for the plugin package")
 
 
 _AddSource = _PypiSource | _PathSource | _GitSource
 _RemoveSource = _PypiSource | _PathSource
 
 
+@pure
 def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
     """Parse and validate the plugin source for an add command.
 
@@ -514,6 +515,7 @@ def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
     return _PypiSource(name=opts.name)
 
 
+@pure
 def _parse_remove_source(opts: PluginCliOptions) -> _RemoveSource:
     """Parse and validate the plugin source for a remove command.
 
@@ -580,6 +582,7 @@ def _plugin_add_impl(ctx: click.Context) -> None:
             try:
                 resolved_package_name = _read_package_name_from_pyproject(path)
             except PluginSpecifierError:
+                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
                 resolved_package_name = path
         case _GitSource(url=url):
             assert packages_before is not None
