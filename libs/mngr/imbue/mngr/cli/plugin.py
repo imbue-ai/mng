@@ -425,7 +425,7 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
-    """Install a plugin package.
+    """Install a plugin package. [experimental]
 
     Provide exactly one of NAME (positional), --path, or --git.
 
@@ -452,7 +452,7 @@ def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
-    """Uninstall a plugin package.
+    """Uninstall a plugin package. [experimental]
 
     Provide exactly one of NAME (positional) or --path. For local paths,
     the package name is read from pyproject.toml.

@@ -109,7 +109,7 @@ mngr plugin list [OPTIONS]
 
 ## mngr plugin add
 
-Install a plugin package.
+Install a plugin package. [experimental]
 
 Provide exactly one of NAME (positional), --path, or --git.
 
@@ -157,7 +157,7 @@ mngr plugin add [OPTIONS] [NAME]
 
 ## mngr plugin remove
 
-Uninstall a plugin package.
+Uninstall a plugin package. [experimental]
 
 Provide exactly one of NAME (positional) or --path. For local paths,
 the package name is read from pyproject.toml.
