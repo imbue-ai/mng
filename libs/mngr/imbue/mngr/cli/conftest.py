@@ -139,6 +139,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         retry=3,
         retry_delay="5s",
         attach_command=None,
+        connect_command=None,
         idle_timeout=None,
         idle_mode=None,
         activity_sources=None,
