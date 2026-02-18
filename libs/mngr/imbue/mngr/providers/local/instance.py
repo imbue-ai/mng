@@ -24,6 +24,7 @@ from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostResources
@@ -180,10 +181,12 @@ class LocalProviderInstance(BaseProviderInstance):
         """Create (or return) the local host.
 
         For the local provider, this always returns the same host representing
-        the local computer. The name and image parameters are ignored since
-        the local host is always the same machine. The known_hosts parameter
-        is also ignored since the local machine uses its own known_hosts file.
+        the local computer. The name must be "localhost". The image and
+        known_hosts parameters are ignored since the local machine uses its
+        own configuration.
         """
+        if str(name) != "localhost":
+            raise UserInputError(f"Local provider only supports host name 'localhost', got '{name}'")
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
 
