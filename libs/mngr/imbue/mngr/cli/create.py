@@ -1087,7 +1087,7 @@ def _resolve_source_location(
             else:
                 source_path = os.getcwd()
             provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-            host = provider.get_host(HostName("local"))
+            host = provider.get_host(HostName("localhost"))
             online_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
             source_location = HostLocation(host=online_host, path=Path(source_path))
         else:
