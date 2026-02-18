@@ -12,8 +12,7 @@ from imbue.mngr.main import cli
 #
 # These tests exercise the default-to-create and unrecognized-command-forwarding
 # behavior using a minimal group with "create" and "list" subcommands.
-# Commands store their invocation info in a shared dict so tests can verify
-# routing without producing stdout output (banned by ratchet rules).
+# Commands record their invocation info in a shared dict so tests can verify routing.
 
 
 def _make_test_group(invocation_record: dict[str, str | None]) -> click.Group:
