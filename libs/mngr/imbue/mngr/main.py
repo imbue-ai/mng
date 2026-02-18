@@ -310,6 +310,7 @@ cli.add_command(provision, name="prov")
 cli.add_command(limit, name="lim")
 cli.add_command(rename, name="mv")
 cli.add_command(snapshot, name="snap")
+cli.add_command(stop, name="s")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)
