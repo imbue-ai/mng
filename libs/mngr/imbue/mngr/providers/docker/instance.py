@@ -39,6 +39,7 @@ from imbue.mngr.interfaces.data_types import SnapshotRecord
 from imbue.mngr.interfaces.data_types import VolumeFileType
 from imbue.mngr.interfaces.data_types import VolumeInfo
 from imbue.mngr.interfaces.host import HostInterface
+from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import HostId
@@ -753,6 +754,8 @@ kill -TERM 1
             )
             raise MngrError(f"SSH setup failed for container {host_id}: {e}") from e
 
+        self._ensure_host_volume_dir(host_id)
+
         return host
 
     def stop_host(
@@ -989,6 +992,12 @@ kill -TERM 1
                         logger.warning("Error removing snapshot image {}: {}", snap.id, e)
 
             self._host_store.delete_host_record(host_id)
+
+        # Clean up the host volume directory
+        try:
+            self._state_volume.remove_directory(f"volumes/{host_id}")
+        except (FileNotFoundError, OSError, MngrError) as e:
+            logger.trace("No host volume to clean up for {}: {}", host_id, e)
 
         self._container_cache_by_id.pop(host_id, None)
         self._host_by_id_cache.pop(host_id, None)
@@ -1293,6 +1302,21 @@ kill -TERM 1
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a logical volume from the state volume."""
         self._state_volume.remove_directory(f"volumes/{volume_id}")
+
+    def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
+        """Get the host volume for a given host.
+
+        Returns a HostVolume backed by a sub-folder of the state volume
+        at volumes/<host_id>/. The directory is created lazily via
+        write_files if it does not yet exist.
+        """
+        host_id = host.id if isinstance(host, HostInterface) else host
+        scoped_volume = self._state_volume.scoped(f"volumes/{host_id}")
+        return HostVolume(volume=scoped_volume)
+
+    def _ensure_host_volume_dir(self, host_id: HostId) -> None:
+        """Ensure the volume directory for a host exists on the state volume."""
+        self._state_volume.write_files({f"volumes/{host_id}/.volume": b""})
 
     # =========================================================================
     # Tag Methods (immutable)

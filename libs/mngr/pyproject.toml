@@ -71,6 +71,9 @@ omit = [
   "*/conftest.py",
   "*/utils/testing.py",
   "imbue/mngr/providers/modal/*",
+  "imbue/mngr/providers/docker/instance.py",
+  "imbue/mngr/providers/docker/volume.py",
+  "imbue/mngr/providers/docker/testing.py",
 ]
 
 [tool.inline-snapshot]
