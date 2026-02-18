@@ -21,10 +21,11 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeEffortCalloutN
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
-from imbue.mngr.agents.default_plugins.claude_config import check_effort_callout_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
 from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import is_effort_callout_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import is_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -483,26 +484,15 @@ class ClaudeAgent(BaseAgent):
             ensure_claude_dialogs_dismissed(source_path)
             return
 
-        try:
-            check_claude_dialogs_dismissed(source_path)
-        except ClaudeDirectoryNotTrustedError:
-            if mngr_ctx.is_interactive and _prompt_user_for_trust(source_path):
-                add_claude_trust_for_path(source_path)
-            else:
-                raise
-            # Re-check remaining dialogs after fixing trust
-            try:
-                check_effort_callout_dismissed()
-            except ClaudeEffortCalloutNotDismissedError:
-                if mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal():
-                    dismiss_effort_callout()
-                else:
-                    raise
-        except ClaudeEffortCalloutNotDismissedError:
-            if mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal():
-                dismiss_effort_callout()
-            else:
-                raise
+        if not is_source_directory_trusted(source_path):
+            if not mngr_ctx.is_interactive or not _prompt_user_for_trust(source_path):
+                raise ClaudeDirectoryNotTrustedError(str(source_path))
+            add_claude_trust_for_path(source_path)
+
+        if not is_effort_callout_dismissed():
+            if not mngr_ctx.is_interactive or not _prompt_user_for_effort_callout_dismissal():
+                raise ClaudeEffortCalloutNotDismissedError()
+            dismiss_effort_callout()
 
     def provision(
         self,

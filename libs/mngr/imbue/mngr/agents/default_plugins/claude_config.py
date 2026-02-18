@@ -136,6 +136,27 @@ def _write_claude_config_atomic(config_path: Path, config: dict[str, Any]) -> No
 # =============================================================================
 
 
+def is_source_directory_trusted(source_path: Path) -> bool:
+    """Check whether the source directory is trusted in Claude's config.
+
+    Returns True if source_path (or an ancestor) has hasTrustDialogAccepted=true
+    in ~/.claude.json.
+    """
+    config_path = get_claude_config_path()
+    source_path = source_path.resolve()
+
+    config = _read_claude_config(config_path)
+    if not config:
+        return False
+
+    projects = config.get("projects", {})
+    source_config = _find_project_config(projects, source_path)
+    if source_config is None:
+        return False
+
+    return bool(source_config.get("hasTrustDialogAccepted", False))
+
+
 def check_source_directory_trusted(source_path: Path) -> None:
     """Check that the source directory is trusted in Claude's config.
 
@@ -287,6 +308,16 @@ def remove_claude_trust_for_path(path: Path) -> bool:
 
     logger.trace("Removed Claude trust entry for {}", path)
     return True
+
+
+def is_effort_callout_dismissed() -> bool:
+    """Check whether the effort callout has been dismissed in Claude's config.
+
+    Returns True if effortCalloutDismissed is true in ~/.claude.json.
+    """
+    config_path = get_claude_config_path()
+    config = _read_claude_config(config_path)
+    return bool(config.get("effortCalloutDismissed", False))
 
 
 def check_effort_callout_dismissed() -> None:
