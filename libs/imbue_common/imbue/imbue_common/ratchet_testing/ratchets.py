@@ -1,6 +1,8 @@
 import ast
 import re
 import subprocess
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Final
 
@@ -9,7 +11,6 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
-from imbue.imbue_common.ratchet_testing.core import _get_line_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
@@ -429,21 +430,27 @@ def find_positional_or_keyword_params(
     All public function/method parameters (on functions/methods whose names do not
     start with _) must be either position-only (before /) or keyword-only (after *).
     For methods, self and cls are exempt.
+
+    TODO: Re-enable real git blame date reporting once violation count is low enough
+    that the subprocess overhead is acceptable (roughly <50 violations).
     """
     file_paths = _get_non_ignored_files_with_extension(
         source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
     )
     chunks: list[RatchetMatchChunk] = []
+    # Use a dummy date to avoid slow git blame calls (565+ violations currently)
+    dummy_date = datetime.min.replace(tzinfo=timezone.utc)
 
     for file_path in file_paths:
         tree = _parse_file_ast(file_path)
         if tree is None:
             continue
 
-        _collect_positional_or_keyword_violations(tree.body, file_path, chunks, is_inside_class=False)
+        _collect_positional_or_keyword_violations(
+            tree.body, file_path, chunks, is_inside_class=False, dummy_date=dummy_date
+        )
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
-    return tuple(sorted_chunks)
+    return tuple(chunks)
 
 
 def _collect_positional_or_keyword_violations(
@@ -451,11 +458,14 @@ def _collect_positional_or_keyword_violations(
     file_path: Path,
     chunks: list[RatchetMatchChunk],
     is_inside_class: bool,
+    dummy_date: datetime,
 ) -> None:
     """Walk a list of statements, collecting violations for public functions/methods."""
     for node in body:
         if isinstance(node, ast.ClassDef):
-            _collect_positional_or_keyword_violations(node.body, file_path, chunks, is_inside_class=True)
+            _collect_positional_or_keyword_violations(
+                node.body, file_path, chunks, is_inside_class=True, dummy_date=dummy_date
+            )
         elif isinstance(node, ast.FunctionDef):
             # Skip private functions/methods (names starting with _)
             if node.name.startswith("_"):
@@ -475,9 +485,6 @@ def _collect_positional_or_keyword_violations(
                 start_line = LineNumber(node.lineno)
                 end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
 
-                # Only blame the def line (not the whole body) for performance
-                commit_date = _get_line_commit_date(file_path, start_line)
-
                 chunk = RatchetMatchChunk(
                     file_path=file_path,
                     matched_content=(
@@ -486,7 +493,7 @@ def _collect_positional_or_keyword_violations(
                     ),
                     start_line=start_line,
                     end_line=end_line,
-                    last_modified_date=commit_date,
+                    last_modified_date=dummy_date,
                 )
                 chunks.append(chunk)
 
