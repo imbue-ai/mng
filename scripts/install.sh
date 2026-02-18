@@ -7,7 +7,7 @@
 #
 # This script:
 #   1. Checks for prerequisites (curl, ssh)
-#   2. Prompts to install system dependencies (uv, git, tmux, jq, rsync, unison)
+#   2. Prompts to install system dependencies (uv, git, tmux, jq, claude, rsync, unison)
 #   3. Installs mngr via uv tool install
 #
 set -euo pipefail
@@ -51,12 +51,13 @@ done
 
 # ── Install system dependencies ────────────────────────────────────────────────
 
-# uv is a core dep but has its own installer (not brew/apt), so we track it
-# separately. It shows up in the missing deps prompt, but is installed via
-# curl rather than brew/apt.
+# uv and claude have their own installers (not brew/apt), so we track them
+# separately from BREW_APT_* lists. They show up in the missing deps prompt
+# but are installed via their own mechanisms.
 CORE_DEPS=(uv git tmux jq)
 BREW_APT_CORE_DEPS=(git tmux jq)
-OPTIONAL_DEPS=(rsync unison)
+OPTIONAL_DEPS=(claude rsync unison)
+BREW_APT_OPTIONAL_DEPS=(rsync unison)
 ALL_DEPS=("${CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}")
 
 find_missing() {
@@ -92,6 +93,18 @@ install_deps() {
     fi
 }
 
+install_claude() {
+    if command -v claude &>/dev/null; then
+        return
+    fi
+    if ! command -v npm &>/dev/null; then
+        warn "npm not found -- skipping Claude Code install. Install it manually: npm install -g @anthropic-ai/claude-code"
+        return
+    fi
+    info "Installing Claude Code..."
+    npm install -g @anthropic-ai/claude-code
+}
+
 install_uv() {
     if command -v uv &>/dev/null; then
         info "uv is already installed ($(uv --version))"
@@ -123,7 +136,7 @@ if [ ${#missing_all[@]} -eq 0 ]; then
 else
     printf "\n"
     printf "mngr needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
-    printf "  rsync and unison are optional (needed for push/pull/pair).\n"
+    printf "  claude, rsync, and unison are optional (needed for the claude agent type, push/pull, and pair).\n"
     printf "\n"
     printf "  [a] Install all (%s)\n" "${missing_all[*]}"
     # shellcheck disable=SC2207
@@ -137,15 +150,16 @@ else
     # Read from /dev/tty since stdin may be piped
     read -r choice < /dev/tty
 
-    # Filter out uv from brew/apt install lists (it has its own installer)
+    # Filter out uv and claude from brew/apt install lists (they have their own installers)
     # shellcheck disable=SC2207
-    brew_apt_missing_all=($(find_missing "${BREW_APT_CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}"))
+    brew_apt_missing_all=($(find_missing "${BREW_APT_CORE_DEPS[@]}" "${BREW_APT_OPTIONAL_DEPS[@]}"))
     # shellcheck disable=SC2207
     brew_apt_missing_core=($(find_missing "${BREW_APT_CORE_DEPS[@]}"))
 
     case "$choice" in
         a|A|y|Y|"")
             install_uv
+            install_claude
             if [ ${#brew_apt_missing_all[@]} -gt 0 ]; then
                 install_deps "${brew_apt_missing_all[@]}"
             fi
@@ -200,17 +214,14 @@ fi
 printf "\n"
 info "Next steps:"
 printf "\n"
-printf "  1. Install Claude Code (for the claude agent type):\n"
-printf "     ${DIM}npm install -g @anthropic-ai/claude-code${RESET}\n"
-printf "\n"
 if [ "$OS" = "macos" ]; then
-printf "  2. Enable shell completion (zsh):\n"
+printf "  1. Enable shell completion (zsh):\n"
 printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=zsh_source mngr)\"' >> ~/.zshrc${RESET}\n"
 else
-printf "  2. Enable shell completion (bash):\n"
+printf "  1. Enable shell completion (bash):\n"
 printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=bash_source mngr)\"' >> ~/.bashrc${RESET}\n"
 fi
 printf "\n"
-printf "  3. Get started:\n"
+printf "  2. Get started:\n"
 printf "     ${DIM}mngr --help${RESET}\n"
 printf "\n"
