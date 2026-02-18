@@ -848,19 +848,10 @@ def _handle_batch_create(
     if opts.await_agent_stopped:
         raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
 
-    # Ensure source is clean once upfront (rather than per-iteration)
-    if opts.ensure_clean:
-        agent_and_host_loader = _CachedAgentHostLoader(mngr_ctx=mngr_ctx)
-        source_location = _resolve_source_location(
-            opts, agent_and_host_loader, mngr_ctx, is_start_desired=opts.start_host
-        )
-        _ensure_clean_work_dir(source_location)
-
-    # Override opts so each _handle_create iteration works correctly:
-    # - ensure_clean=False: already checked above
-    # - await_ready=True: prevents background forking, keeps creation sequential
+    # With connect=False (set by create()), _handle_create defaults to background forking
+    # which returns None and gives us no results. Setting await_ready=True forces the
+    # foreground path so we get CreateAgentResult back from each iteration.
     per_agent_opts = opts.model_copy_update(
-        to_update(opts.field_ref().ensure_clean, False),
         to_update(opts.field_ref().await_ready, True),
     )
 
