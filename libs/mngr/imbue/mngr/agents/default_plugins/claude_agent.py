@@ -347,11 +347,10 @@ class ClaudeAgent(BaseAgent):
         This method performs read-only validation only. No writes to
         disk or interactive prompts -- actual setup happens in provision().
 
-        For worktree mode on non-interactive runs: validates that the
-        source directory is trusted in Claude's config (~/.claude.json)
-        and that all known startup dialogs are dismissed, so we fail early
-        with a clear message. Interactive and auto-approve runs skip these
-        checks because provision() will handle them.
+        For worktree mode on non-interactive runs: validates that all
+        known Claude startup dialogs (trust, effort callout) are dismissed
+        so we fail early with a clear message. Interactive and auto-approve
+        runs skip these checks because provision() will handle them.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
