@@ -141,7 +141,8 @@ def test_pair_files_raises_when_git_required_but_not_present(
     cg: ConcurrencyGroup,
 ) -> None:
     """Test that pair_files raises MngrError when git is required but directories are not repos."""
-    monkeypatch.setattr("shutil.which", lambda binary: "/usr/bin/" + binary)
+    # Make all system dependency checks (unison, etc.) pass so we reach the git check
+    monkeypatch.setattr("shutil.which", lambda binary: "/tmp/fake/path/" + binary)
 
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"
