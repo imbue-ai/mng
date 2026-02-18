@@ -1130,10 +1130,19 @@ def calculate_todo_score_bad(
 
 # Bad: position-only is fine, but foo is still POSITIONAL_OR_KEYWORD (needs *)
 @pure
-def mixed_bad(
+def mixed_bad_a(
     todo: TodoItem,
     /,
     foo: int,
+) -> str:
+    ...
+
+# Bad: keyword-only is fine, but todo is still POSITIONAL_OR_KEYWORD (needs /)
+@pure
+def mixed_bad_b(
+    todo: TodoItem,
+    *,
+    is_verbose: bool,
 ) -> str:
     ...
 ```
