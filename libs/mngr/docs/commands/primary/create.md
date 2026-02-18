@@ -215,54 +215,6 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 
 See [Limit Options](../secondary/limit.md)
 
-
-## Provider Build/Start Arguments
-
-Provider: docker
-  Build args are passed directly to 'docker build'. Run 'docker build --help' for details.
-  Start args are passed directly to 'docker run'. Run 'docker run --help' for details.
-
-Provider: local
-  No build arguments are supported for the local provider.
-  No start arguments are supported for the local provider.
-
-Provider: modal
-  Supported build arguments for the modal provider:
-    --dockerfile PATH     Path to the Dockerfile to build the sandbox image. Default: Dockerfile in context dir
-    --context-dir PATH    Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
-    --cpu COUNT           Number of CPU cores (0.25-16). Default: 1.0
-    --memory GB           Memory in GB (0.5-32). Default: 1.0
-    --gpu TYPE            GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
-    --image NAME          Base Docker image to use. Not required if using a dockerfile. Default: debian:bookworm-slim
-    --timeout SEC         Maximum sandbox lifetime in seconds. Default: 900 (15 min)
-    --region NAME         Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
-    --secret VAR          Pass an environment variable as a secret to the image build. The value of
-                          VAR is read from your current environment and made available during Dockerfile
-                          RUN commands via --mount=type=secret,id=VAR. Can be specified multiple times.
-    --offline             Block all outbound network access from the sandbox [experimental]. Default: off
-    --cidr-allowlist CIDR Restrict network access to the specified CIDR range (e.g., 203.0.113.0/24) [experimental].
-                          Can be specified multiple times.
-    --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox [experimental]. NAME is the
-                          volume name on Modal (created if it doesn't exist). Can be specified
-                          multiple times.
-  No start arguments are supported for the modal provider.
-
-Provider: ssh
-  The SSH provider does not support creating hosts dynamically.
-  Hosts must be pre-configured in the mngr config file.
-
-  Example configuration in mngr.toml:
-    [providers.my-ssh-pool]
-    backend = "ssh"
-
-    [providers.my-ssh-pool.hosts.server1]
-    address = "192.168.1.100"
-    port = 22
-    user = "root"
-    key_file = "~/.ssh/id_ed25519"
-  No start arguments are supported for the SSH provider.
-
-
 ## See Also
 
 - [mngr connect](./connect.md) - Connect to an existing agent

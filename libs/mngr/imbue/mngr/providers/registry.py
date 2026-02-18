@@ -1,24 +1,6 @@
-# NOTE: These top-level imports cause Modal to be loaded even when not needed,
-# adding ~0.1s to every command. Profiling of `mngr list --provider local` shows:
-#   - Total CLI time: ~0.9s
-#   - With Modal disabled entirely (--disable-plugin modal): ~0.76s
-#   - Python-level work (imports + list_agents): ~0.58s
-#
-# The Modal import happens here unconditionally, even when --provider filters to
-# local-only. To fix: move these imports inside load_backends_from_plugins() and
-# load_local_backend_only(), or only import backends that are actually enabled.
-#
-# Another candidate for lazy loading: celpy (~45ms) in api/list.py. It's only
-# needed when CEL filters are used (--include/--exclude), but is currently
-# imported at the top level via imbue.mngr.utils.cel_utils.
 import pluggy
 
-import imbue.mngr.providers.docker.backend as docker_backend_module
-import imbue.mngr.providers.local.backend as local_backend_module
-import imbue.mngr.providers.modal.backend as modal_backend_module
-import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.imbue_common.pure import pure
-from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.errors import ConfigStructureError
@@ -27,13 +9,14 @@ from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
-from imbue.mngr.providers.docker.config import DockerProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
 # Cache for registered config classes (may include configs for backends not currently loaded)
 _config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
-# Use a mutable container to track state without 'global' keyword
+# Use a mutable container to track state without 'global' keyword.
+# This dict is shared with registry_loader.py (which imports it) so both
+# modules see the same state.
 _registry_state: dict[str, bool] = {"backends_loaded": False}
 
 
@@ -42,9 +25,25 @@ def load_all_registries(pm: pluggy.PluginManager) -> None:
 
     This is the main entry point for loading all pluggy-based registries.
     Call this once during application startup, before using any registry lookups.
+
+    This is a thin facade that defers to registry_loader to avoid importing
+    heavyweight backend modules (Modal, Docker, etc.) at CLI startup time.
     """
-    load_backends_from_plugins(pm)
-    load_agents_from_plugins(pm)
+    from imbue.mngr.providers.registry_loader import load_all_registries as _load
+
+    _load(pm)
+
+
+def load_local_backend_only(pm: pluggy.PluginManager) -> None:
+    """Load only the local and SSH provider backends.
+
+    This is used by tests to avoid depending on external services.
+    Unlike load_backends_from_plugins, this only registers the local and SSH backends
+    (not Modal or Docker which require external daemons/credentials).
+    """
+    from imbue.mngr.providers.registry_loader import load_local_backend_only as _load
+
+    _load(pm)
 
 
 def reset_backend_registry() -> None:
@@ -55,55 +54,6 @@ def reset_backend_registry() -> None:
     _backend_registry.clear()
     _config_registry.clear()
     _registry_state["backends_loaded"] = False
-
-
-def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_docker: bool) -> None:
-    """Load provider backends from the specified modules.
-
-    The pm parameter is the pluggy plugin manager. If include_modal is True,
-    the Modal backend is included (requires Modal credentials). If include_docker
-    is True, the Docker backend is included (requires a Docker daemon).
-    """
-    if _registry_state["backends_loaded"]:
-        return
-
-    pm.register(local_backend_module, name="local")
-    pm.register(ssh_backend_module, name="ssh")
-    if include_docker:
-        pm.register(docker_backend_module, name="docker")
-    if include_modal:
-        pm.register(modal_backend_module, name="modal")
-
-    registrations = pm.hook.register_provider_backend()
-
-    for registration in registrations:
-        if registration is not None:
-            backend_class, config_class = registration
-            backend_name = backend_class.get_name()
-            _backend_registry[backend_name] = backend_class
-            _config_registry[backend_name] = config_class
-
-    # Register docker config even when backend is not loaded, so config files
-    # referencing the docker backend can still be parsed
-    if not include_docker:
-        _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
-
-    _registry_state["backends_loaded"] = True
-
-
-def load_local_backend_only(pm: pluggy.PluginManager) -> None:
-    """Load only the local and SSH provider backends.
-
-    This is used by tests to avoid depending on external services.
-    Unlike load_backends_from_plugins, this only registers the local and SSH backends
-    (not Modal or Docker which require external daemons/credentials).
-    """
-    _load_backends(pm, include_modal=False, include_docker=False)
-
-
-def load_backends_from_plugins(pm: pluggy.PluginManager) -> None:
-    """Load all provider backends from plugins."""
-    _load_backends(pm, include_modal=True, include_docker=True)
 
 
 def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:

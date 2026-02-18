@@ -221,20 +221,19 @@ def apply_plugin_cli_options(command: TCommand, command_name: str | None = None)
 
 def create_plugin_manager() -> pluggy.PluginManager:
     """
-    Initializes the plugin manager and loads all plugin registries.
+    Initializes the plugin manager and discovers plugins.
+
+    Backend registries are loaded lazily in setup_command_context() (or on --help)
+    rather than here, so that tab-completion stays fast.
 
     This should only really be called once from the main command (or during testing).
     """
-    # Create plugin manager and load registries first (needed for config parsing)
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mngr" group.
     pm.load_setuptools_entrypoints("mngr")
-
-    # load all classes defined by plugins so they are available later
-    load_all_registries(pm)
 
     return pm
 
@@ -318,12 +317,28 @@ for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
     apply_plugin_cli_options(cmd)
 
 
+_create_help_state: dict[str, bool] = {"loaded": False}
+
+
 def _update_create_help_with_provider_args() -> None:
     """Update the create command's help metadata with provider-specific build/start args help.
 
-    This must be called after backends are loaded so that all provider backends
-    are registered and their help text is available.
+    This triggers backend loading (if not already done) and then updates the
+    help metadata. It is safe to call multiple times; subsequent calls are no-ops.
+
+    This is invoked lazily -- either from help_option_callback (for --help) or
+    from setup_command_context (for normal execution) -- so that tab-completion
+    never pays the cost of loading backends.
     """
+    if _create_help_state["loaded"]:
+        return
+    _create_help_state["loaded"] = True
+
+    # Ensure backends are loaded so get_all_provider_args_help_sections() has data.
+    # This is needed when --help fires before setup_command_context runs.
+    pm = get_or_create_plugin_manager()
+    load_all_registries(pm)
+
     provider_sections = get_all_provider_args_help_sections()
     for command_name in ("create", "c"):
         existing_metadata = get_help_metadata(command_name)
@@ -338,4 +353,5 @@ def _update_create_help_with_provider_args() -> None:
         register_help_metadata(command_name, updated_metadata)
 
 
-_update_create_help_with_provider_args()
+# Attach the lazy loader so that help_formatter can trigger it on --help
+create.ensure_provider_help = _update_create_help_with_provider_args  # ty: ignore[unresolved-attribute]

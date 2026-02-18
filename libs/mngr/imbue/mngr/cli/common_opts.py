@@ -29,6 +29,7 @@ from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.providers.registry import load_all_registries
 from imbue.mngr.utils.logging import setup_logging
 
 # The set of built-in format names (case-insensitive). Any --format value not
@@ -170,6 +171,11 @@ def setup_command_context(
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
+
+    # Load backend registries lazily -- deferred from plugin manager creation
+    # so that tab-completion (which never reaches command execution) stays fast.
+    load_all_registries(pm)
+
     # Determine if we're running interactively (stdout is a TTY)
     try:
         is_interactive = sys.stdout.isatty()
