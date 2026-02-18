@@ -16,8 +16,10 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mngr.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mngr.agents.default_plugins.claude_agent import _MASKED_REFRESH_TOKEN
 from imbue.mngr.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mngr.agents.default_plugins.claude_agent import _has_api_credentials_available
+from imbue.mngr.agents.default_plugins.claude_agent import _mask_refresh_token_in_credentials
 from imbue.mngr.agents.default_plugins.claude_agent import _read_macos_keychain_credential
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -1438,3 +1440,55 @@ def test_has_api_credentials_ignores_keychain_on_remote_with_sync_disabled(
                 )
                 is False
             )
+
+
+# =============================================================================
+# Refresh Token Masking Tests
+# =============================================================================
+
+
+def test_mask_refresh_token_replaces_token_with_dummy_value() -> None:
+    """_mask_refresh_token_in_credentials replaces refreshToken with a dummy value."""
+    credentials = json.dumps(
+        {
+            "claudeAiOauth": {
+                "accessToken": "access-123",
+                "refreshToken": "real-secret-refresh-token",
+                "expiresAt": "2026-01-01T00:00:00Z",
+            }
+        }
+    )
+
+    masked = _mask_refresh_token_in_credentials(credentials)
+    parsed = json.loads(masked)
+
+    assert parsed["claudeAiOauth"]["refreshToken"] == _MASKED_REFRESH_TOKEN
+    assert parsed["claudeAiOauth"]["accessToken"] == "access-123"
+    assert parsed["claudeAiOauth"]["expiresAt"] == "2026-01-01T00:00:00Z"
+
+
+def test_mask_refresh_token_preserves_credentials_without_oauth_section() -> None:
+    """_mask_refresh_token_in_credentials preserves JSON when claudeAiOauth is absent."""
+    credentials = json.dumps({"someOtherKey": "value"})
+
+    masked = _mask_refresh_token_in_credentials(credentials)
+    parsed = json.loads(masked)
+
+    assert parsed == {"someOtherKey": "value"}
+
+
+def test_mask_refresh_token_preserves_credentials_without_refresh_token() -> None:
+    """_mask_refresh_token_in_credentials preserves JSON when refreshToken is absent."""
+    credentials = json.dumps(
+        {
+            "claudeAiOauth": {
+                "accessToken": "access-123",
+            }
+        }
+    )
+
+    masked = _mask_refresh_token_in_credentials(credentials)
+    parsed = json.loads(masked)
+
+    assert parsed["claudeAiOauth"]["accessToken"] == "access-123"
+    assert "refreshToken" not in parsed["claudeAiOauth"]
