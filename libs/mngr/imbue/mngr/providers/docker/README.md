@@ -5,34 +5,18 @@ For user-facing documentation, see `docs/core_plugins/providers/docker.md`.
 
 ## Overview
 
-The Docker provider manages Docker containers as mngr hosts. Each container
-runs sshd and is accessed via pyinfra's SSH connector, following the same
-pattern as the Modal provider. The key difference is that Docker supports
-native stop/start (containers are stopped, not destroyed) and snapshots are
-implemented via `docker commit`.
-
-## Module Layout
-
-```
-providers/docker/
-    __init__.py          # Empty (per style guide)
-    backend.py           # ProviderBackendInterface implementation; hookimpl for plugin registration
-    config.py            # DockerProviderConfig (pydantic model for provider config)
-    host_store.py        # DockerHostStore: host record and agent data persistence on the state volume
-    instance.py          # DockerProviderInstance: core provider logic
-    volume.py            # DockerVolume: Volume implementation via exec into a state container
-    testing.py           # Test helpers (make_docker_provider, cleanup fixtures)
-    README.md            # This file
-```
+The Docker provider manages Docker containers as mngr hosts. 
+Each container runs sshd and is accessed via pyinfra's SSH connector, following the same pattern as the Modal provider. 
+The key difference is that Docker supports native stop/start (containers are stopped, not destroyed) and snapshots are implemented via `docker commit`.
 
 ## State Container and State Volume
 
-All provider-level metadata (host records, agent data, per-host volumes) is
-stored on a Docker named volume. This volume is mounted into a singleton
-"state container" -- a small Alpine container that stays running and acts
-as a file server. All file operations against the state volume are performed
-by exec-ing commands (`cat`, `ls`, `mkdir`, `rm`) in this container, or by
-using `put_archive` for writes.
+All provider-level metadata (host records, agent data, per-host volumes) is stored on a Docker named volume.
+
+This is done so that multiple remote mngr clients can connect to a shared Docker daemon and see the same hosts, agents, and data (if they have the same user_id), and different users on the same Docker daemon are isolated via different volume namespaces (based on user_id).
+
+This volume is mounted into a singleton "state container" -- a small Alpine container that stays running and acts as a file server. 
+All file operations against the state volume are performed by exec-ing commands (`cat`, `ls`, `mkdir`, `rm`) in this container, or by using `put_archive` for writes.
 
 ```
 Docker Named Volume: <prefix>docker-state-<user_id>
@@ -44,18 +28,9 @@ State Container: <prefix>docker-state-<user_id>
     purpose: provides exec target for all volume I/O
 ```
 
-The state container is created lazily by `ensure_state_container()` in
-`volume.py` the first time the provider instance accesses `_state_volume`.
+The state container is created lazily by `ensure_state_container()` in `volume.py` the first time the provider instance accesses `_state_volume`.
 
-### Why a state container instead of direct filesystem access?
-
-The state volume may live on a remote Docker daemon (`ssh://user@server`).
-By exec-ing into a container that mounts the volume, we get uniform
-read/write access regardless of whether Docker is local or remote. This is
-analogous to how the Modal provider accesses its Modal Volume via the Modal
-API.
-
-## State Volume Directory Layout
+### State Volume Directory Layout
 
 ```
 /mngr-state/
@@ -71,71 +46,47 @@ API.
                     ...
 ```
 
-### host_state/
+#### host_state/
 
-The `host_state/` directory contains `HostRecord` JSON files. Each record
-stores everything needed to reconnect to a host:
+The `host_state/` directory contains `HostRecord` JSON files. Each record stores everything needed to reconnect to a host:
 
-- `certified_host_data`: the canonical host metadata (name, tags, snapshots,
-  failure reason, timestamps, idle config)
+- `certified_host_data`: the canonical host metadata (name, tags, snapshots, failure reason, timestamps, idle config)
 - `ssh_host`, `ssh_port`, `ssh_host_public_key`: SSH connection info
 - `config`: `ContainerConfig` (start_args, image) for replay on snapshot restore
 - `container_id`: Docker container ID
 
-For failed hosts (creation failure), only `certified_host_data` is populated;
-the SSH fields and config are `None`.
+For failed hosts (creation failure), only `certified_host_data` is populated; the SSH fields and config are `None`.
 
-Agent data is persisted alongside host records at
-`host_state/<host_id>/<agent_id>.json` so agents can be listed even when
-the host is offline.
+Agent data is persisted alongside host records at `host_state/<host_id>/<agent_id>.json` so agents can be listed even when the host is offline.
 
-### volumes/ (per-host persistent storage)
+#### volumes/ (per-host persistent storage)
 
-When `is_host_volume_created` is True (the default), each host gets a
-dedicated sub-folder at `volumes/<host_id>/` on the state volume. This
-directory is **bind-mounted into the host container** by mounting the
-entire Docker named volume into the container and then symlinking the
-`host_dir` (e.g., `/mngr`) to `<mount_path>/volumes/<host_id>/`.
+When `is_host_volume_created` is True (the default), each host gets a dedicated sub-folder at `volumes/<host_id>/` on the state volume. 
+This directory is **bind-mounted into the host container** by mounting the entire Docker named volume into the container and then symlinking the `host_dir` (e.g., `/mngr`) to `<mount_path>/volumes/<host_id>/`.
 
-The symlink setup is handled by `build_check_and_install_packages_command`
-(from `ssh_host_setup.py`), the same mechanism used by the Modal provider.
+The symlink setup is handled by `build_check_and_install_packages_command` (from `ssh_host_setup.py`), the same mechanism used by the Modal provider.
 
 This gives us:
-- **Persistent host data**: all files written to `host_dir` by agents are
-  stored on the Docker named volume, not in the container's overlay
-  filesystem.
-- **Offline access**: data is readable via the state container (and
-  `get_volume_for_host()`) even when the host container is stopped.
-- **Shared volume**: both the state container and host containers mount the
-  same Docker named volume, so mngr can read host-written data directly.
+- **Persistent host data**: all files written to `host_dir` by agents are stored on the Docker named volume, not in the container's overlay filesystem.
+- **Offline access**: data is readable via the state container (and `get_volume_for_host()`) even when the host container is stopped.
+- **Shared volume**: both the state container and host containers mount the same Docker named volume, so mngr can read host-written data directly.
 
-When `is_host_volume_created` is False, `host_dir` is a regular directory
-inside the container (created via `mkdir -p`), and `get_volume_for_host()`
-returns None. Data is still preserved across stop/start (Docker preserves
-the container filesystem), but is not accessible while the container is
-stopped.
+When `is_host_volume_created` is False, `host_dir` is a regular directory inside the container (created via `mkdir -p`), and `get_volume_for_host()` returns None. 
+Data is still preserved across stop/start (Docker preserves the container filesystem), but is not accessible while the container is stopped.
 
-When a host is destroyed via `destroy_host()`, the volume directory is
-cleaned up.
+When a host is destroyed via `destroy_host()`, the volume directory is cleaned up.
 
 ## SSH Architecture
 
 Each Docker container runs sshd for pyinfra access. The SSH setup uses:
 
-1. **Client keypair** (`docker_ssh_key` / `docker_ssh_key.pub`): stored in
-   the profile directory at `~/.mngr/<profile>/providers/docker/<instance>/keys/`.
-   One keypair is shared across all containers for a given provider instance.
+1. **Client keypair** (`docker_ssh_key` / `docker_ssh_key.pub`): stored in the profile directory at `~/.mngr/<profile>/providers/docker/<instance>/keys/`. One keypair is shared across all containers for a given provider instance.
 
-2. **Host keypair** (`host_key` / `host_key.pub`): also stored in the profile
-   directory. Injected into each container so we can pre-trust the host key
-   and avoid host key verification prompts.
+2. **Host keypair** (`host_key` / `host_key.pub`): also stored in the profile directory. Injected into each container so we can pre-trust the host key and avoid host key verification prompts.
 
-3. **known_hosts**: maintained at the same keys directory. Updated each time
-   a container is created or reconnected.
+3. **known_hosts**: maintained at the same keys directory. Updated each time a container is created or reconnected.
 
-SSH setup is performed via `docker exec` (not SSH itself -- that would be
-circular). The shared helpers in `providers/ssh_host_setup.py` generate shell
-commands that:
+SSH setup is performed via `docker exec`. The shared helpers in `providers/ssh_host_setup.py` generate shell commands that:
 - Install openssh-server, tmux, python3, rsync if missing
 - Configure the SSH authorized_keys and host key
 - Start sshd in the background
@@ -202,16 +153,13 @@ destroy_host(host, delete_snapshots=True)
 
 ## Container Entrypoint
 
-All containers (both host containers and the state container) use the same
-entrypoint:
+All containers (both host containers and the state container) use the same entrypoint:
 
 ```sh
 trap 'exit 0' TERM; tail -f /dev/null & wait
 ```
 
-This keeps PID 1 alive (via `tail -f /dev/null`) and responds to SIGTERM
-with a clean exit (exit code 0). This is important because `docker stop`
-sends SIGTERM, and we want containers to exit cleanly.
+This keeps PID 1 alive (via `tail -f /dev/null`) and responds to SIGTERM with a clean exit (exit code 0). This is important because `docker stop` sends SIGTERM, and we want containers to exit cleanly.
 
 ## Container Labels
 
@@ -222,31 +170,13 @@ Docker containers are labeled with mngr metadata for discovery:
 - `com.imbue.mngr.provider`: the provider instance name
 - `com.imbue.mngr.tags`: JSON-encoded user tags
 
-These labels are used by `_find_container_by_host_id()` and
-`_find_container_by_name()` for fast container lookup via Docker API
-filters. Tags are immutable after creation (Docker does not support
-label mutation).
+These labels are used by `_find_container_by_host_id()` and `_find_container_by_name()` for fast container lookup via Docker API filters. 
+Tags are immutable after creation (Docker does not support label mutation).
 
 ## Snapshots
 
-Snapshots use `docker commit` to create a new image from a running
-container. The committed image ID is stored in the host record's
-`certified_host_data.snapshots` list. Restoring from a snapshot creates
-a new container from the committed image (the old container is removed).
+Snapshots use `docker commit` to create a new image from a running container. The committed image ID is stored in the host record's `certified_host_data.snapshots` list. 
+Restoring from a snapshot creates a new container from the committed image (the old container is removed).
 
-Note: Docker volume mounts are NOT captured in snapshots. Only the
-container's filesystem layers are committed.
-
-## Relationship to Other Providers
-
-The Docker provider follows the same patterns as the Modal provider:
-
-| Concept | Modal | Docker |
-|---------|-------|--------|
-| State storage | Modal Volume | Docker named volume via state container |
-| Host record store | `ModalHostStore` | `DockerHostStore` |
-| Volume impl | `ModalVolume` | `DockerVolume` |
-| SSH setup | SSH into sandbox | docker exec into container |
-| Stop/start | Terminate + snapshot | Native docker stop/start |
-| Snapshots | Modal snapshots | docker commit |
-| Per-host volume | Modal Volume per host | Sub-folder on state volume (bind-mounted) |
+Note: Docker volume mounts are NOT captured in snapshots. Only the container's filesystem layers are committed.
+For this reason, users shoudl call `mngr snapshot` instead of using `docker commit` directly, since `mngr` is also able to make a copy of the host volume directory properly. 
