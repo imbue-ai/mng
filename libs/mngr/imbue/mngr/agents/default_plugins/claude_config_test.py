@@ -689,6 +689,3 @@ def test_ensure_claude_dialogs_dismissed_sets_both(tmp_path: Path) -> None:
     updated = json.loads(config_file.read_text())
     assert updated["effortCalloutDismissed"] is True
     assert updated["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
-
-    config = json.loads(config_file.read_text())
-    assert config["effortCalloutDismissed"] is True
