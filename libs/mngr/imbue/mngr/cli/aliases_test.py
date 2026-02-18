@@ -30,23 +30,12 @@ def test_alias_registered_and_points_to_canonical(alias: str, canonical: str) ->
 def test_no_undeclared_aliases() -> None:
     """Every registered alias must be declared in COMMAND_ALIASES.
 
-    A command in cli.commands is an alias if it shares its click.Command
-    object with another registered name (i.e. two names point to the same
-    command). Every such alias must appear in COMMAND_ALIASES.
+    A registered name is an alias if it differs from the command's own name
+    (i.e. it was added via cli.add_command(cmd, name="alias")).
     """
     all_declared_aliases = {alias for aliases in COMMAND_ALIASES.values() for alias in aliases}
 
-    # Build a map from command object id to canonical name(s)
-    canonical_names = {name for name in COMMAND_ALIASES} | {
-        cmd.name for cmd in cli.commands.values() if cmd.name is not None and cmd.name not in all_declared_aliases
-    }
-
-    undeclared: list[str] = []
-    for name in cli.commands:
-        if name in canonical_names:
-            continue
-        if name not in all_declared_aliases:
-            undeclared.append(name)
+    undeclared = [name for name, cmd in cli.commands.items() if name != cmd.name and name not in all_declared_aliases]
 
     assert not undeclared, f"Commands registered as aliases but not declared in COMMAND_ALIASES: {undeclared}"
 
