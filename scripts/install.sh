@@ -6,9 +6,10 @@
 #   curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 #
 # This script:
-#   1. Installs system dependencies (git, tmux, jq, rsync, unison)
-#   2. Installs uv (if not already installed)
-#   3. Installs mngr via uv tool install
+#   1. Checks for prerequisites (curl, ssh)
+#   2. Prompts to install system dependencies (git, tmux, jq, rsync, unison)
+#   3. Installs uv (if not already installed)
+#   4. Installs mngr via uv tool install
 #
 set -euo pipefail
 
@@ -41,34 +42,94 @@ detect_os() {
 
 OS="$(detect_os)"
 
-# ── Install system dependencies ────────────────────────────────────────────────
+# ── Check prerequisites ───────────────────────────────────────────────────────
 
-SYSTEM_DEPS=(git tmux jq rsync unison)
-
-missing=()
-for dep in "${SYSTEM_DEPS[@]}"; do
-    if ! command -v "$dep" &>/dev/null; then
-        missing+=("$dep")
+for prereq in curl ssh; do
+    if ! command -v "$prereq" &>/dev/null; then
+        error "$prereq is required but not found. Please install it and re-run this script."
     fi
 done
 
+# ── Install system dependencies ────────────────────────────────────────────────
+
+CORE_DEPS=(git tmux jq)
+OPTIONAL_DEPS=(rsync unison)
+ALL_DEPS=("${CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}")
+
+find_missing() {
+    local deps=("$@")
+    local missing=()
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" &>/dev/null; then
+            missing+=("$dep")
+        fi
+    done
+    echo "${missing[*]}"
+}
+
+install_deps() {
+    local deps=("$@")
+    if [ ${#deps[@]} -eq 0 ]; then
+        return
+    fi
+    if [ "$OS" = "macos" ]; then
+        if ! command -v brew &>/dev/null; then
+            error "Missing dependencies: ${deps[*]}. Install them manually, or install Homebrew (https://brew.sh) and re-run this script."
+        fi
+        info "Installing system dependencies: ${deps[*]}"
+        brew install "${deps[@]}"
+    elif [ "$OS" = "linux" ]; then
+        if ! command -v apt-get &>/dev/null; then
+            error "apt-get not found. On non-Debian systems, manually install: ${deps[*]}"
+        fi
+        info "Installing system dependencies: ${deps[*]}"
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq "${deps[@]}"
+    fi
+}
+
 info "Detected OS: ${OS}"
 
-if [ ${#missing[@]} -eq 0 ]; then
+# shellcheck disable=SC2207
+missing_all=($(find_missing "${ALL_DEPS[@]}"))
+
+if [ ${#missing_all[@]} -eq 0 ]; then
     info "All system dependencies already installed"
-elif [ "$OS" = "macos" ]; then
-    if ! command -v brew &>/dev/null; then
-        error "Missing dependencies: ${missing[*]}. Install them manually, or install Homebrew (https://brew.sh) and re-run this script."
+else
+    printf "\n"
+    printf "mngr needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
+    printf "  rsync and unison are optional (needed for push/pull/pair).\n"
+    printf "\n"
+    printf "  [a] Install all (%s)\n" "${missing_all[*]}"
+    # shellcheck disable=SC2207
+    missing_core=($(find_missing "${CORE_DEPS[@]}"))
+    if [ ${#missing_core[@]} -gt 0 ]; then
+        printf "  [c] Install core only (%s)\n" "${missing_core[*]}"
     fi
-    info "Installing system dependencies: ${missing[*]}"
-    brew install "${missing[@]}"
-elif [ "$OS" = "linux" ]; then
-    if ! command -v apt-get &>/dev/null; then
-        error "apt-get not found. On non-Debian systems, manually install: ${missing[*]}"
-    fi
-    info "Installing system dependencies: ${missing[*]}"
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq "${missing[@]}"
+    printf "  [n] Skip -- I'll install them myself\n"
+    printf "\n"
+    printf "Choice [a/c/n]: "
+    # Read from /dev/tty since stdin may be piped
+    read -r choice < /dev/tty
+
+    case "$choice" in
+        a|A|"")
+            install_deps "${missing_all[@]}"
+            ;;
+        c|C)
+            if [ ${#missing_core[@]} -gt 0 ]; then
+                install_deps "${missing_core[@]}"
+            else
+                info "Core dependencies already installed"
+            fi
+            ;;
+        n|N)
+            info "Skipping system dependency installation"
+            ;;
+        *)
+            info "Skipping system dependency installation"
+            ;;
+    esac
 fi
 
 # ── Install uv ─────────────────────────────────────────────────────────────────
