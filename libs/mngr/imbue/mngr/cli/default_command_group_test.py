@@ -1,7 +1,10 @@
 import click
+import pluggy
 from click.testing import CliRunner
 
 from imbue.mngr.cli.default_command_group import DefaultCommandGroup
+from imbue.mngr.cli.snapshot import snapshot
+from imbue.mngr.main import cli
 
 # =============================================================================
 # DefaultCommandGroup tests
@@ -100,3 +103,48 @@ def test_implicit_forward_meta_key() -> None:
     result = runner.invoke(group, ["my-typo"])
     assert result.exit_code == 0
     assert meta_capture["forwarded_arg"] == "my-typo"
+
+
+# =============================================================================
+# Integration tests: real mngr CLI defaults to create
+# =============================================================================
+
+
+def test_mngr_bare_invocation_defaults_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr` with no args should forward to `mngr create`."""
+    result = cli_runner.invoke(cli, [], obj=plugin_manager)
+    # create with no args should attempt to create an agent (not show group help)
+    assert "Missing command" not in result.output
+    assert "Commands:" not in result.output
+
+
+def test_mngr_unrecognized_command_forwards_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr my-task` should forward to `mngr create my-task`."""
+    result = cli_runner.invoke(cli, ["my-task"], obj=plugin_manager)
+    assert "No such command" not in result.output
+
+
+def test_mngr_snapshot_bare_defaults_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr snapshot` with no args should forward to `snapshot create`."""
+    result = cli_runner.invoke(snapshot, [], obj=plugin_manager)
+    assert "Missing command" not in result.output
+    assert "Commands:" not in result.output
+    assert "Must specify at least one agent" in result.output
+
+
+def test_mngr_snapshot_unrecognized_forwards_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Running `mngr snapshot nonexistent` should forward to `snapshot create nonexistent`."""
+    result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
+    assert "No such command" not in result.output
