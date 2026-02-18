@@ -78,33 +78,6 @@ def test_explicit_create_still_works() -> None:
     assert record["name"] == "my-agent"
 
 
-def test_implicit_forward_meta_key() -> None:
-    """When _implicit_forward_meta_key is set, the forwarded arg is stored in ctx.meta."""
-
-    class TrackingGroup(DefaultCommandGroup):
-        _implicit_forward_meta_key = "_test_implicit"
-
-    meta_capture: dict[str, str] = {}
-
-    @click.group(cls=TrackingGroup)
-    @click.pass_context
-    def group(ctx: click.Context) -> None:
-        pass
-
-    @group.command(name="create")
-    @click.argument("name", required=False)
-    @click.pass_context
-    def create_cmd(ctx: click.Context, name: str | None) -> None:
-        parent_meta = ctx.parent.meta if ctx.parent else {}
-        if "_test_implicit" in parent_meta:
-            meta_capture["forwarded_arg"] = parent_meta["_test_implicit"]
-
-    runner = CliRunner()
-    result = runner.invoke(group, ["my-typo"])
-    assert result.exit_code == 0
-    assert meta_capture["forwarded_arg"] == "my-typo"
-
-
 # =============================================================================
 # Integration tests: real mngr CLI defaults to create
 # =============================================================================

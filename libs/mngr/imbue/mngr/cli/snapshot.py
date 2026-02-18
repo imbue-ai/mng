@@ -362,11 +362,9 @@ class _SnapshotGroup(DefaultCommandGroup):
     """Snapshot group that defaults to 'create' when no subcommand is given.
 
     This is safe because the next argument must be a valid agent name,
-    so typos like ``mngr snapshot destory`` will fail with an error that
-    explains the implicit forwarding to ``snapshot create``.
+    so typos like ``mngr snapshot destory`` will fail with
+    "Agent or host not found" rather than silently doing something wrong.
     """
-
-    _implicit_forward_meta_key = "_snapshot_implicit_create"
 
 
 @click.group(name="snapshot", cls=_SnapshotGroup)
@@ -498,14 +496,6 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
-    except (BaseMngrError, click.UsageError) as e:
-        # If the user typed e.g. `mngr snapshot destory`, resolve_command
-        # forwarded "destory" to `snapshot create`. Prefix the error so
-        # it's clear what happened.
-        implicit_arg = (ctx.parent.meta or {}).get("_snapshot_implicit_create") if ctx.parent else None
-        if implicit_arg is not None:
-            raise click.UsageError(f"snapshot create failed: {e}") from e
-        raise
 
 
 def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:

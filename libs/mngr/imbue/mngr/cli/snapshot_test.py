@@ -134,20 +134,7 @@ def test_snapshot_unrecognized_subcommand_forwards_to_create(
     """
     result = cli_runner.invoke(snapshot, ["nonexistent"], obj=plugin_manager)
     assert "No such command" not in result.output
-    # Confirms it ran snapshot create and got to the snapshot logic
-    assert "snapshot" in result.output.lower()
-
-
-def test_snapshot_implicit_create_prefixes_usage_errors(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Usage errors from implicitly-forwarded create should be prefixed."""
-    # "something" is not a subcommand, so it's forwarded to create as a
-    # positional arg. --all then conflicts ("Cannot specify both"), and the
-    # error should be prefixed with "snapshot create failed".
-    result = cli_runner.invoke(snapshot, ["something", "--all"], obj=plugin_manager)
-    assert "snapshot create failed" in result.output
+    assert "Agent or host not found: nonexistent" in result.output
 
 
 def test_snapshot_explicit_create_still_works(
