@@ -3,7 +3,18 @@ name = "mngr"
 version = "0.1.0"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
-# [TODO] Add before merging: license, authors, readme, classifiers, [project.urls]
+license = "MIT"
+readme = "README.md"
+authors = [
+    {name = "Josh Albrecht"},
+    {name = "Evan Ryan Gunter"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
     "imbue-common",
     "cel-python>=0.1.5",
@@ -25,6 +36,10 @@ dependencies = [
     "tomlkit>=0.12.0",
     "urwid>=2.2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/imbue-ai/mngr"
+Repository = "https://github.com/imbue-ai/mngr"
 
 [project.scripts]
 mngr = "imbue.mngr.main:cli"
