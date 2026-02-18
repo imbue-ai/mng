@@ -473,19 +473,19 @@ def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
 class _PypiSource(FrozenModel):
     """Plugin source: a PyPI package name (possibly with version constraint)."""
 
-    name: str
+    name: str = Field(description="PyPI package specifier (e.g. 'mngr-opencode>=1.0')")
 
 
 class _PathSource(FrozenModel):
     """Plugin source: a local filesystem path."""
 
-    path: str
+    path: str = Field(description="Local filesystem path to the plugin package")
 
 
 class _GitSource(FrozenModel):
     """Plugin source: a git URL."""
 
-    url: str
+    url: str = Field(description="Git repository URL for the plugin package")
 
 
 _AddSource = _PypiSource | _PathSource | _GitSource
