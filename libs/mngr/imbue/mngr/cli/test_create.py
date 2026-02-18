@@ -12,7 +12,8 @@ from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mngr.cli.create import CreateCliOptions
-from imbue.mngr.cli.create import _handle_create
+from imbue.mngr.cli.create import _create_one_agent
+from imbue.mngr.cli.create import _setup_create
 from imbue.mngr.cli.create import create
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
@@ -122,9 +123,9 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
 ) -> None:
     """Test that --connect flag results in connection options that would attach to the tmux session.
 
-    Calls _handle_create directly (bypassing _post_create) so we can verify the agent
-    was created and the returned options indicate a connect should happen, without
-    actually calling os.execvp to attach to tmux.
+    Calls _setup_create + _create_one_agent directly (bypassing _post_create_one_agent) so we
+    can verify the agent was created and the returned options indicate a connect should happen,
+    without actually calling os.execvp to attach to tmux.
     """
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mngr_test_prefix}{agent_name}"
@@ -141,10 +142,12 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     output_opts = OutputOptions()
 
     with tmux_session_cleanup(session_name):
-        result = _handle_create(temp_mngr_ctx, output_opts, opts)
+        setup = _setup_create(temp_mngr_ctx, output_opts, opts)
+        assert setup is not None
+        result = _create_one_agent(temp_mngr_ctx, output_opts, opts, setup)
 
         assert result is not None
-        create_result, connection_opts, _, returned_opts, _ = result
+        create_result, connection_opts = result
 
         # Verify the agent was created and the tmux session is running
         assert create_result.agent is not None
@@ -152,8 +155,8 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
         assert tmux_session_exists(session_name)
 
         # Verify the returned options indicate connect should happen
-        # (_post_create would call connect_to_agent -> os.execvp with tmux attach)
-        assert returned_opts.connect is True
+        # (_post_create_one_agent would call connect_to_agent -> os.execvp with tmux attach)
+        assert opts.connect is True
         assert connection_opts.is_reconnect is True
 
 
