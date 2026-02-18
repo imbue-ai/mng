@@ -21,7 +21,8 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeEffortCalloutN
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
-from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import check_effort_callout_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
@@ -498,14 +499,14 @@ class ClaudeAgent(BaseAgent):
                     else:
                         raise
 
-                # Ensure all known Claude startup dialogs are dismissed
+                # Ensure effort callout is dismissed
                 try:
-                    check_claude_dialogs_dismissed()
+                    check_effort_callout_dismissed()
                 except ClaudeEffortCalloutNotDismissedError:
                     if mngr_ctx.is_auto_approve or (
                         mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal()
                     ):
-                        ensure_claude_dialogs_dismissed()
+                        dismiss_effort_callout()
                     else:
                         raise
 

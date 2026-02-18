@@ -289,24 +289,14 @@ def remove_claude_trust_for_path(path: Path) -> bool:
     return True
 
 
-def check_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
-    """Check that all known Claude startup dialogs have been dismissed.
+def check_effort_callout_dismissed() -> None:
+    """Check that the effort callout has been dismissed in Claude's config.
 
-    Verifies that ~/.claude.json is configured so that Claude Code can start
-    without showing any dialogs that could intercept automated input.
+    Reads ~/.claude.json and verifies that effortCalloutDismissed is true.
 
-    Checks:
-    - Trust dialog: source_path (or ancestor) has hasTrustDialogAccepted=true
-      (only when source_path is provided)
-    - Effort callout: global effortCalloutDismissed is true
-
-    Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
     Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
     been dismissed.
     """
-    if source_path is not None:
-        check_source_directory_trusted(source_path)
-
     config_path = get_claude_config_path()
     config = _read_claude_config(config_path)
 
@@ -314,20 +304,12 @@ def check_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
         raise ClaudeEffortCalloutNotDismissedError()
 
 
-def ensure_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
-    """Ensure all known Claude startup dialogs are marked as dismissed.
+def dismiss_effort_callout() -> None:
+    """Set effortCalloutDismissed=true in Claude's config.
 
-    Sets the necessary fields in ~/.claude.json so that Claude Code can start
-    without showing any dialogs. This is the remediation for errors raised by
-    check_claude_dialogs_dismissed.
-
-    Sets:
-    - Trust: marks source_path as trusted (only when source_path is provided)
-    - Effort callout: sets effortCalloutDismissed=true
+    Acquires the config lock and sets the field in ~/.claude.json.
+    No-op if already set.
     """
-    if source_path is not None:
-        add_claude_trust_for_path(source_path)
-
     with _claude_config_lock() as config_path:
         config = _read_claude_config(config_path)
         if config.get("effortCalloutDismissed", False):
@@ -335,7 +317,40 @@ def ensure_claude_dialogs_dismissed(source_path: Path | None = None) -> None:
         config["effortCalloutDismissed"] = True
         _write_claude_config_atomic(config_path, config)
 
-    logger.trace("Dismissed Claude startup dialogs in config")
+    logger.trace("Dismissed effort callout in Claude config")
+
+
+def check_claude_dialogs_dismissed(source_path: Path) -> None:
+    """Check that all known Claude startup dialogs have been dismissed.
+
+    Verifies that ~/.claude.json is configured so that Claude Code can start
+    without showing any dialogs that could intercept automated input.
+
+    Checks:
+    - Trust dialog: source_path (or ancestor) has hasTrustDialogAccepted=true
+    - Effort callout: global effortCalloutDismissed is true
+
+    Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
+    Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
+    been dismissed.
+    """
+    check_source_directory_trusted(source_path)
+    check_effort_callout_dismissed()
+
+
+def ensure_claude_dialogs_dismissed(source_path: Path) -> None:
+    """Ensure all known Claude startup dialogs are marked as dismissed.
+
+    Sets the necessary fields in ~/.claude.json so that Claude Code can start
+    without showing any dialogs. This is the remediation for errors raised by
+    check_claude_dialogs_dismissed.
+
+    Sets:
+    - Trust: marks source_path as trusted (hasTrustDialogAccepted=true)
+    - Effort callout: sets effortCalloutDismissed=true
+    """
+    add_claude_trust_for_path(source_path)
+    dismiss_effort_callout()
 
 
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:

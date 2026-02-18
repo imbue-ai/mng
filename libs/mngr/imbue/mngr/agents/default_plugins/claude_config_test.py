@@ -10,7 +10,9 @@ from imbue.mngr.agents.default_plugins.claude_config import ClaudeEffortCalloutN
 from imbue.mngr.agents.default_plugins.claude_config import _find_project_config
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import check_effort_callout_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
+from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
 from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_backup_path
@@ -525,56 +527,107 @@ def test_remove_claude_trust_returns_false_when_empty_config(tmp_path: Path) -> 
     assert result is False
 
 
-# Tests for check_claude_dialogs_dismissed
+# Tests for check_effort_callout_dismissed / dismiss_effort_callout
 
 
-def test_check_claude_dialogs_dismissed_succeeds_when_dismissed() -> None:
-    """Test that check_claude_dialogs_dismissed passes when effortCalloutDismissed is true."""
+def test_check_effort_callout_dismissed_succeeds_when_dismissed() -> None:
+    """Test that check_effort_callout_dismissed passes when effortCalloutDismissed is true."""
     config_file = get_claude_config_path()
     config = {"effortCalloutDismissed": True}
     config_file.write_text(json.dumps(config, indent=2))
 
     # Should not raise
-    check_claude_dialogs_dismissed()
+    check_effort_callout_dismissed()
 
 
-def test_check_claude_dialogs_dismissed_raises_when_not_dismissed() -> None:
-    """Test that check_claude_dialogs_dismissed raises when effortCalloutDismissed is false."""
+def test_check_effort_callout_dismissed_raises_when_not_dismissed() -> None:
+    """Test that check_effort_callout_dismissed raises when effortCalloutDismissed is false."""
     config_file = get_claude_config_path()
     config = {"effortCalloutDismissed": False}
     config_file.write_text(json.dumps(config, indent=2))
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
-        check_claude_dialogs_dismissed()
+        check_effort_callout_dismissed()
 
 
-def test_check_claude_dialogs_dismissed_raises_when_field_missing() -> None:
-    """Test that check_claude_dialogs_dismissed raises when effortCalloutDismissed is absent."""
+def test_check_effort_callout_dismissed_raises_when_field_missing() -> None:
+    """Test that check_effort_callout_dismissed raises when effortCalloutDismissed is absent."""
     config_file = get_claude_config_path()
     config = {"projects": {}}
     config_file.write_text(json.dumps(config, indent=2))
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
-        check_claude_dialogs_dismissed()
+        check_effort_callout_dismissed()
 
 
-def test_check_claude_dialogs_dismissed_raises_when_no_config() -> None:
-    """Test that check_claude_dialogs_dismissed raises when config file doesn't exist."""
+def test_check_effort_callout_dismissed_raises_when_no_config() -> None:
+    """Test that check_effort_callout_dismissed raises when config file doesn't exist."""
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
-        check_claude_dialogs_dismissed()
+        check_effort_callout_dismissed()
 
 
-def test_check_claude_dialogs_dismissed_raises_when_empty_config() -> None:
-    """Test that check_claude_dialogs_dismissed raises when config file is empty."""
+def test_check_effort_callout_dismissed_raises_when_empty_config() -> None:
+    """Test that check_effort_callout_dismissed raises when config file is empty."""
     config_file = get_claude_config_path()
     config_file.write_text("")
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
-        check_claude_dialogs_dismissed()
+        check_effort_callout_dismissed()
 
 
-def test_check_claude_dialogs_dismissed_checks_trust_when_source_path_given(tmp_path: Path) -> None:
-    """Test that check_claude_dialogs_dismissed checks trust when source_path is provided."""
+def test_dismiss_effort_callout_sets_field() -> None:
+    """Test that dismiss_effort_callout sets effortCalloutDismissed to true."""
+    config_file = get_claude_config_path()
+    config = {"projects": {}}
+    config_file.write_text(json.dumps(config, indent=2))
+
+    dismiss_effort_callout()
+
+    updated = json.loads(config_file.read_text())
+    assert updated["effortCalloutDismissed"] is True
+    assert "projects" in updated
+
+
+def test_dismiss_effort_callout_is_noop_when_already_set() -> None:
+    """Test that dismiss_effort_callout is a no-op when already dismissed."""
+    config_file = get_claude_config_path()
+    backup_file = get_claude_config_backup_path()
+    config = {"effortCalloutDismissed": True, "projects": {}}
+    config_file.write_text(json.dumps(config, indent=2))
+
+    dismiss_effort_callout()
+
+    assert not backup_file.exists()
+
+
+def test_dismiss_effort_callout_creates_config_when_none_exists() -> None:
+    """Test that dismiss_effort_callout creates config file if it doesn't exist."""
+    config_file = get_claude_config_path()
+    assert not config_file.exists()
+
+    dismiss_effort_callout()
+
+    assert config_file.exists()
+    config = json.loads(config_file.read_text())
+    assert config["effortCalloutDismissed"] is True
+
+
+def test_dismiss_effort_callout_handles_empty_config() -> None:
+    """Test that dismiss_effort_callout handles empty config file."""
+    config_file = get_claude_config_path()
+    config_file.write_text("")
+
+    dismiss_effort_callout()
+
+    config = json.loads(config_file.read_text())
+    assert config["effortCalloutDismissed"] is True
+
+
+# Tests for check_claude_dialogs_dismissed / ensure_claude_dialogs_dismissed
+
+
+def test_check_claude_dialogs_dismissed_checks_trust(tmp_path: Path) -> None:
+    """Test that check_claude_dialogs_dismissed checks trust for source_path."""
     config_file = get_claude_config_path()
     source_path = tmp_path / "source"
     source_path.mkdir()
@@ -584,6 +637,24 @@ def test_check_claude_dialogs_dismissed_checks_trust_when_source_path_given(tmp_
     config_file.write_text(json.dumps(config, indent=2))
 
     with pytest.raises(ClaudeDirectoryNotTrustedError):
+        check_claude_dialogs_dismissed(source_path)
+
+
+def test_check_claude_dialogs_dismissed_checks_effort_callout(tmp_path: Path) -> None:
+    """Test that check_claude_dialogs_dismissed checks effort callout."""
+    config_file = get_claude_config_path()
+    source_path = tmp_path / "source"
+    source_path.mkdir()
+
+    # Config has trust but NOT effort dismissed
+    config = {
+        "projects": {
+            str(source_path): {"hasTrustDialogAccepted": True},
+        },
+    }
+    config_file.write_text(json.dumps(config, indent=2))
+
+    with pytest.raises(ClaudeEffortCalloutNotDismissedError):
         check_claude_dialogs_dismissed(source_path)
 
 
@@ -601,62 +672,11 @@ def test_check_claude_dialogs_dismissed_passes_when_all_set(tmp_path: Path) -> N
     }
     config_file.write_text(json.dumps(config, indent=2))
 
-    # Should not raise
     check_claude_dialogs_dismissed(source_path)
 
 
-# Tests for ensure_claude_dialogs_dismissed
-
-
-def test_ensure_claude_dialogs_dismissed_sets_field() -> None:
-    """Test that ensure_claude_dialogs_dismissed sets effortCalloutDismissed to true."""
-    config_file = get_claude_config_path()
-    config = {"projects": {}}
-    config_file.write_text(json.dumps(config, indent=2))
-
-    ensure_claude_dialogs_dismissed()
-
-    updated = json.loads(config_file.read_text())
-    assert updated["effortCalloutDismissed"] is True
-    # Existing fields preserved
-    assert "projects" in updated
-
-
-def test_ensure_claude_dialogs_dismissed_is_noop_when_already_set() -> None:
-    """Test that ensure_claude_dialogs_dismissed is a no-op when already dismissed."""
-    config_file = get_claude_config_path()
-    backup_file = get_claude_config_backup_path()
-    config = {"effortCalloutDismissed": True, "projects": {}}
-    config_file.write_text(json.dumps(config, indent=2))
-
-    ensure_claude_dialogs_dismissed()
-
-    # No backup should be created (no modification)
-    assert not backup_file.exists()
-
-
-def test_ensure_claude_dialogs_dismissed_creates_config_when_none_exists() -> None:
-    """Test that ensure_claude_dialogs_dismissed creates config file if it doesn't exist."""
-    config_file = get_claude_config_path()
-    assert not config_file.exists()
-
-    ensure_claude_dialogs_dismissed()
-
-    assert config_file.exists()
-    config = json.loads(config_file.read_text())
-    assert config["effortCalloutDismissed"] is True
-
-
-def test_ensure_claude_dialogs_dismissed_handles_empty_config() -> None:
-    """Test that ensure_claude_dialogs_dismissed handles empty config file."""
-    config_file = get_claude_config_path()
-    config_file.write_text("")
-
-    ensure_claude_dialogs_dismissed()
-
-
-def test_ensure_claude_dialogs_dismissed_adds_trust_when_source_path_given(tmp_path: Path) -> None:
-    """Test that ensure_claude_dialogs_dismissed adds trust when source_path is provided."""
+def test_ensure_claude_dialogs_dismissed_sets_both(tmp_path: Path) -> None:
+    """Test that ensure_claude_dialogs_dismissed sets trust and effort callout."""
     config_file = get_claude_config_path()
     source_path = tmp_path / "source"
     source_path.mkdir()
