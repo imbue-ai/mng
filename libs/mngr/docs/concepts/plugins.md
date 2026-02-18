@@ -45,29 +45,28 @@ Called at various points in the execution of any `mngr` command:
 
 Some commands expose additional hooks for finer-grained control. See the documentation of each command for details.
 
-### Host lifecycle Hooks [future]
+### Host lifecycle hooks
 
-Except for `on_host_collected` (which is called by any command that observes a host), these are mostly called during `mngr create` and `mngr destroy` operations:
+Called during `mngr create` and `mngr destroy` operations:
+
+| Hook                          | Description                                                                                       |
+|-------------------------------|---------------------------------------------------------------------------------------------------|
+| `on_before_host_create`       | Before creating a new host (receives host name and provider name). [experimental]                 |
+| `on_host_created`             | After a new host has been created via provider.create_host(). [experimental]                      |
+| `on_before_host_destroy`      | Before destroying a host via provider.destroy_host(). [experimental]                              |
+| `on_host_destroyed`           | After a host has been destroyed. The Python object is still available for metadata. [experimental] |
+
+The following host lifecycle hooks are planned but not yet implemented:
 
 | Hook                          | Description                                                                         |
 |-------------------------------|-------------------------------------------------------------------------------------|
-| `on_host_collected`           | Called once per host (per command where we collect this host.)                      |
-| `on_before_host_create`       | Before creating a host                                                              |
-| `on_after_host_create`        | After all steps have been completed to create a host                                |
-| `on_before_machine_create`    | Before creating the underlying environment (machine, container, sandbox) for a host |
-| `on_after_machine_create`     | After creating the underlying environment (machine, container, sandbox) for a host  |
-| `on_host_state_dir_created`   | When creating the host's state directory                                            |
-| `on_before_initial_file_copy` | Before copying files to a host                                                      |
-| `on_after_initial_file_copy`  | After copying files to a host                                                       |
-| `on_before_agent_creation`    | Before creating agents on a host                                                    |
-| `on_after_agent_creation`     | After creating agents on a host                                                     |
-| `on_before_apply_permissions` | Before applying permissions to a host                                               |
-| `on_after_apply_permissions`  | After applying permissions to a host                                                |
-| `on_before_provisioning`      | Before provisioning a host                                                          |
-| `on_after_provisioning`       | After provisioning a host                                                           |
-| `on_before_host_destroy`      | Before destroying a host                                                            |
-| `on_after_host_destroy`       | After destroying a host                                                             |
-| `get_offline_agent_state`     | Use this to provide state for an offline agent                                      |
+| `on_host_collected`           | Called once per host (per command where we collect this host.) [future]             |
+| `on_before_machine_create`    | Before creating the underlying environment (machine, container, sandbox) for a host [future] |
+| `on_after_machine_create`     | After creating the underlying environment (machine, container, sandbox) for a host [future]  |
+| `on_host_state_dir_created`   | When creating the host's state directory [future]                                   |
+| `on_before_apply_permissions` | Before applying permissions to a host [future]                                      |
+| `on_after_apply_permissions`  | After applying permissions to a host [future]                                       |
+| `get_offline_agent_state`     | Use this to provide state for an offline agent [future]                              |
 
 Note that we cannot have callbacks for most host lifecycle events because they can happen outside the control of `mngr`. To implement such functionality, you should provision shell scripts into the appropriate location:
 
@@ -75,20 +74,28 @@ Note that we cannot have callbacks for most host lifecycle events because they c
 - `$MNGR_HOST_DIR/hooks/post_services/`: runs after services have been started. Blocks agent startup until complete.
 - `$MNGR_HOST_DIR/hooks/stop/`: runs when the host is stopped. Blocks stopping until complete.
 
-### Agent lifecycle Hooks [future]
+### Agent lifecycle hooks
 
-These hooks can be used to customize behavior when interacting with individual agents:
+Called during `mngr create` and `mngr destroy` operations:
+
+| Hook                          | Description                                                                                                          |
+|-------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| `on_before_initial_file_copy` | Before copying files to create the agent's work directory. [experimental]                                            |
+| `on_after_initial_file_copy`  | After copying files to create the agent's work directory. [experimental]                                             |
+| `on_agent_state_dir_created`  | After the agent's state directory and data.json have been created, before provisioning. [experimental]               |
+| `on_before_provisioning`      | Before provisioning an agent (plugin hook, distinct from agent method). [experimental]                               |
+| `on_after_provisioning`       | After provisioning an agent (plugin hook, distinct from agent method). [experimental]                                |
+| `on_agent_created`            | After an agent is fully created and started. [experimental]                                                          |
+| `on_before_agent_destroy`     | Before an online agent is destroyed. Does not fire for offline host destruction. [experimental]                      |
+| `on_agent_destroyed`          | After an online agent has been destroyed. The Python object is still available for metadata. [experimental]          |
+
+The following agent lifecycle hooks are planned but not yet implemented:
 
 | Hook                                | Description                                                                                           |
 |-------------------------------------|-------------------------------------------------------------------------------------------------------|
-| `on_agent_collected`                | Called once per agent (per command where we collect this agent.)                                      |
-| `on_before_agent_create`            | Before creating an agent                                                                              |
-| `on_after_agent_create`             | After all steps have been completed to create an agent and it is started                              |
-| `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
-| `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
-| `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |
-| `on_before_agent_destroy`           | Before destroying an agent                                                                            |
-| `on_after_agent_destroy`            | After destroying an agent                                                                             |
+| `on_agent_collected`                | Called once per agent (per command where we collect this agent.) [future]                             |
+| `on_before_apply_agent_permissions` | Before applying permissions to an agent [future]                                                      |
+| `on_after_apply_agent_permissions`  | After applying permissions to an agent [future]                                                       |
 
 ### Agent Provisioning Methods
 
@@ -128,7 +135,7 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 And for the basic provider backends:
 
 - **local**: Local host backend
-- **docker** [future]: Docker-based host backend
+- **docker**: Docker-based host backend
 - **modal**: Modal cloud host backend
 
 Utility plugins [future] for additional features:

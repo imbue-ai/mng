@@ -73,6 +73,7 @@ def gc(
     if resource_types.is_machines:
         with log_span("Garbage collecting idle machines"):
             gc_machines(
+                mngr_ctx=mngr_ctx,
                 providers=providers,
                 include_filters=include_filters,
                 exclude_filters=exclude_filters,
@@ -175,6 +176,7 @@ def gc_work_dirs(
 
 
 def gc_machines(
+    mngr_ctx: MngrContext,
     providers: Sequence[ProviderInstanceInterface],
     include_filters: tuple[str, ...],
     exclude_filters: tuple[str, ...],
@@ -248,7 +250,9 @@ def gc_machines(
                         continue
 
                     if not dry_run:
+                        mngr_ctx.pm.hook.on_before_host_destroy(host=host)
                         provider.destroy_host(host)
+                        mngr_ctx.pm.hook.on_host_destroyed(host=host)
 
                     result.machines_destroyed.append(host_info)
 

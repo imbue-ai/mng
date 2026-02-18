@@ -103,7 +103,9 @@ def _execute_destroy(
                                 # Find the agent interface on the host
                                 for agent in online_host.get_agents():
                                     if agent.id == agent_info.id:
+                                        mngr_ctx.pm.hook.on_before_agent_destroy(agent=agent, host=online_host)
                                         online_host.destroy_agent(agent)
+                                        mngr_ctx.pm.hook.on_agent_destroyed(agent=agent, host=online_host)
                                         result.destroyed_agents.append(agent_info.name)
                                         logger.debug("Destroyed agent: {}", agent_info.name)
                                         break
@@ -123,7 +125,9 @@ def _execute_destroy(
                 case HostInterface() as offline_host:
                     with log_span("Destroying offline host {} with {} agent(s)", host_id, len(host_agents)):
                         try:
+                            mngr_ctx.pm.hook.on_before_host_destroy(host=offline_host)
                             provider.destroy_host(offline_host)
+                            mngr_ctx.pm.hook.on_host_destroyed(host=offline_host)
                             for agent_info in host_agents:
                                 result.destroyed_agents.append(agent_info.name)
                                 logger.debug("Destroyed agent: {} (via host destruction)", agent_info.name)

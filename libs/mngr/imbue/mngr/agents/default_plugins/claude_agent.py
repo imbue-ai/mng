@@ -13,6 +13,8 @@ import click
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
@@ -28,6 +30,7 @@ from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.errors import AgentStartError
 from imbue.mngr.errors import NoCommandDefinedError
 from imbue.mngr.errors import PluginMngrError
+from imbue.mngr.hosts.common import is_macos
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.data_types import FileTransferSpec
 from imbue.mngr.interfaces.data_types import RelativePath
@@ -69,6 +72,10 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=None,
         description="Extra folder to sync to the repo .claude/ folder in the agent work_dir."
         "(files are transferred after user settings, so they can override)",
+    )
+    convert_macos_credentials: bool = Field(
+        default=True,
+        description="Whether to convert macOS keychain credentials to flat files for remote hosts",
     )
     check_installation: bool = Field(
         default=True,
@@ -121,6 +128,22 @@ def _claude_json_has_primary_api_key() -> bool:
         return False
 
 
+def _read_macos_keychain_credential(label: str, concurrency_group: ConcurrencyGroup) -> str | None:
+    """Read a credential from the macOS keychain by label."""
+    try:
+        result = concurrency_group.run_process_to_completion(
+            ["security", "find-generic-password", "-l", label, "-w"],
+            is_checked_after=False,
+        )
+    except ProcessSetupError:
+        logger.debug("macOS security binary not found")
+        return None
+    if result.returncode != 0:
+        logger.debug("No keychain credential found for label {!r}", label)
+        return None
+    return result.stdout.strip()
+
+
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
     """Write the background task scripts to $MNGR_HOST_DIR/commands/.
 
@@ -141,6 +164,7 @@ def _has_api_credentials_available(
     host: OnlineHostInterface,
     options: CreateAgentOptions,
     config: ClaudeAgentConfig,
+    concurrency_group: ConcurrencyGroup,
 ) -> bool:
     """Check whether API credentials appear to be available for Claude Code.
 
@@ -161,15 +185,26 @@ def _has_api_credentials_available(
     if host.get_env_var("ANTHROPIC_API_KEY"):
         return True
 
+    # Check credentials file or macOS keychain (OAuth tokens)
     credentials_path = Path.home() / ".claude" / ".credentials.json"
-    if credentials_path.exists():
+    is_oauth_available = credentials_path.exists() or (
+        config.convert_macos_credentials
+        and is_macos()
+        and _read_macos_keychain_credential("Claude Code-credentials", concurrency_group) is not None
+    )
+    if is_oauth_available:
         if host.is_local:
             return True
         if config.sync_claude_credentials:
             return True
 
-    # Check for primaryApiKey in ~/.claude.json
-    if _claude_json_has_primary_api_key():
+    # Check primaryApiKey in ~/.claude.json or macOS keychain (API key)
+    is_api_key_available = _claude_json_has_primary_api_key() or (
+        config.convert_macos_credentials
+        and is_macos()
+        and _read_macos_keychain_credential("Claude Code", concurrency_group) is not None
+    )
+    if is_api_key_available:
         if host.is_local:
             return True
         if config.sync_claude_json:
@@ -358,7 +393,7 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Skipped claude installation check (check_installation=False)")
             return
 
-        if not _has_api_credentials_available(host, options, config):
+        if not _has_api_credentials_available(host, options, config, mngr_ctx.concurrency_group):
             logger.warning(
                 "No API credentials detected for Claude Code. The agent may fail to start.\n"
                 "Provide credentials via one of:\n"
@@ -558,6 +593,12 @@ class ClaudeAgent(BaseAgent):
                     # hack--add an extra key in there because otherwise we get prompted about skipping permissions:
                     claude_json_data = json.loads(claude_json_path.read_text())
                     claude_json_data["bypassPermissionsModeAccepted"] = True
+                    # If the local file lacks primaryApiKey, try the macOS keychain
+                    if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
+                        keychain_api_key = _read_macos_keychain_credential("Claude Code", mngr_ctx.concurrency_group)
+                        if keychain_api_key is not None:
+                            logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
+                            claude_json_data["primaryApiKey"] = keychain_api_key
                     host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
                 else:
                     logger.debug("Skipped ~/.claude.json (file does not exist)")
@@ -567,6 +608,18 @@ class ClaudeAgent(BaseAgent):
                 if credentials_path.exists():
                     logger.info("Transferring ~/.claude/.credentials.json to remote host...")
                     host.write_text_file(Path(".claude/.credentials.json"), credentials_path.read_text())
+                elif config.convert_macos_credentials and is_macos():
+                    # No local credentials file, but keychain may have OAuth tokens
+                    keychain_credentials = _read_macos_keychain_credential(
+                        "Claude Code-credentials", mngr_ctx.concurrency_group
+                    )
+                    if keychain_credentials is not None:
+                        logger.info("Writing macOS keychain OAuth credentials to remote host...")
+                        host.write_text_file(Path(".claude/.credentials.json"), keychain_credentials)
+                    else:
+                        logger.debug(
+                            "Skipped ~/.claude/.credentials.json (file does not exist, no keychain credentials)"
+                        )
                 else:
                     logger.debug("Skipped ~/.claude/.credentials.json (file does not exist)")
 
