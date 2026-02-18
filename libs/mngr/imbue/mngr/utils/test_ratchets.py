@@ -348,7 +348,6 @@ def test_prevent_importlib_import_module() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
 
 
-@pytest.mark.timeout(300)
 def test_prevent_positional_or_keyword_params() -> None:
     chunks = find_positional_or_keyword_params(_get_mngr_source_dir())
     assert len(chunks) <= snapshot(565), PREVENT_POSITIONAL_OR_KEYWORD_PARAMS.format_failure(chunks)

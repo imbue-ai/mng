@@ -373,7 +373,6 @@ def test_prevent_bash_without_strict_mode() -> None:
     )
 
 
-@pytest.mark.timeout(300)
 def test_prevent_positional_or_keyword_params() -> None:
     chunks = find_positional_or_keyword_params(_get_changelings_source_dir())
     assert len(chunks) <= snapshot(37), PREVENT_POSITIONAL_OR_KEYWORD_PARAMS.format_failure(chunks)
