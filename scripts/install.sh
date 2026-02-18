@@ -8,8 +8,7 @@
 # This script:
 #   1. Checks for prerequisites (curl, ssh)
 #   2. Prompts to install system dependencies (uv, git, tmux, jq, rsync, unison)
-#   3. Installs uv via its own installer (if not already installed)
-#   4. Installs mngr via uv tool install
+#   3. Installs mngr via uv tool install
 #
 set -euo pipefail
 
@@ -52,14 +51,13 @@ done
 
 # ── Install system dependencies ────────────────────────────────────────────────
 
+# uv is a core dep but has its own installer (not brew/apt), so we track it
+# separately. It shows up in the missing deps prompt, but is installed via
+# curl rather than brew/apt.
 CORE_DEPS=(uv git tmux jq)
+BREW_APT_CORE_DEPS=(git tmux jq)
 OPTIONAL_DEPS=(rsync unison)
 ALL_DEPS=("${CORE_DEPS[@]}" "${OPTIONAL_DEPS[@]}")
-
-# uv is a core dep but has its own installer (not brew/apt), so we filter
-# it out before passing to install_deps. The "Install uv" section below
-# handles it separately.
-BREW_APT_CORE_DEPS=(git tmux jq)
 
 find_missing() {
     local deps=("$@")
@@ -93,7 +91,28 @@ install_deps() {
     fi
 }
 
+install_uv() {
+    if command -v uv &>/dev/null; then
+        info "uv is already installed ($(uv --version))"
+        return
+    fi
+    info "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # The uv installer creates an env file that adds its bin dir to PATH.
+    # Source it so uv is available in this script without restarting the shell.
+    [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
+
+    if ! command -v uv &>/dev/null; then
+        error "uv was installed but is not on PATH. Restart your shell and run this script again."
+    fi
+
+    info "uv installed ($(uv --version))"
+}
+
 info "Detected OS: ${OS}"
+
+SHOULD_INSTALL_DEPS=true
 
 # shellcheck disable=SC2207
 missing_all=($(find_missing "${ALL_DEPS[@]}"))
@@ -103,7 +122,6 @@ if [ ${#missing_all[@]} -eq 0 ]; then
 else
     printf "\n"
     printf "mngr needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
-    printf "  uv will be installed automatically via its own installer.\n"
     printf "  rsync and unison are optional (needed for push/pull/pair).\n"
     printf "\n"
     printf "  [a] Install all (%s)\n" "${missing_all[*]}"
@@ -126,11 +144,13 @@ else
 
     case "$choice" in
         a|A|y|Y|"")
+            install_uv
             if [ ${#brew_apt_missing_all[@]} -gt 0 ]; then
                 install_deps "${brew_apt_missing_all[@]}"
             fi
             ;;
         c|C)
+            install_uv
             if [ ${#brew_apt_missing_core[@]} -gt 0 ]; then
                 install_deps "${brew_apt_missing_core[@]}"
             else
@@ -138,31 +158,25 @@ else
             fi
             ;;
         n|N)
+            SHOULD_INSTALL_DEPS=false
             info "Skipping system dependency installation"
             ;;
         *)
+            SHOULD_INSTALL_DEPS=false
             info "Skipping system dependency installation"
             ;;
     esac
 fi
 
-# ── Install uv ─────────────────────────────────────────────────────────────────
+# ── Verify uv is available ─────────────────────────────────────────────────────
 
-if command -v uv &>/dev/null; then
-    info "uv is already installed ($(uv --version))"
-else
-    info "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    # The uv installer creates an env file that adds its bin dir to PATH.
-    # Source it so uv is available in this script without restarting the shell.
-    [ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
-
-    if ! command -v uv &>/dev/null; then
-        error "uv was installed but is not on PATH. Restart your shell and run this script again."
+if ! command -v uv &>/dev/null; then
+    if [ "$SHOULD_INSTALL_DEPS" = true ]; then
+        # All deps were already installed but uv was somehow missed
+        install_uv
+    else
+        error "uv is required but not installed. Install it with 'curl -LsSf https://astral.sh/uv/install.sh | sh' and re-run this script."
     fi
-
-    info "uv installed ($(uv --version))"
 fi
 
 # ── Install mngr ──────────────────────────────────────────────────────────────

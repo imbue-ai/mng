@@ -23,7 +23,7 @@ from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
-from imbue.mngr.utils.deps import check_binary_available
+from imbue.mngr.utils.deps import SystemDependency
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_ancestor
@@ -162,16 +162,20 @@ class UnisonSyncer(MutableModel):
         return not self._running_process.is_finished()
 
 
+_UNISON = SystemDependency(binary="unison", purpose="pair mode", install_hint="")
+_UNISON_FSMONITOR = SystemDependency(binary="unison-fsmonitor", purpose="pair mode", install_hint="")
+
+
 def check_unison_installed() -> bool:
     """Check if unison (and unison-fsmonitor on macOS) are available in PATH.
 
     On Linux, only unison is required because inotify provides built-in filesystem
     monitoring. On macOS, unison-fsmonitor is also required for file watching.
     """
-    if not check_binary_available("unison"):
+    if not _UNISON.is_available():
         return False
     if platform.system() == "Darwin":
-        return check_binary_available("unison-fsmonitor")
+        return _UNISON_FSMONITOR.is_available()
     return True
 
 
@@ -327,7 +331,7 @@ def pair_files(
         else:
             install_hint = (
                 "On Ubuntu/Debian: sudo apt-get install unison. "
-                "On other systems, see: https://www.cis.upenn.edu/~bcpierce/unison/"
+                "On other systems, see: https://github.com/bcpierce00/unison"
             )
         raise BinaryNotInstalledError("unison", "pair mode", install_hint)
 

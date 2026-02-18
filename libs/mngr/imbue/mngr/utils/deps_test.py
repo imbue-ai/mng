@@ -1,29 +1,36 @@
 import pytest
 
 from imbue.mngr.errors import BinaryNotInstalledError
-from imbue.mngr.utils.deps import check_binary_available
-from imbue.mngr.utils.deps import require_binary
+from imbue.mngr.utils.deps import SystemDependency
 
 
-def test_check_binary_available_finds_existing_binary() -> None:
-    """check_binary_available returns True for a binary known to exist."""
-    assert check_binary_available("python3") is True
+def test_system_dependency_is_available_for_existing_binary() -> None:
+    """is_available returns True for a binary known to exist."""
+    dep = SystemDependency(binary="python3", purpose="testing", install_hint="Install python3")
+    assert dep.is_available() is True
 
 
-def test_check_binary_available_returns_false_for_missing_binary() -> None:
-    """check_binary_available returns False for a nonexistent binary."""
-    assert check_binary_available("definitely-not-a-real-binary-xyz") is False
+def test_system_dependency_is_available_for_missing_binary() -> None:
+    """is_available returns False for a nonexistent binary."""
+    dep = SystemDependency(binary="definitely-not-a-real-binary-xyz", purpose="testing", install_hint="N/A")
+    assert dep.is_available() is False
 
 
-def test_require_binary_passes_for_existing_binary() -> None:
-    """require_binary does not raise for a binary that exists."""
-    require_binary("python3", "testing", "Install python3")
+def test_system_dependency_require_passes_for_existing_binary() -> None:
+    """require does not raise for a binary that exists."""
+    dep = SystemDependency(binary="python3", purpose="testing", install_hint="Install python3")
+    dep.require()
 
 
-def test_require_binary_raises_for_missing_binary() -> None:
-    """require_binary raises BinaryNotInstalledError with correct fields."""
+def test_system_dependency_require_raises_for_missing_binary() -> None:
+    """require raises BinaryNotInstalledError with correct fields."""
+    dep = SystemDependency(
+        binary="definitely-not-a-real-binary-xyz",
+        purpose="unit testing",
+        install_hint="Try installing it.",
+    )
     with pytest.raises(BinaryNotInstalledError) as exc_info:
-        require_binary("definitely-not-a-real-binary-xyz", "unit testing", "Try installing it.")
+        dep.require()
 
     err = exc_info.value
     assert "definitely-not-a-real-binary-xyz" in str(err)
