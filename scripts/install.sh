@@ -112,7 +112,9 @@ install_uv() {
         return
     fi
     info "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+        error "Failed to install uv. Install it manually: https://docs.astral.sh/uv/getting-started/installation/"
+    fi
 
     # The uv installer creates an env file that adds its bin dir to PATH.
     # Source it so uv is available in this script without restarting the shell.
