@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pluggy
 import pytest
@@ -14,9 +15,9 @@ from imbue.mngr.cli.plugin import _emit_plugin_add_result
 from imbue.mngr.cli.plugin import _emit_plugin_list
 from imbue.mngr.cli.plugin import _emit_plugin_remove_result
 from imbue.mngr.cli.plugin import _emit_plugin_toggle_result
-from imbue.mngr.cli.plugin import _extract_installed_package_name
 from imbue.mngr.cli.plugin import _gather_plugin_info
 from imbue.mngr.cli.plugin import _get_field_value
+from imbue.mngr.cli.plugin import _get_installed_package_names
 from imbue.mngr.cli.plugin import _is_plugin_enabled
 from imbue.mngr.cli.plugin import _parse_fields
 from imbue.mngr.cli.plugin import _parse_pypi_package_name
@@ -482,28 +483,42 @@ def test_build_uv_pip_uninstall_command() -> None:
 
 
 # =============================================================================
-# Tests for _extract_installed_package_name
+# Tests for _get_installed_package_names
 # =============================================================================
 
 
-def test_extract_installed_package_name_finds_new_package() -> None:
-    """_extract_installed_package_name should parse the first + line from uv output."""
-    stderr = (
-        "Resolved 5 packages in 100ms\nInstalled 2 packages in 50ms\n + mngr-cool-plugin==0.1.0\n + some-dep==1.2.3\n"
-    )
-    assert _extract_installed_package_name(stderr) == "mngr-cool-plugin"
+def test_get_installed_package_names_returns_package_names() -> None:
+    """_get_installed_package_names should return a set of installed package names."""
+
+    class FakeConcurrencyGroup:
+        def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
+            class Result:
+                stdout = json.dumps(
+                    [
+                        {"name": "mngr", "version": "1.0.0"},
+                        {"name": "mngr-opencode", "version": "0.1.0"},
+                        {"name": "pluggy", "version": "1.5.0"},
+                    ]
+                )
+
+            return Result()
+
+    names = _get_installed_package_names(FakeConcurrencyGroup())
+    assert names == {"mngr", "mngr-opencode", "pluggy"}
 
 
-def test_extract_installed_package_name_no_new_packages() -> None:
-    """_extract_installed_package_name should return None when no + lines present."""
-    stderr = "Resolved 1 package in 10ms\nAudited 1 package in 5ms\n"
-    assert _extract_installed_package_name(stderr) is None
+def test_get_installed_package_names_empty_list() -> None:
+    """_get_installed_package_names should return an empty set when no packages are installed."""
 
+    class FakeConcurrencyGroup:
+        def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
+            class Result:
+                stdout = "[]"
 
-def test_extract_installed_package_name_ignores_reinstalls() -> None:
-    """_extract_installed_package_name should not match ~ (reinstall) lines."""
-    stderr = " ~ existing-package==1.0.0\n"
-    assert _extract_installed_package_name(stderr) is None
+            return Result()
+
+    names = _get_installed_package_names(FakeConcurrencyGroup())
+    assert names == set()
 
 
 # =============================================================================

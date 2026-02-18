@@ -1,6 +1,6 @@
 import importlib.metadata
+import json
 import os
-import re
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -236,20 +236,11 @@ def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
     return ("uv", "pip", "uninstall", package_name)
 
 
-# Matches uv pip install output lines for newly added packages, e.g. " + mngr-opencode==0.1.0"
-_UV_INSTALLED_PACKAGE_RE: Final[re.Pattern[str]] = re.compile(r"^\s*\+\s+(\S+)==", re.MULTILINE)
-
-
-@pure
-def _extract_installed_package_name(install_stderr: str) -> str | None:
-    """Extract the first newly-installed package name from uv pip install stderr.
-
-    Parses lines like ' + package-name==1.0.0' from uv's output. Returns
-    the first match, which for a git URL install is typically the primary package.
-    Returns None if no newly-installed package lines are found.
-    """
-    match = _UV_INSTALLED_PACKAGE_RE.search(install_stderr)
-    return match.group(1) if match is not None else None
+def _get_installed_package_names(concurrency_group: Any) -> set[str]:
+    """Get the set of currently installed package names via `uv pip list --format json`."""
+    result = concurrency_group.run_process_to_completion(("uv", "pip", "list", "--format", "json"))
+    packages = json.loads(result.stdout)
+    return {pkg["name"] for pkg in packages}
 
 
 def _read_package_name_from_pyproject(local_path: str) -> str:
@@ -504,9 +495,14 @@ def _plugin_add_impl(ctx: click.Context) -> None:
             raise AbortError(f"Invalid package name '{opts.name}'")
         command = _build_uv_pip_install_command_for_name_or_url(opts.name)
 
+    # For git installs, snapshot installed packages before install so we can diff afterward
+    packages_before: set[str] | None = None
+    if opts.git is not None:
+        packages_before = _get_installed_package_names(mngr_ctx.concurrency_group)
+
     with log_span("Installing plugin package '{}'", specifier):
         try:
-            result = mngr_ctx.concurrency_group.run_process_to_completion(command)
+            mngr_ctx.concurrency_group.run_process_to_completion(command)
         except ProcessError as e:
             raise AbortError(
                 f"Failed to install plugin package '{specifier}': {e.stderr.strip() or e.stdout.strip()}",
@@ -522,8 +518,10 @@ def _plugin_add_impl(ctx: click.Context) -> None:
         except PluginSpecifierError:
             resolved_package_name = opts.path
     else:
-        assert opts.git is not None
-        resolved_package_name = _extract_installed_package_name(result.stderr) or opts.git
+        assert opts.git is not None and packages_before is not None
+        packages_after = _get_installed_package_names(mngr_ctx.concurrency_group)
+        new_packages = packages_after - packages_before
+        resolved_package_name = next(iter(new_packages)) if new_packages else opts.git
 
     has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
     _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
