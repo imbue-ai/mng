@@ -10,7 +10,7 @@ mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
 
-Create, list, and destroy host snapshots.
+Create, list, and destroy host snapshots. [experimental]
 
 Snapshots capture the complete state of an agent's host, allowing it
 to be restored later. Because the snapshot is at the host level, the
@@ -30,7 +30,7 @@ mngr snapshot [OPTIONS] COMMAND [ARGS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -51,7 +51,7 @@ mngr snapshot [OPTIONS] COMMAND [ARGS]...
 
 ## mngr snapshot create
 
-Create a snapshot of agent host(s).
+Create a snapshot of agent host(s). [experimental]
 
 Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
@@ -109,7 +109,7 @@ mngr snapshot create [OPTIONS] [IDENTIFIERS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -124,7 +124,7 @@ mngr snapshot create [OPTIONS] [IDENTIFIERS]...
 
 ## mngr snapshot list
 
-List snapshots for agent host(s).
+List snapshots for agent host(s). [experimental]
 
 Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
@@ -172,7 +172,7 @@ mngr snapshot list [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
@@ -187,7 +187,7 @@ mngr snapshot list [OPTIONS] [AGENTS]...
 
 ## mngr snapshot destroy
 
-Destroy snapshots for agent host(s).
+Destroy snapshots for agent host(s). [experimental]
 
 Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
@@ -231,7 +231,7 @@ mngr snapshot destroy [OPTIONS] [AGENTS]...
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |

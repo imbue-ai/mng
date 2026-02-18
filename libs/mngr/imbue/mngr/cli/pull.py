@@ -173,7 +173,7 @@ class PullCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def pull(ctx: click.Context, **kwargs) -> None:
-    """Pull files or git commits from an agent to local machine.
+    """Pull files or git commits from an agent to local machine. [experimental]
 
     Syncs files or git state from an agent's working directory to a local directory.
     Default behavior uses rsync for efficient incremental file transfer.
@@ -350,7 +350,7 @@ def pull(ctx: click.Context, **kwargs) -> None:
 # Register help metadata for git-style help formatting
 _PULL_HELP_METADATA = CommandHelpMetadata(
     name="mngr-pull",
-    one_line_description="Pull files or git commits from an agent to local machine",
+    one_line_description="Pull files or git commits from an agent to local machine [experimental]",
     synopsis="mngr pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]",
     description="""Pull files or git commits from an agent to local machine.
 

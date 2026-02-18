@@ -371,7 +371,7 @@ class _SnapshotGroup(DefaultCommandGroup):
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
-    """Create, list, and destroy host snapshots.
+    """Create, list, and destroy host snapshots. [experimental]
 
     Snapshots capture the complete state of an agent's host, allowing it
     to be restored later. Because the snapshot is at the host level, the
@@ -473,7 +473,7 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
-    """Create a snapshot of agent host(s).
+    """Create a snapshot of agent host(s). [experimental]
 
     Positional arguments can be agent names/IDs or host names/IDs. Each
     identifier is automatically resolved: if it matches a known agent, that
@@ -639,7 +639,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
-    """List snapshots for agent host(s).
+    """List snapshots for agent host(s). [experimental]
 
     Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
@@ -764,7 +764,7 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
 @add_common_options
 @click.pass_context
 def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
-    """Destroy snapshots for agent host(s).
+    """Destroy snapshots for agent host(s). [experimental]
 
     Requires either --snapshot (to delete specific snapshots) or --all-snapshots
     (to delete all snapshots for the resolved hosts). A confirmation prompt is
@@ -886,7 +886,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 
 _SNAPSHOT_HELP_METADATA = CommandHelpMetadata(
     name="mngr-snapshot",
-    one_line_description="Create, list, and destroy host snapshots",
+    one_line_description="Create, list, and destroy host snapshots [experimental]",
     synopsis="mngr [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
     description="""Create, list, and destroy snapshots of agent hosts.
 

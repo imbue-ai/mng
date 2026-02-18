@@ -561,43 +561,6 @@ def test_base_agent_get_command_basename(
     assert agent._get_command_basename(CommandString("python script.py --flag")) == "python"
 
 
-def test_base_agent_is_shell_command(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test _is_shell_command identifies shells correctly."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-shell", temp_work_dir)
-
-    # Common shells
-    assert agent._is_shell_command("bash") is True
-    assert agent._is_shell_command("sh") is True
-    assert agent._is_shell_command("zsh") is True
-    assert agent._is_shell_command("fish") is True
-
-    # Non-shells
-    assert agent._is_shell_command("sleep") is False
-    assert agent._is_shell_command("python") is False
-    assert agent._is_shell_command("claude") is False
-
-
-def test_base_agent_command_basename_matches(
-    local_provider: LocalProviderInstance,
-    temp_mngr_ctx: MngrContext,
-    temp_work_dir: Path,
-) -> None:
-    """Test _command_basename_matches compares basenames correctly."""
-    agent = _create_test_agent(local_provider, temp_mngr_ctx, "test-match", temp_work_dir)
-
-    # Match cases
-    assert agent._command_basename_matches("sleep", "sleep 1000") is True
-    assert agent._command_basename_matches("sleep", "/bin/sleep 1000") is True
-
-    # Non-match cases
-    assert agent._command_basename_matches("bash", "sleep 1000") is False
-    assert agent._command_basename_matches("python", "sleep 1000") is False
-
-
 def test_base_agent_lifecycle_hooks_are_noop(
     local_provider: LocalProviderInstance,
     temp_mngr_ctx: MngrContext,

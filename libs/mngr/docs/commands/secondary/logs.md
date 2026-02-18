@@ -10,7 +10,7 @@ mngr logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
 
-View log files from an agent or host.
+View log files from an agent or host. [experimental]
 
 TARGET is an agent name/ID or host name/ID. If a log file name is not
 specified, lists all available log files.
@@ -50,7 +50,7 @@ mngr logs [OPTIONS] TARGET [LOG_FILENAME]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided, fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
+| `--format` | text | Output format (human, json, jsonl, FORMAT): Output format for results. When a template is provided [experimental], fields use standard python templating like 'name: {agent.name}' See below for available fields. | `human` |
 | `--json` | boolean | Alias for --format json | `False` |
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |

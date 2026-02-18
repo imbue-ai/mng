@@ -14,7 +14,7 @@ from imbue.mngr.cli.help_formatter import register_help_metadata
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Move an agent to a different host by cloning it and destroying the original.
+    """Move an agent to a different host by cloning it and destroying the original. [experimental]
 
     \b
     This is equivalent to running `mngr clone` followed by `mngr destroy --force`.
@@ -42,9 +42,9 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
 _MIGRATE_HELP_METADATA = CommandHelpMetadata(
     name="mngr-migrate",
-    one_line_description="Move an agent to a different host",
+    one_line_description="Move an agent to a different host [experimental]",
     synopsis="mngr migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-    description="""Move an agent to a different host by cloning it and destroying the original.
+    description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
 
 This is equivalent to running `mngr clone <source>` followed by
 `mngr destroy --force <source>`. The first argument is the source agent to
