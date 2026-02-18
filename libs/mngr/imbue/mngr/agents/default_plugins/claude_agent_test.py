@@ -1366,18 +1366,13 @@ def test_read_macos_keychain_credential_returns_none_on_process_setup_error() ->
     assert result is None
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
 def test_has_api_credentials_detects_credentials_file_on_local(
     credential_check_host: Host,
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
     """_has_api_credentials_available returns True on local host when credentials file exists."""
     config = ClaudeAgentConfig(check_installation=False)
-
-    # Create the credentials file directly (HOME points to temp dir in tests)
-    credentials_path = Path.home() / ".claude" / ".credentials.json"
-    credentials_path.parent.mkdir(parents=True, exist_ok=True)
-    credentials_path.write_text('{"claudeAiOauth": {"accessToken": "test-token"}}')
 
     assert (
         _has_api_credentials_available(
@@ -1387,17 +1382,12 @@ def test_has_api_credentials_detects_credentials_file_on_local(
     )
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
 def test_has_api_credentials_detects_credentials_file_on_remote_with_sync_enabled(
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
     """_has_api_credentials_available returns True on remote host when credentials file exists and sync is enabled."""
     config = ClaudeAgentConfig(check_installation=False, sync_claude_credentials=True)
-
-    # Create the credentials file directly (HOME points to temp dir in tests)
-    credentials_path = Path.home() / ".claude" / ".credentials.json"
-    credentials_path.parent.mkdir(parents=True, exist_ok=True)
-    credentials_path.write_text('{"claudeAiOauth": {"accessToken": "test-token"}}')
 
     assert (
         _has_api_credentials_available(
@@ -1407,7 +1397,7 @@ def test_has_api_credentials_detects_credentials_file_on_remote_with_sync_enable
     )
 
 
-@pytest.mark.usefixtures("_no_api_key_in_env")
+@pytest.mark.usefixtures("_no_api_key_in_env", "_local_credentials_file")
 def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabled(
     credential_check_cg: ConcurrencyGroup,
 ) -> None:
@@ -1417,11 +1407,6 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
         sync_claude_credentials=False,
         sync_claude_json=False,
     )
-
-    # Create the credentials file directly (HOME points to temp dir in tests)
-    credentials_path = Path.home() / ".claude" / ".credentials.json"
-    credentials_path.parent.mkdir(parents=True, exist_ok=True)
-    credentials_path.write_text('{"claudeAiOauth": {"accessToken": "test-token"}}')
 
     assert (
         _has_api_credentials_available(
