@@ -34,6 +34,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MONKEYPAT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NAMEDTUPLE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NUM_PREFIX
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IMPORT
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_POSITIONAL_OR_KEYWORD_PARAMS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RETURNS_IN_DOCSTRINGS
@@ -60,6 +61,7 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_code_in_init_files
 from imbue.imbue_common.ratchet_testing.ratchets import find_if_elif_without_else
 from imbue.imbue_common.ratchet_testing.ratchets import find_init_methods_in_non_exception_classes
 from imbue.imbue_common.ratchet_testing.ratchets import find_inline_functions
+from imbue.imbue_common.ratchet_testing.ratchets import find_positional_or_keyword_params
 from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 
 # Exclude this test file from ratchet scans to prevent self-referential matches
@@ -344,3 +346,9 @@ def test_prevent_bash_without_strict_mode() -> None:
 def test_prevent_importlib_import_module() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mngr_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
+
+
+@pytest.mark.timeout(300)
+def test_prevent_positional_or_keyword_params() -> None:
+    chunks = find_positional_or_keyword_params(_get_mngr_source_dir())
+    assert len(chunks) <= snapshot(565), PREVENT_POSITIONAL_OR_KEYWORD_PARAMS.format_failure(chunks)

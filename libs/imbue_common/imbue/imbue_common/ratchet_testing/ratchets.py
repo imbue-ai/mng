@@ -9,6 +9,7 @@ from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
+from imbue.imbue_common.ratchet_testing.core import _get_line_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
@@ -417,6 +418,77 @@ def find_assert_isinstance_usages(
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)
+
+
+def find_positional_or_keyword_params(
+    source_dir: Path,
+    excluded_path_patterns: tuple[str, ...] = (),
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find public functions/methods with POSITIONAL_OR_KEYWORD parameters.
+
+    All public function/method parameters (on functions/methods whose names do not
+    start with _) must be either position-only (before /) or keyword-only (after *).
+    For methods, self and cls are exempt.
+    """
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
+    chunks: list[RatchetMatchChunk] = []
+
+    for file_path in file_paths:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
+            continue
+
+        _collect_positional_or_keyword_violations(tree.body, file_path, chunks, is_inside_class=False)
+
+    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    return tuple(sorted_chunks)
+
+
+def _collect_positional_or_keyword_violations(
+    body: list[ast.stmt],
+    file_path: Path,
+    chunks: list[RatchetMatchChunk],
+    is_inside_class: bool,
+) -> None:
+    """Walk a list of statements, collecting violations for public functions/methods."""
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            _collect_positional_or_keyword_violations(node.body, file_path, chunks, is_inside_class=True)
+        elif isinstance(node, ast.FunctionDef):
+            # Skip private functions/methods (names starting with _)
+            if node.name.startswith("_"):
+                continue
+
+            # Get the POSITIONAL_OR_KEYWORD args
+            positional_or_keyword_args = node.args.args
+
+            # For methods, exempt self/cls (the first arg)
+            if is_inside_class and positional_or_keyword_args:
+                first_arg = positional_or_keyword_args[0]
+                if first_arg.arg in ("self", "cls"):
+                    positional_or_keyword_args = positional_or_keyword_args[1:]
+
+            if positional_or_keyword_args:
+                param_names = [arg.arg for arg in positional_or_keyword_args]
+                start_line = LineNumber(node.lineno)
+                end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                # Only blame the def line (not the whole body) for performance
+                commit_date = _get_line_commit_date(file_path, start_line)
+
+                chunk = RatchetMatchChunk(
+                    file_path=file_path,
+                    matched_content=(
+                        f"public {'method' if is_inside_class else 'function'} "
+                        f"'{node.name}' has POSITIONAL_OR_KEYWORD params: {', '.join(param_names)}"
+                    ),
+                    start_line=start_line,
+                    end_line=end_line,
+                    last_modified_date=commit_date,
+                )
+                chunks.append(chunk)
 
 
 def check_no_type_errors(project_root: Path) -> None:

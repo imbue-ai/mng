@@ -367,6 +367,15 @@ PREVENT_ASSERT_ISINSTANCE = RatchetRuleInfo(
     ),
 )
 
+PREVENT_POSITIONAL_OR_KEYWORD_PARAMS = RatchetRuleInfo(
+    rule_name="POSITIONAL_OR_KEYWORD parameters in public functions/methods",
+    rule_description=(
+        "All public function/method parameters must be explicitly position-only (before /) or "
+        "keyword-only (after *). No parameter may be passable both positionally and by keyword. "
+        "For methods, self and cls are exempt. See style guide 'Functions and methods' section."
+    ),
+)
+
 
 # --- Process management ---
 
