@@ -134,7 +134,6 @@ Called when collecting data for hosts and agents. These allow plugins to compute
 `mngr` ships with built-in plugins for common agent types:
 
 - **claude**: Claude Code with default configuration
-- **code-guardian**: Claude Code with a skill for identifying code-level inconsistencies
 - **codex**: OpenAI Codex integration
 
 And for the basic provider backends:
