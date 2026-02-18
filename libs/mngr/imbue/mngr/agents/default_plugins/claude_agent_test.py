@@ -947,13 +947,13 @@ def test_on_destroy_removes_trust(
     assert str(agent.work_dir.resolve()) not in config_after.get("projects", {})
 
 
-def test_provision_prompts_for_trust_when_interactive(
+def test_provision_prompts_for_all_dialogs_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
     interactive_mngr_ctx: MngrContext,
     setup_git_config: None,
 ) -> None:
-    """provision should prompt and add trust when interactive and source is untrusted."""
+    """provision should prompt for both trust and effort callout when neither is set."""
     source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
@@ -968,14 +968,15 @@ def test_provision_prompts_for_trust_when_interactive(
         patch(
             "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
             return_value=True,
-        ),
+        ) as mock_effort_prompt,
     ):
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
 
-    # Verify user was prompted for the source directory
+    # Verify both prompts fired
     mock_trust_prompt.assert_called_once_with(source_path)
+    mock_effort_prompt.assert_called_once()
 
-    # Verify trust was added for source and extended to worktree
+    # Verify both dialogs were resolved in the config
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
     assert str(source_path.resolve()) in config["projects"]
@@ -983,6 +984,7 @@ def test_provision_prompts_for_trust_when_interactive(
     worktree_entry = config["projects"][str(worktree_path.resolve())]
     assert worktree_entry["hasTrustDialogAccepted"] is True
     assert worktree_entry["_mngrCreated"] is True
+    assert config["effortCalloutDismissed"] is True
 
 
 def test_provision_raises_when_non_interactive_and_untrusted(
