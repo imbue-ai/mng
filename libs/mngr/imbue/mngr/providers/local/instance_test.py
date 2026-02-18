@@ -14,6 +14,7 @@ from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
@@ -123,6 +124,11 @@ def test_get_host_by_name(local_provider: LocalProviderInstance) -> None:
 def test_get_host_with_wrong_name_raises_error(local_provider: LocalProviderInstance) -> None:
     with pytest.raises(HostNotFoundError):
         local_provider.get_host(HostName("not-localhost"))
+
+
+def test_create_host_with_wrong_name_raises_error(local_provider: LocalProviderInstance) -> None:
+    with pytest.raises(UserInputError, match="localhost"):
+        local_provider.create_host(HostName("not-localhost"))
 
 
 def test_get_host_with_wrong_id_raises_error(local_provider: LocalProviderInstance) -> None:
