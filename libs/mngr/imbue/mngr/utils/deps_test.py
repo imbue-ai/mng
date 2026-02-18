@@ -16,6 +16,16 @@ def _make_dep(**overrides: str) -> SystemDependency:
     return SystemDependency(**{**defaults, **overrides})
 
 
+def _make_invalid_dep(**overrides: str) -> SystemDependency:
+    defaults = {
+        "binary": "definitely-not-a-real-binary-xyz",
+        "purpose": "testing",
+        "macos_hint": "brew install xyz",
+        "linux_hint": "apt-get install xyz",
+    }
+    return SystemDependency(**{**defaults, **overrides})
+
+
 def test_system_dependency_is_available_for_existing_binary() -> None:
     """is_available returns True for a binary known to exist."""
     assert _make_dep().is_available() is True
@@ -23,8 +33,7 @@ def test_system_dependency_is_available_for_existing_binary() -> None:
 
 def test_system_dependency_is_available_for_missing_binary() -> None:
     """is_available returns False for a nonexistent binary."""
-    dep = _make_dep(binary="definitely-not-a-real-binary-xyz")
-    assert dep.is_available() is False
+    assert _make_invalid_dep().is_available() is False
 
 
 def test_system_dependency_require_passes_for_existing_binary() -> None:
@@ -34,17 +43,12 @@ def test_system_dependency_require_passes_for_existing_binary() -> None:
 
 def test_system_dependency_require_raises_for_missing_binary() -> None:
     """require raises BinaryNotInstalledError with correct fields."""
-    dep = _make_dep(
-        binary="definitely-not-a-real-binary-xyz",
-        purpose="unit testing",
-        macos_hint="brew install xyz",
-        linux_hint="apt-get install xyz",
-    )
+    dep = _make_invalid_dep(purpose="unit testing")
     with pytest.raises(BinaryNotInstalledError) as exc_info:
         dep.require()
 
     err = exc_info.value
-    assert "definitely-not-a-real-binary-xyz" in str(err)
+    assert dep.binary in str(err)
     assert "unit testing" in str(err)
 
 

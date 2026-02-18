@@ -7,7 +7,9 @@
 #
 # This script:
 #   1. Checks for prerequisites (curl, ssh)
-#   2. Prompts to install system dependencies (uv, git, tmux, jq, claude, rsync, unison)
+#   2. Prompts to install system dependencies:
+#      - Core: uv, git, tmux, jq
+#      - Optional: claude (agent type), rsync (push/pull), unison (pair)
 #   3. Installs mngr via uv tool install
 #
 set -euo pipefail
