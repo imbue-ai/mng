@@ -13,7 +13,6 @@ from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs
 from imbue.mngr.agents.default_plugins.claude_config import check_effort_callout_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
-from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_backup_path
 from imbue.mngr.agents.default_plugins.claude_config import get_claude_config_path
@@ -623,7 +622,7 @@ def test_dismiss_effort_callout_handles_empty_config() -> None:
     assert config["effortCalloutDismissed"] is True
 
 
-# Tests for check_claude_dialogs_dismissed / ensure_claude_dialogs_dismissed
+# Tests for check_claude_dialogs_dismissed
 
 
 def test_check_claude_dialogs_dismissed_checks_trust(tmp_path: Path) -> None:
@@ -673,19 +672,3 @@ def test_check_claude_dialogs_dismissed_passes_when_all_set(tmp_path: Path) -> N
     config_file.write_text(json.dumps(config, indent=2))
 
     check_claude_dialogs_dismissed(source_path)
-
-
-def test_ensure_claude_dialogs_dismissed_sets_both(tmp_path: Path) -> None:
-    """Test that ensure_claude_dialogs_dismissed sets trust and effort callout."""
-    config_file = get_claude_config_path()
-    source_path = tmp_path / "source"
-    source_path.mkdir()
-
-    config = {"projects": {}}
-    config_file.write_text(json.dumps(config, indent=2))
-
-    ensure_claude_dialogs_dismissed(source_path)
-
-    updated = json.loads(config_file.read_text())
-    assert updated["effortCalloutDismissed"] is True
-    assert updated["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
