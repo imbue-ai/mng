@@ -549,15 +549,19 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Batch creation: create multiple agents in one command
     if opts.count > 1:
-        # Auto-disable connect for batch, but error if user explicitly passed --connect
+        # Error if user explicitly passed --connect
         connect_source = ctx.get_parameter_source("connect")
-        is_connect_explicit = connect_source == click.core.ParameterSource.COMMANDLINE
-        if opts.connect and is_connect_explicit:
+        if opts.connect and connect_source == click.core.ParameterSource.COMMANDLINE:
             raise UserInputError(
                 "Cannot use --connect with -n/--count > 1. Batch create automatically disables connect."
             )
+        # Default to --no-connect --await-ready (foreground, sequential, returns results).
+        # User can pass --no-await-ready explicitly for fire-and-forget.
+        await_ready_source = ctx.get_parameter_source("await_ready")
+        is_await_ready_explicit = await_ready_source == click.core.ParameterSource.COMMANDLINE
         opts = opts.model_copy_update(
             to_update(opts.field_ref().connect, False),
+            *([to_update(opts.field_ref().await_ready, True)] if not is_await_ready_explicit else []),
         )
         _handle_batch_create(mngr_ctx, output_opts, opts)
         return
@@ -848,31 +852,23 @@ def _handle_batch_create(
     if opts.await_agent_stopped:
         raise UserInputError("Cannot use --await-agent-stopped with -n/--count > 1.")
 
-    # With connect=False (set by create()), _handle_create defaults to background forking
-    # which returns None and gives us no results. Setting await_ready=True forces the
-    # foreground path so we get CreateAgentResult back from each iteration.
-    per_agent_opts = opts.model_copy_update(
-        to_update(opts.field_ref().await_ready, True),
-    )
-
-    # Create agents sequentially, each iteration equivalent to a standalone `mngr create`
+    # Each iteration is equivalent to a standalone `mngr create`.
+    # With the default --await-ready (set by create()), _handle_create returns results.
+    # With explicit --no-await-ready, _handle_create forks to background and returns None.
     results: list[CreateAgentResult] = []
     for agent_idx in range(opts.count):
         logger.info("Creating agent ({}/{})...", agent_idx + 1, opts.count)
-        result = _handle_create(mngr_ctx, output_opts, per_agent_opts)
+        result = _handle_create(mngr_ctx, output_opts, opts)
         if result is not None:
             create_result, _, _, _, _ = result
             results.append(create_result)
 
-    # Output all results
-    _output_batch_results(results, output_opts)
+    if results:
+        _output_batch_results(results, output_opts)
 
 
 def _output_batch_results(results: Sequence[CreateAgentResult], opts: OutputOptions) -> None:
-    """Output results for a batch of created agents.
-
-    Only called when count > 1, so len(results) is always >= 2.
-    """
+    """Output results for a batch of created agents."""
     if opts.console_level == LogLevel.NONE:
         return
 
