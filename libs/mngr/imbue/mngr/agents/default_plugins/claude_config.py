@@ -32,8 +32,8 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
         self.source_path = source_path
         super().__init__(
             f"Source directory {source_path} is not trusted by Claude Code. "
-            f"Either run Claude Code manually in {source_path} and accept the trust dialog, "
-            "or run `mngr create` interactively (without --no-connect) to be prompted."
+            "Run `mngr create` interactively (without --no-connect) to be prompted, "
+            f"or run Claude Code manually in {source_path} and accept the trust dialog."
         )
 
 
@@ -49,8 +49,8 @@ class ClaudeEffortCalloutNotDismissedError(ConfigError):
     def __init__(self) -> None:
         super().__init__(
             "Claude Code's effort callout has not been dismissed in ~/.claude.json. "
-            "Either run Claude Code manually and dismiss the callout, "
-            "or run `mngr create` interactively (without --no-connect) to be prompted."
+            "Run `mngr create` interactively (without --no-connect) to be prompted, "
+            "or run Claude Code manually and dismiss the callout."
         )
 
 
