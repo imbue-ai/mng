@@ -550,9 +550,8 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mngr_ctx.field_ref().is_auto_approve, True),
         )
 
-    # Resolve defaults that depend on other args. override_default_or_error changes the
-    # default but raises if the user explicitly passed a conflicting value on the command line.
-    # override_default_if_not_explicit changes the default but silently skips if explicit.
+    # Resolve defaults that depend on other args. error_if_param_explicit raises if the
+    # user explicitly passed a conflicting value. is_param_explicit checks without raising.
     is_batch = opts.count > 1
 
     # --await-agent-stopped implies --no-connect
@@ -579,7 +578,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         opts = opts.model_copy_update(to_update(opts.field_ref().await_ready, True))
 
     # --await-agent-stopped implies --await-ready
-    if opts.await_agent_stopped:
+    if opts.await_agent_stopped and not opts.await_ready:
         error_if_param_explicit(
             ctx,
             "await_ready",
