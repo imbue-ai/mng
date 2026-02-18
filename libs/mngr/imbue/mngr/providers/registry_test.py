@@ -4,8 +4,8 @@ from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mngr.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.registry import _backend_registry
 from imbue.mngr.providers.registry import _indent_text
+from imbue.mngr.providers.registry import backend_registry
 from imbue.mngr.providers.registry import get_all_provider_args_help_sections
 
 _TEST_BACKEND_NAME = ProviderBackendName("test-same-help")
@@ -96,7 +96,7 @@ def test_get_all_provider_args_help_sections_includes_start_help_when_different_
 
 def test_get_all_provider_args_help_sections_omits_start_help_when_same_as_build() -> None:
     # Register a test backend with identical build and start help
-    _backend_registry[_TEST_BACKEND_NAME] = _TestBackendWithSameHelp
+    backend_registry[_TEST_BACKEND_NAME] = _TestBackendWithSameHelp
     try:
         sections = get_all_provider_args_help_sections()
         _title, content = sections[0]
@@ -114,4 +114,4 @@ def test_get_all_provider_args_help_sections_omits_start_help_when_same_as_build
         # "No arguments supported." should appear exactly once (build only, not duplicated for start)
         assert test_backend_section.count("No arguments supported.") == 1
     finally:
-        del _backend_registry[_TEST_BACKEND_NAME]
+        del backend_registry[_TEST_BACKEND_NAME]

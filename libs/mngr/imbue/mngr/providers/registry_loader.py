@@ -18,9 +18,9 @@ import imbue.mngr.providers.ssh.backend as ssh_backend_module
 from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.providers.docker.config import DockerProviderConfig
-from imbue.mngr.providers.registry import _backend_registry
-from imbue.mngr.providers.registry import _config_registry
-from imbue.mngr.providers.registry import _registry_state
+from imbue.mngr.providers.registry import backend_registry
+from imbue.mngr.providers.registry import config_registry
+from imbue.mngr.providers.registry import registry_state
 
 
 def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_docker: bool) -> None:
@@ -30,7 +30,7 @@ def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_doc
     the Modal backend is included (requires Modal credentials). If include_docker
     is True, the Docker backend is included (requires a Docker daemon).
     """
-    if _registry_state["backends_loaded"]:
+    if registry_state["backends_loaded"]:
         return
 
     pm.register(local_backend_module, name="local")
@@ -46,15 +46,15 @@ def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_doc
         if registration is not None:
             backend_class, config_class = registration
             backend_name = backend_class.get_name()
-            _backend_registry[backend_name] = backend_class
-            _config_registry[backend_name] = config_class
+            backend_registry[backend_name] = backend_class
+            config_registry[backend_name] = config_class
 
     # Register docker config even when backend is not loaded, so config files
     # referencing the docker backend can still be parsed
     if not include_docker:
-        _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
+        config_registry[ProviderBackendName("docker")] = DockerProviderConfig
 
-    _registry_state["backends_loaded"] = True
+    registry_state["backends_loaded"] = True
 
 
 def load_local_backend_only(pm: pluggy.PluginManager) -> None:

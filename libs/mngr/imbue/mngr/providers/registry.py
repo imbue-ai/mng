@@ -11,13 +11,11 @@ from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 
 # Cache for registered backends
-_backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
+backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
 # Cache for registered config classes (may include configs for backends not currently loaded)
-_config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
-# Use a mutable container to track state without 'global' keyword.
-# This dict is shared with registry_loader.py (which imports it) so both
-# modules see the same state.
-_registry_state: dict[str, bool] = {"backends_loaded": False}
+config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
+# Mutable container to track loading state, shared with registry_loader.py.
+registry_state: dict[str, bool] = {"backends_loaded": False}
 
 
 def load_all_registries(pm: pluggy.PluginManager) -> None:
@@ -51,9 +49,9 @@ def reset_backend_registry() -> None:
 
     This is primarily used for test isolation to ensure a clean state between tests.
     """
-    _backend_registry.clear()
-    _config_registry.clear()
-    _registry_state["backends_loaded"] = False
+    backend_registry.clear()
+    config_registry.clear()
+    registry_state["backends_loaded"] = False
 
 
 def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:
@@ -62,12 +60,12 @@ def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterfac
     Backends are loaded from plugins via the plugin manager.
     """
     key = ProviderBackendName(name) if isinstance(name, str) else name
-    if key not in _backend_registry:
-        available = sorted(str(k) for k in _backend_registry.keys())
+    if key not in backend_registry:
+        available = sorted(str(k) for k in backend_registry.keys())
         raise UnknownBackendError(
             f"Unknown provider backend: {key}. Registered backends: {', '.join(available) or '(none)'}"
         )
-    return _backend_registry[key]
+    return backend_registry[key]
 
 
 def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceConfig]:
@@ -77,15 +75,15 @@ def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceCo
     configuration for the given backend.
     """
     key = ProviderBackendName(name) if isinstance(name, str) else name
-    if key not in _config_registry:
-        registered = ", ".join(sorted(str(k) for k in _config_registry.keys()))
+    if key not in config_registry:
+        registered = ", ".join(sorted(str(k) for k in config_registry.keys()))
         raise UnknownBackendError(f"Unknown provider backend: {key}. Registered backends: {registered or '(none)'}")
-    return _config_registry[key]
+    return config_registry[key]
 
 
 def list_backends() -> list[str]:
     """List all registered backend names."""
-    return sorted(str(k) for k in _backend_registry.keys())
+    return sorted(str(k) for k in backend_registry.keys())
 
 
 def build_provider_instance(
@@ -121,8 +119,8 @@ def get_all_provider_args_help_sections() -> tuple[tuple[str, str], ...]:
     sections in CommandHelpMetadata.
     """
     lines: list[str] = []
-    for backend_name in sorted(_backend_registry.keys()):
-        backend_class = _backend_registry[backend_name]
+    for backend_name in sorted(backend_registry.keys()):
+        backend_class = backend_registry[backend_name]
         build_help = backend_class.get_build_args_help().strip()
         start_help = backend_class.get_start_args_help().strip()
         lines.append(f"Provider: {backend_name}")
