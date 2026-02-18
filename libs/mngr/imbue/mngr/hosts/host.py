@@ -2117,14 +2117,14 @@ This popup won't show again in future sessions."""
 ONBOARDING_TEXT_TMUX_USER = """\
 Welcome to your first agent!
 
-Mngr runs your agents in tmux sessions.
-If you have never used tmux, here is the official tutorial:
-https://github.com/tmux/tmux/wiki/Getting-Started
+Mngr runs your agents in tmux sessions,
+and I can see you're already a tmux user.
+Here are some tips for using nested tmux sessions:
+https://github.com/imbue-ai/mngr/blob/main/libs/mngr/docs/nested_tmux.md
 
-Here are some useful keybindings:
+The config file for mngr's tmux sessions is ~/.mngr/tmux.conf.
+Among other things, it sets up some extra keybindings:
 
-  Ctrl-b d     Detach (return to shell)
-  Ctrl-b [     Scroll / copy mode
   Ctrl-q       Destroy agent
   Ctrl-t       Stop agent
 
