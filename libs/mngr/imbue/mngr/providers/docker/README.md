@@ -89,17 +89,31 @@ Agent data is persisted alongside host records at
 `host_state/<host_id>/<agent_id>.json` so agents can be listed even when
 the host is offline.
 
-### volumes/
+### volumes/ (per-host persistent storage)
 
-The `volumes/` directory contains per-host volume directories. Each host
-gets a subdirectory at `volumes/<host_id>/` that is created during
-`create_host()`. This directory is accessible via `get_volume_for_host()`
-and provides persistent storage that survives container stop/start and is
-readable even when the container is offline.
+When `is_host_volume_created` is True (the default), each host gets a
+dedicated sub-folder at `volumes/<host_id>/` on the state volume. This
+directory is **bind-mounted into the host container** by mounting the
+entire Docker named volume into the container and then symlinking the
+`host_dir` (e.g., `/mngr`) to `<mount_path>/volumes/<host_id>/`.
 
-This is analogous to how Modal creates a per-host Modal Volume that is
-bind-mounted into the sandbox. The Docker equivalent stores this data on the
-shared state volume and provides it as a scoped `DockerVolume`.
+The symlink setup is handled by `build_check_and_install_packages_command`
+(from `ssh_host_setup.py`), the same mechanism used by the Modal provider.
+
+This gives us:
+- **Persistent host data**: all files written to `host_dir` by agents are
+  stored on the Docker named volume, not in the container's overlay
+  filesystem.
+- **Offline access**: data is readable via the state container (and
+  `get_volume_for_host()`) even when the host container is stopped.
+- **Shared volume**: both the state container and host containers mount the
+  same Docker named volume, so mngr can read host-written data directly.
+
+When `is_host_volume_created` is False, `host_dir` is a regular directory
+inside the container (created via `mkdir -p`), and `get_volume_for_host()`
+returns None. Data is still preserved across stop/start (Docker preserves
+the container filesystem), but is not accessible while the container is
+stopped.
 
 When a host is destroyed via `destroy_host()`, the volume directory is
 cleaned up.
@@ -133,14 +147,16 @@ commands that:
 ```
 create_host(name, image, ...)
     1. Pull base image (or build from Dockerfile)
-    2. Run container: docker run -d --name <prefix><name> -p :22 ...
-    3. Install packages via docker exec
-    4. Configure SSH via docker exec
-    5. Start sshd via docker exec (detached)
-    6. Wait for sshd to accept connections
-    7. Create pyinfra Host object
-    8. Write HostRecord to state volume
-    9. Create host volume directory at volumes/<host_id>/
+    2. Create host volume directory at volumes/<host_id>/ (if enabled)
+    3. Run container: docker run -d --name <prefix><name> -p :22
+       -v <state_volume>:/mngr-state:rw ...
+    4. Install packages via docker exec; symlink host_dir ->
+       /mngr-state/volumes/<host_id>/ (if volume enabled, else mkdir)
+    5. Configure SSH via docker exec
+    6. Start sshd via docker exec (detached)
+    7. Wait for sshd to accept connections
+    8. Create pyinfra Host object
+    9. Write HostRecord to state volume
     10. Create shutdown.sh script on the host
     11. Start activity watcher
 ```
@@ -233,4 +249,4 @@ The Docker provider follows the same patterns as the Modal provider:
 | SSH setup | SSH into sandbox | docker exec into container |
 | Stop/start | Terminate + snapshot | Native docker stop/start |
 | Snapshots | Modal snapshots | docker commit |
-| Per-host volume | Modal Volume per host | Sub-folder on state volume |
+| Per-host volume | Modal Volume per host | Sub-folder on state volume (bind-mounted) |

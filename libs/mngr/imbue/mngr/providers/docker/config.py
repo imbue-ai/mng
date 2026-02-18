@@ -45,3 +45,12 @@ class DockerProviderConfig(ProviderInstanceConfig):
         default_factory=lambda: tuple(ActivitySource),
         description="Default activity sources that count toward keeping host active",
     )
+    is_host_volume_created: bool = Field(
+        default=True,
+        description=(
+            "Whether to mount a persistent volume for the host directory. "
+            "When True, the host_dir inside each container is backed by a "
+            "sub-folder of the shared Docker named volume, making data "
+            "accessible even when the container is stopped."
+        ),
+    )

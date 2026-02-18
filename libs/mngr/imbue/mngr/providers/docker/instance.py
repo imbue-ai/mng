@@ -56,7 +56,9 @@ from imbue.mngr.providers.docker.host_store import DockerHostStore
 from imbue.mngr.providers.docker.host_store import HostRecord
 from imbue.mngr.providers.docker.volume import CONTAINER_ENTRYPOINT_CMD
 from imbue.mngr.providers.docker.volume import DockerVolume
+from imbue.mngr.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mngr.providers.docker.volume import ensure_state_container
+from imbue.mngr.providers.docker.volume import state_volume_name
 from imbue.mngr.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mngr.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mngr.providers.ssh_host_setup import build_configure_ssh_command
@@ -80,6 +82,10 @@ LABEL_HOST_ID: Final[str] = f"{LABEL_PREFIX}host-id"
 LABEL_HOST_NAME: Final[str] = f"{LABEL_PREFIX}host-name"
 LABEL_PROVIDER: Final[str] = f"{LABEL_PREFIX}provider"
 LABEL_TAGS: Final[str] = f"{LABEL_PREFIX}tags"
+
+# Path where the state volume is mounted inside host containers (when host volume is enabled).
+# The host_dir (e.g. /mngr) is symlinked to <this>/<host_id> so all data persists on the volume.
+HOST_VOLUME_MOUNT_PATH: Final[str] = STATE_VOLUME_MOUNT_PATH
 
 # SSH constants
 CONTAINER_SSH_PORT: Final[int] = 22
@@ -189,6 +195,13 @@ class DockerProviderInstance(BaseProviderInstance):
         return DockerVolume(container=state_container)
 
     @cached_property
+    def _state_volume_name(self) -> str:
+        """Get the Docker named volume name for the state volume."""
+        user_id = str(self.mngr_ctx.get_profile_user_id())
+        prefix = self.mngr_ctx.config.prefix
+        return state_volume_name(prefix, user_id)
+
+    @cached_property
     def _host_store(self) -> DockerHostStore:
         """Get the host record store backed by the state volume."""
         return DockerHostStore(volume=self._state_volume)
@@ -202,6 +215,27 @@ class DockerProviderInstance(BaseProviderInstance):
     def _known_hosts_path(self) -> Path:
         """Get the path to the known_hosts file for this provider instance."""
         return self._keys_dir / "known_hosts"
+
+    def _get_host_volume_mount(self) -> str | None:
+        """Build a -v flag value to mount the state volume into host containers.
+
+        Returns None when host volumes are disabled. When enabled, returns
+        '<volume_name>:<mount_path>:rw' so the container can read/write the
+        shared state volume (where per-host data lives under volumes/<host_id>/).
+        """
+        if not self.config.is_host_volume_created:
+            return None
+        return f"{self._state_volume_name}:{HOST_VOLUME_MOUNT_PATH}:rw"
+
+    def _get_host_volume_symlink_target(self, host_id: HostId) -> str | None:
+        """Get the path inside a container that host_dir should symlink to.
+
+        Returns the per-host sub-folder of the volume mount, e.g.
+        /mngr-state/volumes/<host_id>. Returns None when host volumes are disabled.
+        """
+        if not self.config.is_host_volume_created:
+            return None
+        return f"{HOST_VOLUME_MOUNT_PATH}/volumes/{host_id}"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
@@ -240,9 +274,17 @@ class DockerProviderInstance(BaseProviderInstance):
     def _check_and_install_packages(
         self,
         container: docker.models.containers.Container,
+        host_volume_mount_path: str | None = None,
     ) -> None:
-        """Check for required packages and install if missing, with warnings."""
-        check_install_cmd = build_check_and_install_packages_command(str(self.host_dir))
+        """Check for required packages and install if missing, with warnings.
+
+        When host_volume_mount_path is provided, host_dir is set up as a symlink
+        to the volume path so data persists on the shared Docker volume.
+        """
+        check_install_cmd = build_check_and_install_packages_command(
+            str(self.host_dir),
+            host_volume_mount_path=host_volume_mount_path,
+        )
         exit_code, output = self._exec_in_container(container, check_install_cmd)
         if exit_code != 0:
             raise MngrError(f"Failed to install required packages (exit code {exit_code}): {output}")
@@ -258,9 +300,10 @@ class DockerProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        host_volume_mount_path: str | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the container."""
-        self._check_and_install_packages(container)
+        self._check_and_install_packages(container, host_volume_mount_path=host_volume_mount_path)
 
         with log_span("Configuring SSH keys in container", ssh_user=ssh_user):
             configure_ssh_cmd = build_configure_ssh_command(
@@ -321,8 +364,14 @@ class DockerProviderInstance(BaseProviderInstance):
         host_key_path, host_public_key = self._get_host_keypair()
         host_private_key = host_key_path.read_text()
 
+        host_volume_symlink_target = self._get_host_volume_symlink_target(host_id)
         self._start_sshd_in_container(
-            container, client_public_key, host_private_key, host_public_key, known_hosts=known_hosts
+            container,
+            client_public_key,
+            host_private_key,
+            host_public_key,
+            known_hosts=known_hosts,
+            host_volume_mount_path=host_volume_symlink_target,
         )
 
         ssh_host = self._get_ssh_host()
@@ -485,12 +534,20 @@ kill -TERM 1
         container_name: str,
         labels: dict[str, str],
         start_args: Sequence[str],
+        volume_mount: str | None = None,
     ) -> list[str]:
-        """Build a docker run command with mandatory flags + user passthrough args."""
+        """Build a docker run command with mandatory flags + user passthrough args.
+
+        When volume_mount is provided, adds -v <volume_mount> to mount the
+        state volume into the container for persistent host data.
+        """
         cmd = ["run", "-d", "--name", container_name, "-p", f":{CONTAINER_SSH_PORT}"]
 
         for key, value in labels.items():
             cmd.extend(["--label", f"{key}={value}"])
+
+        if volume_mount is not None:
+            cmd.extend(["-v", volume_mount])
 
         cmd.extend(list(start_args))
         cmd.extend(["--entrypoint", "sh", image, "-c", CONTAINER_ENTRYPOINT_CMD])
@@ -503,6 +560,7 @@ kill -TERM 1
         container_name: str,
         labels: dict[str, str],
         start_args: Sequence[str],
+        volume_mount: str | None = None,
     ) -> docker.models.containers.Container:
         """Create and start a container via docker run subprocess.
 
@@ -513,6 +571,7 @@ kill -TERM 1
             container_name=container_name,
             labels=labels,
             start_args=start_args,
+            volume_mount=volume_mount,
         )
         result = self._run_docker_command(cmd)
         if result.returncode != 0:
@@ -675,12 +734,18 @@ kill -TERM 1
             labels = build_container_labels(host_id, name, str(self.name), tags)
             container_name = f"{self.mngr_ctx.config.prefix}{name}"
 
+            # Create the per-host volume directory before starting the container
+            # so the symlink target exists when the setup script runs.
+            if self.config.is_host_volume_created:
+                self._ensure_host_volume_dir(host_id)
+
             with log_span("Creating Docker container", container_name=container_name):
                 container = self._run_container(
                     image=image_name,
                     container_name=container_name,
                     labels=labels,
                     start_args=effective_start_args,
+                    volume_mount=self._get_host_volume_mount(),
                 )
 
         except docker.errors.APIError as e:
@@ -753,8 +818,6 @@ kill -TERM 1
                 build_log="",
             )
             raise MngrError(f"SSH setup failed for container {host_id}: {e}") from e
-
-        self._ensure_host_volume_dir(host_id)
 
         return host
 
@@ -943,6 +1006,7 @@ kill -TERM 1
                 container_name=container_name,
                 labels=labels,
                 start_args=effective_start_args,
+                volume_mount=self._get_host_volume_mount(),
             )
         except (MngrError, docker.errors.DockerException) as e:
             raise MngrError(f"Failed to create container from snapshot: {e}") from e
@@ -994,10 +1058,11 @@ kill -TERM 1
             self._host_store.delete_host_record(host_id)
 
         # Clean up the host volume directory
-        try:
-            self._state_volume.remove_directory(f"volumes/{host_id}")
-        except (FileNotFoundError, OSError, MngrError) as e:
-            logger.trace("No host volume to clean up for {}: {}", host_id, e)
+        if self.config.is_host_volume_created:
+            try:
+                self._state_volume.remove_directory(f"volumes/{host_id}")
+            except (FileNotFoundError, OSError, MngrError) as e:
+                logger.trace("No host volume to clean up for {}: {}", host_id, e)
 
         self._container_cache_by_id.pop(host_id, None)
         self._host_by_id_cache.pop(host_id, None)
@@ -1307,9 +1372,10 @@ kill -TERM 1
         """Get the host volume for a given host.
 
         Returns a HostVolume backed by a sub-folder of the state volume
-        at volumes/<host_id>/. The directory is created lazily via
-        write_files if it does not yet exist.
+        at volumes/<host_id>/. Returns None when host volumes are disabled.
         """
+        if not self.config.is_host_volume_created:
+            return None
         host_id = host.id if isinstance(host, HostInterface) else host
         scoped_volume = self._state_volume.scoped(f"volumes/{host_id}")
         return HostVolume(volume=scoped_volume)
