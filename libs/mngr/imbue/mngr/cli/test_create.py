@@ -1142,6 +1142,32 @@ def test_batch_create_with_name_raises_error(
     )
 
     assert result.exit_code != 0
+    assert "Cannot specify --name" in result.output
+
+
+def test_batch_create_with_positional_name_raises_error(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that -n with a positional name raises an error."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "my-agent",
+            "-n",
+            "3",
+            "--agent-cmd",
+            "sleep 738291",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
     assert "Cannot specify agent name" in result.output
 
 
