@@ -1,7 +1,9 @@
 """Tests for CLI command aliases."""
 
 import click
+import pytest
 
+from imbue.mngr.main import COMMAND_ALIASES
 from imbue.mngr.main import cli
 
 
@@ -12,46 +14,41 @@ def _complete_names(incomplete: str) -> list[str]:
     return [item.value for item in completions]
 
 
-def test_ls_alias_exists() -> None:
-    """The 'ls' command should be an alias for 'list'."""
-    assert "ls" in cli.commands
-    assert cli.commands["ls"] is cli.commands["list"]
+# Build (alias, canonical) pairs for parametrized test
+_ALL_ALIAS_PAIRS: list[tuple[str, str]] = [
+    (alias, canonical) for canonical, aliases in COMMAND_ALIASES.items() for alias in aliases
+]
 
 
-def test_conn_alias_exists() -> None:
-    """The 'conn' command should be an alias for 'connect'."""
-    assert "conn" in cli.commands
-    assert cli.commands["conn"] is cli.commands["connect"]
+@pytest.mark.parametrize(("alias", "canonical"), _ALL_ALIAS_PAIRS, ids=[a for a, _ in _ALL_ALIAS_PAIRS])
+def test_alias_registered_and_points_to_canonical(alias: str, canonical: str) -> None:
+    """Every alias in COMMAND_ALIASES must be registered and point to the canonical command."""
+    assert alias in cli.commands, f"Alias '{alias}' not registered via cli.add_command"
+    assert cli.commands[alias] is cli.commands[canonical], f"Alias '{alias}' does not point to '{canonical}'"
 
 
-def test_c_alias_exists() -> None:
-    """The 'c' command should be an alias for 'create'."""
-    assert "c" in cli.commands
-    assert cli.commands["c"] is cli.commands["create"]
+def test_no_undeclared_aliases() -> None:
+    """Every registered alias must be declared in COMMAND_ALIASES.
 
+    A command in cli.commands is an alias if it shares its click.Command
+    object with another registered name (i.e. two names point to the same
+    command). Every such alias must appear in COMMAND_ALIASES.
+    """
+    all_declared_aliases = {alias for aliases in COMMAND_ALIASES.values() for alias in aliases}
 
-def test_cfg_alias_exists() -> None:
-    """The 'cfg' command should be an alias for 'config'."""
-    assert "cfg" in cli.commands
-    assert cli.commands["cfg"] is cli.commands["config"]
+    # Build a map from command object id to canonical name(s)
+    canonical_names = {name for name in COMMAND_ALIASES} | {
+        cmd.name for cmd in cli.commands.values() if cmd.name is not None and cmd.name not in all_declared_aliases
+    }
 
+    undeclared: list[str] = []
+    for name in cli.commands:
+        if name in canonical_names:
+            continue
+        if name not in all_declared_aliases:
+            undeclared.append(name)
 
-def test_msg_alias_exists() -> None:
-    """The 'msg' command should be an alias for 'message'."""
-    assert "msg" in cli.commands
-    assert cli.commands["msg"] is cli.commands["message"]
-
-
-def test_rm_alias_exists() -> None:
-    """The 'rm' command should be an alias for 'destroy'."""
-    assert "rm" in cli.commands
-    assert cli.commands["rm"] is cli.commands["destroy"]
-
-
-def test_lim_alias_exists() -> None:
-    """The 'lim' command should be an alias for 'limit'."""
-    assert "lim" in cli.commands
-    assert cli.commands["lim"] is cli.commands["limit"]
+    assert not undeclared, f"Commands registered as aliases but not declared in COMMAND_ALIASES: {undeclared}"
 
 
 def test_shell_complete_drops_alias_when_canonical_present() -> None:
