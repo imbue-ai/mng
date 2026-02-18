@@ -467,6 +467,70 @@ def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
         ctx.exit(1)
 
 
+class _PypiSource(FrozenModel):
+    """Plugin source: a PyPI package name (possibly with version constraint)."""
+
+    name: str
+
+
+class _PathSource(FrozenModel):
+    """Plugin source: a local filesystem path."""
+
+    path: str
+
+
+class _GitSource(FrozenModel):
+    """Plugin source: a git URL."""
+
+    url: str
+
+
+_AddSource = _PypiSource | _PathSource | _GitSource
+_RemoveSource = _PypiSource | _PathSource
+
+
+def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
+    """Parse and validate the plugin source for an add command.
+
+    Exactly one of name, --path, or --git must be provided.
+    """
+    source_count = sum(x is not None for x in (opts.name, opts.path, opts.git))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME, --path, or --git")
+    if source_count > 1:
+        raise AbortError("NAME, --path, and --git are mutually exclusive")
+
+    if opts.path is not None:
+        return _PathSource(path=opts.path)
+    if opts.git is not None:
+        return _GitSource(url=opts.git)
+
+    assert opts.name is not None
+    if _parse_pypi_package_name(opts.name) is None:
+        raise AbortError(f"Invalid package name '{opts.name}'")
+    return _PypiSource(name=opts.name)
+
+
+def _parse_remove_source(opts: PluginCliOptions) -> _RemoveSource:
+    """Parse and validate the plugin source for a remove command.
+
+    Exactly one of name or --path must be provided.
+    """
+    source_count = sum(x is not None for x in (opts.name, opts.path))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME or --path")
+    if source_count > 1:
+        raise AbortError("NAME and --path are mutually exclusive")
+
+    if opts.path is not None:
+        return _PathSource(path=opts.path)
+
+    assert opts.name is not None
+    if _parse_pypi_package_name(opts.name) is None:
+        raise AbortError(f"Invalid package name '{opts.name}'")
+    return _PypiSource(name=opts.name)
+
+
 def _plugin_add_impl(ctx: click.Context) -> None:
     """Implementation of plugin add command."""
     mngr_ctx, output_opts, opts = setup_command_context(
@@ -475,29 +539,25 @@ def _plugin_add_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
-    # Validate mutual exclusivity: exactly one of name, --path, --git
-    source_count = sum(x is not None for x in (opts.name, opts.path, opts.git))
-    if source_count == 0:
-        raise AbortError("Provide exactly one of NAME, --path, or --git")
-    if source_count > 1:
-        raise AbortError("NAME, --path, and --git are mutually exclusive")
+    source = _parse_add_source(opts)
 
-    if opts.path is not None:
-        specifier = opts.path
-        command = _build_uv_pip_install_command_for_path(opts.path)
-    elif opts.git is not None:
-        specifier = opts.git
-        command = _build_uv_pip_install_command_for_name_or_url(opts.git)
-    else:
-        assert opts.name is not None
-        specifier = opts.name
-        if _parse_pypi_package_name(opts.name) is None:
-            raise AbortError(f"Invalid package name '{opts.name}'")
-        command = _build_uv_pip_install_command_for_name_or_url(opts.name)
+    # Build the install command and determine the display specifier
+    match source:
+        case _PathSource(path=path):
+            specifier = path
+            command = _build_uv_pip_install_command_for_path(path)
+        case _GitSource(url=url):
+            specifier = url
+            command = _build_uv_pip_install_command_for_name_or_url(url)
+        case _PypiSource(name=name):
+            specifier = name
+            command = _build_uv_pip_install_command_for_name_or_url(name)
+        case _ as unreachable:
+            assert_never(unreachable)
 
     # For git installs, snapshot installed packages before install so we can diff afterward
     packages_before: set[str] | None = None
-    if opts.git is not None:
+    if isinstance(source, _GitSource):
         packages_before = _get_installed_package_names(mngr_ctx.concurrency_group)
 
     with log_span("Installing plugin package '{}'", specifier):
@@ -509,19 +569,22 @@ def _plugin_add_impl(ctx: click.Context) -> None:
                 original_exception=e,
             ) from e
 
-    # Resolve package name from the install
-    if opts.name is not None:
-        resolved_package_name = _parse_pypi_package_name(opts.name) or opts.name
-    elif opts.path is not None:
-        try:
-            resolved_package_name = _read_package_name_from_pyproject(opts.path)
-        except PluginSpecifierError:
-            resolved_package_name = opts.path
-    else:
-        assert opts.git is not None and packages_before is not None
-        packages_after = _get_installed_package_names(mngr_ctx.concurrency_group)
-        new_packages = packages_after - packages_before
-        resolved_package_name = next(iter(new_packages)) if new_packages else opts.git
+    # Resolve the canonical package name from the install
+    match source:
+        case _PypiSource(name=name):
+            resolved_package_name = _parse_pypi_package_name(name) or name
+        case _PathSource(path=path):
+            try:
+                resolved_package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError:
+                resolved_package_name = path
+        case _GitSource(url=url):
+            assert packages_before is not None
+            packages_after = _get_installed_package_names(mngr_ctx.concurrency_group)
+            new_packages = packages_after - packages_before
+            resolved_package_name = next(iter(new_packages)) if new_packages else url
+        case _ as unreachable:
+            assert_never(unreachable)
 
     has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
     _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
@@ -535,23 +598,19 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
-    # Validate mutual exclusivity: exactly one of name, --path
-    source_count = sum(x is not None for x in (opts.name, opts.path))
-    if source_count == 0:
-        raise AbortError("Provide exactly one of NAME or --path")
-    if source_count > 1:
-        raise AbortError("NAME and --path are mutually exclusive")
+    source = _parse_remove_source(opts)
 
-    if opts.path is not None:
-        try:
-            package_name = _read_package_name_from_pyproject(opts.path)
-        except PluginSpecifierError as e:
-            raise AbortError(str(e)) from e
-    else:
-        assert opts.name is not None
-        package_name = _parse_pypi_package_name(opts.name)
-        if package_name is None:
-            raise AbortError(f"Invalid package name '{opts.name}'")
+    match source:
+        case _PathSource(path=path):
+            try:
+                package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError as e:
+                raise AbortError(str(e)) from e
+        case _PypiSource(name=name):
+            # _parse_remove_source already validated the name; this extracts the canonical form
+            package_name = _parse_pypi_package_name(name) or name
+        case _ as unreachable:
+            assert_never(unreachable)
 
     # Verify the package is actually installed before trying to uninstall
     try:
