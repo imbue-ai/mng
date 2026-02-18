@@ -255,7 +255,7 @@ def _read_package_name_from_pyproject(local_path: str) -> str:
     pyproject_path = resolved / "pyproject.toml"
     if not pyproject_path.exists():
         raise PluginSpecifierError(f"No pyproject.toml found at '{resolved}' -- cannot determine package name")
-    with open(pyproject_path, "rb") as f:
+    with pyproject_path.open("rb") as f:
         data = tomllib.load(f)
     name = data.get("project", {}).get("name")
     if not name:
