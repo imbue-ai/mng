@@ -269,7 +269,10 @@ def test_prevent_code_in_init_files() -> None:
     """Ensure __init__.py files contain no code (except pluggy hookimpl at the root)."""
     violations = find_code_in_init_files(
         _get_mngr_source_dir(),
-        allowed_root_init_lines={"import pluggy", 'hookimpl = pluggy.HookimplMarker("mngr")'},
+        allowed_root_init_lines={
+            "import pluggy",
+            'hookimpl = pluggy.HookimplMarker("mngr")',
+        },
     )
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"

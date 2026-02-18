@@ -86,6 +86,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         ensure_clean=True,
         snapshot_source=None,
         name=None,
+        count=1,
         name_style="english",
         agent_command=None,
         add_command=(),

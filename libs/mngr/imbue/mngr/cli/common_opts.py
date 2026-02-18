@@ -451,6 +451,21 @@ def apply_create_template(
     return updated_params
 
 
+def is_param_explicit(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly set on the command line."""
+    return ctx.get_parameter_source(param_name) == ParameterSource.COMMANDLINE
+
+
+def error_if_param_explicit(ctx: click.Context, param_name: str, error_message: str) -> None:
+    """Raise UserInputError if the user explicitly set this parameter on the command line.
+
+    Use this when another flag implies a specific value for this parameter, and the
+    user explicitly chose a conflicting value.
+    """
+    if is_param_explicit(ctx, param_name):
+        raise UserInputError(error_message)
+
+
 def _apply_plugin_option_overrides(
     pm: pluggy.PluginManager,
     command_name: str,
