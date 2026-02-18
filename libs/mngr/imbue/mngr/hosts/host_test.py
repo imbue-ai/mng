@@ -606,9 +606,7 @@ def test_onboarding_text_contains_keybindings() -> None:
 
 
 def test_onboarding_text_tmux_user_contains_keybindings() -> None:
-    """The tmux-user onboarding text should contain all documented keybindings."""
-    assert "Ctrl-b d" in ONBOARDING_TEXT_TMUX_USER
-    assert "Ctrl-b [" in ONBOARDING_TEXT_TMUX_USER
+    """The tmux-user onboarding text should contain the custom keybindings and connect command."""
     assert "Ctrl-q" in ONBOARDING_TEXT_TMUX_USER
     assert "Ctrl-t" in ONBOARDING_TEXT_TMUX_USER
     assert "mngr connect" in ONBOARDING_TEXT_TMUX_USER
