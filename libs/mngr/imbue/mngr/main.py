@@ -29,7 +29,6 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.logs import logs
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
-from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.plugin import plugin as plugin_command
 from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
@@ -273,7 +272,6 @@ BUILTIN_COMMANDS: list[click.Command] = [
     logs,
     connect,
     message,
-    pair,
     provision,
     pull,
     push,
