@@ -165,23 +165,8 @@ def check_source_directory_trusted(source_path: Path) -> None:
 
     Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
     """
-    config_path = get_claude_config_path()
-    source_path = source_path.resolve()
-
-    config = _read_claude_config(config_path)
-    if not config:
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-    # Find the source project config
-    projects = config.get("projects", {})
-    source_config = _find_project_config(projects, source_path)
-
-    if source_config is None:
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-    # Verify the source directory was actually trusted
-    if not source_config.get("hasTrustDialogAccepted", False):
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
+    if not is_source_directory_trusted(source_path):
+        raise ClaudeDirectoryNotTrustedError(str(source_path.resolve()))
 
 
 def add_claude_trust_for_path(source_path: Path) -> None:
@@ -328,10 +313,7 @@ def check_effort_callout_dismissed() -> None:
     Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
     been dismissed.
     """
-    config_path = get_claude_config_path()
-    config = _read_claude_config(config_path)
-
-    if not config.get("effortCalloutDismissed", False):
+    if not is_effort_callout_dismissed():
         raise ClaudeEffortCalloutNotDismissedError()
 
 
