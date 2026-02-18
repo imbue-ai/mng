@@ -33,17 +33,17 @@ Called at various points in the execution of any `mngr` command:
 
 | Hook                       | Description                                                                                                                                             |
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
+| `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models. [future]                            |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
 | `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
-| `on_startup`               | Runs when `mngr` starts up. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks.                |
-| `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution.                                   |
-| `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing.                  |
+| `on_startup`               | Runs when `mngr` starts up. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks. [future]       |
+| `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution. [future]                          |
+| `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing. [future]         |
 | `override_command_options` | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs.|
-| `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution.                             |
-| `on_after_custom_command`  | Runs after custom commands defined by plugins complete. Receives the command name, args, and result. Useful for logging, cleanup, or post-processing.   |
-| `on_error`                 | Runs if any command raises an exception. Receives the args and exception. Good for custom error handling or reporting.                                  |
-| `on_shutdown`              | Runs when `mngr` is shutting down. Good for cleaning up global state or resources.                                                                      |
+| `on_before_custom_command` | Runs for custom commands defined by plugins. Receives the command name and parsed args. Can modify args or abort execution. [future]                    |
+| `on_after_custom_command`  | Runs after custom commands defined by plugins complete. Receives the command name, args, and result. Useful for logging, cleanup, or post-processing. [future] |
+| `on_error`                 | Runs if any command raises an exception. Receives the args and exception. Good for custom error handling or reporting. [future]                         |
+| `on_shutdown`              | Runs when `mngr` is shutting down. Good for cleaning up global state or resources. [future]                                                             |
 
 Some commands expose additional hooks for finer-grained control. See the documentation of each command for details.
 
@@ -84,7 +84,7 @@ These hooks can be used to customize behavior when interacting with individual a
 | Hook                                | Description                                                                                           |
 |-------------------------------------|-------------------------------------------------------------------------------------------------------|
 | `on_agent_collected`                | Called once per agent (per command where we collect this agent.)                                      |
-| `on_agent_created`                  | Called after an agent has been created                                                                 |
+| `on_agent_created`                  | Called after an agent has been created [experimental]                                                  |
 | `on_agent_state_dir_created`        | When creating the agent's state directory                                                             |
 | `on_before_apply_agent_permissions` | Before applying permissions to an agent                                                               |
 | `on_after_apply_agent_permissions`  | After applying permissions to an agent                                                                |

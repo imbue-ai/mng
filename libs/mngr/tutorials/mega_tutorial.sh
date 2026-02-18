@@ -249,17 +249,17 @@ mngr create my-task --label team=backend --tag env=staging
 ## CREATING AND USING AGENTS PROGRAMMATICALLY
 
 # mngr is very much meant to be used for scripting and automation, so nothing requires interactivity.
-# if you want to be sure that interactivity is disabled, you can use the --headless flag:
+# if you want to be sure that interactivity is disabled, you can use the --headless flag: [future]
 mngr --headless
 
-# or you can set that option in your config so that it always applies:
+# or you can set that option in your config so that it always applies: [future]
 mngr config set headless True
 
-# or you can set it as an environment variable:
+# or you can set it as an environment variable: [future]
 export MNGR_HEADLESS=True
 
 # *all* mngr options work like that. For example, if you want to always run agents in Modal by default, you can set that in your config:
-mngr config set commands.create in modal
+mngr config set commands.create.in modal
 # for more on configuration, see the CONFIGURATION section below
 
 # you can control output format for scripting:
@@ -279,7 +279,7 @@ mngr create my-task --resume-message "Continue where you left off"
 # tons more arguments for anything you could want! As always, you can learn more via --help
 mngr create --help
 
-# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!  These other commands are covered in their own sections below.
+# or see the other commands--list, destroy, message, connect, push, pull, clone, and more!  These other commands are covered in their own sections below.
 mngr --help
 
 ##############################################################################

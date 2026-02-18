@@ -73,10 +73,10 @@ mngr create agent-2 --in modal --host shared-host
 
 # programmatically send messages to your agents and see their chat histories
 mngr message agent-1 "Tell me a joke"
-mngr transcript agent-1
+mngr transcript agent-1   # [future]
 
 # schedule agents to run periodically
-mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
+mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"  # [future]
 
 # never lose any work: snapshot and fork the entire agent states
 mngr create doomed-agent --in modal
@@ -103,7 +103,7 @@ Simply run:
     mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"
 
 If you don't have a Dockerfile for your project, run:
-    mngr bootstrap
+    mngr bootstrap   # [future]
 
 From the repo where you would like a Dockerfile created.
 ```
@@ -168,7 +168,7 @@ mngr <command> [options]
 - [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser
 - [`stop`](docs/commands/primary/stop.md): Stop an agent
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
-- [`snapshot`](docs/commands/secondary/snapshot.md) [future]: Create a snapshot of a host's state
+- [`snapshot`](docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
 - [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`exec`](docs/commands/primary/exec.md): Execute a shell command on an agent's host
 - [`rename`](docs/commands/primary/rename.md): Rename an agent
@@ -193,7 +193,7 @@ mngr <command> [options]
 ### For managing mngr itself:
 
 - [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
-- [`plugin`](docs/commands/secondary/plugin.md) [future]: Manage mngr plugins
+- [`plugin`](docs/commands/secondary/plugin.md) [experimental]: Manage mngr plugins
 - [`config`](docs/commands/secondary/config.md): View and edit mngr configuration
 
 ## How it works
@@ -201,18 +201,18 @@ mngr <command> [options]
 You can interact with `mngr` either via:
 
 1. The terminal (run `mngr --help` to learn more)
-2. One of many [web interfaces](./web_interfaces.md) (ex: [TheEye](http://ididntmakethisyet.com)) 
+2. One of many web interfaces [future] (ex: [TheEye](http://ididntmakethisyet.com))
 
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
 - **[agents](./docs/concepts/agents.md)** are simply [processes](TK-process) that run in [tmux](TK-tmux) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
 - [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
-- [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal]() [Sandboxes]() (`--in modal`) or [Docker]() [containers]() (`--in docker`).  Use `--host <name>` to target an existing host.
+- [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
 - [hosts](./docs/concepts/hosts.md) come from **[providers](./docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
 - [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md)) for more details.
 - [hosts](./docs/concepts/hosts.md) automatically "stop" when all of their [agents](./docs/concepts/agents.md) are "stopped"
-- `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins]()
+- `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even dynamically generate new plugins [future]
 
 ### Architecture
 
@@ -240,4 +240,4 @@ TODO: put a ton of examples and references here!
 
 ## Contributing
 
-Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines.
+Contributions are welcome! Please see `CONTRIBUTING.md` for guidelines. [future]
