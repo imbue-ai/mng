@@ -100,13 +100,9 @@ install_claude() {
     if command -v claude &>/dev/null; then
         return
     fi
-    if ! command -v npm &>/dev/null; then
-        warn "npm not found -- skipping Claude Code install. Install it manually: npm install -g @anthropic-ai/claude-code"
-        return
-    fi
     info "Installing Claude Code..."
-    if ! npm install -g @anthropic-ai/claude-code; then
-        warn "Failed to install Claude Code. Install it manually: npm install -g @anthropic-ai/claude-code"
+    if ! curl -fsSL https://claude.ai/install.sh | bash; then
+        warn "Failed to install Claude Code. Install it manually: https://docs.anthropic.com/en/docs/claude-code/getting-started"
     fi
 }
 
