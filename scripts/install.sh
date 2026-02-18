@@ -11,6 +11,7 @@
 #      - Core: uv, git, tmux, jq
 #      - Optional: claude (agent type), rsync (push/pull), unison (pair)
 #   3. Installs mngr via uv tool install
+#   4. Offers to enable shell completion
 #
 set -euo pipefail
 
@@ -209,19 +210,38 @@ if ! command -v mngr &>/dev/null; then
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
 
-# ── Next steps ─────────────────────────────────────────────────────────────────
+# ── Shell completion ───────────────────────────────────────────────────────────
+
+if [ "$OS" = "macos" ]; then
+    SHELL_RC="$HOME/.zshrc"
+    COMPLETION_LINE='eval "$(_MNGR_COMPLETE=zsh_source mngr)"'
+else
+    SHELL_RC="$HOME/.bashrc"
+    COMPLETION_LINE='eval "$(_MNGR_COMPLETE=bash_source mngr)"'
+fi
+
+if grep -qF '_MNGR_COMPLETE' "$SHELL_RC" 2>/dev/null; then
+    info "Shell completion already configured in $SHELL_RC"
+else
+    printf "\n"
+    printf "Enable shell completion? This will add a line to ${BOLD}%s${RESET}\n" "$SHELL_RC"
+    printf "  [y] Yes\n"
+    printf "  [n] No\n"
+    printf "\n"
+    printf "Choice [y/n]: "
+    read -r completion_choice < /dev/tty
+
+    case "$completion_choice" in
+        y|Y|"")
+            echo "$COMPLETION_LINE" >> "$SHELL_RC"
+            info "Shell completion enabled in $SHELL_RC"
+            ;;
+        *)
+            info "Skipping shell completion"
+            ;;
+    esac
+fi
 
 printf "\n"
-info "Next steps:"
-printf "\n"
-if [ "$OS" = "macos" ]; then
-printf "  1. Enable shell completion (zsh):\n"
-printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=zsh_source mngr)\"' >> ~/.zshrc${RESET}\n"
-else
-printf "  1. Enable shell completion (bash):\n"
-printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=bash_source mngr)\"' >> ~/.bashrc${RESET}\n"
-fi
-printf "\n"
-printf "  2. Get started:\n"
-printf "     ${DIM}mngr --help${RESET}\n"
+info "Get started with: mngr --help"
 printf "\n"
