@@ -331,7 +331,6 @@ def pair_files(
     programmatically stop the sync. The sync is automatically stopped when
     the context manager exits.
     """
-    # Check unison is installed
     require_unison()
 
     # Validate directories exist
