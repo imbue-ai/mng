@@ -118,7 +118,7 @@ def _prompt_user_for_effort_callout_dismissal() -> bool:
         "mngr needs to dismiss this callout in ~/.claude.json so that Claude Code\n"
         "can start without it interfering with automated input.\n",
     )
-    return click.confirm("Would you like to update ~/.claude.json to dismiss this?", default=True)
+    return click.confirm("Would you like to update ~/.claude.json to dismiss this?", default=False)
 
 
 def _claude_json_has_primary_api_key() -> bool:
