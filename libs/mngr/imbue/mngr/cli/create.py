@@ -259,6 +259,8 @@ class CreateCliOptions(CommonCliOptions):
     "agent_command",
     help="Run a literal command using the generic agent type (mutually exclusive with --agent-type)",
 )
+# FOLLOWUP: hmm... I wonder if the name of this should be changed to something more like "window" to be more closely aligned with the tmux primitive it actually creates...
+#  more generally, we probably need to do a pass at refining *all* of these option names...
 @optgroup.option(
     "-c",
     "--add-cmd",
