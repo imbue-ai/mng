@@ -102,7 +102,9 @@ install_claude() {
         return
     fi
     info "Installing Claude Code..."
-    npm install -g @anthropic-ai/claude-code
+    if ! npm install -g @anthropic-ai/claude-code; then
+        warn "Failed to install Claude Code. Install it manually: npm install -g @anthropic-ai/claude-code"
+    fi
 }
 
 install_uv() {
