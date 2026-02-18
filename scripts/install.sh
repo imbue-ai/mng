@@ -67,7 +67,8 @@ find_missing() {
             missing+=("$dep")
         fi
     done
-    echo "${missing[*]}"
+    # ${missing[*]+...} avoids "unbound variable" on bash 3.2 (macOS) with set -u
+    echo "${missing[*]+${missing[*]}}"
 }
 
 install_deps() {
