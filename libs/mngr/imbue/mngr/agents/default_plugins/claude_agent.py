@@ -111,14 +111,14 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     return click.confirm("Would you like to trust this directory?", default=False)
 
 
-def _prompt_user_for_dialog_dismissal() -> bool:
-    """Prompt the user to dismiss Claude Code startup dialogs."""
+def _prompt_user_for_effort_callout_dismissal() -> bool:
+    """Prompt the user to dismiss the Claude Code effort callout."""
     logger.info(
-        "\nClaude Code has undismissed startup dialogs (e.g. the effort callout).\n"
-        "mngr needs to mark these as dismissed in ~/.claude.json so that Claude Code\n"
-        "can start without showing dialogs that interfere with automated input.\n",
+        "\nClaude Code wants you to know that you can set model effort with /model.\n"
+        "mngr needs to dismiss this callout in ~/.claude.json so that Claude Code\n"
+        "can start without it interfering with automated input.\n",
     )
-    return click.confirm("Would you like to dismiss these dialogs?", default=True)
+    return click.confirm("Would you like to update ~/.claude.json to dismiss this?", default=True)
 
 
 def _claude_json_has_primary_api_key() -> bool:
@@ -503,7 +503,9 @@ class ClaudeAgent(BaseAgent):
                 try:
                     check_claude_dialogs_dismissed()
                 except ClaudeEffortCalloutNotDismissedError:
-                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_dialog_dismissal()):
+                    if mngr_ctx.is_auto_approve or (
+                        mngr_ctx.is_interactive and _prompt_user_for_effort_callout_dismissal()
+                    ):
                         ensure_claude_dialogs_dismissed()
                     else:
                         raise

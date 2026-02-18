@@ -966,7 +966,7 @@ def test_provision_prompts_for_trust_when_interactive(
             return_value=True,
         ) as mock_trust_prompt,
         patch(
-            "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_dialog_dismissal",
+            "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
             return_value=True,
         ),
     ):
@@ -1348,7 +1348,7 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
     _write_claude_trust_without_dialog_dismissed(source_path)
 
     with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_dialog_dismissal",
+        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
         return_value=True,
     ) as mock_prompt:
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
@@ -1379,7 +1379,7 @@ def test_provision_raises_when_user_declines_dialog_dismissal(
     _write_claude_trust_without_dialog_dismissed(source_path)
 
     with patch(
-        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_dialog_dismissal",
+        "imbue.mngr.agents.default_plugins.claude_agent._prompt_user_for_effort_callout_dismissal",
         return_value=False,
     ):
         with pytest.raises(ClaudeEffortCalloutNotDismissedError):
