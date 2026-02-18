@@ -2,7 +2,6 @@
 
 **installation:**
 ```bash
-# [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
@@ -118,7 +117,6 @@ From the repo where you would like a Dockerfile created.
 
 **Quick install** (installs system dependencies + mngr automatically):
 ```bash
-# [TODO] Replace with vanity URL once redirect is set up: https://imbue.com/mngr/install.sh
 curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
 ```
 
