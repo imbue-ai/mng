@@ -441,10 +441,13 @@ def test_plugin_remove_name_and_path_mutually_exclusive(
 _MNGR_OPENCODE_DIR = Path(__file__).resolve().parents[5] / "libs" / "mngr_opencode"
 
 
-def _run_mngr(*args: str) -> subprocess.CompletedProcess[str]:
-    """Run a mngr command via `uv run mngr` and return the result."""
+def _run_isolated_mngr(
+    venv_dir: Path,
+    *args: str,
+) -> subprocess.CompletedProcess[str]:
+    """Run a mngr command inside an isolated venv and return the result."""
     result = subprocess.run(
-        ["uv", "run", "mngr", *args],
+        [str(venv_dir / "bin" / "mngr"), *args],
         capture_output=True,
         text=True,
         timeout=30,
@@ -453,45 +456,38 @@ def _run_mngr(*args: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
-def _reinstall_mngr_opencode() -> None:
-    """Reinstall mngr-opencode as an editable package, ignoring errors."""
-    subprocess.run(
-        ["uv", "pip", "install", "-e", str(_MNGR_OPENCODE_DIR)],
-        capture_output=True,
-        timeout=30,
-    )
-
-
-@pytest.mark.timeout(60)
-def test_plugin_add_path_and_remove_lifecycle() -> None:
+@pytest.mark.timeout(180)
+def test_plugin_add_path_and_remove_lifecycle(isolated_mngr_venv: Path) -> None:
     """Test `mngr plugin add --path` and `mngr plugin remove` using the real mngr-opencode plugin.
 
-    Removes mngr-opencode (already installed as a workspace package), verifies
-    it disappears from `mngr plugin list`, re-adds it via `--path`, and verifies
-    it reappears. Uses `uv run mngr` subprocesses so each invocation starts a
-    fresh Python process that discovers plugins via setuptools entry points.
+    Uses an isolated temp venv (via the isolated_mngr_venv fixture) so
+    install/uninstall operations cannot affect the workspace venv or
+    interfere with parallel test workers.
     """
-    try:
-        # -- Remove mngr-opencode --
-        remove_result = _run_mngr("plugin", "remove", "mngr-opencode", "--format", "json")
-        remove_output = json.loads(remove_result.stdout)
-        assert remove_output["package"] == "mngr-opencode"
+    # -- Verify opencode is NOT installed in the fresh venv --
+    list_before = _run_isolated_mngr(isolated_mngr_venv, "plugin", "list", "--format", "json")
+    plugin_names_before = [p["name"] for p in json.loads(list_before.stdout)["plugins"]]
+    assert "opencode" not in plugin_names_before
 
-        # -- Verify it's gone --
-        list_result = _run_mngr("plugin", "list", "--format", "json")
-        plugin_names = [p["name"] for p in json.loads(list_result.stdout)["plugins"]]
-        assert "opencode" not in plugin_names
+    # -- Install via mngr plugin add --path --
+    add_result = _run_isolated_mngr(
+        isolated_mngr_venv, "plugin", "add", "--path", str(_MNGR_OPENCODE_DIR), "--format", "json"
+    )
+    add_output = json.loads(add_result.stdout)
+    assert add_output["package"] == "mngr-opencode"
+    assert add_output["has_entry_points"] is True
 
-        # -- Re-add via --path --
-        add_result = _run_mngr("plugin", "add", "--path", str(_MNGR_OPENCODE_DIR), "--format", "json")
-        add_output = json.loads(add_result.stdout)
-        assert add_output["package"] == "mngr-opencode"
-        assert add_output["has_entry_points"] is True
+    # -- Verify it shows up --
+    list_after_add = _run_isolated_mngr(isolated_mngr_venv, "plugin", "list", "--format", "json")
+    plugin_names_after_add = [p["name"] for p in json.loads(list_after_add.stdout)["plugins"]]
+    assert "opencode" in plugin_names_after_add
 
-        # -- Verify it's back --
-        list_after = _run_mngr("plugin", "list", "--format", "json")
-        plugin_names_after = [p["name"] for p in json.loads(list_after.stdout)["plugins"]]
-        assert "opencode" in plugin_names_after
+    # -- Remove via mngr plugin remove --
+    remove_result = _run_isolated_mngr(isolated_mngr_venv, "plugin", "remove", "mngr-opencode", "--format", "json")
+    remove_output = json.loads(remove_result.stdout)
+    assert remove_output["package"] == "mngr-opencode"
 
-    finally:
-        _reinstall_mngr_opencode()
+    # -- Verify it's gone --
+    list_after_remove = _run_isolated_mngr(isolated_mngr_venv, "plugin", "list", "--format", "json")
+    plugin_names_after_remove = [p["name"] for p in json.loads(list_after_remove.stdout)["plugins"]]
+    assert "opencode" not in plugin_names_after_remove
