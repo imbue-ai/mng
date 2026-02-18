@@ -146,12 +146,10 @@ def test_plugin_without_subcommand_shows_help(
 def test_plugin_enable_writes_enabled_true_to_project_toml(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
     mngr_test_root_name: str,
 ) -> None:
     """Test that plugin enable writes enabled = true to project settings."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -162,7 +160,7 @@ def test_plugin_enable_writes_enabled_true_to_project_toml(
 
     assert result.exit_code == 0
 
-    config_path = temp_git_repo / f".{mngr_test_root_name}" / "settings.toml"
+    config_path = temp_git_repo_cwd / f".{mngr_test_root_name}" / "settings.toml"
     assert config_path.exists()
     content = config_path.read_text()
     assert "enabled = true" in content
@@ -171,12 +169,10 @@ def test_plugin_enable_writes_enabled_true_to_project_toml(
 def test_plugin_disable_writes_enabled_false_to_project_toml(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
     mngr_test_root_name: str,
 ) -> None:
     """Test that plugin disable writes enabled = false to project settings."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -187,7 +183,7 @@ def test_plugin_disable_writes_enabled_false_to_project_toml(
 
     assert result.exit_code == 0
 
-    config_path = temp_git_repo / f".{mngr_test_root_name}" / "settings.toml"
+    config_path = temp_git_repo_cwd / f".{mngr_test_root_name}" / "settings.toml"
     assert config_path.exists()
     content = config_path.read_text()
     assert "enabled = false" in content
@@ -196,11 +192,9 @@ def test_plugin_disable_writes_enabled_false_to_project_toml(
 def test_plugin_enable_json_format_returns_valid_json(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that plugin enable with --format json returns valid JSON."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -220,11 +214,9 @@ def test_plugin_enable_json_format_returns_valid_json(
 def test_plugin_enable_default_scope_is_project(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that plugin enable defaults to project scope."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -241,8 +233,7 @@ def test_plugin_enable_default_scope_is_project(
 def test_plugin_enable_registered_plugin_does_not_warn(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that enabling a registered plugin does not produce an unregistered warning.
 
@@ -250,7 +241,6 @@ def test_plugin_enable_registered_plugin_does_not_warn(
     so that 'mngr plugin enable <name>' works without warnings. This test
     verifies the names used in the docs examples resolve correctly.
     """
-    monkeypatch.chdir(temp_git_repo)
 
     # These are the built-in plugin names that are registered by the test fixture
     # (local, ssh from load_local_backend_only; claude, codex from load_agents_from_plugins)
@@ -271,12 +261,10 @@ def test_plugin_enable_registered_plugin_does_not_warn(
 def test_plugin_enable_unknown_plugin_warns_but_succeeds(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
     mngr_test_root_name: str,
 ) -> None:
     """Test that enabling an unknown plugin warns but still writes config."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -288,7 +276,7 @@ def test_plugin_enable_unknown_plugin_warns_but_succeeds(
     assert result.exit_code == 0
     assert "not currently registered" in result.output
 
-    config_path = temp_git_repo / f".{mngr_test_root_name}" / "settings.toml"
+    config_path = temp_git_repo_cwd / f".{mngr_test_root_name}" / "settings.toml"
     assert config_path.exists()
     content = config_path.read_text()
     assert "enabled = true" in content
@@ -302,14 +290,12 @@ def test_plugin_enable_unknown_plugin_warns_but_succeeds(
 def test_plugin_add_local_path_invalid_package_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that adding a non-package local directory fails with an error."""
-    monkeypatch.chdir(temp_git_repo)
 
     # Create a temp directory that is not a valid Python package
-    non_package_dir = temp_git_repo / "not-a-package"
+    non_package_dir = temp_git_repo_cwd / "not-a-package"
     non_package_dir.mkdir()
 
     result = cli_runner.invoke(
@@ -324,11 +310,9 @@ def test_plugin_add_local_path_invalid_package_fails(
 def test_plugin_add_no_source_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that calling add with no arguments fails."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -342,11 +326,9 @@ def test_plugin_add_no_source_fails(
 def test_plugin_add_name_and_path_mutually_exclusive(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that providing both NAME and --path fails."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -360,11 +342,9 @@ def test_plugin_add_name_and_path_mutually_exclusive(
 def test_plugin_add_invalid_name_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that adding an invalid package name fails with a clear error."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -383,11 +363,9 @@ def test_plugin_add_invalid_name_fails(
 def test_plugin_remove_nonexistent_package_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that removing a package that is not installed fails with an error."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -401,11 +379,9 @@ def test_plugin_remove_nonexistent_package_fails(
 def test_plugin_remove_no_source_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that calling remove with no arguments fails."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
@@ -419,11 +395,9 @@ def test_plugin_remove_no_source_fails(
 def test_plugin_remove_name_and_path_mutually_exclusive(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    temp_git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Test that providing both NAME and --path fails."""
-    monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
         plugin,
