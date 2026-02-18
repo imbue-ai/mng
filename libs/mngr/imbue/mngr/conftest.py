@@ -291,6 +291,18 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
 
 
 @pytest.fixture
+def temp_git_repo_cwd(temp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Create a temporary git repository and chdir into it.
+
+    Combines temp_git_repo with monkeypatch.chdir so tests that need a git
+    repo as the working directory (e.g. for project-scope config discovery)
+    don't need to request both fixtures separately.
+    """
+    monkeypatch.chdir(temp_git_repo)
+    return temp_git_repo
+
+
+@pytest.fixture
 def temp_work_dir(tmp_path: Path) -> Path:
     """Create a temporary work_dir directory for agents."""
     work_dir = tmp_path / "work_dir"
