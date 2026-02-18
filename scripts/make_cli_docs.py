@@ -16,6 +16,7 @@ from click_option_group import GroupedOption
 from mkdocs_click._docs import make_command_docs
 
 from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mngr.cli.create import create
 from imbue.mngr.cli.help_formatter import get_help_metadata
 from imbue.mngr.main import BUILTIN_COMMANDS
 from imbue.mngr.main import cli
@@ -584,6 +585,12 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
 
 
 def main() -> None:
+    # Trigger lazy loading of provider help so that create command metadata
+    # includes provider-specific build/start args sections in the generated docs.
+    ensure_fn = getattr(create, "ensure_provider_help", None)
+    if ensure_fn is not None:
+        ensure_fn()
+
     # Base output directory
     base_dir = Path(__file__).parent.parent / "libs" / "mngr" / "docs" / "commands"
 
