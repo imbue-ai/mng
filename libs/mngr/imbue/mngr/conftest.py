@@ -414,23 +414,16 @@ def isolated_mngr_venv(tmp_path: Path) -> Path:
     """
     venv_dir = tmp_path / "isolated-venv"
 
-    subprocess.run(
-        ["uv", "venv", str(venv_dir)],
-        capture_output=True,
-        check=True,
-        timeout=30,
-    )
-
-    install_args = []
+    install_args: list[str] = []
     for pkg in _WORKSPACE_PACKAGES:
         install_args.extend(["-e", str(pkg)])
 
-    subprocess.run(
-        ["uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args],
-        capture_output=True,
-        check=True,
-        timeout=300,
-    )
+    cg = ConcurrencyGroup(name="isolated-venv-setup")
+    with cg:
+        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        cg.run_process_to_completion(
+            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
+        )
 
     return venv_dir
 

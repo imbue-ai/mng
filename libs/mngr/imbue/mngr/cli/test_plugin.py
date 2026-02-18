@@ -456,7 +456,7 @@ def _run_isolated_mngr(
     return result
 
 
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(180)
 def test_plugin_add_path_and_remove_lifecycle(isolated_mngr_venv: Path) -> None:
     """Test `mngr plugin add --path` and `mngr plugin remove` using the real mngr-opencode plugin.
 
