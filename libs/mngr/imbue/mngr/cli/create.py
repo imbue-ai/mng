@@ -18,6 +18,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.connect import run_connect_command
 from imbue.mngr.api.create import create as api_create
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.data_types import CreateAgentResult
@@ -158,6 +159,7 @@ class CreateCliOptions(CommonCliOptions):
     agent_type: str | None
     reuse: bool
     connect: bool
+    connect_command: str | None
     await_ready: bool | None
     await_agent_stopped: bool | None
     copy_work_dir: bool | None
@@ -506,6 +508,10 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--retry", type=int, default=3, show_default=True, help="Number of connection retries")
 @optgroup.option("--retry-delay", default="5s", show_default=True, help="Delay between retries (e.g., 5s, 1m)")
 @optgroup.option("--attach-command", help="Command to run instead of attaching to main session")
+@optgroup.option(
+    "--connect-command",
+    help="Command to run instead of the builtin connect. MNGR_AGENT_NAME and MNGR_SESSION_NAME env vars are set.",
+)
 @optgroup.group("Automation")
 @optgroup.option(
     "-y",
@@ -813,6 +819,16 @@ def _handle_create(
     return create_result, connection_opts, output_opts, opts, mngr_ctx
 
 
+def _resolve_connect_command(
+    opts_connect_command: str | None,
+    mngr_ctx: MngrContext,
+) -> str | None:
+    """Resolve the connect command from CLI option or global config."""
+    if opts_connect_command is not None:
+        return opts_connect_command
+    return mngr_ctx.config.connect_command
+
+
 def _post_create(
     create_result: CreateAgentResult,
     connection_opts: ConnectionOptions,
@@ -824,9 +840,19 @@ def _post_create(
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
 
-    # If --connect is set, connect to the agent
+    # If --connect is set, connect to the agent (or run the custom connect command)
     if opts.connect:
-        connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
+        resolved_connect_command = _resolve_connect_command(opts.connect_command, mngr_ctx)
+        if resolved_connect_command is not None:
+            session_name = f"{mngr_ctx.config.prefix}{create_result.agent.name}"
+            run_connect_command(
+                resolved_connect_command,
+                str(create_result.agent.name),
+                session_name,
+                is_local=create_result.host.is_local,
+            )
+        else:
+            connect_to_agent(create_result.agent, create_result.host, mngr_ctx, connection_opts)
 
     # output the result
     _output_result(create_result, output_opts)

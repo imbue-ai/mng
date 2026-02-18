@@ -8,6 +8,7 @@ from loguru import logger
 
 from imbue.imbue_common.logging import log_span
 from imbue.mngr.api.connect import connect_to_agent
+from imbue.mngr.api.connect import run_connect_command
 from imbue.mngr.api.data_types import ConnectionOptions
 from imbue.mngr.api.find import ensure_host_started
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
@@ -40,6 +41,7 @@ class StartCliOptions(CommonCliOptions):
     start_all: bool
     dry_run: bool
     connect: bool
+    connect_command: str | None
     # Planned features (not yet implemented)
     host: tuple[str, ...]
     include: tuple[str, ...]
@@ -149,6 +151,10 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
     "--connect/--no-connect",
     default=False,
     help="Connect to the agent after starting (only valid for single agent)",
+)
+@optgroup.option(
+    "--connect-command",
+    help="Command to run instead of the builtin connect. MNGR_AGENT_NAME and MNGR_SESSION_NAME env vars are set.",
 )
 @optgroup.group("Snapshot")
 @optgroup.option(
@@ -282,15 +288,28 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
 
     # Connect if requested and we started exactly one agent
     if opts.connect and last_started_agent is not None and last_started_host is not None:
-        connection_opts = ConnectionOptions(
-            is_reconnect=True,
-            retry_count=3,
-            retry_delay="5s",
-            attach_command=None,
-            is_unknown_host_allowed=False,
+        # Check for custom connect command: CLI flag > global config > builtin
+        resolved_command = (
+            opts.connect_command if opts.connect_command is not None else mngr_ctx.config.connect_command
         )
-        logger.info("Connecting to agent: {}", last_started_agent.name)
-        connect_to_agent(last_started_agent, last_started_host, mngr_ctx, connection_opts)
+        if resolved_command is not None:
+            session_name = f"{mngr_ctx.config.prefix}{last_started_agent.name}"
+            run_connect_command(
+                resolved_command,
+                str(last_started_agent.name),
+                session_name,
+                is_local=last_started_host.is_local,
+            )
+        else:
+            connection_opts = ConnectionOptions(
+                is_reconnect=True,
+                retry_count=3,
+                retry_delay="5s",
+                attach_command=None,
+                is_unknown_host_allowed=False,
+            )
+            logger.info("Connecting to agent: {}", last_started_agent.name)
+            connect_to_agent(last_started_agent, last_started_host, mngr_ctx, connection_opts)
 
 
 # Register help metadata for git-style help formatting

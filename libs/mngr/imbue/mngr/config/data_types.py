@@ -461,6 +461,11 @@ class MngrConfig(FrozenModel):
         "When False, raises an error if the agent is not already installed on the remote host. "
         "Defaults to True (allowed).",
     )
+    connect_command: str | None = Field(
+        default=None,
+        description="Custom command to run instead of the builtin connect when create or start connects to agents. "
+        "The environment variables MNGR_AGENT_NAME and MNGR_SESSION_NAME are set before running the command.",
+    )
     is_nested_tmux_allowed: bool = Field(
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
@@ -587,6 +592,11 @@ class MngrConfig(FrozenModel):
         if override.is_remote_agent_installation_allowed is not None:
             is_remote_agent_installation_allowed = override.is_remote_agent_installation_allowed
 
+        # Merge connect_command (scalar - override wins if not None)
+        merged_connect_command = (
+            override.connect_command if override.connect_command is not None else self.connect_command
+        )
+
         # Merge is_nested_tmux_allowed (scalar - override wins if not None)
         merged_is_nested_tmux_allowed = self.is_nested_tmux_allowed
         if override.is_nested_tmux_allowed is not None:
@@ -625,6 +635,7 @@ class MngrConfig(FrozenModel):
             create_templates=merged_create_templates,
             pre_command_scripts=merged_pre_command_scripts,
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
+            connect_command=merged_connect_command,
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
             is_error_reporting_enabled=merged_is_error_reporting_enabled,
