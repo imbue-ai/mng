@@ -131,7 +131,7 @@ And for the basic provider backends:
 - **local**: Local host backend
 - **docker**: Docker-based host backend
 - **modal**: Modal cloud host backend
-- **ssh**: SSH-based host backend (connects to pre-configured hosts)
+- **ssh**: SSH-based host backend (connects to pre-configured hosts) [experimental]
 
 Utility plugins [future] for additional features:
 
