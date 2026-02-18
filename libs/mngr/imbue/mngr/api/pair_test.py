@@ -5,23 +5,10 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.pair import GitSyncAction
 from imbue.mngr.api.pair import UnisonSyncer
 from imbue.mngr.api.pair import determine_git_sync_actions
-from imbue.mngr.api.pair import require_unison
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
-
-# =============================================================================
-# Test: require_unison
-# =============================================================================
-
-
-def test_require_unison_does_not_raise_when_installed() -> None:
-    """Test that require_unison does not raise when unison is installed."""
-    # This test only passes in environments where unison is actually installed.
-    # It verifies the function runs without error.
-    require_unison()
-
 
 # =============================================================================
 # Test: UnisonSyncer
