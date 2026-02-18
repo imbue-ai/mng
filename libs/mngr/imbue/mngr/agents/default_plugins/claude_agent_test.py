@@ -901,20 +901,20 @@ def test_on_before_provisioning_validates_trust_for_worktree(
     agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
 
 
-def test_on_before_provisioning_skips_trust_check_when_interactive(
+def test_on_before_provisioning_skips_dialog_check_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
     interactive_mngr_ctx: MngrContext,
     setup_git_config: None,
 ) -> None:
-    """on_before_provisioning should skip trust check for interactive runs (provision() handles it)."""
+    """on_before_provisioning should skip dialog check for interactive runs (provision() handles it)."""
     source_path, worktree_path, agent, host = _setup_worktree_agent(
         local_provider,
         tmp_path,
         interactive_mngr_ctx,
     )
 
-    # Should NOT raise even though source is untrusted -- interactive defers to provision()
+    # Should NOT raise even though dialogs are not dismissed -- interactive defers to provision()
     agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
 
 
@@ -1357,23 +1357,6 @@ def test_on_before_provisioning_raises_when_dialogs_not_dismissed(
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
         agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=temp_mngr_ctx)
-
-
-def test_on_before_provisioning_skips_dialog_check_when_interactive(
-    local_provider: LocalProviderInstance,
-    tmp_path: Path,
-    interactive_mngr_ctx: MngrContext,
-    setup_git_config: None,
-) -> None:
-    """on_before_provisioning should skip dialog check for interactive runs (provision() handles it)."""
-    source_path, worktree_path, agent, host = _setup_worktree_agent(
-        local_provider,
-        tmp_path,
-        interactive_mngr_ctx,
-    )
-
-    # Should NOT raise even though dialogs are not dismissed -- interactive defers to provision()
-    agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mngr_ctx=interactive_mngr_ctx)
 
 
 def test_provision_dismisses_dialogs_when_auto_approve(
