@@ -12,8 +12,8 @@ from imbue.mngr.api.pair import sync_git_state
 from imbue.mngr.api.test_fixtures import FakeAgent
 from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.api.test_fixtures import SyncTestContext
+from imbue.mngr.errors import BinaryNotInstalledError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
@@ -115,11 +115,11 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
     monkeypatch: pytest.MonkeyPatch,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Test that pair_files raises UnisonNotInstalledError when unison is not available."""
+    """Test that pair_files raises BinaryNotInstalledError when unison is not available."""
     # Mock check_unison_installed to return False
     monkeypatch.setattr("imbue.mngr.api.pair.check_unison_installed", lambda: False)
 
-    with pytest.raises(UnisonNotInstalledError):
+    with pytest.raises(BinaryNotInstalledError):
         with pair_files(
             agent=pair_ctx.agent,
             host=pair_ctx.host,

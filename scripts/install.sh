@@ -113,7 +113,7 @@ else
     read -r choice < /dev/tty
 
     case "$choice" in
-        a|A|"")
+        a|A|y|Y|"")
             install_deps "${missing_all[@]}"
             ;;
         c|C)
@@ -171,21 +171,17 @@ fi
 printf "\n"
 info "Next steps:"
 printf "\n"
-printf "  1. Set up Modal (for remote agents):\n"
-printf "     ${DIM}uv tool install modal${RESET}\n"
-printf "     ${DIM}modal token set${RESET}\n"
-printf "\n"
-printf "  2. Install Claude Code (for the claude agent type):\n"
+printf "  1. Install Claude Code (for the claude agent type):\n"
 printf "     ${DIM}npm install -g @anthropic-ai/claude-code${RESET}\n"
 printf "\n"
 if [ "$OS" = "macos" ]; then
-printf "  3. Enable shell completion (zsh):\n"
+printf "  2. Enable shell completion (zsh):\n"
 printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=zsh_source mngr)\"' >> ~/.zshrc${RESET}\n"
 else
-printf "  3. Enable shell completion (bash):\n"
+printf "  2. Enable shell completion (bash):\n"
 printf "     ${DIM}echo 'eval \"\$(_MNGR_COMPLETE=bash_source mngr)\"' >> ~/.bashrc${RESET}\n"
 fi
 printf "\n"
-printf "  4. Get started:\n"
+printf "  3. Get started:\n"
 printf "     ${DIM}mngr --help${RESET}\n"
 printf "\n"

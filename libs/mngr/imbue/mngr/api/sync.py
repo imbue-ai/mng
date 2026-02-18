@@ -23,6 +23,7 @@ from imbue.mngr.interfaces.data_types import CommandResult
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import SyncMode
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.deps import require_binary
 from imbue.mngr.utils.git_utils import count_commits_between
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
@@ -378,6 +379,11 @@ def sync_files(
     cg: ConcurrencyGroup,
 ) -> SyncFilesResult:
     """Sync files between local and agent using rsync."""
+    require_binary(
+        "rsync",
+        "file sync",
+        "On macOS: brew install rsync. On Linux: sudo apt-get install rsync.",
+    )
     if not host.is_local:
         raise NotImplementedError("File sync with remote hosts is not yet implemented")
 

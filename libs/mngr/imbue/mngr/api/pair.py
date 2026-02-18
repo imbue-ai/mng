@@ -1,5 +1,4 @@
 import platform
-import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
@@ -17,13 +16,14 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.push import push_git
+from imbue.mngr.errors import BinaryNotInstalledError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.deps import check_binary_available
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_ancestor
@@ -168,10 +168,10 @@ def check_unison_installed() -> bool:
     On Linux, only unison is required because inotify provides built-in filesystem
     monitoring. On macOS, unison-fsmonitor is also required for file watching.
     """
-    if shutil.which("unison") is None:
+    if not check_binary_available("unison"):
         return False
     if platform.system() == "Darwin":
-        return shutil.which("unison-fsmonitor") is not None
+        return check_binary_available("unison-fsmonitor")
     return True
 
 
@@ -322,7 +322,14 @@ def pair_files(
     """
     # Check unison is installed
     if not check_unison_installed():
-        raise UnisonNotInstalledError()
+        if platform.system() == "Darwin":
+            install_hint = "On macOS: brew install unison && brew install autozimu/formulas/unison-fsmonitor"
+        else:
+            install_hint = (
+                "On Ubuntu/Debian: sudo apt-get install unison. "
+                "On other systems, see: https://www.cis.upenn.edu/~bcpierce/unison/"
+            )
+        raise BinaryNotInstalledError("unison", "pair mode", install_hint)
 
     # Validate directories exist
     if not agent_path.is_dir():

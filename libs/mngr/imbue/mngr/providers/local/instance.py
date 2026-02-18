@@ -40,6 +40,7 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.local.volume import LocalVolume
+from imbue.mngr.utils.deps import require_binary
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOSTS_SUBDIR: Final[str] = "hosts"
@@ -183,6 +184,12 @@ class LocalProviderInstance(BaseProviderInstance):
         the local host is always the same machine. The known_hosts parameter
         is also ignored since the local machine uses its own known_hosts file.
         """
+        require_binary(
+            "tmux", "agent session management", "On macOS: brew install tmux. On Linux: sudo apt-get install tmux."
+        )
+        require_binary("git", "source control", "On macOS: brew install git. On Linux: sudo apt-get install git.")
+        require_binary("jq", "JSON processing", "On macOS: brew install jq. On Linux: sudo apt-get install jq.")
+
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
 
