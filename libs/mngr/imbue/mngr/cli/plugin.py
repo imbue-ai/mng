@@ -492,6 +492,7 @@ _AddSource = _PypiSource | _PathSource | _GitSource
 _RemoveSource = _PypiSource | _PathSource
 
 
+@pure
 def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
     """Parse and validate the plugin source for an add command.
 
@@ -514,6 +515,7 @@ def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
     return _PypiSource(name=opts.name)
 
 
+@pure
 def _parse_remove_source(opts: PluginCliOptions) -> _RemoveSource:
     """Parse and validate the plugin source for a remove command.
 
