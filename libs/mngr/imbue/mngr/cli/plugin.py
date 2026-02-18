@@ -580,6 +580,7 @@ def _plugin_add_impl(ctx: click.Context) -> None:
             try:
                 resolved_package_name = _read_package_name_from_pyproject(path)
             except PluginSpecifierError:
+                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
                 resolved_package_name = path
         case _GitSource(url=url):
             assert packages_before is not None
