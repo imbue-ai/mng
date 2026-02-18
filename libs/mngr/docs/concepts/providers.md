@@ -4,7 +4,7 @@ A **provider instance** creates and manages [hosts](./hosts.md). Each provider i
 
 From the perspective of `[pyinfra](https://pyinfra.com/)` (the tool we suggest for [provisioning](./provisioning.md)), you can think of provider instances as "something that mutates the inventory" (eg, create, destroy, stop, start, etc.)
 
-A default provider instance is automatically created for each registered backend (e.g., `local`, `modal`), but you can also define your own in your `mngr` settings:
+A default provider instance is automatically created for each registered backend (e.g., `local`, `docker`), but you can also define your own in your `mngr` settings:
 
 ```toml
 [providers.my-aws-prod]
@@ -26,15 +26,11 @@ backend = "mngr"
 url = "https://mngr.internal.company.com"
 ```
 
-## Default Provider Instances
+## Built-in Provider Instances
 
 ### local
 
 Runs agents directly on your machine with no isolation. Always available--no configuration required.
-
-### modal
-
-Runs agents in [Modal](https://modal.com) sandboxes with full isolation. Requires a Modal account. See [Modal Provider](../core_plugins/providers/modal.md) for details.
 
 ### docker
 
