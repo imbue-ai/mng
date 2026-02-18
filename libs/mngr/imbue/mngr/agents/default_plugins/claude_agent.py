@@ -104,11 +104,11 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     """Prompt the user to trust a directory for Claude Code."""
     logger.info(
         "\nSource directory {} is not yet trusted by Claude Code.\n"
-        "mngr needs to add a trust entry to ~/.claude.json so that Claude Code\n"
-        "can start without showing a trust dialog.\n",
+        "mngr needs to add a trust entry for this directory to ~/.claude.json\n"
+        "so that Claude Code can start without showing a trust dialog.\n",
         source_path,
     )
-    return click.confirm("Would you like to trust this directory?", default=False)
+    return click.confirm("Would you like to update ~/.claude.json to trust this directory?", default=False)
 
 
 def _prompt_user_for_effort_callout_dismissal() -> bool:
