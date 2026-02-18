@@ -242,6 +242,4 @@ else
     esac
 fi
 
-printf "\n"
 info "Get started with: mngr --help"
-printf "\n"
