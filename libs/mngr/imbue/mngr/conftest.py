@@ -394,6 +394,47 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_WORKSPACE_PACKAGES = (
+    _REPO_ROOT / "libs" / "imbue_common",
+    _REPO_ROOT / "libs" / "concurrency_group",
+    _REPO_ROOT / "libs" / "mngr",
+)
+
+
+@pytest.fixture
+def isolated_mngr_venv(tmp_path: Path) -> Path:
+    """Create a temporary venv with mngr installed for subprocess-based tests.
+
+    Returns the venv directory. Use `venv / "bin" / "mngr"` to run mngr
+    commands, or `venv / "bin" / "python"` for the interpreter.
+
+    This fixture is useful for tests that install/uninstall packages and
+    need full isolation from the main workspace venv.
+    """
+    venv_dir = tmp_path / "isolated-venv"
+
+    subprocess.run(
+        ["uv", "venv", str(venv_dir)],
+        capture_output=True,
+        check=True,
+        timeout=30,
+    )
+
+    install_args = []
+    for pkg in _WORKSPACE_PACKAGES:
+        install_args.extend(["-e", str(pkg)])
+
+    subprocess.run(
+        ["uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args],
+        capture_output=True,
+        check=True,
+        timeout=300,
+    )
+
+    return venv_dir
+
+
 @pytest.fixture(autouse=True)
 def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     """Create a plugin manager with mngr hookspecs and local backend only.

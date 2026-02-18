@@ -1,6 +1,7 @@
 import importlib.metadata
 import json
 import os
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -221,24 +222,26 @@ def _parse_pypi_package_name(specifier: str) -> str | None:
 def _build_uv_pip_install_command_for_path(local_path: str) -> tuple[str, ...]:
     """Build the uv pip install command for a local path (editable mode)."""
     resolved = str(Path(local_path).expanduser().resolve())
-    return ("uv", "pip", "install", "-e", resolved)
+    return ("uv", "pip", "install", "--python", sys.executable, "-e", resolved)
 
 
 @pure
 def _build_uv_pip_install_command_for_name_or_url(specifier: str) -> tuple[str, ...]:
     """Build the uv pip install command for a PyPI name or git URL."""
-    return ("uv", "pip", "install", specifier)
+    return ("uv", "pip", "install", "--python", sys.executable, specifier)
 
 
 @pure
 def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
     """Build the uv pip uninstall command for a given package name."""
-    return ("uv", "pip", "uninstall", package_name)
+    return ("uv", "pip", "uninstall", "--python", sys.executable, package_name)
 
 
 def _get_installed_package_names(concurrency_group: Any) -> set[str]:
     """Get the set of currently installed package names via `uv pip list --format json`."""
-    result = concurrency_group.run_process_to_completion(("uv", "pip", "list", "--format", "json"))
+    result = concurrency_group.run_process_to_completion(
+        ("uv", "pip", "list", "--python", sys.executable, "--format", "json")
+    )
     packages = json.loads(result.stdout)
     return {pkg["name"] for pkg in packages}
 
