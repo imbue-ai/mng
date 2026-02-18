@@ -78,7 +78,7 @@ mngr --in modal --edit-message
 ## SPECIFYING DATA FOR THE AGENT
 
 # by default, the agent uses the data from its current git repo (if any) or folder, but you can specify a different source:
-mngr create my-task --context /path/to/project
+mngr create my-task --context /path/to/some/other/project
 
 # similarly, by default the agent is tagged with a "project" label that matches the name of the current git repo (or folder), but you can specify a different project:
 mngr create my-task --project my-project
@@ -93,13 +93,36 @@ mngr create my-task --context /tmp/my_random_folder --agent-command python -- sc
 mngr create my-task
 git branch | grep mngr/my-task
 
+# --new-branch-prefix controls the prefix for auto-generated branch names (default: mngr/)
+mngr create my-task --new-branch-prefix "feature/"
+git branch | grep feature/my-task
+
 # you can also specify a different base branch (instead of the current branch):
 mngr create my-task --base-branch main
 
 # or set the new branch name explicitly:
 mngr create my-task --new-branch feature/my-task
 
+# you can create a copy instead of a worktree:
+mngr create my-task --copy
+# that is used by default if you're not in a git repo
 
+# you can disable new branch creation entirely with --no-new-branch (requires --in-place or --copy due to how worktrees work, and --in-place implies --no-new-branch):
+mngr create my-task --copy --no-new-branch
+
+# you can create a "clone" instead of worktree or copy, which is a lightweight copy that shares git objects with the original repo but has its own separate working directory:
+mngr create my-task --clone
+
+# you can make a shallow clone for faster setup:
+mngr create my-task --depth 1
+# (--shallow-since clones since a specific date instead)
+
+# you can clone from an existing agent's work directory:
+mngr create my-task --from other-agent
+# (--source, --source-agent, and --source-host are alternative forms for more specific control)
+
+# you can use rsync to transfer extra data as well, beyond just the git data:
+mngr create my-task --in modal --rsync --rsync-args "--exclude=node_modules"
 
 ## CREATING AGENTS REMOTELY
 
@@ -126,7 +149,7 @@ mngr create my-task --host my-dev-box
 
 # generally though, you'll want to construct a new Modal host for each agent.
 # build arguments let you customize that new remote host (eg, GPU type, memory, base Docker image for Modal):
-mngr create my-task --in modal --build-arg gpu=a100 --build-arg memory=16 --build-arg image=python:3.12
+mngr create my-task --in modal --build-arg cpu=4 --build-arg memory=16 --build-arg image=python:3.12
 # (-b is an alternative forms of --build-arg; see "mngr create --help" for all provider-specific build args)
 # some other useful Modal build args: --region, --timeout, --offline (blocks network), --secret, --cidr-allowlist, --context-dir
 
@@ -138,6 +161,10 @@ mngr create my-task --in modal --build-args "dockerfile=./Dockerfile.agent conte
 # (which is where the Dockerfile can COPY files from, and also where build args are evaluated from)
 # that command also demonstrates how to pass multiple build args in a single --build-args string (instead of using multiple --build-arg flags)
 
+# you can name the host separately from the agent:
+mngr create my-task --in modal --host-name my-modal-box
+# (--host-name-style and --name-style control auto-generated name styles for hosts and agents respectively)
+
 # you can mount persistent Modal volumes in order to share data between hosts, or have it be available even when they are offline (or after they are destroyed):
 mngr create my-task --in modal --build-arg volume=my-data:/data
 
@@ -148,54 +175,8 @@ mngr create my-task --in modal --snapshot snap-123abc
 mngr create my-task --in docker --start-arg "--gpus all"
 # these args are passed to "docker run", whereas the build args are passed to "docker build".
 
-## TEMPLATES, ALIASES, AND SHORTCUTS
-
-# you can use templates to quickly apply a set of preconfigured options:
-mngr create my-task --template modal
-# templates are defined in your config (see the CONFIGURATION section) and can be stacked: -template modal --template codex
-# -t is short for --template. Many commands have a short form (see the "--help")
-
-## TIPS AND TRICKS
-
-# another handy trick is to make the create command "idempotent" so that you don't need to worry about remembering whether you created an agent yet or not:
-mngr create sisyphus --reuse
-# if that agent already exists, it will be reused (and started) instead of creating a new one. If it doesn't exist, it will be created.
-
-
-
-
-
-
-
-
-# you can clone from an existing agent's work directory:
-mngr create my-task --from other-agent
-# (--source, --source-agent, and --source-host are alternative forms for more specific control)
-
-# you can run directly in the current directory without creating a worktree:
-mngr create my-task --in-place
-# or explicitly choose to copy or git clone instead of the default worktree:
-# --copy creates an isolated copy, --clone creates a git clone sharing objects with the original repo (local agents only)
-
-# you can specify the base branch and create a new branch with a custom name:
-mngr create my-task --base-branch main --new-branch feature/my-feature
-# or disable new branch creation entirely with --no-new-branch (requires --in-place or --copy)
-# (--new-branch-prefix controls the prefix for auto-generated branch names, default: mngr/)
-
-# you can make a shallow clone for faster setup:
-mngr create my-task --depth 1
-# (--shallow-since clones since a specific date instead)
-
-# you can set environment variables for the agent:
-mngr create my-task --env API_KEY=abc123 --env DEBUG=true
-# (--env-file loads from a file, --pass-env forwards a variable from your current shell)
-
-# you can also set host-level environment variables (separate from agent env vars):
-mngr create my-task --in modal --host-env MY_VAR=value
-# (--host-env-file and --pass-host-env work the same as their agent counterparts)
-
-# you can grant permissions to the agent:
-mngr create my-task --grant "Bash(npm test:*)"
+# you can specify the target path where the agent's work directory will be mounted:
+mngr create my-task --in modal --target-path /workspace
 
 # you can upload files and run custom commands during host provisioning:
 mngr create my-task --in modal --upload-file ~/.ssh/config:/root/.ssh/config --user-command "pip install foo"
@@ -203,75 +184,69 @@ mngr create my-task --in modal --upload-file ~/.ssh/config:/root/.ssh/config --u
 
 # you can add SSH known hosts for outbound SSH from the agent:
 mngr create my-task --in modal --known-host "github.com ssh-ed25519 AAAA..."
+# that is particularly helpful when creating agents that you want to share with other people or other installations of mngr, since they won't have your local machine's keys automatically
+# it can also be useful for setting up automations in CI (so that you can access them later)
 
-# you can set the host to auto-restart on boot:
-mngr create my-task --in modal --start-on-boot
+# by default, agents are started when a host is booted. This can be disabled:
+mngr create my-task --in modal --no-start-on-boot
+# but it only makes sense to do this if you are running multiple agents on the same host
+# that's because hosts are automatically stopped when they have no more running agents, so you have to have at least one.
 
-# you can wait for the agent to finish before the command returns (great for scripting):
-mngr create my-task --no-connect --await-agent-stopped --message "Do the thing"
-# (--await-ready waits only until the agent is ready, not until it finishes)
+## CONTROLLING THE AGENT ENVIRONMENT
 
-# you can send a message when resuming a stopped agent:
-mngr create my-task --resume-message "Continue where you left off"
-# (--resume-message-file reads the resume message from a file)
+# you can set environment variables for the agent:
+mngr create my-task --env DEBUG=true
+# (--env-file loads from a file, --pass-env forwards a variable from your current shell)
+
+# it is *strongly encouraged* to use either use --env-file or --pass-env, especially for any sensitive environment variables (like API keys) rather than --env, because that way they won't end up in your shell history or in your config files by accident. For example:
+export API_KEY=abc123
+mngr create my-task --pass-env API_KEY
+# that command passes the API_KEY environment variable from your current shell into the agent's environment, without you having to specify the value on the command line.
+
+# you can also set host-level environment variables (separate from agent env vars):
+mngr create my-task --in modal --pass-host-env MY_VAR
+# --host-env-file and --pass-host-env work the same as their agent counterparts, and again, you should generally prefer those forms (but if you really need to you can use --host-env to specify host env vars directly)
+
+## TEMPLATES, ALIASES, AND SHORTCUTS
+
+# you can use templates to quickly apply a set of preconfigured options:
+echo "[create_templates.my_modal_template]" >> .mngr/config.local.toml
+echo "in: modal" >> .mngr/config.local.toml
+echo 'build_args = "cpu=4' >> .mngr/config.local.toml
+mngr create my-task --template my_modal_template
+# templates are defined in your config (see the CONFIGURATION section for more) and can be stacked: -template modal --template codex
+# templates take exactly the same parameters as the create command
+# -t is short for --template. Many commands have a short form (see the "--help")
+
+# you can enable or disable specific plugins:
+mngr create my-task --plugin my-plugin --disable-plugin other-plugin
+
+# you should probably use aliases for making little shortcuts for yourself, because many of the commands can get a bit long:
+echo "alias mc='mngr create --in-place'" >> ~/.bashrc && source ~/.bashrc
+# or use a more sophisticated tool, like Espanso
+
+## TIPS AND TRICKS
+
+# by default, mngr aborts the create command if the working tree has uncommitted changes. You can avoid this by doing:
+mngr create my-task --no-ensure-clean
+# this is particularly useful for starting agents when, eg, you are in the middle of a merge conflict and you just want the agent to finish it off, for example
+# it should probably be avoided in general, because it makes it more difficult to merge work later.
+
+# another handy trick is to make the create command "idempotent" so that you don't need to worry about remembering whether you created an agent yet or not:
+mngr create sisyphus --reuse --in modal
+# if that agent already exists, it will be reused (and started) instead of creating a new one. If it doesn't exist, it will be created.
 
 # you can control connection retries and timeouts:
 mngr create my-task --in modal --retry 5 --retry-delay 10s --ready-timeout 30
 # (--reconnect / --no-reconnect controls auto-reconnect on disconnect)
 
-# you can use a custom attach command instead of the default terminal attachment:
-mngr create my-task --attach-command "ssh my-server"
-
-# you can abort creation if the working tree has uncommitted changes:
-mngr create my-task --ensure-clean
-
-# you can control whether the source work_dir is copied immediately on creation:
-mngr create my-task --in modal --no-connect --copy-work-dir --message "Work on this snapshot"
-# (by default, work_dir is copied if --no-connect and not copied if --connect)
-
-# you can use rsync for file transfer with custom arguments:
-mngr create my-task --in modal --rsync --rsync-args "--exclude=node_modules"
-# (--include-gitignored, --exclude-unclean, and --include-git control what files get transferred)
+# you can use a custom connect command instead of the default (eg, useful for, say, connecting in a new iterm window instead of the current one)
+mngr create my-task --connect-command "my_script.sh"
 
 # you can add labels to organize your agents and tags for host metadata:
 mngr create my-task --label team=backend --tag env=staging
 
-
-
-# you can name the host separately from the agent:
-mngr create my-task --in modal --host-name my-modal-box
-# (--host-name-style and --name-style control auto-generated name styles for hosts and agents respectively)
-
-# you can override which user the agent runs as:
-mngr create my-task --user developer
-
-# you can auto-approve all prompts (useful for scripting and CI):
-mngr create my-task -y --no-connect --message "Do the thing"
-
-# you can control output format for scripting:
-mngr create my-task --no-connect --format json
-# (--json and --jsonl are shorthands; --quiet suppresses all output)
-
-# you can enable or disable specific plugins:
-mngr create my-task --plugin my-plugin --disable-plugin other-plugin
-
-
-# you can specify the target path where the agent's work directory will be mounted:
-mngr create my-task --in modal --target-path /workspace
-
-# you can be super explicit about all of the arguments if you want to be extra safe and make your code easier to understand:
-mngr create --name my-task --agent-type claude --in modal
-
-
-
-
-# tons more arguments for anything you could want! As always, you can learn more via --help
-mngr create --help
-
-# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!  These other commands are covered in their own sections below.
-mngr --help
-
-## CREATING AGENTS PROGRAMMATICALLY
+## CREATING AND USING AGENTS PROGRAMMATICALLY
 
 # mngr is very much meant to be used for scripting and automation, so nothing requires interactivity.
 # if you want to be sure that interactivity is disabled, you can use the --headless flag:
@@ -285,10 +260,27 @@ export MNGR_HEADLESS=True
 
 # *all* mngr options work like that. For example, if you want to always run agents in Modal by default, you can set that in your config:
 mngr config set commands.create in modal
-
 # for more on configuration, see the CONFIGURATION section below
 
-# RUNNING NON-AGENT PROCESSES
+# you can control output format for scripting:
+mngr create my-task --no-connect --format json
+# (--json and --jsonl are shorthands; --quiet suppresses all output)
+
+# you can wait for the agent to finish before the command returns (great for scripting):
+mngr create my-task --no-connect --await-agent-stopped --message "Do the thing"
+# (--await-ready waits only until the agent is ready, not until it finishes)
+
+# you can send a message when resuming a stopped agent. This is very useful for making more robust agents (eg, that can resume after crashing or being interrupted)
+mngr create my-task --resume-message "Continue where you left off"
+# (--resume-message-file reads the resume message from a file)
+
+## LEARNING MORE
+
+# tons more arguments for anything you could want! As always, you can learn more via --help
+mngr create --help
+
+# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!  These other commands are covered in their own sections below.
+mngr --help
 
 ##############################################################################
 # LISTING AGENTS
@@ -518,6 +510,13 @@ mngr config set commands.create in modal
 # MULTIPLE AGENTS ON ONE HOST
 #   Run several agents on the same host to share resources and reduce
 #   costs. Agents share the host filesystem and network.
+##############################################################################
+
+
+##############################################################################
+# RUNNING NON-AGENT PROCESSES
+#   mngr is useful for more than just AI agents! Run any long-lived process (like servers, data pipelines, etc.)
+#   with mngr to get the same benefits of easy management, logging, and remote execution.
 ##############################################################################
 
 
