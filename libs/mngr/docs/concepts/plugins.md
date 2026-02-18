@@ -25,18 +25,29 @@ mngr create --disable-plugin modal ...
 
 ## Hooks
 
-Plugins register callbacks for various events, organized into a few different categories:
+Plugins implement hooks to extend mngr. There are two kinds: registration hooks (which plugins implement to add new capabilities) and lifecycle hooks (which mngr calls on your plugin at specific points during execution). See also [the API reference](./api.md) for a concise summary.
+
+### Registration hooks
+
+Plugins implement these to register new capabilities with mngr. They are called once at startup.
+
+| Hook                         | Description                                                                                                    |
+|------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `register_agent_type`        | Register a new agent type (e.g., `claude`, `codex`, `opencode`)                                                |
+| `register_provider_backend`  | Register a new provider backend (e.g., cloud platforms)                                                        |
+| `register_cli_commands`      | Define an entirely new CLI command                                                                             |
+| `register_cli_options`       | Add custom CLI options to any existing command's schema so that they appear in `--help`                        |
 
 ### Program lifecycle hooks
 
-Called at various points in the execution of any `mngr` command:
+mngr calls these at various points in the execution of any command:
 
 | Hook                       | Description                                                                                                                                             |
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `on_post_install`          | Runs after the plugin is installed or upgraded. Good for setup tasks like prompting the user or downloading models.                                     |
 | `on_load_config`           | Runs when loading the global config. Receives the current config dict and can modify it before use.                                                     |
 | `on_validate_permissions`  | Runs when validating permissions. Should ensure that the correct environment variables and files are accessible. [future]                               |
-| `on_startup`               | Runs when `mngr` starts up. Good for registering other callbacks. See [the `mngr` API](./api.md) for more details on registration hooks.                |
+| `on_startup`               | Runs when `mngr` starts up. Good for initializing plugin state or resources.                                                                            |
 | `on_before_<command>`      | Runs before any command executes. One hook per command. Receives the parsed args. Can modify args or abort execution.                                   |
 | `on_after_<command>`       | Runs after any command completes. One hook per command. Receives the args and result. Useful for logging, cleanup, or post-processing.                  |
 | `override_command_options` | Called after argument parsing. Receives the command name and parsed args. Use this to validate or transform extended arguments before the command runs.|
