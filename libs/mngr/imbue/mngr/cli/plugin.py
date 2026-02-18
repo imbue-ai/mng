@@ -437,9 +437,9 @@ def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
 
     Examples:
 
-      mngr plugin add mngr-opencode
+      mngr plugin add mngr-pair
 
-      mngr plugin add mngr-opencode>=1.0
+      mngr plugin add mngr-pair>=1.0
 
       mngr plugin add --path ./my-plugin
 
@@ -465,7 +465,7 @@ def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
 
     Examples:
 
-      mngr plugin remove mngr-opencode
+      mngr plugin remove mngr-pair
 
       mngr plugin remove --path ./my-plugin
     """
@@ -739,10 +739,10 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
         ("List only active plugins", "mngr plugin list --active"),
         ("List plugins as JSON", "mngr plugin list --format json"),
         ("Show specific fields", "mngr plugin list --fields name,enabled"),
-        ("Install a plugin from PyPI", "mngr plugin add mngr-opencode"),
+        ("Install a plugin from PyPI", "mngr plugin add mngr-pair"),
         ("Install a local plugin", "mngr plugin add --path ./my-plugin"),
         ("Install a plugin from git", "mngr plugin add --git https://github.com/user/mngr-plugin.git"),
-        ("Remove a plugin", "mngr plugin remove mngr-opencode"),
+        ("Remove a plugin", "mngr plugin remove mngr-pair"),
         ("Enable a plugin", "mngr plugin enable modal"),
         ("Disable a plugin", "mngr plugin disable modal --scope user"),
     ),

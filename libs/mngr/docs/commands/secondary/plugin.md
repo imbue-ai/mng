@@ -115,9 +115,9 @@ Provide exactly one of NAME (positional), --path, or --git.
 
 Examples:
 
-  mngr plugin add mngr-opencode
+  mngr plugin add mngr-pair
 
-  mngr plugin add mngr-opencode>=1.0
+  mngr plugin add mngr-pair>=1.0
 
   mngr plugin add --path ./my-plugin
 
@@ -164,7 +164,7 @@ the package name is read from pyproject.toml.
 
 Examples:
 
-  mngr plugin remove mngr-opencode
+  mngr plugin remove mngr-pair
 
   mngr plugin remove --path ./my-plugin
 
@@ -324,7 +324,7 @@ $ mngr plugin list --fields name,enabled
 **Install a plugin from PyPI**
 
 ```bash
-$ mngr plugin add mngr-opencode
+$ mngr plugin add mngr-pair
 ```
 
 **Install a local plugin**
@@ -342,7 +342,7 @@ $ mngr plugin add --git https://github.com/user/mngr-plugin.git
 **Remove a plugin**
 
 ```bash
-$ mngr plugin remove mngr-opencode
+$ mngr plugin remove mngr-pair
 ```
 
 **Enable a plugin**
