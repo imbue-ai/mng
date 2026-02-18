@@ -203,11 +203,7 @@ fi
 info "Installing mngr..."
 uv tool install mngr
 
-info "Verifying installation..."
-if command -v mngr &>/dev/null; then
-    mngr --version 2>/dev/null || true
-    info "mngr installed successfully"
-else
+if ! command -v mngr &>/dev/null; then
     warn "mngr was installed but is not on PATH."
     warn "You may need to add ~/.local/bin to your PATH:"
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
