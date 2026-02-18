@@ -2,7 +2,6 @@ from typing import Any
 from typing import assert_never
 
 import click
-from click import Context
 from click_option_group import optgroup
 from loguru import logger
 
@@ -14,6 +13,7 @@ from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
@@ -358,7 +358,7 @@ def _emit_destroy_result(
 # =============================================================================
 
 
-class _SnapshotGroup(click.Group):
+class _SnapshotGroup(DefaultCommandGroup):
     """Snapshot group that defaults to 'create' when no subcommand is given.
 
     This is safe because the next argument must be a valid agent name,
@@ -366,19 +366,7 @@ class _SnapshotGroup(click.Group):
     explains the implicit forwarding to ``snapshot create``.
     """
 
-    def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
-        if not args:
-            args = ["create"]
-        return super().parse_args(ctx, args)
-
-    def resolve_command(self, ctx: Context, args: list[str]) -> tuple[str | None, click.Command | None, list[str]]:
-        """Resolve command, defaulting to 'create' for unrecognized subcommands."""
-        if args:
-            cmd = self.get_command(ctx, args[0])
-            if cmd is None:
-                ctx.meta["_snapshot_implicit_create"] = args[0]
-                return super().resolve_command(ctx, ["create"] + args)
-        return super().resolve_command(ctx, args)
+    _implicit_forward_meta_key = "_snapshot_implicit_create"
 
 
 @click.group(name="snapshot", cls=_SnapshotGroup)

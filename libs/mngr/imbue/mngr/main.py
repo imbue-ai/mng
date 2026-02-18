@@ -17,6 +17,7 @@ from imbue.mngr.cli.common_opts import find_option_group
 from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
+from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
@@ -73,18 +74,13 @@ for canonical, aliases in COMMAND_ALIASES.items():
         _ALIAS_TO_CANONICAL[alias] = canonical
 
 
-class AliasAwareGroup(click.Group):
+class AliasAwareGroup(DefaultCommandGroup):
     """Custom click.Group that shows aliases inline with commands in --help.
 
     When no subcommand is given, defaults to 'create'. When an unrecognized
     subcommand is given, it is treated as arguments to 'create' (e.g.
     ``mngr my-task`` is equivalent to ``mngr create my-task``).
     """
-
-    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        if not args:
-            args = ["create"]
-        return super().parse_args(ctx, args)
 
     def invoke(self, ctx: click.Context) -> Any:
         try:
@@ -97,17 +93,6 @@ class AliasAwareGroup(click.Group):
             if ctx.meta.get("is_error_reporting_enabled", False):
                 handle_unexpected_error(e)
             raise
-
-    def resolve_command(
-        self, ctx: click.Context, args: list[str]
-    ) -> tuple[str | None, click.Command | None, list[str]]:
-        """Resolve command, defaulting to 'create' for unrecognized commands."""
-        if args:
-            cmd = self.get_command(ctx, args[0])
-            if cmd is None:
-                # Not a recognized command or alias -- treat as args to 'create'
-                return super().resolve_command(ctx, ["create"] + args)
-        return super().resolve_command(ctx, args)
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
