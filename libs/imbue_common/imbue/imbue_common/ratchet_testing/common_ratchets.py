@@ -83,6 +83,18 @@ PREVENT_BARE_PRINT = RegexRatchetRule(
     is_multiline=True,
 )
 
+PREVENT_GETATTR = RegexRatchetRule(
+    rule_name="getattr() usages",
+    rule_description="getattr() bypasses the type system and makes code harder to reason about. Access attributes directly instead",
+    pattern_string=r"(?<!\.)\bgetattr\s*\(",
+)
+
+PREVENT_SETATTR = RegexRatchetRule(
+    rule_name="setattr() usages",
+    rule_description="setattr() bypasses the type system and makes code harder to reason about. Set attributes directly instead",
+    pattern_string=r"(?<!\.)\bsetattr\s*\(",
+)
+
 
 # --- Exception handling ---
 
