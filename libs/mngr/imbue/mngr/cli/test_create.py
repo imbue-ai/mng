@@ -143,7 +143,6 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
 
     with tmux_session_cleanup(session_name):
         setup = _setup_create(temp_mngr_ctx, output_opts, opts)
-        assert setup is not None
         result = _create_one_agent(temp_mngr_ctx, output_opts, opts, setup)
 
         assert result is not None

@@ -568,8 +568,6 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     # Per-invocation setup (validation, editor session, source resolution, etc.)
     setup = _setup_create(mngr_ctx, output_opts, opts)
-    if setup is None:
-        return
 
     # Create agent(s)
     results: list[CreateAgentResult] = []
@@ -607,7 +605,7 @@ def _setup_create(
     mngr_ctx: MngrContext,
     output_opts: OutputOptions,
     opts: CreateCliOptions,
-) -> _CreateSetup | None:
+) -> _CreateSetup:
     """Per-invocation setup: validation, message resolution, editor session, source resolution."""
     # Validate batch-incompatible options
     if opts.count > 1:
