@@ -10,7 +10,14 @@ Built-in plugins provide the following agent types:
 |------|---------|-------------|
 | `claude` | `claude` | [Claude Code](https://claude.ai/claude-code) - Anthropic's agentic coding tool. Includes session resumption support. |
 | `codex` | `codex` | [Codex CLI](https://github.com/openai/codex) - OpenAI's coding assistant. |
-| `opencode` | `opencode` | [OpenCode](https://github.com/sst/opencode) - An open-source AI coding assistant. Requires the `mngr-opencode` plugin. |
+
+## External Plugin Agent Types
+
+The following agent types require installing an external plugin:
+
+| Type | Command | Description | Plugin |
+|------|---------|-------------|--------|
+| `opencode` | `opencode` | [OpenCode](https://github.com/sst/opencode) - An open-source AI coding assistant. | `mngr-opencode` |
 
 ## Using Agent Types
 

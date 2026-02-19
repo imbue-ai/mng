@@ -54,8 +54,9 @@ def test_snapshot_create_cli_options_fields() -> None:
 def test_snapshot_list_cli_options_fields() -> None:
     """Test SnapshotListCliOptions has required fields."""
     opts = SnapshotListCliOptions(
-        agents=("agent1",),
+        identifiers=("agent1",),
         agent_list=(),
+        hosts=("host1",),
         all_agents=False,
         limit=10,
         include=(),
@@ -73,7 +74,8 @@ def test_snapshot_list_cli_options_fields() -> None:
         plugin=(),
         disable_plugin=(),
     )
-    assert opts.agents == ("agent1",)
+    assert opts.identifiers == ("agent1",)
+    assert opts.hosts == ("host1",)
     assert opts.limit == 10
 
 

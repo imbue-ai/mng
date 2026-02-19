@@ -32,8 +32,25 @@ class ClaudeDirectoryNotTrustedError(ConfigError):
         self.source_path = source_path
         super().__init__(
             f"Source directory {source_path} is not trusted by Claude Code. "
-            f"Either run Claude Code manually in {source_path} and accept the trust dialog, "
-            "or run `mngr create` interactively (without --no-connect) to be prompted."
+            "Run `mngr create` interactively (without --no-connect) to be prompted, "
+            f"or run Claude Code manually in {source_path} and accept the trust dialog."
+        )
+
+
+class ClaudeEffortCalloutNotDismissedError(ConfigError):
+    """The effort callout has not been dismissed in Claude's global config.
+
+    Claude Code shows an effort callout on startup when effortCalloutDismissed
+    is not set to true in ~/.claude.json. When mngr uses tmux send-keys to
+    deliver the initial prompt, the keystrokes may interact with this callout
+    instead of the prompt, causing the intended message to be lost.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Claude Code's effort callout has not been dismissed in ~/.claude.json. "
+            "Run `mngr create` interactively (without --no-connect) to be prompted, "
+            "or run Claude Code manually and dismiss the callout."
         )
 
 
@@ -119,6 +136,27 @@ def _write_claude_config_atomic(config_path: Path, config: dict[str, Any]) -> No
 # =============================================================================
 
 
+def is_source_directory_trusted(source_path: Path) -> bool:
+    """Check whether the source directory is trusted in Claude's config.
+
+    Returns True if source_path (or an ancestor) has hasTrustDialogAccepted=true
+    in ~/.claude.json.
+    """
+    config_path = get_claude_config_path()
+    source_path = source_path.resolve()
+
+    config = _read_claude_config(config_path)
+    if not config:
+        return False
+
+    projects = config.get("projects", {})
+    source_config = _find_project_config(projects, source_path)
+    if source_config is None:
+        return False
+
+    return bool(source_config.get("hasTrustDialogAccepted", False))
+
+
 def check_source_directory_trusted(source_path: Path) -> None:
     """Check that the source directory is trusted in Claude's config.
 
@@ -127,23 +165,8 @@ def check_source_directory_trusted(source_path: Path) -> None:
 
     Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
     """
-    config_path = get_claude_config_path()
-    source_path = source_path.resolve()
-
-    config = _read_claude_config(config_path)
-    if not config:
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-    # Find the source project config
-    projects = config.get("projects", {})
-    source_config = _find_project_config(projects, source_path)
-
-    if source_config is None:
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
-
-    # Verify the source directory was actually trusted
-    if not source_config.get("hasTrustDialogAccepted", False):
-        raise ClaudeDirectoryNotTrustedError(str(source_path))
+    if not is_source_directory_trusted(source_path):
+        raise ClaudeDirectoryNotTrustedError(str(source_path.resolve()))
 
 
 def add_claude_trust_for_path(source_path: Path) -> None:
@@ -270,6 +293,77 @@ def remove_claude_trust_for_path(path: Path) -> bool:
 
     logger.trace("Removed Claude trust entry for {}", path)
     return True
+
+
+def is_effort_callout_dismissed() -> bool:
+    """Check whether the effort callout has been dismissed in Claude's config.
+
+    Returns True if effortCalloutDismissed is true in ~/.claude.json.
+    """
+    config_path = get_claude_config_path()
+    config = _read_claude_config(config_path)
+    return bool(config.get("effortCalloutDismissed", False))
+
+
+def check_effort_callout_dismissed() -> None:
+    """Check that the effort callout has been dismissed in Claude's config.
+
+    Reads ~/.claude.json and verifies that effortCalloutDismissed is true.
+
+    Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
+    been dismissed.
+    """
+    if not is_effort_callout_dismissed():
+        raise ClaudeEffortCalloutNotDismissedError()
+
+
+def dismiss_effort_callout() -> None:
+    """Set effortCalloutDismissed=true in Claude's config.
+
+    Acquires the config lock and sets the field in ~/.claude.json.
+    No-op if already set.
+    """
+    with _claude_config_lock() as config_path:
+        config = _read_claude_config(config_path)
+        if config.get("effortCalloutDismissed", False):
+            return
+        config["effortCalloutDismissed"] = True
+        _write_claude_config_atomic(config_path, config)
+
+    logger.trace("Dismissed effort callout in Claude config")
+
+
+def check_claude_dialogs_dismissed(source_path: Path) -> None:
+    """Check that all known Claude startup dialogs have been dismissed.
+
+    Verifies that ~/.claude.json is configured so that Claude Code can start
+    without showing any dialogs that could intercept automated input.
+
+    Checks:
+    - Trust dialog: source_path (or ancestor) has hasTrustDialogAccepted=true
+    - Effort callout: global effortCalloutDismissed is true
+
+    Raises ClaudeDirectoryNotTrustedError if the source is not trusted.
+    Raises ClaudeEffortCalloutNotDismissedError if the effort callout has not
+    been dismissed.
+    """
+    check_source_directory_trusted(source_path)
+    check_effort_callout_dismissed()
+
+
+def ensure_claude_dialogs_dismissed(source_path: Path) -> None:
+    """Ensure all known Claude startup dialogs are marked as dismissed.
+
+    Sets the necessary fields in ~/.claude.json so that Claude Code can start
+    without showing any dialogs. This is the remediation for errors raised by
+    check_claude_dialogs_dismissed.
+
+    Sets:
+    - Trust: marks source_path as trusted (hasTrustDialogAccepted=true)
+    - Effort callout: sets effortCalloutDismissed=true
+    """
+    add_claude_trust_for_path(source_path)
+    dismiss_effort_callout()
 
 
 def _find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:

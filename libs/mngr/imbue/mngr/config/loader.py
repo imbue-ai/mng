@@ -465,10 +465,10 @@ def _parse_commands(raw_commands: dict[str, dict[str, Any]]) -> dict[str, Comman
 
     for command_name, raw_defaults in raw_commands.items():
         # Make a mutable copy so we don't mutate the caller's dict
-        raw_defaults = dict(raw_defaults)
-        default_subcommand = raw_defaults.pop("default_subcommand", None)
+        defaults_copy = dict(raw_defaults)
+        default_subcommand = defaults_copy.pop("default_subcommand", None)
         commands[command_name] = CommandDefaults.model_construct(
-            defaults=raw_defaults,
+            defaults=defaults_copy,
             default_subcommand=default_subcommand,
         )
 
