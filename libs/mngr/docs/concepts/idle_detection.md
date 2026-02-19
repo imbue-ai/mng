@@ -43,13 +43,13 @@ Everything else can be manipulated by a malicious or buggy agent (including e.g.
 
 This means that, if running an untrusted agent, you should only use the "create" or "boot" idle modes to ensure that the agent cannot prevent stopping by faking activity. You should also use a provider that enforces host lifetime limits externally (e.g., Modal's sandbox timeout), which guarantees the host will be stopped regardless of what happens inside it.
 
-## User Input Tracking
+## User Input Tracking [future]
 
-User input tracking requires either terminal access via `mngr connect` or web access via `mngr open` (which uses the [user_activity_tracking_via_web plugin](../core_plugins/user_activity_tracking_via_web.md), enabled by default).
+User input tracking requires either terminal access via `mngr connect` or web access via `mngr open` [future] (which uses the [user_activity_tracking_via_web plugin](../core_plugins/user_activity_tracking_via_web.md), enabled by default).
 
-`mngr connect` tracks keystrokes in the terminal session and reports activity by writing JSON to `$MNGR_HOST_DIR/activity/user`.
+`mngr connect` reports activity via an SSH heartbeat (writing to `$MNGR_HOST_DIR/activity/ssh` every 5 seconds while connected). Keystroke-level tracking that writes to `$MNGR_HOST_DIR/activity/user` is planned. [future]
 
-`mngr open` opens the agent's URLs in a web browser. For web interfaces, the [user_activity_tracking_via_web plugin](../core_plugins/user_activity_tracking_via_web.md) injects JavaScript that tracks both mouse movements and keystrokes, reporting activity back to the agent in the same way.
+`mngr open` [future] opens the agent's URLs in a web browser. For web interfaces, the [user_activity_tracking_via_web plugin](../core_plugins/user_activity_tracking_via_web.md) injects JavaScript that tracks both mouse movements and keystrokes, reporting activity back to the agent in the same way.
 
 Note that the only "tracking" happening is the most recent timestamp--there is no logging of actual keystrokes or mouse movements, and nothing except the most recent time is stored.
 This mechanism is necessary in practice because you really don't want an agent to stop while you're actively using it.

@@ -8,11 +8,11 @@ curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.
 **mngr is *very* simple to use:**
 
 ```bash
-mngr                  # launch claude on Modal (defaults: command=create, agent=claude, provider=modal, project=current dir)
-mngr --in local       # launch claude locally
-mngr my-task          # launch claude with a name on Modal
-mngr my-task codex    # launch codex instead of claude on Modal
-mngr -- --model opus  # launch pass any arguments to the agent running on Modal
+mngr                  # launch claude locally (defaults: command=create, agent=claude, provider=local, project=current dir)
+mngr --in modal       # launch claude on Modal
+mngr my-task          # launch claude with a name
+mngr my-task codex    # launch codex instead of claude
+mngr -- --model opus  # pass any arguments through to the underlying agent
 
 # send an initial message so you don't have to wait around:
 mngr --no-connect --message "Speed up one of my tests and make a PR on github"
@@ -70,12 +70,8 @@ mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 mngr create agent-1 --in modal --host-name shared-host
 mngr create agent-2 --host shared-host
 
-# programmatically send messages to your agents and see their chat histories
-mngr message agent-1 "Tell me a joke"
-mngr transcript agent-1   # [future]
-
-# schedule agents to run periodically
-mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"  # [future]
+# run commands directly on an agent's host
+mngr exec agent-1 "git log --oneline -5"
 
 # never lose any work: snapshot and fork the entire agent states
 mngr create doomed-agent --in modal
@@ -83,6 +79,15 @@ SNAPSHOT=$(mngr snapshot doomed-agent --format "{id}")
 mngr message doomed-agent "try running 'rm -rf /' and see what happens"
 mngr create new-agent --snapshot $SNAPSHOT
 ```
+
+<!--
+# programmatically send messages to your agents and see their chat histories
+mngr message agent-1 "Tell me a joke"
+mngr transcript agent-1   # [future]
+
+# [future] schedule agents to run periodically
+mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
+-->
 
 **mngr makes it easy to work with remote agents**
 
@@ -100,18 +105,20 @@ mngr pair my-agent          # or sync changes continuously!
 
 Simply run:
     mngr create --in modal --build-arg "--dockerfile path/to/Dockerfile"
+```
 
+<!--
 If you don't have a Dockerfile for your project, run:
     mngr bootstrap   # [future]
 
 From the repo where you would like a Dockerfile created.
-```
+-->
 
 ## Overview
 
 `mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
 
-`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](./docs/concepts/plugins.md) to enable the latest AI coding workflows
+`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](./docs/concepts/plugins.md) to enable the latest AI coding workflows.
 
 ## Installation
 
@@ -174,7 +181,7 @@ mngr <command> [options]
 - **[`create`](docs/commands/primary/create.md)**: (default) Create and run an agent in a host
 - [`list`](docs/commands/primary/list.md): List active agents
 - [`connect`](docs/commands/primary/connect.md): Attach to an agent
-- [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser
+<!-- - [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
 - [`stop`](docs/commands/primary/stop.md): Stop an agent
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
 - [`snapshot`](docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
@@ -207,21 +214,20 @@ mngr <command> [options]
 
 ## How it works
 
-You can interact with `mngr` either via:
-
-1. The terminal (run `mngr --help` to learn more)
-2. One of many [web interfaces](./web_interfaces.md) [future] (ex: [TheEye](http://ididntmakethisyet.com))
+You can interact with `mngr` via the terminal (run `mngr --help` to learn more).
+<!-- You can also interact via one of many [web interfaces](./web_interfaces.md) [future] (ex: [TheEye](http://ididntmakethisyet.com)) -->
 
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
 - **[agents](./docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
-- [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
+<!-- - [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mngr open] -->
 - [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
 - [hosts](./docs/concepts/hosts.md) come from **[providers](./docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
 - [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md) for more details.
 - [hosts](./docs/concepts/hosts.md) automatically "stop" when all of their [agents](./docs/concepts/agents.md) are "stopped"
-- `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins](docs/commands/secondary/plugin.md#mngr-plugin-generate) [future]
+- `mngr` is extensible via **[plugins](./docs/concepts/plugins.md)**--you can add new agent types, provider backends, CLI commands, and lifecycle hooks
+<!-- - `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins](docs/commands/secondary/plugin.md#mngr-plugin-generate) [future] -->
 
 ### Architecture
 
@@ -243,10 +249,13 @@ See [`architecture.md`](./docs/architecture.md) for an in-depth overview of the 
 
 See [`./docs/security_model.md`](./docs/security_model.md) for more details on our security model.
 
+<!--
 ## Learning more
 
 TODO: put a ton of examples and references here!
+-->
 
 ## Contributing
 
-Contributions are welcome! Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines. [future]
+Contributions are welcome!
+<!-- Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines. [future] -->
