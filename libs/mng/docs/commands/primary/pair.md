@@ -21,27 +21,6 @@ state (branches and commits) before starting the continuous file sync.
 Press Ctrl+C to stop the sync.
 
 
-Continuously sync files between an agent and local directory. [experimental]
-
-This command establishes a bidirectional file sync between an agent's working
-directory and a local directory. Changes are watched and synced in real-time.
-
-If git repositories exist on both sides, the command first synchronizes git
-state (branches and commits) before starting the continuous file sync.
-
-Press Ctrl+C to stop the sync.
-
-During rapid concurrent edits, changes will be debounced to avoid partial
-writes [future].
-
-Examples:
-  mng pair my-agent
-  mng pair my-agent --target ./local-dir
-  mng pair --source-agent my-agent --target ./local-copy
-  mng pair my-agent --sync-direction=forward
-  mng pair my-agent --conflict=source
-  mng pair my-agent --source-host @local
-
 **Usage:**
 
 ```text

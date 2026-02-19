@@ -34,6 +34,8 @@ For local agents, mng creates a git worktree that shares objects with your
 original repository, allowing efficient branch management. For remote agents,
 the working directory is copied to the remote host.
 
+Alias: c
+
 
 **Usage:**
 

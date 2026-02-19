@@ -19,6 +19,8 @@ If a previous rename was interrupted (e.g., the tmux session was renamed
 but data.json was not updated), re-running the command will attempt
 to complete it.
 
+Alias: mv
+
 
 **Usage:**
 

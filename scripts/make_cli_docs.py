@@ -283,6 +283,11 @@ def _format_description_block(command_name: str) -> str:
         lines.append(paragraph.strip())
         lines.append("")
 
+    if metadata.aliases:
+        alias_str = ", ".join(metadata.aliases)
+        lines.append(f"Alias: {alias_str}")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -412,7 +417,34 @@ def _extract_header_before_options(lines: list[str]) -> str:
     return "\n".join(lines)
 
 
-def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
+def _strip_description_from_header(header: str) -> str:
+    """Strip the click docstring description from an mkdocs-click header.
+
+    The header has the form: title line, blank line, description, blank line,
+    **Usage:** block. When metadata provides the description, we strip the
+    description from the mkdocs-click output to avoid duplication.
+
+    Returns the header with everything between the title and **Usage:** removed.
+    """
+    lines = header.split("\n")
+    title_lines: list[str] = []
+    usage_lines: list[str] = []
+    in_usage = False
+
+    for line in lines:
+        if line.startswith("**Usage:**"):
+            in_usage = True
+        if in_usage:
+            usage_lines.append(line)
+        elif line.startswith("#"):
+            title_lines.append(line)
+
+    if usage_lines:
+        return "\n".join(title_lines + [""] + usage_lines)
+    return "\n".join(title_lines)
+
+
+def generate_subcommand_docs(command: click.Group, prog_name: str, parent_key: str = "") -> str:
     """Generate documentation for all subcommands with grouped options."""
     if not hasattr(command, "commands") or not command.commands:
         return ""
@@ -420,6 +452,9 @@ def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
     lines: list[str] = []
 
     for subcmd_name, subcmd in command.commands.items():
+        # Build metadata key for this subcommand (e.g., "config.list", "snapshot.create")
+        subcmd_key = f"{parent_key}.{subcmd_name}" if parent_key else subcmd_name
+
         # Generate mkdocs-click output for this subcommand
         subcmd_lines = list(
             make_command_docs(
@@ -432,16 +467,34 @@ def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
 
         # Extract header (everything before **Options:**)
         header = _extract_header_before_options(subcmd_lines)
+
+        # Strip click docstring description when metadata provides one
+        subcmd_metadata = get_help_metadata(subcmd_key)
+        if subcmd_metadata is not None and subcmd_metadata.description:
+            header = _strip_description_from_header(header)
+
         lines.append(header)
+
+        # Inject metadata description for subcommands
+        if subcmd_metadata is not None and subcmd_metadata.description:
+            description_block = _format_description_block(subcmd_key)
+            if description_block:
+                lines.append(description_block)
 
         # Add grouped options
         lines.append("**Options:**")
         lines.append("")
         lines.append(generate_grouped_options_markdown(subcmd))
 
+        # Add subcommand examples from metadata
+        if subcmd_metadata is not None and subcmd_metadata.examples:
+            subcmd_examples = format_examples(subcmd_key)
+            if subcmd_examples:
+                lines.append(subcmd_examples)
+
         # If this subcommand has its own subcommands, recurse
         if isinstance(subcmd, click.Group) and subcmd.commands:
-            nested_docs = generate_subcommand_docs(subcmd, f"{prog_name} {subcmd_name}")
+            nested_docs = generate_subcommand_docs(subcmd, f"{prog_name} {subcmd_name}", parent_key=subcmd_key)
             if nested_docs:
                 lines.append(nested_docs)
 
@@ -476,6 +529,12 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     # Extract header (everything before **Options:**)
     header_content = _extract_header_before_options(mkdocs_lines)
 
+    # When metadata provides the description, strip the click docstring
+    # description from the mkdocs-click header to avoid duplication
+    metadata = get_help_metadata(command_name)
+    if metadata is not None and metadata.description:
+        header_content = _strip_description_from_header(header_content)
+
     # Build the final content
     content_parts = [header_content]
 
@@ -484,8 +543,7 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     if arguments_section:
         content_parts.append(arguments_section)
 
-    # Get group intros from metadata
-    metadata = get_help_metadata(command_name)
+    # Get group intros from metadata (reuses metadata fetched above)
     group_intros: dict[str, str] = {}
     if metadata is not None and metadata.group_intros:
         group_intros = dict(metadata.group_intros)
@@ -497,7 +555,7 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
 
     # Add subcommand documentation with grouped options
     if isinstance(cmd, click.Group) and cmd.commands:
-        subcommand_docs = generate_subcommand_docs(cmd, prog_name)
+        subcommand_docs = generate_subcommand_docs(cmd, prog_name, parent_key=command_name)
         if subcommand_docs:
             content_parts.append(subcommand_docs)
 

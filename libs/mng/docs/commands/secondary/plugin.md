@@ -15,6 +15,8 @@ Manage available and active plugins.
 Install, remove, view, enable, and disable plugins registered with mng.
 Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.
 
+Alias: plug
+
 
 **Usage:**
 
@@ -50,6 +52,16 @@ mng plugin [OPTIONS] COMMAND [ARGS]...
 mng plugin list [OPTIONS]
 ```
 
+
+
+List discovered plugins.
+
+Shows all plugins registered with mng, including built-in plugins
+and any externally installed plugins.
+
+Supports custom format templates via --format. Available fields:
+name, version, description, enabled.
+
 **Options:**
 
 ## Common
@@ -77,6 +89,39 @@ mng plugin list [OPTIONS]
 | `--active` | boolean | Show only currently enabled plugins | `False` |
 | `--fields` | text | Comma-separated list of fields to display (name, version, description, enabled) | None |
 
+
+## Examples
+
+**List all plugins**
+
+```bash
+$ mng plugin list
+```
+
+**List only active plugins**
+
+```bash
+$ mng plugin list --active
+```
+
+**Output as JSON**
+
+```bash
+$ mng plugin list --format json
+```
+
+**Show specific fields**
+
+```bash
+$ mng plugin list --fields name,enabled
+```
+
+**Custom format template**
+
+```bash
+$ mng plugin list --format '{name}\t{enabled}'
+```
+
 ## mng plugin add
 
 **Usage:**
@@ -84,6 +129,14 @@ mng plugin list [OPTIONS]
 ```text
 mng plugin add [OPTIONS] [NAME]
 ```
+
+
+
+Install a plugin package.
+
+Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
+package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
+from a local directory in editable mode. --git installs from a git URL.
 
 **Options:**
 
@@ -112,6 +165,33 @@ mng plugin add [OPTIONS] [NAME]
 | `--path` | text | Install from a local path (editable mode) | None |
 | `--git` | text | Install from a git URL | None |
 
+
+## Examples
+
+**Install from PyPI**
+
+```bash
+$ mng plugin add mng-pair
+```
+
+**Install with version constraint**
+
+```bash
+$ mng plugin add mng-pair>=1.0
+```
+
+**Install from a local path**
+
+```bash
+$ mng plugin add --path ./my-plugin
+```
+
+**Install from a git URL**
+
+```bash
+$ mng plugin add --git https://github.com/user/mng-plugin.git
+```
+
 ## mng plugin remove
 
 **Usage:**
@@ -119,6 +199,13 @@ mng plugin add [OPTIONS] [NAME]
 ```text
 mng plugin remove [OPTIONS] [NAME]
 ```
+
+
+
+Uninstall a plugin package.
+
+Provide exactly one of NAME (positional) or --path. For local paths,
+the package name is read from pyproject.toml.
 
 **Options:**
 
@@ -146,6 +233,21 @@ mng plugin remove [OPTIONS] [NAME]
 | ---- | ---- | ----------- | ------- |
 | `--path` | text | Remove by local path (reads package name from pyproject.toml) | None |
 
+
+## Examples
+
+**Remove by name**
+
+```bash
+$ mng plugin remove mng-pair
+```
+
+**Remove by local path**
+
+```bash
+$ mng plugin remove --path ./my-plugin
+```
+
 ## mng plugin enable
 
 **Usage:**
@@ -153,6 +255,13 @@ mng plugin remove [OPTIONS] [NAME]
 ```text
 mng plugin enable [OPTIONS] NAME
 ```
+
+
+
+Enable a plugin.
+
+Sets plugins.<name>.enabled = true in the configuration file at the
+specified scope.
 
 **Options:**
 
@@ -179,6 +288,21 @@ mng plugin enable [OPTIONS] NAME
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+
+
+## Examples
+
+**Enable at project scope (default)**
+
+```bash
+$ mng plugin enable modal
+```
+
+**Enable at user scope**
+
+```bash
+$ mng plugin enable modal --scope user
+```
 
 ## mng plugin disable
 
@@ -188,6 +312,13 @@ mng plugin enable [OPTIONS] NAME
 mng plugin disable [OPTIONS] NAME
 ```
 
+
+
+Disable a plugin.
+
+Sets plugins.<name>.enabled = false in the configuration file at the
+specified scope.
+
 **Options:**
 
 ## Common
@@ -213,6 +344,21 @@ mng plugin disable [OPTIONS] NAME
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+
+
+## Examples
+
+**Disable at project scope (default)**
+
+```bash
+$ mng plugin disable modal
+```
+
+**Disable at user scope**
+
+```bash
+$ mng plugin disable modal --scope user
+```
 
 ## See Also
 

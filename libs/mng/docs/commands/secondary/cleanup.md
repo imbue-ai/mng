@@ -25,6 +25,8 @@ for precise control.
 For automatic garbage collection of unused resources without interaction,
 see `mng gc`.
 
+Alias: clean
+
 
 **Usage:**
 

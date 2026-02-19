@@ -21,6 +21,8 @@ Configuration is stored in TOML files:
 - Project: .mng/settings.toml (in your git root)
 - Local: .mng/settings.local.toml (git-ignored, for local overrides)
 
+Alias: cfg
+
 
 **Usage:**
 
@@ -62,6 +64,16 @@ mng config [OPTIONS] COMMAND [ARGS]...
 mng config list [OPTIONS]
 ```
 
+
+
+List all configuration values.
+
+Shows all configuration settings from the specified scope, or from the
+merged configuration if no scope is specified.
+
+Supports custom format templates via --format. Available fields:
+key, value.
+
 **Options:**
 
 ## Common
@@ -87,6 +99,33 @@ mng config list [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+
+
+## Examples
+
+**List merged configuration**
+
+```bash
+$ mng config list
+```
+
+**List user-scope configuration**
+
+```bash
+$ mng config list --scope user
+```
+
+**Output as JSON**
+
+```bash
+$ mng config list --format json
+```
+
+**Custom format template**
+
+```bash
+$ mng config list --format '{key}={value}'
+```
 
 ## mng config get
 
@@ -96,6 +135,16 @@ mng config list [OPTIONS]
 mng config get [OPTIONS] KEY
 ```
 
+
+
+Get a configuration value.
+
+Retrieves the value of a specific configuration key. Use dot notation
+for nested keys (e.g., 'commands.create.connect').
+
+By default reads from the merged configuration. Use --scope to read
+from a specific scope.
+
 **Options:**
 
 ## Common
@@ -121,6 +170,27 @@ mng config get [OPTIONS] KEY
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+
+
+## Examples
+
+**Get a top-level key**
+
+```bash
+$ mng config get prefix
+```
+
+**Get a nested key**
+
+```bash
+$ mng config get commands.create.connect
+```
+
+**Get from a specific scope**
+
+```bash
+$ mng config get logging.console_level --scope user
+```
 
 ## mng config set
 
@@ -130,6 +200,16 @@ mng config get [OPTIONS] KEY
 mng config set [OPTIONS] KEY VALUE
 ```
 
+
+
+Set a configuration value.
+
+Sets a configuration value at the specified scope. Use dot notation
+for nested keys (e.g., 'commands.create.connect').
+
+Values are parsed as JSON if possible, otherwise as strings.
+Use 'true'/'false' for booleans, numbers for integers/floats.
+
 **Options:**
 
 ## Common
@@ -155,6 +235,27 @@ mng config set [OPTIONS] KEY VALUE
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+
+
+## Examples
+
+**Set a string value**
+
+```bash
+$ mng config set prefix "my-"
+```
+
+**Set a boolean value**
+
+```bash
+$ mng config set commands.create.connect false
+```
+
+**Set at user scope**
+
+```bash
+$ mng config set logging.console_level DEBUG --scope user
+```
 
 ## mng config unset
 
@@ -164,6 +265,13 @@ mng config set [OPTIONS] KEY VALUE
 mng config unset [OPTIONS] KEY
 ```
 
+
+
+Remove a configuration value.
+
+Removes a configuration value from the specified scope. Use dot notation
+for nested keys (e.g., 'commands.create.connect').
+
 **Options:**
 
 ## Common
@@ -189,6 +297,21 @@ mng config unset [OPTIONS] KEY
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+
+
+## Examples
+
+**Remove a key from project scope**
+
+```bash
+$ mng config unset commands.create.connect
+```
+
+**Remove a key from user scope**
+
+```bash
+$ mng config unset logging.console_level --scope user
+```
 
 ## mng config edit
 
@@ -198,6 +321,15 @@ mng config unset [OPTIONS] KEY
 mng config edit [OPTIONS]
 ```
 
+
+
+Open configuration file in editor.
+
+Opens the configuration file for the specified scope in your default
+editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
+
+If the config file doesn't exist, it will be created with an empty template.
+
 **Options:**
 
 ## Common
@@ -224,6 +356,27 @@ mng config edit [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
 
+
+## Examples
+
+**Edit project config (default)**
+
+```bash
+$ mng config edit
+```
+
+**Edit user config**
+
+```bash
+$ mng config edit --scope user
+```
+
+**Edit local config**
+
+```bash
+$ mng config edit --scope local
+```
+
 ## mng config path
 
 **Usage:**
@@ -231,6 +384,13 @@ mng config edit [OPTIONS]
 ```text
 mng config path [OPTIONS]
 ```
+
+
+
+Show configuration file paths.
+
+Shows the paths to configuration files. If --scope is specified, shows
+only that scope's path. Otherwise shows all paths and whether they exist.
 
 **Options:**
 
@@ -257,6 +417,21 @@ mng config path [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+
+
+## Examples
+
+**Show all config file paths**
+
+```bash
+$ mng config path
+```
+
+**Show user config path**
+
+```bash
+$ mng config path --scope user
+```
 
 ## See Also
 

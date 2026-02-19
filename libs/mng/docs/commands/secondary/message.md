@@ -18,6 +18,8 @@ message is sent to the agent's stdin.
 If no message is specified with --message, reads from stdin (if not a tty)
 or opens an editor (if interactive).
 
+Alias: msg
+
 
 **Usage:**
 

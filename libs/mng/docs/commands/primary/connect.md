@@ -24,6 +24,8 @@ The agent can be specified as a positional argument or via --agent:
   mng connect my-agent
   mng connect --agent my-agent
 
+Alias: conn
+
 
 **Usage:**
 

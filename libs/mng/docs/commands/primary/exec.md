@@ -18,6 +18,8 @@ the working directory.
 The command's stdout is printed to stdout and stderr to stderr. The exit
 code is 0 if all commands succeeded, 1 if any failed.
 
+Alias: x
+
 
 **Usage:**
 

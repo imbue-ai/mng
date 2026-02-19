@@ -30,6 +30,8 @@ Provisioning is done per agent, but changes are visible to other agents on the
 same host. Be careful to avoid conflicts when provisioning multiple agents on
 the same host.
 
+Alias: prov
+
 
 **Usage:**
 

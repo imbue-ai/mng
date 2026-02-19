@@ -26,6 +26,8 @@ activity-sources) are applied to each agent's underlying host.
 Agent-level settings (start-on-boot, grant, revoke) require agent targeting
 and cannot be used with --host alone.
 
+Alias: lim
+
 
 **Usage:**
 
