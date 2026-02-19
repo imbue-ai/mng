@@ -93,7 +93,6 @@ from imbue.mngr.utils.git_utils import get_current_git_branch
 from imbue.mngr.utils.logging import LoggingSuppressor
 from imbue.mngr.utils.logging import remove_console_handlers
 from imbue.mngr.utils.name_generator import generate_agent_name
-from imbue.mngr.utils.name_generator import generate_host_name
 from imbue.mngr.utils.polling import wait_for
 
 
@@ -645,7 +644,6 @@ def _handle_create(
         project_name=project_name,
         agent_and_host_loader=agent_and_host_loader,
         lifecycle=host_lifecycle,
-        mngr_ctx=mngr_ctx,
     )
 
     # Parse agent options
@@ -1431,7 +1429,6 @@ def _parse_target_host(
     project_name: str | None,
     agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
     lifecycle: HostLifecycleOptions,
-    mngr_ctx: MngrContext,
 ) -> HostReference | NewHostOptions | None:
     parsed_target_host: HostReference | NewHostOptions | None
     if opts.host:
@@ -1449,18 +1446,13 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        parsed_host_name: HostName
+        # Host name is optional here -- if not provided, resolve_target_host will
+        # use the provider's default_host_name or auto-generate one.
+        parsed_host_name: HostName | None
         if opts.host_name:
             parsed_host_name = HostName(opts.host_name)
         else:
-            # Check if the provider has a fixed default host name (e.g. "localhost" for local)
-            provider = get_provider_instance(ProviderInstanceName(opts.new_host), mngr_ctx)
-            provider_default = provider.default_host_name
-            if provider_default is not None:
-                parsed_host_name = provider_default
-            else:
-                parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
-                parsed_host_name = generate_host_name(parsed_host_name_style)
+            parsed_host_name = None
 
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
@@ -1494,9 +1486,11 @@ def _parse_target_host(
             start_args=tuple(combined_start_args),
         )
 
+        parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
         parsed_target_host = NewHostOptions(
             provider=ProviderInstanceName(opts.new_host),
             name=parsed_host_name,
+            name_style=parsed_host_name_style,
             tags=tags,
             build=build_options,
             environment=HostEnvironmentOptions(
