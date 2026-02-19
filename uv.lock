@@ -16,6 +16,7 @@ members = [
     "imbue-common",
     "mngr",
     "mngr-opencode",
+    "mngr-pair",
     "sculptor-desktop",
     "sculptor-web",
 ]
@@ -1851,6 +1852,21 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
+
+[[package]]
+name = "mngr-pair"
+version = "0.1.0"
+source = { editable = "libs/mngr_pair" }
+dependencies = [
+    { name = "click-option-group" },
+    { name = "mngr" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "mngr", editable = "libs/mngr" },
+]
 
 [[package]]
 name = "modal"

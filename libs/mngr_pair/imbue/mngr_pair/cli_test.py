@@ -2,8 +2,8 @@
 
 from click.testing import CliRunner
 
-from imbue.mngr.cli.pair import PairCliOptions
-from imbue.mngr.cli.pair import pair
+from imbue.mngr_pair.cli import PairCliOptions
+from imbue.mngr_pair.cli import pair
 
 
 def test_pair_cli_options_has_all_fields() -> None:
