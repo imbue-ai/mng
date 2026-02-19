@@ -205,7 +205,7 @@ You can interact with `mngr` either via:
 
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
-- **[agents](./docs/concepts/agents.md)** are simply [processes](https://en.wikipedia.org/wiki/Unix_process) that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
+- **[agents](./docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
 - [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
 - [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
