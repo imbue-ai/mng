@@ -17,6 +17,7 @@ from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
+from imbue.mng.cli.help_formatter import register_subcommand_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -975,7 +976,7 @@ Multiple identifiers that resolve to the same host are deduplicated.""",
     ),
 )
 
-register_help_metadata("snapshot.create", _SNAPSHOT_CREATE_HELP_METADATA)
+register_subcommand_help_metadata(_SNAPSHOT_HELP_METADATA, "create", _SNAPSHOT_CREATE_HELP_METADATA)
 add_pager_help_option(snapshot_create)
 
 _SNAPSHOT_LIST_HELP_METADATA = CommandHelpMetadata(
@@ -1005,7 +1006,7 @@ id, name, created_at, size, size_bytes, host_id.""",
     ),
 )
 
-register_help_metadata("snapshot.list", _SNAPSHOT_LIST_HELP_METADATA)
+register_subcommand_help_metadata(_SNAPSHOT_HELP_METADATA, "list", _SNAPSHOT_LIST_HELP_METADATA)
 add_pager_help_option(snapshot_list)
 
 _SNAPSHOT_DESTROY_HELP_METADATA = CommandHelpMetadata(
@@ -1028,5 +1029,5 @@ shown unless --force is specified.""",
     ),
 )
 
-register_help_metadata("snapshot.destroy", _SNAPSHOT_DESTROY_HELP_METADATA)
+register_subcommand_help_metadata(_SNAPSHOT_HELP_METADATA, "destroy", _SNAPSHOT_DESTROY_HELP_METADATA)
 add_pager_help_option(snapshot_destroy)
