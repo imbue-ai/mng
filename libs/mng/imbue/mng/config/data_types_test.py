@@ -912,24 +912,31 @@ def test_mng_config_connect_command_defaults_to_none(mng_test_prefix: str) -> No
 
 
 # =============================================================================
-# Tests for MngConfig.tmux_socket_dir
+# Tests for MngConfig.process_env
 # =============================================================================
 
 
-def test_mng_config_tmux_socket_dir_defaults_to_none(mng_test_prefix: str) -> None:
+def test_mng_config_process_env_defaults_to_empty_dict(mng_test_prefix: str) -> None:
     config = MngConfig(prefix=mng_test_prefix)
-    assert config.tmux_socket_dir is None
+    assert config.process_env == {}
 
 
-def test_mng_config_merge_overrides_tmux_socket_dir(mng_test_prefix: str) -> None:
-    base = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/base/tmux"))
-    override = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/override/tmux"))
+def test_mng_config_merge_combines_process_env(mng_test_prefix: str) -> None:
+    base = MngConfig(prefix=mng_test_prefix, process_env={"A": "1", "B": "2"})
+    override = MngConfig(prefix=mng_test_prefix, process_env={"C": "3"})
     merged = base.merge_with(override)
-    assert merged.tmux_socket_dir == Path("/override/tmux")
+    assert merged.process_env == {"A": "1", "B": "2", "C": "3"}
 
 
-def test_mng_config_merge_keeps_base_tmux_socket_dir_when_override_none(mng_test_prefix: str) -> None:
-    base = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/base/tmux"))
-    override = MngConfig.model_construct(prefix=mng_test_prefix, tmux_socket_dir=None)
+def test_mng_config_merge_process_env_override_wins(mng_test_prefix: str) -> None:
+    base = MngConfig(prefix=mng_test_prefix, process_env={"KEY": "base"})
+    override = MngConfig(prefix=mng_test_prefix, process_env={"KEY": "override"})
     merged = base.merge_with(override)
-    assert merged.tmux_socket_dir == Path("/base/tmux")
+    assert merged.process_env == {"KEY": "override"}
+
+
+def test_mng_config_merge_keeps_base_process_env_when_override_none(mng_test_prefix: str) -> None:
+    base = MngConfig(prefix=mng_test_prefix, process_env={"KEY": "base"})
+    override = MngConfig.model_construct(prefix=mng_test_prefix, process_env=None)
+    merged = base.merge_with(override)
+    assert merged.process_env == {"KEY": "base"}

@@ -176,7 +176,7 @@ def load_config(
         config_dict["logging"] = config.logging
 
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
-    config_dict["tmux_socket_dir"] = config.tmux_socket_dir
+    config_dict["process_env"] = config.process_env
     config_dict["is_error_reporting_enabled"] = config.is_error_reporting_enabled
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
     config_dict["pre_command_scripts"] = config.pre_command_scripts
@@ -511,7 +511,7 @@ def _parse_config(raw: dict[str, Any]) -> MngConfig:
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {})) if "logging" in raw else None
-    kwargs["tmux_socket_dir"] = raw.pop("tmux_socket_dir", None)
+    kwargs["process_env"] = raw.pop("process_env", {}) if "process_env" in raw else None
     kwargs["is_nested_tmux_allowed"] = (
         raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
     )

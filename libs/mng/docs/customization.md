@@ -153,28 +153,32 @@ Templates are useful when:
 
 Templates differ from command defaults in that they must be explicitly selected with `--template`, while command defaults are always applied automatically.
 
-## Tmux Session Isolation
+## Process Environment Variables
 
-By default, `mng` creates tmux sessions on your default tmux server. This means `mng`'s sessions appear in your `tmux ls` output alongside your personal sessions. To keep them separate, set `tmux_socket_dir`:
+You can set arbitrary environment variables in the `mng` process before any commands run using the `[process_env]` config section. This is useful for configuring tools that `mng` invokes (like tmux) without polluting your shell environment.
 
 ```toml
 # ~/.mng/profiles/<profile_id>/settings.toml
-tmux_socket_dir = "~/.mng/tmux"
+[process_env]
+TMUX_TMPDIR = "~/.mng/tmux"
 ```
 
-Or via the CLI:
+Variables set here are applied at CLI startup, before any commands execute. Later config files override earlier ones on a per-key basis (e.g., local config overrides project config).
 
-```bash
-mng config set --scope user tmux_socket_dir "~/.mng/tmux"
+**Example: tmux session isolation**
+
+By default, `mng` creates tmux sessions on your default tmux server. To isolate them onto a separate server, set `TMUX_TMPDIR`:
+
+```toml
+[process_env]
+TMUX_TMPDIR = "~/.mng/tmux"
 ```
 
-When set, `mng` sets `TMUX_TMPDIR` to the specified directory before running any tmux commands, causing all of its sessions to live on a separate tmux server. Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
+Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
 
 ```bash
 TMUX_TMPDIR=~/.mng/tmux tmux ls
 ```
-
-This also eliminates the "nested tmux" problem: since `mng` uses a different server, you can freely run `mng connect` from inside your own tmux sessions without needing `is_nested_tmux_allowed = true`.
 
 ## See Also
 
