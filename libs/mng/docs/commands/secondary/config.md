@@ -10,6 +10,7 @@ mng [config|cfg] <subcommand> [OPTIONS]
 ```
 
 
+
 Manage mng configuration.
 
 View, edit, and modify mng configuration settings at the user, project, or
@@ -58,12 +59,6 @@ mng config [OPTIONS] COMMAND [ARGS]...
 
 ## mng config list
 
-**Usage:**
-
-```text
-mng config list [OPTIONS]
-```
-
 
 
 List all configuration values.
@@ -73,6 +68,13 @@ merged configuration if no scope is specified.
 
 Supports custom format templates via --format. Available fields:
 key, value.
+
+
+**Usage:**
+
+```text
+mng config list [OPTIONS]
+```
 
 **Options:**
 
@@ -129,12 +131,6 @@ $ mng config list --format '{key}={value}'
 
 ## mng config get
 
-**Usage:**
-
-```text
-mng config get [OPTIONS] KEY
-```
-
 
 
 Get a configuration value.
@@ -144,6 +140,13 @@ for nested keys (e.g., 'commands.create.connect').
 
 By default reads from the merged configuration. Use --scope to read
 from a specific scope.
+
+
+**Usage:**
+
+```text
+mng config get [OPTIONS] KEY
+```
 
 **Options:**
 
@@ -194,12 +197,6 @@ $ mng config get logging.console_level --scope user
 
 ## mng config set
 
-**Usage:**
-
-```text
-mng config set [OPTIONS] KEY VALUE
-```
-
 
 
 Set a configuration value.
@@ -209,6 +206,13 @@ for nested keys (e.g., 'commands.create.connect').
 
 Values are parsed as JSON if possible, otherwise as strings.
 Use 'true'/'false' for booleans, numbers for integers/floats.
+
+
+**Usage:**
+
+```text
+mng config set [OPTIONS] KEY VALUE
+```
 
 **Options:**
 
@@ -259,18 +263,19 @@ $ mng config set logging.console_level DEBUG --scope user
 
 ## mng config unset
 
-**Usage:**
-
-```text
-mng config unset [OPTIONS] KEY
-```
-
 
 
 Remove a configuration value.
 
 Removes a configuration value from the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
+
+
+**Usage:**
+
+```text
+mng config unset [OPTIONS] KEY
+```
 
 **Options:**
 
@@ -315,12 +320,6 @@ $ mng config unset logging.console_level --scope user
 
 ## mng config edit
 
-**Usage:**
-
-```text
-mng config edit [OPTIONS]
-```
-
 
 
 Open configuration file in editor.
@@ -329,6 +328,13 @@ Opens the configuration file for the specified scope in your default
 editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
 
 If the config file doesn't exist, it will be created with an empty template.
+
+
+**Usage:**
+
+```text
+mng config edit [OPTIONS]
+```
 
 **Options:**
 
@@ -379,18 +385,19 @@ $ mng config edit --scope local
 
 ## mng config path
 
-**Usage:**
-
-```text
-mng config path [OPTIONS]
-```
-
 
 
 Show configuration file paths.
 
 Shows the paths to configuration files. If --scope is specified, shows
 only that scope's path. Otherwise shows all paths and whether they exist.
+
+
+**Usage:**
+
+```text
+mng config path [OPTIONS]
+```
 
 **Options:**
 

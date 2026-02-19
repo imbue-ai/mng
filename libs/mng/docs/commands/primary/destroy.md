@@ -10,6 +10,7 @@ mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f
 ```
 
 
+
 Destroy one or more agents and clean up their resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed

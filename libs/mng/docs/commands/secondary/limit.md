@@ -10,6 +10,7 @@ mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-ti
 ```
 
 
+
 Configure settings on existing agents and hosts: idle timeout,
 idle mode, activity sources, permissions, and start-on-boot.
 

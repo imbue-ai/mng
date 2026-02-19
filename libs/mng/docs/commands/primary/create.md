@@ -16,6 +16,7 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
 ```
 
 
+
 Create a new agent and optionally connect to it.
 
 This command sets up an agent's working directory, optionally provisions a

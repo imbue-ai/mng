@@ -10,6 +10,7 @@ mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
 
+
 View log files from an agent or host.
 
 TARGET identifies an agent (by name or ID) or a host (by name or ID).

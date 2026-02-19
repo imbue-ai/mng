@@ -10,6 +10,7 @@ mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cw
 ```
 
 
+
 Execute a shell command on the host(s) where one or more agents run.
 
 The command runs in each agent's work_dir by default. Use --cwd to override

@@ -10,6 +10,7 @@ mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURAT
 ```
 
 
+
 Destroy or stop agents and hosts in order to free up resources.
 
 When running in a pty, defaults to providing an interactive interface for

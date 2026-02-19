@@ -10,6 +10,7 @@ mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]
 ```
 
 
+
 Continuously sync files between an agent and local directory.
 
 This command establishes a bidirectional file sync between an agent's working
