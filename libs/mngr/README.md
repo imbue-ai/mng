@@ -9,11 +9,11 @@ git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages 
 **mngr is *very* simple to use:**
 
 ```bash
-mngr                  # launch claude on Modal (defaults: command=create, agent=claude, provider=modal, project=current dir)
-mngr --in local       # launch claude locally
-mngr my-task          # launch claude with a name on Modal
-mngr my-task codex    # launch codex instead of claude on Modal
-mngr -- --model opus  # launch pass any arguments to the agent running on Modal
+mngr                  # launch claude locally (defaults: command=create, agent=claude, provider=local, project=current dir)
+mngr --in modal       # launch claude on Modal
+mngr my-task          # launch claude with a name
+mngr my-task codex    # launch codex instead of claude
+mngr -- --model opus  # pass any arguments through to the underlying agent
 
 # send an initial message so you don't have to wait around:
 mngr --no-connect --message "Speed up one of my tests and make a PR on github"
