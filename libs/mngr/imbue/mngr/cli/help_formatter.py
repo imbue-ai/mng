@@ -404,8 +404,8 @@ def help_option_callback(
 
     command = ctx.command
 
-    # If the command has a lazy provider-help loader (e.g. create), trigger it
-    # now so that --help output includes provider-specific build/start args.
+    # Only the create command has ensure_provider_help (set in main.py).
+    # Trigger it here so --help output includes provider-specific build/start args.
     ensure_fn = getattr(command, "ensure_provider_help", None)
     if ensure_fn is not None:
         ensure_fn()
