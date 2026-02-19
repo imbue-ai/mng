@@ -15,7 +15,7 @@ mngr my-task codex    # launch codex instead of claude on Modal
 mngr -- --model opus  # launch pass any arguments to the agent running on Modal
 
 # send an initial message so you don't have to wait around:
-mngr --no-connect --initial-message "Speed up one of my tests and make a PR on github"
+mngr --no-connect --message "Speed up one of my tests and make a PR on github"
 
 # or, be super explicit about all of the arguments:
 mngr create --name my-task --agent-type claude --in modal
@@ -23,16 +23,16 @@ mngr create --name my-task --agent-type claude --in modal
 # tons more arguments for anything you could want! Learn more via --help
 mngr create --help
 
-# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!
+# or see the other commands--list, destroy, message, connect, push, pull, clone, and more!
 mngr --help
 ```
 
 **mngr is fast:**
 ```bash
-> time mngr local-hello  --initial-message "Just say hello" --no-connect --in local
+> time mngr local-hello  --message "Just say hello" --no-connect --in local
 # (time results)
 
-> time mngr remote-hello --initial-message "Just say hello" --no-connect --in modal
+> time mngr remote-hello --message "Just say hello" --no-connect --in modal
 # (time results)
 
 > time mngr list
@@ -42,7 +42,7 @@ mngr --help
 **mngr itself is free, *and* the cheapest way to run remote agents (they shut down when idle):**
 
 ```bash
-mngr create --in modal --no-connect --initial-message "just say 'hello'" --idle-timeout 60 -- --model sonnet
+mngr create --in modal --no-connect --message "just say 'hello'" --idle-timeout 60 -- --model sonnet
 # costs $0.001 for inference
 # costs $0.0001 for compute because it shuts down 60 seconds after the agent completes
 ```
@@ -111,7 +111,7 @@ From the repo where you would like a Dockerfile created.
 
 `mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
 
-`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and has [100's of additional plugins](http://imbue.com/mngr/plugins) enable the latest AI coding workflows
+`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](./docs/concepts/plugins.md) to enable the latest AI coding workflows
 
 ## Installation
 
@@ -193,6 +193,12 @@ mngr <command> [options]
 - [`message`](docs/commands/secondary/message.md): Send a message to an agent
 - [`provision`](docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
 
+### For maintenance:
+
+- [`cleanup`](docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
+- [`logs`](docs/commands/secondary/logs.md): View agent and host logs
+- [`gc`](docs/commands/secondary/gc.md): Garbage collect unused resources
+
 ### For managing mngr itself:
 
 - [`ask`](docs/commands/secondary/ask.md): Chat with mngr for help
@@ -222,7 +228,7 @@ You can interact with `mngr` either via:
 `mngr` stores very little state (beyond configuration and local caches for performance), and instead relies on conventions:
 
 - any process running in window 0 of a `mngr-` prefixed tmux sessions is considered an agent
-- agents store their status and logs in a standard location (default: `$MNGR_STATE_DIR/<agent_id>/`)
+- agents store their status and logs in a standard location (default: `$MNGR_HOST_DIR/agents/<agent_id>/`)
 - all hosts are accessed via SSH--if you can SSH into it, it can be a host
 - ...[and more](./docs/conventions.md)
 

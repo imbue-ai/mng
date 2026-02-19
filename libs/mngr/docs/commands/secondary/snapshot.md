@@ -18,14 +18,6 @@ state of all agents on the host is saved.
 
 Alias: snap
 
-Examples:
-
-  mngr snapshot create my-agent
-
-  mngr snapshot list my-agent
-
-  mngr snapshot destroy my-agent --all-snapshots --force
-
 **Usage:**
 
 ```text
@@ -259,7 +251,13 @@ mngr snapshot destroy [OPTIONS] [AGENTS]...
 
 ## Examples
 
-**Create a snapshot of an agent's host**
+**Snapshot an agent's host (short form)**
+
+```bash
+$ mngr snapshot my-agent
+```
+
+**Snapshot an agent's host (explicit)**
 
 ```bash
 $ mngr snapshot create my-agent
@@ -275,6 +273,12 @@ $ mngr snapshot create my-agent --name before-refactor
 
 ```bash
 $ mngr snapshot create my-host-id
+```
+
+**Snapshot all running agents**
+
+```bash
+$ mngr snapshot create --all --dry-run
 ```
 
 **List snapshots for an agent**

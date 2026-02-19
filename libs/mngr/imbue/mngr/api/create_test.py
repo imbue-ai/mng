@@ -3,7 +3,6 @@ from pathlib import Path
 from imbue.mngr.api.create import _write_host_env_vars
 from imbue.mngr.api.data_types import HostEnvironmentOptions
 from imbue.mngr.config.data_types import EnvVar
-from imbue.mngr.hosts.host import Host
 from imbue.mngr.primitives import HostName
 from imbue.mngr.providers.local.instance import LocalProviderInstance
 
@@ -13,8 +12,7 @@ def test_write_host_env_vars_writes_explicit_env_vars(
     temp_host_dir: Path,
 ) -> None:
     """Test that _write_host_env_vars writes explicit env vars to the host env file."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
+    host = local_provider.create_host(HostName("localhost"))
 
     environment = HostEnvironmentOptions(
         env_vars=(
@@ -36,8 +34,7 @@ def test_write_host_env_vars_reads_env_files(
     tmp_path: Path,
 ) -> None:
     """Test that _write_host_env_vars reads env files and writes to the host env file."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
+    host = local_provider.create_host(HostName("localhost"))
 
     env_file = tmp_path / "test.env"
     env_file.write_text("FILE_VAR=from_file\nANOTHER=value\n")
@@ -59,8 +56,7 @@ def test_write_host_env_vars_explicit_overrides_file(
     tmp_path: Path,
 ) -> None:
     """Test that explicit env vars override values from env files."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
+    host = local_provider.create_host(HostName("localhost"))
 
     env_file = tmp_path / "test.env"
     env_file.write_text("SHARED=from_file\nFILE_ONLY=present\n")
@@ -82,8 +78,7 @@ def test_write_host_env_vars_skips_when_empty(
     temp_host_dir: Path,
 ) -> None:
     """Test that _write_host_env_vars does nothing when no env vars or files are specified."""
-    host = local_provider.create_host(HostName("test"))
-    assert isinstance(host, Host)
+    host = local_provider.create_host(HostName("localhost"))
 
     environment = HostEnvironmentOptions()
 

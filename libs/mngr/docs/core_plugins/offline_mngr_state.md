@@ -48,6 +48,6 @@ This plugin depends on the following:
 
 If using the S3 backend with untrusted hosts, be sure to provide a set of write-only credentials to prevent unauthorized access to the data from other agents (the plugin will check for this and error if read access is allowed).
 
-Thus two sets of credentials are required: one with read/write access for mgnr to be able to access the state, and one with write-only access for injecting into untrusted hosts.
+Thus two sets of credentials are required: one with read/write access for mngr to be able to access the state, and one with write-only access for injecting into untrusted hosts.
 
 If using the local directory backend, the plugin uses rrsync (restricted rsync) to ensure that the agent cannot read other agents' state files.
