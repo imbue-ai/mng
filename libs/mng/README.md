@@ -142,7 +142,7 @@ uv tool upgrade mng
 
 **For development:**
 ```bash
-git clone git@github.com:imbue-ai/mngr.git && cd mng && uv sync --all-packages && uv tool install -e libs/mng
+git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mng
 ```
 
 ## Shell Completion

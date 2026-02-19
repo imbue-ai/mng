@@ -95,11 +95,16 @@ class FileReadError(RatchetsError):
 
 
 @lru_cache(maxsize=None)
-def _get_all_files_matching_glob(
+def _get_all_files_with_extension(
     folder_path: Path,
-    glob_pattern: str,
+    extension: FileExtension | None,
 ) -> tuple[Path, ...]:
-    """Get all non-git-ignored files matching a glob pattern in a folder (cached)."""
+    """Get all git-tracked files in a folder (cached).
+
+    If extension is provided, only files matching that extension are returned.
+    If extension is None, all tracked files are returned.
+    """
+    glob_pattern = f"*{extension}" if extension is not None else "*"
     try:
         result = subprocess.run(
             ["git", "ls-files", glob_pattern],
@@ -115,40 +120,26 @@ def _get_all_files_matching_glob(
     return tuple(file_paths)
 
 
-def _get_all_files_with_extension(
+def _get_non_ignored_files_with_extension(
     folder_path: Path,
-    extension: FileExtension,
-) -> tuple[Path, ...]:
-    """Get all non-git-ignored files with the specified extension in a folder (cached)."""
-    return _get_all_files_matching_glob(folder_path, f"*{extension}")
-
-
-def _get_non_ignored_files(
-    folder_path: Path,
-    glob_pattern: str,
+    extension: FileExtension | None,
     excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[Path, ...]:
-    """Get all non-git-ignored files matching a glob pattern in a folder.
+    """Get git-tracked files in a folder, with optional path exclusions.
+
+    If extension is provided, only files matching that extension are returned.
+    If extension is None, all tracked files are returned.
 
     Each pattern in excluded_path_patterns is matched against file paths using Path.match(),
     which matches from the right for relative patterns (e.g., "test_*.py" matches any file
     whose name starts with "test_" regardless of directory depth).
     """
-    file_paths = _get_all_files_matching_glob(folder_path, glob_pattern)
+    file_paths = _get_all_files_with_extension(folder_path, extension)
 
     if excluded_path_patterns:
         file_paths = tuple(fp for fp in file_paths if not any(fp.match(pattern) for pattern in excluded_path_patterns))
 
     return file_paths
-
-
-def _get_non_ignored_files_with_extension(
-    folder_path: Path,
-    extension: FileExtension,
-    excluded_path_patterns: tuple[str, ...] = (),
-) -> tuple[Path, ...]:
-    """Get all non-git-ignored files with the specified extension in a folder."""
-    return _get_non_ignored_files(folder_path, f"*{extension}", excluded_path_patterns)
 
 
 @lru_cache(maxsize=None)
@@ -214,26 +205,18 @@ def _get_chunk_commit_date(
 
 def get_ratchet_failures(
     folder_path: Path,
-    extension: FileExtension,
+    extension: FileExtension | None,
     pattern: RegexPattern,
     excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
-    """Find all regex matches in git-tracked files with the given extension."""
-    return get_ratchet_failures_for_glob(folder_path, f"*{extension}", pattern, excluded_path_patterns)
+    """Find all regex matches in git-tracked files and return them sorted by modification date.
 
+    If extension is provided, only files matching that extension are searched.
+    If extension is None, all tracked files are searched.
 
-def get_ratchet_failures_for_glob(
-    folder_path: Path,
-    glob_pattern: str,
-    pattern: RegexPattern,
-    excluded_path_patterns: tuple[str, ...] = (),
-) -> tuple[RatchetMatchChunk, ...]:
-    """Find all regex matches in git-tracked files matching a glob pattern.
-
-    Returns all matches sorted from most recently changed to least recently changed.
     File contents are transparently cached to avoid repeated reads when called multiple times.
     """
-    file_paths = _get_non_ignored_files(folder_path, glob_pattern, excluded_path_patterns)
+    file_paths = _get_non_ignored_files_with_extension(folder_path, extension, excluded_path_patterns)
 
     chunks: list[RatchetMatchChunk] = []
 
@@ -290,7 +273,7 @@ def clear_ratchet_caches() -> None:
     large amounts of memory that could contribute to resource pressure when the worker
     runs subsequent non-ratchet tests.
     """
-    _get_all_files_matching_glob.cache_clear()
+    _get_all_files_with_extension.cache_clear()
     _read_file_contents.cache_clear()
     _parse_file_ast.cache_clear()
 

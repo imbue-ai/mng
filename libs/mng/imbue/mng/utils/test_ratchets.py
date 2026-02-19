@@ -49,8 +49,8 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRU
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import RegexRatchetRule
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
-from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule_with_glob
-from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files
+from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule_all_files
+from imbue.imbue_common.ratchet_testing.core import _get_all_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
@@ -353,22 +353,23 @@ def test_prevent_importlib_import_module() -> None:
 
 _PREVENT_OLD_MNGR_NAME = RegexRatchetRule(
     rule_name="'mngr' occurrences",
-    rule_description="The old 'mngr' name should not be reintroduced. Remaining occurrences are GitHub URLs.",
+    rule_description="The old 'mngr' name should not be reintroduced. Remaining occurrences are because of the GitHub URL.",
     pattern_string=r"mngr",
 )
 
 
 def test_prevent_old_mngr_name_in_file_contents() -> None:
-    """Ensure the old 'mngr' name is not reintroduced in file contents (remaining uses are GitHub URLs)."""
+    """Ensure the old 'mngr' name is not reintroduced in file contents (remaining uses are because of the GitHub URL)."""
     repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
-    chunks = check_ratchet_rule_with_glob(_PREVENT_OLD_MNGR_NAME, repo_root, "*", _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(19), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
+    chunks = check_ratchet_rule_all_files(_PREVENT_OLD_MNGR_NAME, repo_root, _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(20), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
 
 
 def test_prevent_old_mngr_name_in_file_paths() -> None:
     """Ensure the old 'mngr' name is not reintroduced in file paths."""
     repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
-    paths = _get_non_ignored_files(repo_root, "*mngr*")
-    assert len(paths) <= snapshot(0), f"Found {len(paths)} file paths containing 'mngr':\n" + "\n".join(
-        f"  {p}" for p in paths
+    all_paths = _get_all_files_with_extension(repo_root, None)
+    mngr_paths = [p for p in all_paths if "mngr" in str(p.relative_to(repo_root))]
+    assert len(mngr_paths) <= snapshot(0), f"Found {len(mngr_paths)} file paths containing 'mngr':\n" + "\n".join(
+        f"  {p.relative_to(repo_root)}" for p in mngr_paths
     )
