@@ -1,10 +1,10 @@
 [project]
 name = "sculptor-web"
 version = "0.1.0"
-description = "Web interface for managing AI coding agents via mngr"
+description = "Web interface for managing AI coding agents via mng"
 requires-python = ">=3.11"
 dependencies = [
-    "mngr",
+    "mng",
     "python-fasthtml>=0.10.0",
 ]
 
@@ -16,7 +16,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-mngr = { workspace = true }
+mng = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."

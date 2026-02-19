@@ -10,31 +10,31 @@ from imbue.changelings.cli.options import changeling_definition_options
 from imbue.changelings.config import add_changeling
 from imbue.changelings.config import upsert_changeling
 from imbue.changelings.deploy.deploy import deploy_changeling
-from imbue.changelings.deploy.deploy import list_mngr_profiles
+from imbue.changelings.deploy.deploy import list_mng_profiles
 from imbue.changelings.errors import ChangelingAlreadyExistsError
 from imbue.changelings.errors import ChangelingDeployError
 
 
-def _resolve_mngr_profile(explicit_profile: str | None) -> str:
-    """Resolve the mngr profile to use for deployment.
+def _resolve_mng_profile(explicit_profile: str | None) -> str:
+    """Resolve the mng profile to use for deployment.
 
     If an explicit profile is provided, returns it. Otherwise auto-detects
-    from ~/.mngr/profiles/: if exactly one profile exists, uses it; if
+    from ~/.mng/profiles/: if exactly one profile exists, uses it; if
     multiple exist, prompts the user to choose.
     """
     if explicit_profile is not None:
         return explicit_profile
 
-    profiles = list_mngr_profiles()
+    profiles = list_mng_profiles()
     if len(profiles) == 0:
-        logger.error("No mngr profiles found. Run 'mngr create' first to set up a profile.")
+        logger.error("No mng profiles found. Run 'mng create' first to set up a profile.")
         raise SystemExit(1)
     elif len(profiles) == 1:
         profile_id = profiles[0]
-        logger.info("Auto-selected mngr profile: {}", profile_id)
+        logger.info("Auto-selected mng profile: {}", profile_id)
         return profile_id
     else:
-        click.echo("Multiple mngr profiles found:")
+        click.echo("Multiple mng profiles found:")
         for i, p in enumerate(profiles, 1):
             click.echo(f"  {i}. {p}")
         choice = click.prompt(
@@ -71,10 +71,10 @@ def add(
     agent_type: str | None,
     secrets: tuple[str, ...],
     env_vars: tuple[str, ...],
-    extra_mngr_args: str | None,
-    mngr_options: tuple[str, ...],
+    extra_mng_args: str | None,
+    mng_options: tuple[str, ...],
     enabled: bool | None,
-    mngr_profile: str | None,
+    mng_profile: str | None,
     update: bool,
     finish_initial_run: bool,
     **_common: Any,
@@ -108,10 +108,10 @@ def add(
         agent_type=agent_type,
         secrets=secrets,
         env_vars=env_vars,
-        extra_mngr_args=extra_mngr_args,
-        mngr_options=mngr_options,
+        extra_mng_args=extra_mng_args,
+        mng_options=mng_options,
         enabled=enabled,
-        mngr_profile=mngr_profile,
+        mng_profile=mng_profile,
         base=None,
     )
 
@@ -129,10 +129,10 @@ def add(
         click.echo(f"Changeling '{name}' saved to config (disabled, not deployed to Modal)")
         return
 
-    # Resolve the mngr profile (auto-detect or prompt) for deployment.
+    # Resolve the mng profile (auto-detect or prompt) for deployment.
     # Re-save the definition with the resolved profile so it persists.
-    resolved_profile = _resolve_mngr_profile(definition.mngr_profile)
-    definition = definition.model_copy(update={"mngr_profile": resolved_profile})
+    resolved_profile = _resolve_mng_profile(definition.mng_profile)
+    definition = definition.model_copy(update={"mng_profile": resolved_profile})
     upsert_changeling(definition)
 
     try:

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Desktop CLI for managing AI coding agents"
 requires-python = ">=3.11"
 dependencies = [
-    "mngr",
+    "mng",
 ]
 
 [build-system]
@@ -12,7 +12,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-mngr = { workspace = true }
+mng = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."

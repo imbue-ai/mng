@@ -6,13 +6,13 @@
 # The verification flow is:
 # 1. Run `modal run` to invoke the deployed cron function once.
 # 2. Wait for the process to finish (the cron function creates an agent
-#    via mngr create, then exits once the agent is created).
+#    via mng create, then exits once the agent is created).
 # 3. If is_finish_initial_run is True, leave the agent running.
 # 4. If is_finish_initial_run is False, destroy the agent after the process exits.
 # 5. On timeout or failure, try to destroy any created agent and raise.
 #
 # This module is excluded from unit test coverage because it requires real
-# Modal and mngr infrastructure to execute (similar to cron_runner.py).
+# Modal and mng infrastructure to execute (similar to cron_runner.py).
 # It is exercised by the release test in test_deploy_modal.py.
 
 import re
@@ -30,22 +30,22 @@ from imbue.changelings.deploy.deploy import build_modal_run_command
 from imbue.changelings.errors import ChangelingDeployError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
-# Regex to extract agent name from mngr output.
-# The mngr create command logs a line like: "Starting agent <agent-name> ..."
+# Regex to extract agent name from mng output.
+# The mng create command logs a line like: "Starting agent <agent-name> ..."
 _AGENT_NAME_PATTERN = re.compile(r"Starting agent\s+(\S+)")
 
 
 def _destroy_agent(agent_name: str) -> None:
     """Destroy an agent by name (no-op if it doesn't exist, since --force is used)."""
     logger.info("Destroying agent '{}'", agent_name)
-    with ConcurrencyGroup(name="mngr-destroy") as cg:
+    with ConcurrencyGroup(name="mng-destroy") as cg:
         result = cg.run_process_to_completion(
-            ["uv", "run", "mngr", "destroy", "--force", agent_name],
+            ["uv", "run", "mng", "destroy", "--force", agent_name],
             is_checked_after=False,
             timeout=300.0,
         )
     if result.returncode != 0:
-        logger.warning("mngr destroy failed (exit {}): {}", result.returncode, result.stderr)
+        logger.warning("mng destroy failed (exit {}): {}", result.returncode, result.stderr)
 
 
 def _stream_process_output(
@@ -70,7 +70,7 @@ def _stream_process_output(
             error_lines.append(stripped)
             error_event.set()
 
-        # Extract agent name from mngr create command line in the output.
+        # Extract agent name from mng create command line in the output.
         # The agent name starts with the changeling name followed by a timestamp.
         if not agent_name_holder and changeling_name in stripped:
             match = _AGENT_NAME_PATTERN.search(stripped)
@@ -95,7 +95,7 @@ def verify_deployment(
     1. Runs `modal run` to invoke the deployed cron function once
     2. Streams output and monitors for errors
     3. Waits for the process to exit (the cron function creates an agent
-       via mngr create, then exits once the agent is created)
+       via mng create, then exits once the agent is created)
     4. If is_finish_initial_run is False, destroys the agent after the process exits
     5. If is_finish_initial_run is True, leaves the agent running
     6. Raises ChangelingDeployError on timeout, non-zero exit, or detected errors
@@ -126,7 +126,7 @@ def verify_deployment(
 
     try:
         # Wait for the modal run process to exit. The process creates an agent
-        # via mngr create (which exits after agent creation) and then returns.
+        # via mng create (which exits after agent creation) and then returns.
         exit_code = process.wait(timeout=process_timeout_seconds)
 
         # Wait for the log thread to finish processing any remaining buffered
