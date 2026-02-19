@@ -918,7 +918,7 @@ def test_parse_commands_empty_string_default_subcommand() -> None:
 
 
 # =============================================================================
-# Tests for read_default_command / reset_default_command_cache
+# Tests for read_default_command
 # =============================================================================
 
 
