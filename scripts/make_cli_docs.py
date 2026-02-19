@@ -19,6 +19,7 @@ from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mngr.cli.create import create
 from imbue.mngr.cli.help_formatter import get_help_metadata
 from imbue.mngr.main import BUILTIN_COMMANDS
+from imbue.mngr.main import PLUGIN_COMMANDS
 from imbue.mngr.main import cli
 
 # Commands categorized by their documentation location
@@ -594,8 +595,8 @@ def main() -> None:
     # Base output directory
     base_dir = Path(__file__).parent.parent / "libs" / "mngr" / "docs" / "commands"
 
-    # Generate docs for each built-in command
-    for cmd in BUILTIN_COMMANDS:
+    # Generate docs for each built-in command and plugin command
+    for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
         if cmd.name is not None:
             generate_command_doc(cmd.name, base_dir)
 

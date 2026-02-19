@@ -27,7 +27,7 @@ def create_test_agent(
     temp_work_dir: Path,
 ) -> BaseAgent:
     """Create a test agent for lifecycle state testing with unique name."""
-    host = local_provider.create_host(HostName("test"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent_id = AgentId.generate()

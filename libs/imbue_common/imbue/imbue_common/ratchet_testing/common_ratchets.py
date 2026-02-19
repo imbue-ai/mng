@@ -78,7 +78,11 @@ PREVENT_GLOBAL_KEYWORD = RegexRatchetRule(
 
 PREVENT_BARE_PRINT = RegexRatchetRule(
     rule_name="bare print statements",
-    rule_description="Do not use bare print statements. Use logger.info(), logger.debug(), logger.warning(), etc instead",
+    rule_description=(
+        "Do not use bare print statements. Consider what kind of output you are producing: "
+        "for user-facing command output (results, tables, status messages), use write_human_line(); "
+        "for diagnostic/debug messages, use logger.info(), logger.debug(), logger.warning(), etc."
+    ),
     pattern_string=r"^\s*print\s*\(",
     is_multiline=True,
 )
@@ -270,7 +274,10 @@ PREVENT_FSTRING_LOGGING = RegexRatchetRule(
 
 PREVENT_CLICK_ECHO = RegexRatchetRule(
     rule_name="click.echo usage",
-    rule_description="Do not use click.echo. Use logger.info() instead for consistent logging",
+    rule_description=(
+        "Do not use click.echo. For user-facing command output, use write_human_line(); "
+        "for diagnostic/debug messages, use logger.info(), logger.debug(), etc."
+    ),
     pattern_string=r"\bclick\.echo\b|\bfrom\s+click\s+import\s+.*\becho\b",
 )
 

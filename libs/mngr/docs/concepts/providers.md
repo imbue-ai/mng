@@ -4,28 +4,24 @@ A **provider instance** creates and manages [hosts](./hosts.md). Each provider i
 
 From the perspective of `[pyinfra](https://pyinfra.com/)` (the tool we suggest for [provisioning](./provisioning.md)), you can think of provider instances as "something that mutates the inventory" (eg, create, destroy, stop, start, etc.)
 
-There are some built-in provider instances (`local` and `docker`), but you generally define your own in your `mngr` settings:
+A default provider instance is automatically created for each registered backend (e.g., `local`, `docker`), but you can also define your own in your `mngr` settings:
 
 ```toml
-[[providers]]
-name = "my-aws-prod"
+[providers.my-aws-prod]
 backend = "aws"
 region = "us-east-1"
 profile = "production"
 
-[[providers]]
-name = "my-aws-dev"
+[providers.my-aws-dev]
 backend = "aws"
 region = "us-west-2"
 profile = "development"
 
-[[providers]]
-name = "remote-docker"
+[providers.remote-docker]
 backend = "docker"
 host = "ssh://user@server"
 
-[[providers]]
-name = "team-mngr"
+[providers.team-mngr]
 backend = "mngr"
 url = "https://mngr.internal.company.com"
 ```
@@ -34,7 +30,7 @@ url = "https://mngr.internal.company.com"
 
 ### local
 
-A special provider instance that is always available. Runs agents directly on your machine with no isolation. Automatically available--no configuration required.
+Runs agents directly on your machine with no isolation. Always available--no configuration required.
 
 ### docker
 
@@ -56,7 +52,7 @@ Provider instances must handle:
 
 `mngr` handles higher-level concerns: agent lifecycle, idle detection, port forwarding, and file sync.
 
-See [`imbue/mngr/interfaces/provider.py`](../../imbue/mngr/interfaces/provider.py) for the full provider interface.
+See [`provider_instance.py`](../../imbue/mngr/interfaces/provider_instance.py) and [`provider_backend.py`](../../imbue/mngr/interfaces/provider_backend.py) for the full API that provider implementations must support.
 
 ## State Storage
 

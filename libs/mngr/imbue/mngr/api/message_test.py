@@ -41,7 +41,7 @@ def test_agent_to_cel_context_returns_expected_fields(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that _agent_to_cel_context returns the expected fields."""
-    host = local_provider.create_host(HostName("test-cel-context"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -84,7 +84,7 @@ def test_send_message_to_agents_calls_success_callback(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that send_message calls the success callback when message is sent."""
-    host = local_provider.create_host(HostName("test-message"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -123,7 +123,7 @@ def test_send_message_to_agents_fails_for_stopped_agent(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that sending message to stopped agent fails."""
-    host = local_provider.create_host(HostName("test-stopped"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -159,7 +159,7 @@ def test_send_message_to_agents_starts_stopped_agent_when_start_desired(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that send_message auto-starts a stopped agent when is_start_desired=True."""
-    host = local_provider.create_host(HostName("test-start-agent"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent = host.create_agent_state(
@@ -201,7 +201,7 @@ def test_send_message_to_agents_with_include_filter(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that send_message respects include filters."""
-    host = local_provider.create_host(HostName("test-filter"))
+    host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     # Create two agents
