@@ -24,16 +24,14 @@ import semver
 import tomlkit
 from utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 from utils import REPO_ROOT
+from utils import check_versions_in_sync
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 
 
 def get_current_version() -> str:
-    """Read the current version from the first package."""
-    doc = tomlkit.loads(PUBLISHABLE_PACKAGE_PYPROJECT_PATHS[0].read_text())
-    # Cast needed because tomlkit stubs don't reflect that Table is a dict
-    project = cast(dict[str, Any], doc["project"])
-    return project["version"]
+    """Read and validate the current version across all packages."""
+    return check_versions_in_sync()
 
 
 def bump_version(new_version: str) -> list[Path]:
