@@ -353,10 +353,10 @@ def test_prevent_importlib_import_module() -> None:
 def test_no_eager_modal_import() -> None:
     """Importing imbue.mngr.main must not eagerly load heavyweight backend or celpy modules.
 
-    This is a regression test for tab-completion performance: every TAB press
-    imports main.py, and loading Modal/Docker/SSH backends adds ~370ms, celpy ~45ms.
-    Backends are loaded on-demand by get_backend(), and celpy is lazy-imported
-    inside cel_utils.py functions.
+    This is a regression test for CLI startup performance. Loading
+    Modal/Docker/SSH backends adds ~370ms and celpy ~45ms. These are loaded
+    on-demand: backends by get_backend() when a command needs a provider,
+    and celpy inside cel_utils.py functions when filters are used.
     """
     result = subprocess.run(
         [

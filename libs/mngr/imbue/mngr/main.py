@@ -259,8 +259,9 @@ def create_plugin_manager() -> pluggy.PluginManager:
     """
     Initializes the plugin manager and discovers plugins.
 
-    Backend registries are loaded lazily in setup_command_context() (or on --help)
-    rather than here, so that tab-completion stays fast.
+    Backend implementations are loaded on-demand (when a command actually needs
+    a provider), not here. This keeps startup fast for all commands, not just
+    tab-completion.
 
     This should only really be called once from the main command (or during testing).
     """
@@ -362,9 +363,9 @@ def _update_create_help_with_provider_args() -> None:
     This triggers backend loading (if not already done) and then updates the
     help metadata. It is safe to call multiple times; subsequent calls are no-ops.
 
-    This is invoked lazily -- either from help_option_callback (for --help) or
-    from setup_command_context (for normal execution) -- so that tab-completion
-    never pays the cost of loading backends.
+    This is invoked lazily -- only from help_option_callback when --help is
+    used on the create command. Commands that don't need provider help text
+    never pay the cost of loading all backends.
     """
     if _create_help_state["loaded"]:
         return
