@@ -14,6 +14,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mng.cli.common_opts import find_option_group
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.utils.interactive_subprocess import popen_interactive_subprocess
 
@@ -457,20 +458,36 @@ def help_option_callback(
 def add_pager_help_option(command: click.Command) -> click.Command:
     """Replace the default --help option with one that uses a pager.
 
+    The new option is placed in the Common option group (if one exists on the
+    command) so it appears alongside other shared options rather than under
+    "Ungrouped".
+
     This modifies the command in-place and returns it for chaining.
     """
     # Remove existing help option
     command.params = [p for p in command.params if not (isinstance(p, click.Option) and p.name == "help")]
 
-    # Add new help option with pager callback
-    help_option = click.Option(
-        ["-h", "--help"],
-        is_flag=True,
-        expose_value=False,
-        is_eager=True,
-        callback=help_option_callback,
-        help="Show this message and exit.",
-    )
+    # Add new help option with pager callback, in the Common group if available
+    common_group = find_option_group(command, COMMON_OPTIONS_GROUP_NAME)
+    if common_group is not None:
+        help_option: click.Option = GroupedOption(
+            ["-h", "--help"],
+            group=common_group,
+            is_flag=True,
+            expose_value=False,
+            is_eager=True,
+            callback=help_option_callback,
+            help="Show this message and exit.",
+        )
+    else:
+        help_option = click.Option(
+            ["-h", "--help"],
+            is_flag=True,
+            expose_value=False,
+            is_eager=True,
+            callback=help_option_callback,
+            help="Show this message and exit.",
+        )
     command.params.append(help_option)
 
     return command
