@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Tally git changes by day (PST) for the main branch, excluding merge commits."""
+"""Tally git changes by day (PST) across one or more git repos, excluding merge commits.
+
+Usage: python3 tally_changes.py <repo_path> [repo_path ...]
+"""
 
 import json
 import os
 import re
 import subprocess
+import sys
 from collections import defaultdict
 
 
-def main() -> None:
-    env = os.environ.copy()
-    env["TZ"] = "America/Los_Angeles"
-
+def tally_repo(repo_path: str, env: dict[str, str]) -> dict[str, int]:
+    """Return a dict mapping date -> total changes for a single repo."""
     result = subprocess.run(
         [
             "git",
@@ -26,6 +28,7 @@ def main() -> None:
         text=True,
         check=True,
         env=env,
+        cwd=repo_path,
     )
 
     changes_by_day: dict[str, int] = defaultdict(int)
@@ -53,8 +56,24 @@ def main() -> None:
             changes_by_day[current_date] += insertions + deletions
             current_date = None
 
-    sorted_changes = dict(sorted(changes_by_day.items()))
-    print(json.dumps(sorted_changes, indent=2))
+    return dict(changes_by_day)
+
+
+def main() -> None:
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <repo_path> [repo_path ...]", file=sys.stderr)
+        sys.exit(1)
+
+    env = os.environ.copy()
+    env["TZ"] = "America/Los_Angeles"
+
+    totals: dict[str, int] = defaultdict(int)
+    for repo_path in sys.argv[1:]:
+        for date, changes in tally_repo(repo_path, env).items():
+            totals[date] += changes
+
+    sorted_totals = dict(sorted(totals.items()))
+    print(json.dumps(sorted_totals, indent=2))
 
 
 if __name__ == "__main__":
