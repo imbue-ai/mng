@@ -270,10 +270,21 @@ def create_plugin_manager() -> pluggy.PluginManager:
     a provider), not here. This keeps startup fast for all commands, not just
     tab-completion.
 
+    Plugins disabled in config files are blocked via pm.set_blocked() before
+    setuptools entrypoints are loaded, so they are never registered. CLI-level
+    --disable-plugin flags are handled later in load_config().
+
     This should only really be called once from the main command (or during testing).
     """
+    from imbue.mng.config.loader import read_disabled_plugins
+
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
+
+    # Block plugins that are disabled in config files. This must happen before
+    # load_setuptools_entrypoints so disabled plugins are never registered.
+    for name in read_disabled_plugins():
+        pm.set_blocked(name)
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.

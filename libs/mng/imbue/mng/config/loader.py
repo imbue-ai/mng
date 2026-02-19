@@ -171,6 +171,12 @@ def load_config(
         disabled_plugins,
     )
 
+    # Block disabled plugins from the plugin manager so their hooks don't fire.
+    # Config-file-disabled plugins were already blocked in create_plugin_manager()
+    # via read_disabled_plugins(), but CLI-level --disable-plugin flags are only
+    # known now. set_blocked handles both cases (already blocked is a no-op).
+    _block_disabled_plugins(pm, config_dict["disabled_plugins"])
+
     # Include logging if not None
     if config.logging is not None:
         config_dict["logging"] = config.logging
@@ -438,6 +444,18 @@ def _apply_plugin_overrides(
     return enabled_result, disabled_names
 
 
+def _block_disabled_plugins(pm: pluggy.PluginManager, disabled_names: frozenset[str]) -> None:
+    """Block disabled plugins in the plugin manager so their hooks don't fire.
+
+    Uses pm.set_blocked() which both prevents future registration and
+    unregisters already-registered plugins. Safe to call for names that
+    are already blocked (no-op in that case).
+    """
+    for name in disabled_names:
+        if not pm.is_blocked(name):
+            pm.set_blocked(name)
+
+
 def _parse_logging_config(raw_logging: dict[str, Any]) -> LoggingConfig:
     """Parse logging config.
 
@@ -691,6 +709,82 @@ def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> 
         value = cmd_section.get("default_subcommand")
         if value is not None:
             target[cmd_name] = str(value)
+
+
+# =============================================================================
+# Lightweight disabled-plugins reader
+# =============================================================================
+#
+# These functions read only the `plugins.<name>.enabled` values from config
+# files.  They run at plugin-manager creation time -- before the full config
+# is loaded -- so they intentionally avoid plugin hooks, full config
+# validation, and anything that needs a PluginManager.
+#
+# `create_plugin_manager` calls `read_disabled_plugins` once and uses the
+# result to call `pm.set_blocked(name)` before loading setuptools entrypoints,
+# so that disabled plugins are never registered in the first place.
+
+
+def read_disabled_plugins() -> frozenset[str]:
+    """Return the set of plugin names disabled across all config layers.
+
+    Reads user, project, and local config files for `[plugins.<name>]`
+    sections with `enabled = false`.  Later layers override earlier ones.
+    """
+    return _read_all_disabled_plugins()
+
+
+def _read_all_disabled_plugins() -> frozenset[str]:
+    """Read plugin enabled/disabled state from all config layers and merge.
+
+    Precedence (lowest to highest): user config, project config, local config.
+    Returns a frozenset of plugin names that are disabled.
+    """
+    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
+    env_host_dir = os.environ.get("MNG_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    # Maps plugin name -> is_enabled (later layers override earlier)
+    merged: dict[str, bool] = {}
+
+    # User config
+    profile_dir = _find_profile_dir_lightweight(base_dir)
+    if profile_dir is not None:
+        user_config_path = _get_user_config_path(profile_dir)
+        if user_config_path.exists():
+            _merge_disabled_plugins_from_file(user_config_path, merged)
+
+    # Project + local config need the project root
+    cg = ConcurrencyGroup(name="disabled-plugins-reader")
+    with cg:
+        project_config_path = _find_project_config(None, root_name, cg)
+        local_config_path = _find_local_config(None, root_name, cg)
+
+    if project_config_path is not None and project_config_path.exists():
+        _merge_disabled_plugins_from_file(project_config_path, merged)
+
+    if local_config_path is not None and local_config_path.exists():
+        _merge_disabled_plugins_from_file(local_config_path, merged)
+
+    return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
+
+
+def _merge_disabled_plugins_from_file(path: Path, target: dict[str, bool]) -> None:
+    """Extract plugin enabled/disabled state from a TOML config file into `target`."""
+    try:
+        raw = _load_toml(path)
+    except (ConfigNotFoundError, ConfigParseError):
+        return
+    raw_plugins = raw.get("plugins")
+    if not isinstance(raw_plugins, dict):
+        return
+    for plugin_name, plugin_section in raw_plugins.items():
+        if not isinstance(plugin_section, dict):
+            continue
+        enabled_value = plugin_section.get("enabled")
+        if enabled_value is not None:
+            target[plugin_name] = bool(enabled_value)
 
 
 def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:

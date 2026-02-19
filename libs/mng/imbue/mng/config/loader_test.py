@@ -14,6 +14,7 @@ from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
+from imbue.mng.config.loader import _block_disabled_plugins
 from imbue.mng.config.loader import _get_local_config_name
 from imbue.mng.config.loader import _get_project_config_name
 from imbue.mng.config.loader import _get_user_config_path
@@ -30,6 +31,7 @@ from imbue.mng.config.loader import _parse_providers
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
 from imbue.mng.config.loader import read_default_command
+from imbue.mng.config.loader import read_disabled_plugins
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
@@ -1011,3 +1013,98 @@ def test_read_default_command_independent_command_names(
     assert read_default_command("snapshot") == "destroy"
     # Unconfigured groups still get "create"
     assert read_default_command("other") == "create"
+
+
+# =============================================================================
+# Tests for read_disabled_plugins
+# =============================================================================
+
+
+def test_read_disabled_plugins_returns_empty_when_no_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """read_disabled_plugins should return empty set when no config files exist."""
+    monkeypatch.setenv("MNG_HOST_DIR", str(tmp_path / "nonexistent"))
+    monkeypatch.setenv("MNG_ROOT_NAME", "mng-test-nodisabled")
+    assert read_disabled_plugins() == frozenset()
+
+
+def test_read_disabled_plugins_reads_from_project_config(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mng_test_root_name: str,
+) -> None:
+    """read_disabled_plugins should find disabled plugins in project config."""
+    config_dir = temp_git_repo / f".{mng_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_disabled_plugins()
+    assert "modal" in result
+
+
+def test_read_disabled_plugins_local_overrides_project(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mng_test_root_name: str,
+) -> None:
+    """read_disabled_plugins should let local config re-enable a plugin disabled in project config."""
+    config_dir = temp_git_repo / f".{mng_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Project disables modal
+    (config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+    # Local re-enables it
+    (config_dir / "settings.local.toml").write_text("[plugins.modal]\nenabled = true\n")
+
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_disabled_plugins()
+    assert "modal" not in result
+
+
+def test_read_disabled_plugins_multiple_plugins(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_git_repo: Path,
+    mng_test_root_name: str,
+) -> None:
+    """read_disabled_plugins should handle multiple disabled plugins."""
+    config_dir = temp_git_repo / f".{mng_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text(
+        "[plugins.modal]\nenabled = false\n\n[plugins.docker]\nenabled = false\n\n[plugins.local]\nenabled = true\n"
+    )
+
+    monkeypatch.chdir(temp_git_repo)
+
+    result = read_disabled_plugins()
+    assert "modal" in result
+    assert "docker" in result
+    assert "local" not in result
+
+
+# =============================================================================
+# Tests for _block_disabled_plugins
+# =============================================================================
+
+
+def test_block_disabled_plugins_blocks_names_in_plugin_manager() -> None:
+    """_block_disabled_plugins should call pm.set_blocked for each disabled name."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+
+    _block_disabled_plugins(pm, frozenset({"modal", "docker"}))
+
+    assert pm.is_blocked("modal")
+    assert pm.is_blocked("docker")
+    assert not pm.is_blocked("local")
+
+
+def test_block_disabled_plugins_is_idempotent() -> None:
+    """_block_disabled_plugins should be safe to call multiple times."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+
+    _block_disabled_plugins(pm, frozenset({"modal"}))
+    _block_disabled_plugins(pm, frozenset({"modal"}))
+
+    assert pm.is_blocked("modal")

@@ -53,6 +53,9 @@ def _load_single_backend(pm: pluggy.PluginManager, name: str) -> None:
     key = ProviderBackendName(name)
     if key in backend_registry:
         return
+    # Skip blocked (disabled) plugins entirely to avoid the import cost
+    if pm.is_blocked(name):
+        return
     module_path = BACKEND_MODULES.get(name)
     if module_path is None:
         return
