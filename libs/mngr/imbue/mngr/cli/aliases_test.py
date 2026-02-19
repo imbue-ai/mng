@@ -97,8 +97,12 @@ def test_no_args_output_matches_help_flag(cli_runner: CliRunner) -> None:
 
 
 def test_subgroup_no_args_writes_to_stdout(cli_runner: CliRunner) -> None:
-    """Subgroups (snapshot, plugin, config) should write help to stdout when invoked with no subcommand."""
-    for subcommand in ["snapshot", "plugin", "config"]:
+    """Subgroups that use invoke_without_command should write help to stdout when invoked with no subcommand.
+
+    Note: snapshot is excluded because it uses DefaultCommandGroup which defaults
+    to running the 'create' subcommand when no args are given.
+    """
+    for subcommand in ["plugin", "config"]:
         result = cli_runner.invoke(cli, [subcommand])
         assert result.exit_code == 0, f"{subcommand} exited with {result.exit_code}"
         # Some subgroups use git-style help (NAME section) while others use Click's default (Usage:)
