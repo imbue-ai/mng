@@ -9,7 +9,7 @@ from loguru import logger
 
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingDeployError
-from imbue.changelings.mngr_commands import build_mngr_create_command
+from imbue.changelings.mng_commands import build_mng_create_command
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
@@ -100,7 +100,7 @@ def build_deploy_env(
     Modal image so the cron function has access to its configuration at runtime.
 
     The imbue_repo_url and imbue_commit_hash identify the monorepo containing the
-    changeling/mngr tooling. This is distinct from the target repo (the repo the
+    changeling/mng tooling. This is distinct from the target repo (the repo the
     changeling operates on, which is specified in the changeling config).
     """
     return {
@@ -188,15 +188,15 @@ def _forward_output(line: str, is_stdout: bool) -> None:
     stream.flush()
 
 
-def build_cron_mngr_command(
+def build_cron_mng_command(
     changeling: ChangelingDefinition,
     env_file_path: Path,
 ) -> list[str]:
-    """Build the mngr create command for use inside the cron runner.
+    """Build the mng create command for use inside the cron runner.
 
-    Not pure: delegates to build_mngr_create_command which reads datetime.now().
+    Not pure: delegates to build_mng_create_command which reads datetime.now().
     """
-    return build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+    return build_mng_create_command(changeling, is_modal=True, env_file_path=env_file_path)
 
 
 def find_repo_root() -> Path:
@@ -218,7 +218,7 @@ def find_repo_root() -> Path:
 
 
 def get_imbue_commit_hash() -> str:
-    """Get the commit hash of the imbue monorepo (the repo containing changeling/mngr).
+    """Get the commit hash of the imbue monorepo (the repo containing changeling/mng).
 
     This is used to pin the exact version of the tooling that gets cloned on
     Modal at runtime. This is a development convenience -- once the changeling
@@ -238,10 +238,10 @@ def get_imbue_commit_hash() -> str:
 
 
 def get_imbue_repo_url() -> str:
-    """Get the HTTPS clone URL for the imbue monorepo (changeling/mngr tooling).
+    """Get the HTTPS clone URL for the imbue monorepo (changeling/mng tooling).
 
     This URL is used to clone the tooling onto Modal at runtime so that
-    the changeling and mngr packages are available. This is a development
+    the changeling and mng packages are available. This is a development
     convenience -- once the changeling package is published, the tooling
     will be installed via pip instead and this will no longer be needed.
 
@@ -325,34 +325,34 @@ def get_git_config_value(key: str) -> str | None:
     return result.stdout.strip() or None
 
 
-def list_mngr_profiles() -> list[str]:
-    """List available mngr profile IDs from ~/.mngr/profiles/.
+def list_mng_profiles() -> list[str]:
+    """List available mng profile IDs from ~/.mng/profiles/.
 
     Returns the profile directory names (UUID hex strings) sorted alphabetically.
     """
-    profiles_dir = Path.home() / ".mngr" / "profiles"
+    profiles_dir = Path.home() / ".mng" / "profiles"
     if not profiles_dir.is_dir():
         return []
     return sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
 
 
 def read_profile_user_id(profile_id: str) -> str:
-    """Read the user_id from a mngr profile directory.
+    """Read the user_id from a mng profile directory.
 
     Raises ChangelingDeployError if the user_id file does not exist.
     """
-    user_id_path = Path.home() / ".mngr" / "profiles" / profile_id / "user_id"
+    user_id_path = Path.home() / ".mng" / "profiles" / profile_id / "user_id"
     if not user_id_path.exists():
         raise ChangelingDeployError(
-            f"user_id file not found at {user_id_path}. Make sure the mngr profile is set up correctly."
+            f"user_id file not found at {user_id_path}. Make sure the mng profile is set up correctly."
         )
     return user_id_path.read_text().strip()
 
 
 @pure
 def get_modal_environment_name(user_id: str) -> str:
-    """Compute the Modal environment name from a mngr user_id."""
-    return f"mngr-{user_id}"
+    """Compute the Modal environment name from a mng user_id."""
+    return f"mng-{user_id}"
 
 
 def create_modal_secret(
@@ -417,7 +417,7 @@ def deploy_changeling(
 ) -> str:
     """Deploy a changeling to Modal as a cron-scheduled function.
 
-    The Modal environment name is derived from the changeling's mngr_profile.
+    The Modal environment name is derived from the changeling's mng_profile.
     The profile must be set before calling this function (see cli/add.py).
 
     This performs the full deployment and verification:
@@ -432,9 +432,9 @@ def deploy_changeling(
     """
     from imbue.changelings.deploy.verification import verify_deployment
 
-    if changeling.mngr_profile is None:
+    if changeling.mng_profile is None:
         raise ChangelingDeployError(
-            "mngr_profile must be set before deploying. Use 'changeling add' to auto-detect it."
+            "mng_profile must be set before deploying. Use 'changeling add' to auto-detect it."
         )
 
     # Ensure the repo is clean and pushed before deploying. The deployment
@@ -447,14 +447,14 @@ def deploy_changeling(
         push_current_branch()
 
     # Derive Modal environment name from the profile's user_id
-    user_id = read_profile_user_id(changeling.mngr_profile)
+    user_id = read_profile_user_id(changeling.mng_profile)
     environment_name = get_modal_environment_name(user_id)
-    logger.info("Using Modal environment '{}' (profile: {})", environment_name, changeling.mngr_profile)
+    logger.info("Using Modal environment '{}' (profile: {})", environment_name, changeling.mng_profile)
 
     app_name = get_modal_app_name(str(changeling.name))
     volume_name = get_modal_volume_name(str(changeling.name))
 
-    # The imbue repo URL and commit hash identify where the changeling/mngr
+    # The imbue repo URL and commit hash identify where the changeling/mng
     # tooling lives. This is cloned on Modal at runtime so the tooling is
     # available. This is separate from the target repo (changeling.repo)
     # which is the repo the changeling operates on.
