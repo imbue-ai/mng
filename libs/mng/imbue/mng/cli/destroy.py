@@ -213,22 +213,20 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     # See mng list --include for the pattern to follow
     if opts.include:
         raise NotImplementedError(
-            "The --include option is not yet implemented. "
-            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+            "The --include option is not yet implemented. See https://github.com/imbue-ai/mng/issues/XXX for progress."
         )
     # Exclude agents matching CEL expressions from destruction:
     # --exclude 'state == "RUNNING"' to skip running agents
     # See mng list --exclude for the pattern to follow
     if opts.exclude:
         raise NotImplementedError(
-            "The --exclude option is not yet implemented. "
-            "See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+            "The --exclude option is not yet implemented. See https://github.com/imbue-ai/mng/issues/XXX for progress."
         )
     # Read agent names/IDs from stdin to allow piping agent lists:
     # mng list --format jsonl | jq -r .name | mng destroy --stdin
     if opts.stdin:
         raise NotImplementedError(
-            "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mngr/issues/XXX for progress."
+            "The --stdin option is not yet implemented. See https://github.com/imbue-ai/mng/issues/XXX for progress."
         )
 
     # Validate input
