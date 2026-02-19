@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Final
 
-import click
-from loguru import logger
-
-from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.skill_agent import SkillProvisionedAgent
+from imbue.mng.agents.default_plugins.skill_agent import SkillProvisionedAgentConfig
 from imbue.mng.config.data_types import AgentTypeConfig
-from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.agent import AgentInterface
-from imbue.mng.interfaces.host import CreateAgentOptions
-from imbue.mng.interfaces.host import OnlineHostInterface
 
 _SKILL_NAME: Final[str] = "fixme-fairy"
 
@@ -126,75 +118,15 @@ titled "fixme-fairy: attempted <short description> (failed)".
 """
 
 
-class FixmeFairyAgentConfig(ClaudeAgentConfig):
+class FixmeFairyAgentConfig(SkillProvisionedAgentConfig):
     """Config for the fixme-fairy agent type."""
 
 
-def _prompt_user_for_skill_install(skill_path: Path) -> bool:
-    """Prompt the user to install or update the fixme-fairy skill."""
-    if skill_path.exists():
-        logger.info(
-            "\nThe fixme-fairy skill at {} will be updated.\n",
-            skill_path,
-        )
-        return click.confirm("Update the fixme-fairy skill?", default=True)
-    else:
-        logger.info(
-            "\nThe fixme-fairy skill will be installed to {}.\n",
-            skill_path,
-        )
-        return click.confirm("Install the fixme-fairy skill?", default=True)
-
-
-def _install_skill_locally(mng_ctx: MngContext) -> None:
-    """Install the fixme-fairy skill to the local user's ~/.claude/skills/."""
-    skill_path = Path.home() / ".claude" / "skills" / _SKILL_NAME / "SKILL.md"
-
-    with log_span("Installing fixme-fairy skill to {}", skill_path):
-        # Skip if the skill is already installed with the same content
-        if skill_path.exists() and skill_path.read_text() == _FIXME_FAIRY_SKILL_CONTENT:
-            logger.debug("Fixme-fairy skill is already up to date at {}", skill_path)
-            return
-
-        if mng_ctx.is_interactive and not mng_ctx.is_auto_approve:
-            if not _prompt_user_for_skill_install(skill_path):
-                logger.info("Skipped fixme-fairy skill installation")
-                return
-
-        skill_path.parent.mkdir(parents=True, exist_ok=True)
-        skill_path.write_text(_FIXME_FAIRY_SKILL_CONTENT)
-        logger.debug("Installed fixme-fairy skill to {}", skill_path)
-
-
-def _install_skill_remotely(host: OnlineHostInterface) -> None:
-    """Install the fixme-fairy skill on a remote host."""
-    skill_path = Path(f".claude/skills/{_SKILL_NAME}/SKILL.md")
-
-    with log_span("Installing fixme-fairy skill on remote host"):
-        host.execute_command(
-            f"mkdir -p ~/.claude/skills/{_SKILL_NAME}",
-            timeout_seconds=10.0,
-        )
-        host.write_text_file(skill_path, _FIXME_FAIRY_SKILL_CONTENT)
-        logger.debug("Installed fixme-fairy skill on remote host")
-
-
-class FixmeFairyAgent(ClaudeAgent):
+class FixmeFairyAgent(SkillProvisionedAgent):
     """Agent implementation for fixme-fairy with skill provisioning."""
 
-    def provision(
-        self,
-        host: OnlineHostInterface,
-        options: CreateAgentOptions,
-        mng_ctx: MngContext,
-    ) -> None:
-        """Provision the fixme-fairy skill and then run standard Claude provisioning."""
-        super().provision(host, options, mng_ctx)
-
-        if host.is_local:
-            _install_skill_locally(mng_ctx)
-        else:
-            _install_skill_remotely(host)
+    _skill_name = _SKILL_NAME
+    _skill_content = _FIXME_FAIRY_SKILL_CONTENT
 
 
 @hookimpl
