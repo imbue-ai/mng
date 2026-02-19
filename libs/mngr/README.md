@@ -119,7 +119,7 @@ From the repo where you would like a Dockerfile created.
 
 `mngr` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
 
-`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](./docs/concepts/plugins.md) to enable the latest AI coding workflows
+`mngr` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](./docs/concepts/plugins.md) to enable the latest AI coding workflows.
 
 ## Installation
 
@@ -211,7 +211,7 @@ You can interact with `mngr` via the terminal (run `mngr --help` to learn more).
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
 - **[agents](./docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
-- [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
+<!-- - [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mngr open] -->
 - [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
 - [hosts](./docs/concepts/hosts.md) come from **[providers](./docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
@@ -240,9 +240,11 @@ See [`architecture.md`](./docs/architecture.md) for an in-depth overview of the 
 
 See [`./docs/security_model.md`](./docs/security_model.md) for more details on our security model.
 
+<!--
 ## Learning more
 
 TODO: put a ton of examples and references here!
+-->
 
 ## Contributing
 
