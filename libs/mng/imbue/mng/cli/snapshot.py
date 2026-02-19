@@ -613,12 +613,13 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
             }
             created.append(result)
 
-            agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
-            emit_event(
-                "snapshot_created",
-                {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
-                output_opts.output_format,
-            )
+            if output_opts.format_template is None:
+                agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
+                emit_event(
+                    "snapshot_created",
+                    {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
+                    output_opts.output_format,
+                )
         except BaseMngError as e:
             error_msg = f"Failed to create snapshot for host {host_id_str}: {e}"
             errors.append({"host_id": host_id_str, "error": str(e)})
@@ -931,11 +932,12 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
         }
         destroyed.append(result)
 
-        emit_event(
-            "snapshot_destroyed",
-            {"message": f"Destroyed snapshot {snap_id} on host {host_id_str}", **result},
-            output_opts.output_format,
-        )
+        if output_opts.format_template is None:
+            emit_event(
+                "snapshot_destroyed",
+                {"message": f"Destroyed snapshot {snap_id} on host {host_id_str}", **result},
+                output_opts.output_format,
+            )
 
     _emit_destroy_result(destroyed, output_opts)
 
