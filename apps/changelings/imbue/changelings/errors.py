@@ -33,6 +33,6 @@ class ChangelingDeployError(ChangelingError):
 
 
 class ChangelingRunError(ChangelingError, RuntimeError):
-    """Raised when a changeling fails to run (nonzero exit code from mngr create)."""
+    """Raised when a changeling fails to run (nonzero exit code from mng create)."""
 
     ...

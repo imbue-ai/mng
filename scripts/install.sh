@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# mngr installer
+# mng installer
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
@@ -10,7 +10,7 @@
 #   2. Prompts to install system dependencies:
 #      - Core: uv, git, tmux, jq
 #      - Optional: claude (agent type), rsync (push/pull), unison (pair)
-#   3. Installs mngr via uv tool install
+#   3. Installs mng via uv tool install
 #   4. Offers to enable shell completion
 #
 set -euo pipefail
@@ -38,7 +38,7 @@ detect_os() {
     case "$(uname -s)" in
         Darwin) echo "macos" ;;
         Linux)  echo "linux" ;;
-        *)      error "Unsupported operating system: $(uname -s). mngr supports macOS and Linux." ;;
+        *)      error "Unsupported operating system: $(uname -s). mng supports macOS and Linux." ;;
     esac
 }
 
@@ -138,7 +138,7 @@ if [ ${#missing_all[@]} -eq 0 ]; then
     info "All system dependencies already installed"
 else
     printf "\n"
-    printf "mngr needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
+    printf "mng needs these system dependencies: ${BOLD}${missing_all[*]}${RESET}\n"
     printf "  claude, rsync, and unison are optional (needed for the claude agent type, push/pull, and pair).\n"
     printf "\n"
     printf "  [a] Install all (%s)\n" "${missing_all[*]}"
@@ -197,13 +197,13 @@ if ! command -v uv &>/dev/null; then
     fi
 fi
 
-# ── Install mngr ──────────────────────────────────────────────────────────────
+# ── Install mng ──────────────────────────────────────────────────────────────
 
-info "Installing mngr..."
+info "Installing mng..."
 uv tool install mng
 
-if ! command -v mngr &>/dev/null; then
-    warn "mngr was installed but is not on PATH."
+if ! command -v mng &>/dev/null; then
+    warn "mng was installed but is not on PATH."
     warn "You may need to add ~/.local/bin to your PATH:"
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
@@ -212,13 +212,13 @@ fi
 
 if [ "$OS" = "macos" ]; then
     SHELL_RC="$HOME/.zshrc"
-    COMPLETION_LINE='eval "$(_MNGR_COMPLETE=zsh_source mngr)"'
+    COMPLETION_LINE='eval "$(_MNG_COMPLETE=zsh_source mng)"'
 else
     SHELL_RC="$HOME/.bashrc"
-    COMPLETION_LINE='eval "$(_MNGR_COMPLETE=bash_source mngr)"'
+    COMPLETION_LINE='eval "$(_MNG_COMPLETE=bash_source mng)"'
 fi
 
-if grep -qF '_MNGR_COMPLETE' "$SHELL_RC" 2>/dev/null; then
+if grep -qF '_MNG_COMPLETE' "$SHELL_RC" 2>/dev/null; then
     info "Shell completion already configured in $SHELL_RC"
 else
     printf "\n"
@@ -240,4 +240,4 @@ else
     esac
 fi
 
-info "Get started with: mngr --help"
+info "Get started with: mng --help"

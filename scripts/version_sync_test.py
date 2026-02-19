@@ -4,7 +4,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent
 
 PACKAGES = [
-    REPO_ROOT / "libs" / "mngr" / "pyproject.toml",
+    REPO_ROOT / "libs" / "mng" / "pyproject.toml",
     REPO_ROOT / "libs" / "imbue_common" / "pyproject.toml",
     REPO_ROOT / "libs" / "concurrency_group" / "pyproject.toml",
 ]

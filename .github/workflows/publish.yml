@@ -40,28 +40,28 @@ jobs:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          MNGR_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mngr/pyproject.toml', 'rb'))['project']['version'])")
+          MNG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mng/pyproject.toml', 'rb'))['project']['version'])")
           COMMON_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
           CG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/concurrency_group/pyproject.toml', 'rb'))['project']['version'])")
 
-          echo "mngr version: $MNGR_VERSION"
+          echo "mng version: $MNG_VERSION"
           echo "imbue-common version: $COMMON_VERSION"
           echo "concurrency-group version: $CG_VERSION"
 
-          if [ "$MNGR_VERSION" != "$COMMON_VERSION" ] || [ "$MNGR_VERSION" != "$CG_VERSION" ]; then
+          if [ "$MNG_VERSION" != "$COMMON_VERSION" ] || [ "$MNG_VERSION" != "$CG_VERSION" ]; then
             echo "ERROR: Version mismatch across packages"
             exit 1
           fi
 
-          if [ -n "$INPUT_VERSION" ] && [ "$MNGR_VERSION" != "$INPUT_VERSION" ]; then
-            echo "ERROR: Input version ($INPUT_VERSION) does not match pyproject.toml version ($MNGR_VERSION)"
+          if [ -n "$INPUT_VERSION" ] && [ "$MNG_VERSION" != "$INPUT_VERSION" ]; then
+            echo "ERROR: Input version ($INPUT_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
             exit 1
           fi
 
           if [ "$REF_TYPE" = "tag" ]; then
             TAG_VERSION="${REF_NAME#v}"
-            if [ "$MNGR_VERSION" != "$TAG_VERSION" ]; then
-              echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNGR_VERSION)"
+            if [ "$MNG_VERSION" != "$TAG_VERSION" ]; then
+              echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
               exit 1
             fi
           fi
@@ -72,8 +72,8 @@ jobs:
       - name: Build concurrency-group
         run: pyproject-build libs/concurrency_group -o dist/
 
-      - name: Build mngr
-        run: pyproject-build libs/mngr -o dist/
+      - name: Build mng
+        run: pyproject-build libs/mng -o dist/
 
       - name: Publish packages to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1

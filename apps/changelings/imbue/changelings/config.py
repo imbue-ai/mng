@@ -164,14 +164,14 @@ def _serialize_config(config: ChangelingConfig) -> dict:
             entry.add("initial_message", definition.initial_message)
         if definition.secrets != DEFAULT_SECRETS:
             entry.add("secrets", list(definition.secrets))
-        if definition.extra_mngr_args:
-            entry.add("extra_mngr_args", definition.extra_mngr_args)
+        if definition.extra_mng_args:
+            entry.add("extra_mng_args", definition.extra_mng_args)
         if definition.env_vars:
             entry.add("env_vars", dict(definition.env_vars))
-        if definition.mngr_options:
-            entry.add("mngr_options", dict(definition.mngr_options))
-        if definition.mngr_profile is not None:
-            entry.add("mngr_profile", definition.mngr_profile)
+        if definition.mng_options:
+            entry.add("mng_options", dict(definition.mng_options))
+        if definition.mng_profile is not None:
+            entry.add("mng_profile", definition.mng_profile)
 
         changelings_table.add(str(name), entry)
 

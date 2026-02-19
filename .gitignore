@@ -236,8 +236,8 @@ frontend-dist/
 # Local Claude settings backup files
 .claude/*.bak
 
-# Local mngr settings (not committed)
-.mngr/settings.local.toml
+# Local mng settings (not committed)
+.mng/settings.local.toml
 
 # so the user can make their own notification script
 scripts/notify_user.local.sh
@@ -249,8 +249,8 @@ scripts/notify_user.local.sh
 .claude/active
 
 # we stick the image build artifacts here
-.mngr/dev/build/
-.mngr/dev/secrets/
+.mng/dev/build/
+.mng/dev/secrets/
 
 # Offload caches and local files
 .offload-image-cache
