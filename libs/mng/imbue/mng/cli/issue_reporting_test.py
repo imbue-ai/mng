@@ -156,7 +156,7 @@ def test_search_for_existing_issue_returns_api_result_when_found(
                         {
                             "number": 99,
                             "title": "[NotImplemented] --sync-mode=full",
-                            "html_url": "https://github.com/imbue-ai/mngr/issues/99",
+                            "html_url": "https://github.com/imbue-ai/mng/issues/99",
                         }
                     ]
                 }
@@ -169,7 +169,7 @@ def test_search_for_existing_issue_returns_api_result_when_found(
     result = search_for_existing_issue("--sync-mode=full", cg)
     assert result is not None
     assert result.number == 99
-    assert result.url == "https://github.com/imbue-ai/mngr/issues/99"
+    assert result.url == "https://github.com/imbue-ai/mng/issues/99"
     # Should only call curl (API), not gh
     assert call_count == 1
 
@@ -241,7 +241,7 @@ def test_handle_not_implemented_error_interactive_opens_existing_issue(monkeypat
                         {
                             "number": 77,
                             "title": "[NotImplemented] --sync-mode=full",
-                            "html_url": "https://github.com/imbue-ai/mngr/issues/77",
+                            "html_url": "https://github.com/imbue-ai/mng/issues/77",
                         }
                     ]
                 }
@@ -258,7 +258,7 @@ def test_handle_not_implemented_error_interactive_opens_existing_issue(monkeypat
         handle_not_implemented_error(NotImplementedError("--sync-mode=full is not implemented yet"))
 
     assert len(opened_urls) == 1
-    assert opened_urls[0] == "https://github.com/imbue-ai/mngr/issues/77"
+    assert opened_urls[0] == "https://github.com/imbue-ai/mng/issues/77"
 
 
 def test_handle_not_implemented_error_interactive_opens_new_issue_form(monkeypatch: pytest.MonkeyPatch) -> None:
