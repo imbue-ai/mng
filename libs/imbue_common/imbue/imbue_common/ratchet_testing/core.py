@@ -211,6 +211,10 @@ def get_ratchet_failures(
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find all regex matches in git-tracked files and return them sorted by modification date.
 
+    Applies a regex pattern to all git-tracked files in the given folder. For each match,
+    it determines the date of the last commit that touched any line in the match and returns
+    all matches sorted from most recently changed to least recently changed.
+
     If extension is provided, only files matching that extension are searched.
     If extension is None, all tracked files are searched.
 
