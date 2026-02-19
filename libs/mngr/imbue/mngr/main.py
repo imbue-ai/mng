@@ -97,6 +97,8 @@ class AliasAwareGroup(DefaultCommandGroup):
     ``mngr my-task`` is equivalent to ``mngr create my-task``).
     """
 
+    _config_key = "mngr"
+
     def invoke(self, ctx: click.Context) -> Any:
         try:
             result = super().invoke(ctx)

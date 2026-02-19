@@ -107,7 +107,7 @@ def _make_tracker_ctx(
 
 def _get_local_host(ctx: MngrContext) -> OnlineHostInterface:
     provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), ctx)
-    return cast(OnlineHostInterface, provider.get_host(HostName("local")))
+    return cast(OnlineHostInterface, provider.get_host(HostName("localhost")))
 
 
 # --- Create flow tests ---
@@ -166,7 +166,7 @@ def test_create_hooks_fire_in_order_with_new_host(
             source_location=HostLocation(host=host, path=temp_work_dir),
             target_host=NewHostOptions(
                 provider=LOCAL_PROVIDER_NAME,
-                name=HostName("test-new-host"),
+                name=HostName("localhost"),
             ),
             agent_options=CreateAgentOptions(
                 agent_type=AgentTypeName("echo"),
@@ -207,7 +207,7 @@ def test_create_hooks_receive_correct_data(
             source_location=HostLocation(host=host, path=temp_work_dir),
             target_host=NewHostOptions(
                 provider=LOCAL_PROVIDER_NAME,
-                name=HostName("data-test-host"),
+                name=HostName("localhost"),
             ),
             agent_options=CreateAgentOptions(
                 agent_type=AgentTypeName("echo"),
@@ -220,7 +220,7 @@ def test_create_hooks_receive_correct_data(
         assert result.agent is not None
 
     # Verify on_before_host_create received correct args
-    assert tracker.hook_data["before_host_create_name"] == HostName("data-test-host")
+    assert tracker.hook_data["before_host_create_name"] == HostName("localhost")
     assert tracker.hook_data["before_host_create_provider"] == ProviderInstanceName(LOCAL_PROVIDER_NAME)
 
     # Verify on_agent_state_dir_created received the agent
