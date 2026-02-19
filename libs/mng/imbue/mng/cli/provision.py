@@ -309,7 +309,5 @@ the same host.""",
 )
 
 register_help_metadata("provision", _PROVISION_HELP_METADATA)
-for alias in _PROVISION_HELP_METADATA.aliases:
-    register_help_metadata(alias, _PROVISION_HELP_METADATA)
 
 add_pager_help_option(provision)

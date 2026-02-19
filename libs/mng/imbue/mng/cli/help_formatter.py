@@ -67,25 +67,45 @@ def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
     return _help_metadata_registry.get(command_name)
 
 
+def _build_help_key(ctx: click.Context) -> str | None:
+    """Build a dot-separated registry key from the context chain using canonical names.
+
+    Walks from the current context up to (but not including) the root CLI group.
+    Uses ``ctx.command.name`` (the canonical name) rather than ``ctx.info_name``
+    (which reflects whichever alias was used at invocation).  This means
+    ``mng snap create --help`` produces key ``"snapshot.create"`` -- the same key
+    used by the registration call -- so aliases resolve correctly with no
+    duplicate registry entries.
+
+    Note: this function requires the full context chain from the root CLI group.
+    Tests that invoke a subgroup directly (e.g., ``cli_runner.invoke(snapshot, ...)``)
+    will produce incorrect keys because the subgroup becomes the root.  Always use
+    ``cli_runner.invoke(cli, ["snapshot", ...])`` when testing help output.
+    """
+    parts: list[str] = []
+    current: click.Context | None = ctx
+    while current is not None and current.parent is not None:
+        name = current.command.name if current.command.name is not None else current.info_name
+        if name is not None:
+            parts.append(name)
+        current = current.parent
+    if not parts:
+        return None
+    parts.reverse()
+    return ".".join(parts)
+
+
 def _resolve_help_metadata(ctx: click.Context) -> CommandHelpMetadata | None:
     """Get help metadata for a command from its click context.
 
-    Tries a parent-qualified key first (e.g., "snapshot.create" for subcommands)
-    to avoid collisions between subcommands with the same name in different groups
-    (such as "snapshot list" vs "config list"). Falls back to the bare command name
-    for top-level commands.
+    Uses ``_build_help_key`` to construct a canonical dot-separated key
+    (e.g., ``"snapshot.create"``) and performs a single registry lookup --
+    no fallback, no alias variants.
     """
-    command_name = ctx.info_name
-    if command_name is None:
+    key = _build_help_key(ctx)
+    if key is None:
         return None
-    # Try parent-qualified key first (for subcommands)
-    if ctx.parent is not None and ctx.parent.info_name is not None:
-        qualified = f"{ctx.parent.info_name}.{command_name}"
-        metadata = _help_metadata_registry.get(qualified)
-        if metadata is not None:
-            return metadata
-    # Fall back to bare command name (for top-level commands)
-    return _help_metadata_registry.get(command_name)
+    return _help_metadata_registry.get(key)
 
 
 def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:

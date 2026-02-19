@@ -880,9 +880,6 @@ Configuration is stored in TOML files:
 )
 
 register_help_metadata("config", _CONFIG_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CONFIG_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CONFIG_HELP_METADATA)
 
 add_pager_help_option(config)
 

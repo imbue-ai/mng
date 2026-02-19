@@ -334,8 +334,6 @@ code is 0 if all commands succeeded, 1 if any failed.""",
 )
 
 register_help_metadata("exec", _EXEC_HELP_METADATA)
-for alias in _EXEC_HELP_METADATA.aliases:
-    register_help_metadata(alias, _EXEC_HELP_METADATA)
 
 # Add pager-enabled help option to the exec command
 add_pager_help_option(exec_command)

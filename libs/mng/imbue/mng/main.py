@@ -367,17 +367,16 @@ def _update_create_help_with_provider_args() -> None:
     are registered and their help text is available.
     """
     provider_sections = get_all_provider_args_help_sections()
-    for command_name in ("create", "c"):
-        existing_metadata = get_help_metadata(command_name)
-        if existing_metadata is None:
-            continue
-        updated_metadata = existing_metadata.model_copy_update(
-            to_update(
-                existing_metadata.field_ref().additional_sections,
-                existing_metadata.additional_sections + provider_sections,
-            ),
-        )
-        register_help_metadata(command_name, updated_metadata)
+    existing_metadata = get_help_metadata("create")
+    if existing_metadata is None:
+        return
+    updated_metadata = existing_metadata.model_copy_update(
+        to_update(
+            existing_metadata.field_ref().additional_sections,
+            existing_metadata.additional_sections + provider_sections,
+        ),
+    )
+    register_help_metadata("create", updated_metadata)
 
 
 _update_create_help_with_provider_args()

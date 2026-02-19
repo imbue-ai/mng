@@ -946,8 +946,6 @@ Useful for checkpointing work, creating restore points, or managing disk space."
 )
 
 register_help_metadata("snapshot", _SNAPSHOT_HELP_METADATA)
-for alias in _SNAPSHOT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _SNAPSHOT_HELP_METADATA)
 
 add_pager_help_option(snapshot)
 

@@ -813,8 +813,6 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
 )
 
 register_help_metadata("plugin", _PLUGIN_HELP_METADATA)
-for alias in _PLUGIN_HELP_METADATA.aliases:
-    register_help_metadata(alias, _PLUGIN_HELP_METADATA)
 
 add_pager_help_option(plugin)
 
