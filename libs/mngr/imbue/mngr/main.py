@@ -30,7 +30,6 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.logs import logs
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
-from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.plugin import plugin as plugin_command
 from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
@@ -74,6 +73,22 @@ for canonical, aliases in COMMAND_ALIASES.items():
         _ALIAS_TO_CANONICAL[alias] = canonical
 
 
+def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
+    """Call the on_error hook if command metadata was stored by setup_command_context.
+
+    Note: if a plugin's on_error hook raises, it will mask the original command exception.
+    Plugins are responsible for not raising in their hooks.
+    """
+    command_name = ctx.meta.get("hook_command_name")
+    if command_name is not None:
+        pm = get_or_create_plugin_manager()
+        pm.hook.on_error(
+            command_name=command_name,
+            command_params=ctx.meta.get("hook_command_params", {}),
+            error=error,
+        )
+
+
 class AliasAwareGroup(DefaultCommandGroup):
     """Custom click.Group that shows aliases inline with commands in --help.
 
@@ -84,12 +99,28 @@ class AliasAwareGroup(DefaultCommandGroup):
 
     def invoke(self, ctx: click.Context) -> Any:
         try:
-            return super().invoke(ctx)
+            result = super().invoke(ctx)
+            # Call on_after_command if command metadata was stored by setup_command_context.
+            # Note: if a plugin's on_after_command raises, the exception falls through to
+            # the except blocks below, which will call _call_on_error_hook -- meaning
+            # on_error fires even though the command itself succeeded. This is intentional
+            # for now; plugins are responsible for not raising in their hooks.
+            command_name = ctx.meta.get("hook_command_name")
+            if command_name is not None:
+                pm = get_or_create_plugin_manager()
+                pm.hook.on_after_command(
+                    command_name=command_name,
+                    command_params=ctx.meta.get("hook_command_params", {}),
+                )
+            return result
         except NotImplementedError as e:
+            _call_on_error_hook(ctx, e)
             handle_not_implemented_error(e)
-        except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngrError, bdb.BdbQuit):
+        except (click.ClickException, click.Abort, click.exceptions.Exit, BaseMngrError, bdb.BdbQuit) as e:
+            _call_on_error_hook(ctx, e)
             raise
         except Exception as e:
+            _call_on_error_hook(ctx, e)
             if ctx.meta.get("is_error_reporting_enabled", False):
                 handle_unexpected_error(e)
             raise
@@ -146,6 +177,9 @@ def cli(ctx: click.Context) -> None:
     # This uses the singleton that was already created during command registration
     pm = get_or_create_plugin_manager()
     ctx.obj = pm
+
+    pm.hook.on_startup()
+    ctx.call_on_close(lambda: pm.hook.on_shutdown())
 
 
 def _register_plugin_commands() -> list[click.Command]:
@@ -279,7 +313,6 @@ BUILTIN_COMMANDS: list[click.Command] = [
     logs,
     connect,
     message,
-    pair,
     provision,
     pull,
     push,

@@ -2,14 +2,14 @@ import subprocess
 from pathlib import Path
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mngr.api.pair import GitSyncAction
-from imbue.mngr.api.pair import UnisonSyncer
-from imbue.mngr.api.pair import check_unison_installed
-from imbue.mngr.api.pair import determine_git_sync_actions
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
+from imbue.mngr_pair.api import GitSyncAction
+from imbue.mngr_pair.api import UnisonSyncer
+from imbue.mngr_pair.api import check_unison_installed
+from imbue.mngr_pair.api import determine_git_sync_actions
 
 # =============================================================================
 # Test: check_unison_installed
