@@ -12,7 +12,7 @@ mngr [plugin|plug] <subcommand> [OPTIONS]
 
 Manage available and active plugins. [experimental]
 
-View, enable, and disable plugins registered with mngr.
+Install, remove, view, enable, and disable plugins registered with mngr.
 
 Examples:
 
@@ -109,12 +109,24 @@ mngr plugin list [OPTIONS]
 
 ## mngr plugin add
 
-Add a plugin. [future]
+Install a plugin package. [experimental]
+
+Provide exactly one of NAME (positional), --path, or --git.
+
+Examples:
+
+  mngr plugin add mngr-opencode
+
+  mngr plugin add mngr-opencode>=1.0
+
+  mngr plugin add --path ./my-plugin
+
+  mngr plugin add --git https://github.com/user/mngr-plugin.git
 
 **Usage:**
 
 ```text
-mngr plugin add [OPTIONS] NAME
+mngr plugin add [OPTIONS] [NAME]
 ```
 
 **Options:**
@@ -135,15 +147,31 @@ mngr plugin add [OPTIONS] NAME
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--path` | text | Install from a local path (editable mode) | None |
+| `--git` | text | Install from a git URL | None |
 
 ## mngr plugin remove
 
-Remove a plugin. [future]
+Uninstall a plugin package. [experimental]
+
+Provide exactly one of NAME (positional) or --path. For local paths,
+the package name is read from pyproject.toml.
+
+Examples:
+
+  mngr plugin remove mngr-opencode
+
+  mngr plugin remove --path ./my-plugin
 
 **Usage:**
 
 ```text
-mngr plugin remove [OPTIONS] NAME
+mngr plugin remove [OPTIONS] [NAME]
 ```
 
 **Options:**
@@ -164,6 +192,12 @@ mngr plugin remove [OPTIONS] NAME
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+
+## Other Options
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--path` | text | Remove by local path (reads package name from pyproject.toml) | None |
 
 ## mngr plugin enable
 
@@ -285,6 +319,30 @@ $ mngr plugin list --format json
 
 ```bash
 $ mngr plugin list --fields name,enabled
+```
+
+**Install a plugin from PyPI**
+
+```bash
+$ mngr plugin add mngr-opencode
+```
+
+**Install a local plugin**
+
+```bash
+$ mngr plugin add --path ./my-plugin
+```
+
+**Install a plugin from git**
+
+```bash
+$ mngr plugin add --git https://github.com/user/mngr-plugin.git
+```
+
+**Remove a plugin**
+
+```bash
+$ mngr plugin remove mngr-opencode
 ```
 
 **Enable a plugin**

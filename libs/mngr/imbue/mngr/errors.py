@@ -281,6 +281,10 @@ class LocalHostNotDestroyableError(ProviderError):
         super().__init__("Cannot destroy the local host - it is your local computer")
 
 
+class PluginSpecifierError(BaseMngrError, ValueError):
+    """Raised when a plugin specifier is invalid or cannot be resolved."""
+
+
 class PluginMngrError(MngrError):
     """Raised when a plugin encounters an error during provisioning.
 
