@@ -21,7 +21,7 @@ fi
 
 # File logging: all log functions write to $STOP_HOOK_LOG if set.
 # Each sourcing script should set STOP_HOOK_LOG before calling log functions.
-# Format: [YYYY-MM-DD HH:MM:SS] [SCRIPT_NAME] [LEVEL] message
+# Format: [YYYY-MM-DD HH:MM:SS] [PID] [SCRIPT_NAME] [LEVEL] message
 STOP_HOOK_LOG="${STOP_HOOK_LOG:-}"
 STOP_HOOK_SCRIPT_NAME="${STOP_HOOK_SCRIPT_NAME:-unknown}"
 

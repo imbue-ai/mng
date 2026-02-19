@@ -21,16 +21,8 @@ fi
 SESSION="$1"
 WINDOW="$2"
 
-# File logging (uses STOP_HOOK_LOG exported by main_stop_hook)
-_log_to_file() {
-    local level="$1"
-    local msg="$2"
-    if [[ -n "${STOP_HOOK_LOG:-}" ]]; then
-        local ts
-        ts=$(date '+%Y-%m-%d %H:%M:%S')
-        echo "[$ts] [$$] [run_reviewer:$WINDOW] [$level] $msg" >> "$STOP_HOOK_LOG"
-    fi
-}
+STOP_HOOK_SCRIPT_NAME="run_reviewer:$WINDOW"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
 
 _log_to_file "INFO" "run_reviewer started (pid=$$, ppid=$PPID, session=$SESSION, window=$WINDOW)"
 
@@ -66,19 +58,7 @@ fi
 rm -rf $REVIEW_DONE_MARKER
 rm -rf $REVIEW_OUTPUT_FILE
 
-# Colors for output (disabled if not a terminal)
-if [[ -t 2 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    NC='\033[0m'
-else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    NC=''
-fi
-
+# Override console log functions to include window name prefix
 log_error() {
     echo -e "${RED}[$WINDOW] ERROR: $1${NC}" >&2
     _log_to_file "ERROR" "$1"
