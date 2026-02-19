@@ -436,7 +436,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this is a no-op since the host name is always
         effectively "localhost". Returns the host unchanged.
         """
-        return self._create_host(name)
+        return self._create_host(HostName("localhost"))
 
     # =========================================================================
     # Connector Method
