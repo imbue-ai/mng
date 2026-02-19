@@ -81,6 +81,10 @@ class LocalProviderInstance(BaseProviderInstance):
     """
 
     @property
+    def default_host_name(self) -> HostName:
+        return HostName("localhost")
+
+    @property
     def supports_snapshots(self) -> bool:
         return False
 

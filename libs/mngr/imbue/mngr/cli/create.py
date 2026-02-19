@@ -645,6 +645,7 @@ def _handle_create(
         project_name=project_name,
         agent_and_host_loader=agent_and_host_loader,
         lifecycle=host_lifecycle,
+        mngr_ctx=mngr_ctx,
     )
 
     # Parse agent options
@@ -1430,6 +1431,7 @@ def _parse_target_host(
     project_name: str | None,
     agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
     lifecycle: HostLifecycleOptions,
+    mngr_ctx: MngrContext,
 ) -> HostReference | NewHostOptions | None:
     parsed_target_host: HostReference | NewHostOptions | None
     if opts.host:
@@ -1451,8 +1453,14 @@ def _parse_target_host(
         if opts.host_name:
             parsed_host_name = HostName(opts.host_name)
         else:
-            parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
-            parsed_host_name = generate_host_name(parsed_host_name_style)
+            # Check if the provider has a fixed default host name (e.g. "localhost" for local)
+            provider = get_provider_instance(ProviderInstanceName(opts.new_host), mngr_ctx)
+            provider_default = provider.default_host_name
+            if provider_default is not None:
+                parsed_host_name = provider_default
+            else:
+                parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
+                parsed_host_name = generate_host_name(parsed_host_name_style)
 
         # Parse host-level tags
         tags_dict: dict[str, str] = {}

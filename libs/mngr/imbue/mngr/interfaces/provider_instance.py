@@ -49,6 +49,18 @@ class ProviderInstanceInterface(MutableModel, ABC):
     # =========================================================================
 
     @property
+    def default_host_name(self) -> HostName | None:
+        """The fixed host name for this provider, if it only supports one.
+
+        Providers that only support a single well-known host name (e.g. "localhost"
+        for the local provider) should override this to return that name. When set,
+        host name generation is skipped during ``mngr create --in <provider>``.
+
+        Returns None by default, meaning a host name will be auto-generated.
+        """
+        return None
+
+    @property
     @abstractmethod
     def supports_snapshots(self) -> bool:
         """Whether this provider supports creating and managing host snapshots."""
