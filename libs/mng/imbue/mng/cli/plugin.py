@@ -30,7 +30,7 @@ from imbue.mng.cli.config import set_nested_value
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
-from imbue.mng.cli.help_formatter import register_subcommand_help_metadata
+from imbue.mng.cli.help_formatter import set_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -817,6 +817,7 @@ register_help_metadata("plugin", _PLUGIN_HELP_METADATA)
 for alias in _PLUGIN_HELP_METADATA.aliases:
     register_help_metadata(alias, _PLUGIN_HELP_METADATA)
 
+set_help_metadata(plugin, _PLUGIN_HELP_METADATA)
 add_pager_help_option(plugin)
 
 # -- Subcommand help metadata --
@@ -845,7 +846,7 @@ name, version, description, enabled.""",
     ),
 )
 
-register_subcommand_help_metadata(_PLUGIN_HELP_METADATA, "list", _PLUGIN_LIST_HELP_METADATA)
+set_help_metadata(plugin_list, _PLUGIN_LIST_HELP_METADATA)
 add_pager_help_option(plugin_list)
 
 _PLUGIN_ADD_HELP_METADATA = CommandHelpMetadata(
@@ -869,7 +870,7 @@ from a local directory in editable mode. --git installs from a git URL.""",
     ),
 )
 
-register_subcommand_help_metadata(_PLUGIN_HELP_METADATA, "add", _PLUGIN_ADD_HELP_METADATA)
+set_help_metadata(plugin_add, _PLUGIN_ADD_HELP_METADATA)
 add_pager_help_option(plugin_add)
 
 _PLUGIN_REMOVE_HELP_METADATA = CommandHelpMetadata(
@@ -890,7 +891,7 @@ the package name is read from pyproject.toml.""",
     ),
 )
 
-register_subcommand_help_metadata(_PLUGIN_HELP_METADATA, "remove", _PLUGIN_REMOVE_HELP_METADATA)
+set_help_metadata(plugin_remove, _PLUGIN_REMOVE_HELP_METADATA)
 add_pager_help_option(plugin_remove)
 
 _PLUGIN_ENABLE_HELP_METADATA = CommandHelpMetadata(
@@ -911,7 +912,7 @@ specified scope.""",
     ),
 )
 
-register_subcommand_help_metadata(_PLUGIN_HELP_METADATA, "enable", _PLUGIN_ENABLE_HELP_METADATA)
+set_help_metadata(plugin_enable, _PLUGIN_ENABLE_HELP_METADATA)
 add_pager_help_option(plugin_enable)
 
 _PLUGIN_DISABLE_HELP_METADATA = CommandHelpMetadata(
@@ -932,5 +933,5 @@ specified scope.""",
     ),
 )
 
-register_subcommand_help_metadata(_PLUGIN_HELP_METADATA, "disable", _PLUGIN_DISABLE_HELP_METADATA)
+set_help_metadata(plugin_disable, _PLUGIN_DISABLE_HELP_METADATA)
 add_pager_help_option(plugin_disable)
