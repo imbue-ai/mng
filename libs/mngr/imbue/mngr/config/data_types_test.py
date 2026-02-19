@@ -857,3 +857,22 @@ def test_mngr_config_merge_keeps_base_destroyed_host_persisted_seconds_when_over
     )
     merged = base.merge_with(override)
     assert merged.default_destroyed_host_persisted_seconds == 86400.0
+
+
+def test_mngr_config_merge_overrides_connect_command(mngr_test_prefix: str) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, connect_command="base-cmd")
+    override = MngrConfig(prefix=mngr_test_prefix, connect_command="override-cmd")
+    merged = base.merge_with(override)
+    assert merged.connect_command == "override-cmd"
+
+
+def test_mngr_config_merge_keeps_base_connect_command_when_override_none(mngr_test_prefix: str) -> None:
+    base = MngrConfig(prefix=mngr_test_prefix, connect_command="base-cmd")
+    override = MngrConfig.model_construct(prefix=mngr_test_prefix, connect_command=None)
+    merged = base.merge_with(override)
+    assert merged.connect_command == "base-cmd"
+
+
+def test_mngr_config_connect_command_defaults_to_none(mngr_test_prefix: str) -> None:
+    config = MngrConfig(prefix=mngr_test_prefix)
+    assert config.connect_command is None

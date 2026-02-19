@@ -1,27 +1,23 @@
-# Docker Provider Spec [future]
+# Docker Provider Spec
 
 ## Metadata Storage
 
-Agent metadata is stored as Docker container labels. When an agent is created, mngr sets labels on the container:
+Host metadata is stored as Docker container labels. When a host is created, mngr sets labels on the container:
 
 ```
-com.imbue.mngr.agent-id=<agent-id>
-com.imbue.mngr.agent-name=<name>
-com.imbue.mngr.agent-type=<type>
+com.imbue.mngr.host-id=<host-id>
+com.imbue.mngr.host-name=<host-name>
+com.imbue.mngr.provider=<provider-instance-name>
 com.imbue.mngr.tags=<json-encoded-tags>
-com.imbue.mngr.parent-id=<parent-agent-id>
-com.imbue.mngr.created-at=<iso-timestamp>
 ```
 
 Labels are preserved across container stop/start cycles and are included in committed images (for snapshots).
-
-Docker labels have a size limit. If metadata exceeds this limit, mngr will warn and truncate tags.
 
 Docker labels cannot be changed after being set. If a user attempts to mutate them, mngr will raise an error.
 
 ## Host Discovery
 
-mngr discovers Docker hosts by listing containers with the `com.imbue.mngr.agent-id` label.
+mngr discovers Docker hosts by listing containers with the `com.imbue.mngr.host-id` label.
 
 ## Agent Self-Management
 
@@ -34,7 +30,7 @@ When PID 1 terminates, Docker automatically stops the container. This provides a
 Snapshots are created via `docker commit`. The resulting image is tagged with:
 
 ```
-mngr-snapshot:<agent-id>-<snapshot-id>
+mngr-snapshot:<host-id>-<snapshot-name>
 ```
 
 ### Snapshot Constraints
@@ -46,8 +42,4 @@ Certain Docker configurations are incompatible with snapshotting or make snapsho
 - **Shared volumes**: Like bind mounts, volumes shared between containers are not included in snapshots.
 - **Network-attached storage**: Any external storage mounted into the container will not be captured.
 
-When any of these configurations are detected, mngr should either:
-1. Disable snapshotting automatically and warn the user, or
-2. Warn the user that snapshots may be incomplete and allow them to proceed
-
-The user should be able to explicitly disable snapshot warnings via configuration if they understand the risks.
+When volume mounts are detected, mngr logs a warning but proceeds with the snapshot. Detection of GPU and network-attached storage constraints is not yet implemented.

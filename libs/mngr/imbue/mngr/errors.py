@@ -150,8 +150,7 @@ class ProviderInstanceNotFoundError(ProviderError):
     """No provider instance with this name exists."""
 
     user_help_text = (
-        "Check your mngr configuration for available providers.\n"
-        "Built-in providers include 'local' and 'local_docker'."
+        "Check your mngr configuration for available providers.\nBuilt-in providers include 'local' and 'docker'."
     )
 
     def __init__(self, provider_name: ProviderInstanceName) -> None:
@@ -280,6 +279,10 @@ class LocalHostNotDestroyableError(ProviderError):
 
     def __init__(self) -> None:
         super().__init__("Cannot destroy the local host - it is your local computer")
+
+
+class PluginSpecifierError(BaseMngrError, ValueError):
+    """Raised when a plugin specifier is invalid or cannot be resolved."""
 
 
 class PluginMngrError(MngrError):

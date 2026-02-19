@@ -5,10 +5,6 @@ from typing import cast
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mngr.api.pair import UnisonSyncer
-from imbue.mngr.api.pair import determine_git_sync_actions
-from imbue.mngr.api.pair import pair_files
-from imbue.mngr.api.pair import sync_git_state
 from imbue.mngr.api.test_fixtures import FakeAgent
 from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.api.test_fixtures import SyncTestContext
@@ -22,6 +18,10 @@ from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.polling import wait_for
 from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
+from imbue.mngr_pair.api import UnisonSyncer
+from imbue.mngr_pair.api import determine_git_sync_actions
+from imbue.mngr_pair.api import pair_files
+from imbue.mngr_pair.api import sync_git_state
 
 
 @pytest.fixture
