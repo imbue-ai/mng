@@ -12,8 +12,8 @@ from imbue.changelings.config import get_changeling
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.errors import ChangelingRunError
-from imbue.changelings.mngr_commands import build_mngr_create_command
-from imbue.changelings.mngr_commands import write_secrets_env_file
+from imbue.changelings.mng_commands import build_mng_create_command
+from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
@@ -39,10 +39,10 @@ def run(
     agent_type: str | None,
     secrets: tuple[str, ...],
     env_vars: tuple[str, ...],
-    extra_mngr_args: str | None,
-    mngr_options: tuple[str, ...],
+    extra_mng_args: str | None,
+    mng_options: tuple[str, ...],
     enabled: bool | None,
-    mngr_profile: str | None,
+    mng_profile: str | None,
     **_common: Any,
 ) -> None:
     """Run a changeling immediately (for testing or one-off execution).
@@ -75,10 +75,10 @@ def run(
         agent_type=agent_type,
         secrets=secrets,
         env_vars=env_vars,
-        extra_mngr_args=extra_mngr_args,
-        mngr_options=mngr_options,
+        extra_mng_args=extra_mng_args,
+        mng_options=mng_options,
         enabled=enabled,
-        mngr_profile=mngr_profile,
+        mng_profile=mng_profile,
         base=base,
     )
 
@@ -95,8 +95,8 @@ def _forward_output(line: str, is_stdout: bool) -> None:
     stream.flush()
 
 
-def _execute_mngr_command(changeling: ChangelingDefinition, cmd: list[str]) -> None:
-    """Execute an mngr create command and handle the result."""
+def _execute_mng_command(changeling: ChangelingDefinition, cmd: list[str]) -> None:
+    """Execute an mng create command and handle the result."""
     logger.debug("Command: {}", " ".join(cmd))
 
     with ConcurrencyGroup(name=f"changeling-{changeling.name}") as cg:
@@ -114,10 +114,10 @@ def _execute_mngr_command(changeling: ChangelingDefinition, cmd: list[str]) -> N
 
 
 def _run_changeling_locally(changeling: ChangelingDefinition) -> None:
-    """Run a changeling locally by invoking mngr create."""
+    """Run a changeling locally by invoking mng create."""
     logger.info("Running changeling '{}' locally", changeling.name)
-    cmd = build_mngr_create_command(changeling, is_modal=False, env_file_path=None)
-    _execute_mngr_command(changeling, cmd)
+    cmd = build_mng_create_command(changeling, is_modal=False, env_file_path=None)
+    _execute_mng_command(changeling, cmd)
 
 
 def _run_changeling_on_modal(changeling: ChangelingDefinition) -> None:
@@ -125,7 +125,7 @@ def _run_changeling_on_modal(changeling: ChangelingDefinition) -> None:
     logger.info("Running changeling '{}' on Modal", changeling.name)
     env_file_path = write_secrets_env_file(changeling)
     try:
-        cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
-        _execute_mngr_command(changeling, cmd)
+        cmd = build_mng_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+        _execute_mng_command(changeling, cmd)
     finally:
         env_file_path.unlink(missing_ok=True)
