@@ -107,7 +107,7 @@ def _make_tracker_ctx(
 
 def _get_local_host(ctx: MngrContext) -> OnlineHostInterface:
     provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), ctx)
-    return cast(OnlineHostInterface, provider.get_host(HostName("local")))
+    return cast(OnlineHostInterface, provider.get_host(HostName("localhost")))
 
 
 # --- Create flow tests ---
