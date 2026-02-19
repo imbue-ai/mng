@@ -200,12 +200,15 @@ If LOG_FILE is specified, prints its contents.
 In follow mode (--follow), the command uses tail -f for real-time
 streaming when the host is online (locally or via SSH). When the host
 is offline, it falls back to polling the volume for new content.
-Press Ctrl+C to stop.""",
+Press Ctrl+C to stop.
+
+When listing files, supports custom format templates via --format. Available fields: name, size.""",
     examples=(
         ("List available log files for an agent", "mng logs my-agent"),
         ("View a specific log file", "mng logs my-agent output.log"),
         ("View the last 50 lines", "mng logs my-agent output.log --tail 50"),
         ("Follow a log file", "mng logs my-agent output.log --follow"),
+        ("List files with custom format template", "mng logs my-agent --format '{name}\\t{size}'"),
     ),
     see_also=(
         ("list", "List available agents"),

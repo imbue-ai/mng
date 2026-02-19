@@ -289,6 +289,12 @@ $ mng plugin enable modal
 $ mng plugin enable modal --scope user
 ```
 
+**Output as JSON**
+
+```bash
+$ mng plugin enable modal --format json
+```
+
 ## mng plugin disable
 
 Disable a plugin [experimental].
@@ -340,6 +346,12 @@ $ mng plugin disable modal
 
 ```bash
 $ mng plugin disable modal --scope user
+```
+
+**Output as JSON**
+
+```bash
+$ mng plugin disable modal --format json
 ```
 
 ## See Also

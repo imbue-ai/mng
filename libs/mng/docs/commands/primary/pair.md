@@ -19,6 +19,8 @@ state (branches and commits) before starting the continuous file sync.
 
 Press Ctrl+C to stop the sync.
 
+During rapid concurrent edits, changes will be debounced to avoid partial writes [future].
+
 **Usage:**
 
 ```text
@@ -121,4 +123,10 @@ $ mng pair my-agent --conflict=source
 
 ```bash
 $ mng pair my-agent --source-host @local
+```
+
+**Use --source-agent flag**
+
+```bash
+$ mng pair --source-agent my-agent --target ./local-copy
 ```

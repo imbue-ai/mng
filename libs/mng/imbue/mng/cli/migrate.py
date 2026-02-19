@@ -34,7 +34,7 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
 CommandHelpMetadata(
     key="migrate",
-    one_line_description="Move an agent to a different host [experimental]",
+    one_line_description="Move an agent to a different host by cloning and destroying the original [experimental]",
     synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
     description="""This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to

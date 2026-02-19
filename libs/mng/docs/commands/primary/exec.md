@@ -17,6 +17,8 @@ the working directory.
 The command's stdout is printed to stdout and stderr to stderr. The exit
 code is 0 if all commands succeeded, 1 if any failed.
 
+Supports custom format templates via --format. Available fields: agent, stdout, stderr, success.
+
 Alias: x
 
 **Usage:**
@@ -122,4 +124,16 @@ $ mng exec my-agent "whoami" --user root
 
 ```bash
 $ mng exec my-agent "sleep 100" --timeout 5
+```
+
+**Use --agent flag (repeatable)**
+
+```bash
+$ mng exec --agent my-agent --agent another-agent "echo hello"
+```
+
+**Custom format template output**
+
+```bash
+$ mng exec --all "hostname" --format '{agent}\t{stdout}'
 ```

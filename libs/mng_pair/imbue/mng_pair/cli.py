@@ -227,13 +227,16 @@ directory and a local directory. Changes are watched and synced in real-time.
 If git repositories exist on both sides, the command first synchronizes git
 state (branches and commits) before starting the continuous file sync.
 
-Press Ctrl+C to stop the sync.""",
+Press Ctrl+C to stop the sync.
+
+During rapid concurrent edits, changes will be debounced to avoid partial writes [future].""",
     examples=(
         ("Pair with an agent", "mng pair my-agent"),
         ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
         ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
         ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
         ("Filter to specific host", "mng pair my-agent --source-host @local"),
+        ("Use --source-agent flag", "mng pair --source-agent my-agent --target ./local-copy"),
     ),
     see_also=(
         ("push", "Push files or git commits to an agent"),

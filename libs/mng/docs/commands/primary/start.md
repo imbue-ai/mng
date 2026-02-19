@@ -18,6 +18,8 @@ session.
 If multiple agents share a host, they will all be started together when
 the host starts.
 
+Supports custom format templates via --format. Available fields: name.
+
 **Usage:**
 
 ```text
@@ -109,4 +111,10 @@ $ mng start --all
 
 ```bash
 $ mng start --all --dry-run
+```
+
+**Custom format template output**
+
+```bash
+$ mng start --all --format '{name}'
 ```

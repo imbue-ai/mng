@@ -799,6 +799,7 @@ specified scope.""",
     examples=(
         ("Enable at project scope (default)", "mng plugin enable modal"),
         ("Enable at user scope", "mng plugin enable modal --scope user"),
+        ("Output as JSON", "mng plugin enable modal --format json"),
     ),
     see_also=(
         ("plugin disable", "Disable a plugin"),
@@ -816,6 +817,7 @@ specified scope.""",
     examples=(
         ("Disable at project scope (default)", "mng plugin disable modal"),
         ("Disable at user scope", "mng plugin disable modal --scope user"),
+        ("Output as JSON", "mng plugin disable modal --format json"),
     ),
     see_also=(
         ("plugin enable", "Enable a plugin"),

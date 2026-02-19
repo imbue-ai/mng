@@ -105,3 +105,9 @@ $ mng message --all --message "Hello everyone"
 ```bash
 $ echo "Hello" | mng message my-agent
 ```
+
+**Use --agent flag (repeatable)**
+
+```bash
+$ mng message --agent my-agent --agent another-agent --message "Hello"
+```

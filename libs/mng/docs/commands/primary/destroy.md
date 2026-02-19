@@ -20,6 +20,8 @@ By default, running agents cannot be destroyed. Use --force to stop and destroy
 running agents. The command will prompt for confirmation before destroying
 agents unless --force is specified.
 
+Supports custom format templates via --format. Available fields: name.
+
 Alias: rm
 
 **Usage:**
@@ -105,4 +107,22 @@ $ mng destroy --all --force
 
 ```bash
 $ mng destroy my-agent --dry-run
+```
+
+**Destroy using --agent flag (repeatable)**
+
+```bash
+$ mng destroy --agent my-agent --agent another-agent
+```
+
+**Destroy by tmux session name**
+
+```bash
+$ mng destroy --session mng-my-agent
+```
+
+**Custom format template output**
+
+```bash
+$ mng destroy --all --force --format '{name}'
 ```

@@ -17,6 +17,8 @@ running unless idle detection stops it automatically.
 For local agents, this stops the agent's tmux session. The local host
 itself cannot be stopped (if you want that, shut down your computer).
 
+Supports custom format templates via --format. Available fields: name.
+
 Alias: s
 
 **Usage:**
@@ -104,4 +106,10 @@ $ mng stop --session mng-my-agent
 
 ```bash
 $ mng stop --all --dry-run
+```
+
+**Custom format template output**
+
+```bash
+$ mng stop --all --format '{name}'
 ```

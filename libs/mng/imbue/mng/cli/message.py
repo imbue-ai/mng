@@ -277,6 +277,7 @@ or opens an editor (if interactive).""",
         ("Send to multiple agents", 'mng message agent1 agent2 --message "Hello to all"'),
         ("Send to all agents", 'mng message --all --message "Hello everyone"'),
         ("Pipe message from stdin", 'echo "Hello" | mng message my-agent'),
+        ("Use --agent flag (repeatable)", 'mng message --agent my-agent --agent another-agent --message "Hello"'),
     ),
     see_also=(
         ("connect", "Connect to an agent interactively"),

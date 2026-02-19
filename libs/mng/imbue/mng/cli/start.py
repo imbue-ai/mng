@@ -298,7 +298,9 @@ the container/instance. For local agents, this starts the agent's tmux
 session.
 
 If multiple agents share a host, they will all be started together when
-the host starts.""",
+the host starts.
+
+Supports custom format templates via --format. Available fields: name.""",
     aliases=(),
     examples=(
         ("Start an agent by name", "mng start my-agent"),
@@ -306,6 +308,7 @@ the host starts.""",
         ("Start and connect", "mng start my-agent --connect"),
         ("Start all stopped agents", "mng start --all"),
         ("Preview what would be started", "mng start --all --dry-run"),
+        ("Custom format template output", "mng start --all --format '{name}'"),
     ),
     see_also=(
         ("stop", "Stop running agents"),

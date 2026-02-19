@@ -22,6 +22,8 @@ streaming when the host is online (locally or via SSH). When the host
 is offline, it falls back to polling the volume for new content.
 Press Ctrl+C to stop.
 
+When listing files, supports custom format templates via --format. Available fields: name, size.
+
 **Usage:**
 
 ```text
@@ -89,4 +91,10 @@ $ mng logs my-agent output.log --tail 50
 
 ```bash
 $ mng logs my-agent output.log --follow
+```
+
+**List files with custom format template**
+
+```bash
+$ mng logs my-agent --format '{name}\t{size}'
 ```

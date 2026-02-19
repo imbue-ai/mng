@@ -240,7 +240,9 @@ CommandHelpMetadata(
 running unless idle detection stops it automatically.
 
 For local agents, this stops the agent's tmux session. The local host
-itself cannot be stopped (if you want that, shut down your computer).""",
+itself cannot be stopped (if you want that, shut down your computer).
+
+Supports custom format templates via --format. Available fields: name.""",
     aliases=("s",),
     examples=(
         ("Stop an agent by name", "mng stop my-agent"),
@@ -248,6 +250,7 @@ itself cannot be stopped (if you want that, shut down your computer).""",
         ("Stop all running agents", "mng stop --all"),
         ("Stop by tmux session name", "mng stop --session mng-my-agent"),
         ("Preview what would be stopped", "mng stop --all --dry-run"),
+        ("Custom format template output", "mng stop --all --format '{name}'"),
     ),
     see_also=(
         ("start", "Start stopped agents"),
