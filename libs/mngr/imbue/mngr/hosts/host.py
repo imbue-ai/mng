@@ -2148,10 +2148,20 @@ def _build_start_agent_shell_command(
     for var_name in unset_vars:
         steps.append(f"unset {shlex.quote(var_name)}")
 
-    # Create a detached tmux session with env vars sourced
+    # Create a detached tmux session with env vars sourced.
+    # Explicitly set -x/-y to force tmux to initialize the PTY dimensions
+    # directly. Without these flags, the pane's logical size (per list-panes)
+    # is 80x24 from default-size, but the PTY's TIOCGWINSZ can report 0x0 or
+    # 1x1 to the process inside it when the server has a narrow attached
+    # client (e.g. user running from a split terminal). This causes Claude
+    # Code's Ink framework to render at 1 column wide, breaking marker-based
+    # message sending. Passing -x/-y appears to use a different tmux code
+    # path that sets the PTY dimensions correctly at creation time.
+    # The window will be resized to match the client's terminal when attached.
     steps.append(
         f"tmux -f {shlex.quote(str(tmux_config_path))} new-session -d"
         f" -s {shlex.quote(session_name)}"
+        f" -x 200 -y 50"
         f" -c {shlex.quote(str(agent.work_dir))}"
         f" {shlex.quote(env_shell_cmd)}"
     )
