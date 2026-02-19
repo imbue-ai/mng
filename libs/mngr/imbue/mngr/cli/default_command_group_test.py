@@ -85,15 +85,15 @@ def test_explicit_create_still_works() -> None:
 # =============================================================================
 
 
-def test_mngr_bare_invocation_defaults_to_create(
+def test_mngr_bare_invocation_shows_help(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mngr` with no args should forward to `mngr create`."""
+    """Running `mngr` with no args should show help and exit cleanly."""
     result = cli_runner.invoke(cli, [], obj=plugin_manager)
-    # create with no args should attempt to create an agent (not show group help)
-    assert "Missing command" not in result.output
-    assert "Commands:" not in result.output
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Commands:" in result.output
 
 
 def test_mngr_unrecognized_command_forwards_to_create(
