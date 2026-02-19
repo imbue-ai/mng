@@ -1037,14 +1037,14 @@ def test_ensure_clean_rejects_dirty_worktree_by_default(
     assert "uncommitted changes" in result.output
 
 
-def test_ensure_clean_skipped_for_worktree_with_explicit_base_branch(
+def test_ensure_clean_skipped_with_explicit_base_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
     temp_host_dir: Path,
     mngr_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Creating a worktree agent with --base-branch skips the ensure-clean check."""
+    """Creating an agent with --base-branch skips the ensure-clean check."""
     # Create a second branch to use as base
     subprocess.run(
         ["git", "branch", "other-branch"],
