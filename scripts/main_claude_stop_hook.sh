@@ -196,6 +196,23 @@ _log_to_file "INFO" "Launched stop_hook_pr_and_ci.sh (pid=$PR_CI_PID)"
 REVIEWER_PID=$!
 _log_to_file "INFO" "Launched stop_hook_reviewer.sh (pid=$REVIEWER_PID)"
 
+# Kill a process and all its descendants.
+# Claude Code waits for all descendant processes to exit before considering the
+# hook complete, so we must kill the sibling tree when one child fails early.
+_kill_tree() {
+    local pid="$1"
+    local child_pids
+    # Find all descendant processes (children, grandchildren, etc.)
+    child_pids=$(pgrep -P "$pid" 2>/dev/null || true)
+    for cpid in $child_pids; do
+        _kill_tree "$cpid"
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        _log_to_file "INFO" "Killing process $pid (TERM)"
+        kill -TERM "$pid" 2>/dev/null || true
+    fi
+}
+
 # Poll until either process exits with code 2 (actionable failure) or both finish.
 # Exit code 2 means the agent needs to fix something, so we return immediately
 # to let it start working rather than waiting for the other hook.
@@ -214,7 +231,10 @@ while true; do
             log_error "Reviewer hook is still running in the background -- go fix the tests first, then check the outputs from the reviewers."
             log_error "Run 'cat .reviews/final_issue_json/*.json' to see those issues when you're ready (after fixing CI failures)."
             log_error "And remember that you MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
-            _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure); reviewer pid=$REVIEWER_PID still running"
+            _log_to_file "INFO" "Killing reviewer tree (pid=$REVIEWER_PID) before exiting"
+            _kill_tree "$REVIEWER_PID"
+            wait "$REVIEWER_PID" 2>/dev/null || true
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure)"
             exit 2
         elif [[ $PR_CI_EXIT -ne 0 ]]; then
             log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
@@ -234,7 +254,10 @@ while true; do
             log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
             log_error "If it is impossible to fix the test, tell the user and say that you failed."
             log_error "Otherwise, once you have understood and fixed any issues, you can simply commit to try again."
-            _log_to_file "INFO" "main_stop_hook exiting with code 2 (reviewer failure); pr_ci pid=$PR_CI_PID still running"
+            _log_to_file "INFO" "Killing PR/CI tree (pid=$PR_CI_PID) before exiting"
+            _kill_tree "$PR_CI_PID"
+            wait "$PR_CI_PID" 2>/dev/null || true
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (reviewer failure)"
             exit 2
         elif [[ $REVIEWER_EXIT -ne 0 ]]; then
             log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
