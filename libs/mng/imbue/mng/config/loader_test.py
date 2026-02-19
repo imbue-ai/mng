@@ -933,76 +933,44 @@ def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.
 
 
 def test_read_default_command_reads_from_project_config(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should read default_subcommand from project config."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
 
-    # Create project config file
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = config_dir / "settings.toml"
-    settings_path.write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-
-    # Point config at the git repo
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == "list"
+    assert read_default_command("mng") == "list"
 
 
 def test_read_default_command_local_overrides_project(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should let local config override project config."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
+    (project_config_dir / "settings.local.toml").write_text('[commands.mng]\ndefault_subcommand = "stop"\n')
 
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    # Project sets "list"
-    (config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-    # Local sets "stop"
-    (config_dir / "settings.local.toml").write_text('[commands.mng]\ndefault_subcommand = "stop"\n')
-
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == "stop"
+    assert read_default_command("mng") == "stop"
 
 
 def test_read_default_command_empty_string_disables(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should return empty string when config disables defaulting."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = ""\n')
 
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = ""\n')
-
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == ""
+    assert read_default_command("mng") == ""
 
 
 def test_read_default_command_independent_command_names(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should handle multiple command names independently."""
-
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text(
+    (project_config_dir / "settings.toml").write_text(
         '[commands.mng]\ndefault_subcommand = "list"\n\n[commands.snapshot]\ndefault_subcommand = "destroy"\n'
     )
-
-    monkeypatch.chdir(temp_git_repo)
 
     assert read_default_command("mng") == "list"
     assert read_default_command("snapshot") == "destroy"
@@ -1015,59 +983,40 @@ def test_read_default_command_independent_command_names(
 # =============================================================================
 
 
-def test_read_disabled_plugins_returns_empty_when_no_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_read_disabled_plugins_returns_empty_when_no_config(temp_git_repo_cwd: Path) -> None:
     """read_disabled_plugins should return empty set when no config files exist."""
-    monkeypatch.setenv("MNG_HOST_DIR", str(tmp_path / "nonexistent"))
-    monkeypatch.setenv("MNG_ROOT_NAME", "mng-test-nodisabled")
     assert read_disabled_plugins() == frozenset()
 
 
 def test_read_disabled_plugins_reads_from_project_config(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_disabled_plugins should find disabled plugins in project config."""
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
 
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_disabled_plugins()
-    assert "modal" in result
+    assert "modal" in read_disabled_plugins()
 
 
 def test_read_disabled_plugins_local_overrides_project(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_disabled_plugins should let local config re-enable a plugin disabled in project config."""
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
-    (config_dir / "settings.local.toml").write_text("[plugins.modal]\nenabled = true\n")
+    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+    (project_config_dir / "settings.local.toml").write_text("[plugins.modal]\nenabled = true\n")
 
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_disabled_plugins()
-    assert "modal" not in result
+    assert "modal" not in read_disabled_plugins()
 
 
 def test_read_disabled_plugins_multiple_plugins(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_disabled_plugins should handle multiple disabled plugins."""
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text(
+    (project_config_dir / "settings.toml").write_text(
         "[plugins.modal]\nenabled = false\n\n[plugins.docker]\nenabled = false\n\n[plugins.local]\nenabled = true\n"
     )
-
-    monkeypatch.chdir(temp_git_repo)
 
     result = read_disabled_plugins()
     assert "modal" in result
