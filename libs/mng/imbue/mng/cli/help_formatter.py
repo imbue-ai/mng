@@ -67,7 +67,8 @@ def register_help_metadata(command_name: str, metadata: CommandHelpMetadata) -> 
     """Register help metadata for a top-level command in the string-keyed registry.
 
     This is used for top-level commands (e.g., "create", "snapshot") whose metadata
-    needs to be accessible by name from make_cli_docs.py and main.py.
+    needs to be accessible by name from make_cli_docs.py and main.py. The metadata
+    is also stored on the command object when add_pager_help_option is called.
     """
     _help_metadata_registry[command_name] = metadata
 
