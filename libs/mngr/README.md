@@ -206,7 +206,7 @@ mngr <command> [options]
 ## How it works
 
 You can interact with `mngr` via the terminal (run `mngr --help` to learn more).
-<!-- You can also interact via one of many web interfaces [future] (ex: [TheEye](http://ididntmakethisyet.com)) -->
+<!-- You can also interact via one of many [web interfaces](./web_interfaces.md) [future] (ex: [TheEye](http://ididntmakethisyet.com)) -->
 
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
@@ -218,7 +218,7 @@ You can interact with `mngr` via the terminal (run `mngr --help` to learn more).
 - [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md) for more details.
 - [hosts](./docs/concepts/hosts.md) automatically "stop" when all of their [agents](./docs/concepts/agents.md) are "stopped"
 - `mngr` is extensible via **[plugins](./docs/concepts/plugins.md)**--you can add new agent types, provider backends, CLI commands, and lifecycle hooks
-<!-- - `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even dynamically generate new plugins [future] -->
+<!-- - `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even [dynamically generate new plugins](docs/commands/secondary/plugin.md#mngr-plugin-generate) [future] -->
 
 ### Architecture
 
@@ -247,4 +247,4 @@ TODO: put a ton of examples and references here!
 ## Contributing
 
 Contributions are welcome!
-<!-- Please see `CONTRIBUTING.md` for guidelines. [future] -->
+<!-- Please see [`CONTRIBUTING.md`](/CONTRIBUTING.md) for guidelines. [future] -->
