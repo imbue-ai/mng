@@ -12,13 +12,27 @@ import sys
 from collections import defaultdict
 
 
+def _detect_main_branch(repo_path: str) -> str:
+    """Return 'main' or 'master', whichever exists in the repo."""
+    for branch in ("main", "master"):
+        ret = subprocess.run(
+            ["git", "rev-parse", "--verify", branch],
+            capture_output=True,
+            cwd=repo_path,
+        )
+        if ret.returncode == 0:
+            return branch
+    raise SystemExit(f"Error: no 'main' or 'master' branch found in {repo_path}")
+
+
 def tally_repo(repo_path: str, env: dict[str, str]) -> dict[str, int]:
     """Return a dict mapping date -> total changes for a single repo."""
+    branch = _detect_main_branch(repo_path)
     result = subprocess.run(
         [
             "git",
             "log",
-            "main",
+            branch,
             "--no-merges",
             "--format=COMMIT %ad",
             "--date=format-local:%Y-%m-%d",
