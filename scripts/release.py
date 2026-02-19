@@ -48,19 +48,6 @@ def bump_version(new_version: str) -> list[Path]:
     return modified
 
 
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    """Run a command and print it."""
-    print(f"  $ {' '.join(cmd)}")
-    try:
-        return subprocess.run(cmd, check=check, cwd=REPO_ROOT, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        if e.stdout:
-            print(e.stdout, file=sys.stderr)
-        if e.stderr:
-            print(e.stderr, file=sys.stderr)
-        raise
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bump version and publish to PyPI.")
     parser.add_argument(
@@ -94,20 +81,27 @@ def main() -> None:
         return
 
     # Ensure we're on main and up to date before prompting for confirmation
-    result = run(["git", "branch", "--show-current"])
-    branch = result.stdout.strip()
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
     if branch != "main":
         print(f"ERROR: Must be on main branch (currently on {branch})", file=sys.stderr)
         sys.exit(1)
 
-    result = run(["git", "status", "--porcelain"])
-    if result.stdout.strip():
+    status = subprocess.run(
+        ["git", "status", "--porcelain"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    if status:
         print("ERROR: Working tree is not clean. Commit or stash changes first.", file=sys.stderr)
         sys.exit(1)
 
-    run(["git", "fetch", "origin", "main"])
-    local_sha = run(["git", "rev-parse", "HEAD"]).stdout.strip()
-    remote_sha = run(["git", "rev-parse", "origin/main"]).stdout.strip()
+    subprocess.run(["git", "fetch", "origin", "main"], cwd=REPO_ROOT, check=True)
+    local_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    remote_sha = subprocess.run(
+        ["git", "rev-parse", "origin/main"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
     if local_sha != remote_sha:
         print(
             f"ERROR: Local main ({local_sha[:8]}) is not up to date with origin ({remote_sha[:8]}).", file=sys.stderr
@@ -126,15 +120,15 @@ def main() -> None:
 
     # Regenerate lock
     print("\nRegenerating uv.lock...")
-    run(["uv", "lock"])
+    subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
 
     # Commit, tag, push
     tag = f"v{new_version}"
     files_to_add = [str(p.relative_to(REPO_ROOT)) for p in modified] + ["uv.lock"]
-    run(["git", "add"] + files_to_add)
-    run(["git", "commit", "-m", f"Bump version to {new_version}"])
-    run(["git", "tag", tag])
-    run(["git", "push", "origin", "main", tag])
+    subprocess.run(["git", "add", *files_to_add], cwd=REPO_ROOT, check=True)
+    subprocess.run(["git", "commit", "-m", f"Bump version to {new_version}"], cwd=REPO_ROOT, check=True)
+    subprocess.run(["git", "tag", tag], cwd=REPO_ROOT, check=True)
+    subprocess.run(["git", "push", "origin", "main", tag], cwd=REPO_ROOT, check=True)
 
     print(f"\nRelease {new_version} pushed. The publish workflow will run automatically.")
     print("  https://github.com/imbue-ai/mngr/actions/workflows/publish.yml")
