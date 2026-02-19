@@ -204,16 +204,13 @@ def create_pyinfra_host(hostname: str, port: int, private_key_path: Path, known_
     Clears pyinfra's memoized known_hosts cache to ensure fresh reads,
     since we add new entries dynamically.
     """
-    known_hosts_path_str = str(known_hosts_path)
-    cache_key = f"('{known_hosts_path_str}',){{}}"
-    if cache_key in get_host_keys.cache:
-        del get_host_keys.cache[cache_key]
+    get_host_keys.cache.clear()
 
     host_data = {
         "ssh_user": "root",
         "ssh_port": port,
         "ssh_key": str(private_key_path),
-        "ssh_known_hosts_file": known_hosts_path_str,
+        "ssh_known_hosts_file": str(known_hosts_path),
         "ssh_strict_host_key_checking": "yes",
     }
 
