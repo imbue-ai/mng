@@ -291,6 +291,19 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
 
 
 @pytest.fixture
+def project_config_dir(temp_git_repo: Path, mngr_test_root_name: str) -> Path:
+    """Return the project config directory inside the test git repo, creating it.
+
+    The directory is named `.{mngr_test_root_name}` (e.g., `.mngr-test-abc123`).
+    Tests can write `settings.toml` or `settings.local.toml` into this directory
+    to configure project-level settings for a test.
+    """
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir
+
+
+@pytest.fixture
 def temp_work_dir(tmp_path: Path) -> Path:
     """Create a temporary work_dir directory for agents."""
     work_dir = tmp_path / "work_dir"
