@@ -58,7 +58,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Set up file logging before sourcing common
 if [[ -n "${MNG_AGENT_STATE_DIR:-}" ]]; then
-    export STOP_HOOK_LOG="$MNG_AGENT_STATE_DIR/stop_hook.log"
+    mkdir "$MNG_AGENT_STATE_DIR/logs" 2>/dev/null || true
+    export STOP_HOOK_LOG="$MNG_AGENT_STATE_DIR/logs/stop_hook.log"
 fi
 export STOP_HOOK_SCRIPT_NAME="main_stop_hook"
 
