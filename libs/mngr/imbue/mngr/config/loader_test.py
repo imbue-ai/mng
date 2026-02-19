@@ -918,7 +918,7 @@ def test_parse_commands_empty_string_default_subcommand() -> None:
 
 
 # =============================================================================
-# Tests for read_default_command
+# Tests for read_default_command / reset_default_command_cache
 # =============================================================================
 
 
@@ -932,11 +932,18 @@ def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.
 
 def test_read_default_command_reads_from_project_config(
     monkeypatch: pytest.MonkeyPatch,
-    project_config_dir: Path,
     temp_git_repo: Path,
+    mngr_test_root_name: str,
 ) -> None:
     """read_default_command should read default_subcommand from project config."""
-    (project_config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
+
+    # Create project config file
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = config_dir / "settings.toml"
+    settings_path.write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
+
+    # Point config at the git repo
     monkeypatch.chdir(temp_git_repo)
 
     result = read_default_command("mngr")
@@ -945,12 +952,18 @@ def test_read_default_command_reads_from_project_config(
 
 def test_read_default_command_local_overrides_project(
     monkeypatch: pytest.MonkeyPatch,
-    project_config_dir: Path,
     temp_git_repo: Path,
+    mngr_test_root_name: str,
 ) -> None:
     """read_default_command should let local config override project config."""
-    (project_config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
-    (project_config_dir / "settings.local.toml").write_text('[commands.mngr]\ndefault_subcommand = "stop"\n')
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Project sets "list"
+    (config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = "list"\n')
+    # Local sets "stop"
+    (config_dir / "settings.local.toml").write_text('[commands.mngr]\ndefault_subcommand = "stop"\n')
+
     monkeypatch.chdir(temp_git_repo)
 
     result = read_default_command("mngr")
@@ -959,11 +972,15 @@ def test_read_default_command_local_overrides_project(
 
 def test_read_default_command_empty_string_disables(
     monkeypatch: pytest.MonkeyPatch,
-    project_config_dir: Path,
     temp_git_repo: Path,
+    mngr_test_root_name: str,
 ) -> None:
     """read_default_command should return empty string when config disables defaulting."""
-    (project_config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = ""\n')
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text('[commands.mngr]\ndefault_subcommand = ""\n')
+
     monkeypatch.chdir(temp_git_repo)
 
     result = read_default_command("mngr")
@@ -972,13 +989,17 @@ def test_read_default_command_empty_string_disables(
 
 def test_read_default_command_independent_command_names(
     monkeypatch: pytest.MonkeyPatch,
-    project_config_dir: Path,
     temp_git_repo: Path,
+    mngr_test_root_name: str,
 ) -> None:
     """read_default_command should handle multiple command names independently."""
-    (project_config_dir / "settings.toml").write_text(
+
+    config_dir = temp_git_repo / f".{mngr_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text(
         '[commands.mngr]\ndefault_subcommand = "list"\n\n[commands.snapshot]\ndefault_subcommand = "destroy"\n'
     )
+
     monkeypatch.chdir(temp_git_repo)
 
     assert read_default_command("mngr") == "list"
