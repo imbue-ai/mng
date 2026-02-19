@@ -265,6 +265,19 @@ def _emit_create_result(
     output_opts: OutputOptions,
 ) -> None:
     """Emit final output for snapshot create."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for entry in created:
+            items.append(
+                {
+                    "snapshot_id": entry["snapshot_id"],
+                    "host_id": entry["host_id"],
+                    "provider": entry["provider"],
+                    "agent_names": ", ".join(entry["agent_names"]),
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             data: dict[str, Any] = {"snapshots_created": created, "count": len(created)}
@@ -351,6 +364,18 @@ def _emit_destroy_result(
     output_opts: OutputOptions,
 ) -> None:
     """Emit final output for snapshot destroy."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for entry in destroyed:
+            items.append(
+                {
+                    "snapshot_id": entry["snapshot_id"],
+                    "host_id": entry["host_id"],
+                    "provider": entry["provider"],
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             emit_final_json({"snapshots_destroyed": destroyed, "count": len(destroyed)})
@@ -492,6 +517,9 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
     agent's host is snapshotted; otherwise it is treated as a host identifier.
     Multiple identifiers that resolve to the same host are deduplicated.
 
+    Supports custom format templates via --format. Available fields:
+    snapshot_id, host_id, provider, agent_names.
+
     \b
     Examples:
 
@@ -502,6 +530,8 @@ def snapshot_create(ctx: click.Context, **kwargs: Any) -> None:
       mng snapshot create --all --dry-run
 
       mng snapshot create agent1 agent2 --on-error continue
+
+      mng snapshot create my-agent --format '{snapshot_id}'
     """
     try:
         _snapshot_create_impl(ctx, **kwargs)
@@ -516,6 +546,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="snapshot_create",
         command_class=SnapshotCreateCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot create command")
 
@@ -796,6 +827,9 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
     (to delete all snapshots for the resolved hosts). A confirmation prompt is
     shown unless --force is specified.
 
+    Supports custom format templates via --format. Available fields:
+    snapshot_id, host_id, provider.
+
     \b
     Examples:
 
@@ -809,6 +843,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="snapshot_destroy",
         command_class=SnapshotDestroyCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot destroy command")
 
