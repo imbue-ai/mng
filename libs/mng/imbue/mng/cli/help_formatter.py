@@ -70,40 +70,22 @@ def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
 def _resolve_help_metadata(ctx: click.Context) -> CommandHelpMetadata | None:
     """Get help metadata for a command from its click context.
 
-    Uses a two-level namespace: subcommands are registered under qualified
-    keys like ``"snapshot.create"`` (to avoid collisions between e.g.
-    ``snapshot list`` and ``config list``), while top-level commands use
-    bare keys like ``"create"``.
-
-    The lookup tries the qualified key first, then the bare key, mirroring
-    standard scope resolution.
+    Tries a parent-qualified key first (e.g., "snapshot.create" for subcommands)
+    to avoid collisions between subcommands with the same name in different groups
+    (such as "snapshot list" vs "config list"). Falls back to the bare command name
+    for top-level commands.
     """
     command_name = ctx.info_name
     if command_name is None:
         return None
+    # Try parent-qualified key first (for subcommands)
     if ctx.parent is not None and ctx.parent.info_name is not None:
         qualified = f"{ctx.parent.info_name}.{command_name}"
         metadata = _help_metadata_registry.get(qualified)
         if metadata is not None:
             return metadata
+    # Fall back to bare command name (for top-level commands)
     return _help_metadata_registry.get(command_name)
-
-
-def register_subcommand_help_metadata(
-    parent_metadata: CommandHelpMetadata,
-    subcommand_name: str,
-    metadata: CommandHelpMetadata,
-) -> None:
-    """Register help metadata for a subcommand under its parent and all parent aliases.
-
-    For example, registering "create" under a parent with name "snapshot" and alias "snap"
-    will register both "snapshot.create" and "snap.create".
-    """
-    # Extract the bare parent name from the metadata name (e.g., "mng-snapshot" -> "snapshot")
-    parent_bare_name = parent_metadata.name.split("-", 1)[1] if "-" in parent_metadata.name else parent_metadata.name
-    _help_metadata_registry[f"{parent_bare_name}.{subcommand_name}"] = metadata
-    for alias in parent_metadata.aliases:
-        _help_metadata_registry[f"{alias}.{subcommand_name}"] = metadata
 
 
 def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:
