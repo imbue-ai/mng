@@ -188,7 +188,7 @@ def resolve_target_host(
         # Create a new host using the specified provider
         provider = get_provider_instance(target_host.provider, mngr_ctx)
         host_name = (
-            target_host.name if target_host.name is not None else provider.generate_host_name(target_host.name_style)
+            target_host.name if target_host.name is not None else provider.get_host_name(target_host.name_style)
         )
 
         with log_span("Calling on_before_host_create hooks"):

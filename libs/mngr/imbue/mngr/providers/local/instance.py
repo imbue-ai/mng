@@ -81,7 +81,7 @@ class LocalProviderInstance(BaseProviderInstance):
     supported. The host ID is persistent (generated once and saved to disk).
     """
 
-    def generate_host_name(self, style: HostNameStyle) -> HostName:
+    def get_host_name(self, style: HostNameStyle) -> HostName:
         return HostName("localhost")
 
     @property
