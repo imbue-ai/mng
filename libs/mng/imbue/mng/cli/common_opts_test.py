@@ -1,5 +1,6 @@
 """Tests for common_opts module."""
 
+import os
 from typing import Any
 
 import click
@@ -8,6 +9,7 @@ from click.core import ParameterSource
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.common_opts import CommonCliOptions
+from imbue.mng.cli.common_opts import _apply_process_env
 from imbue.mng.cli.common_opts import _process_template_escapes
 from imbue.mng.cli.common_opts import _resolve_format_flags
 from imbue.mng.cli.common_opts import _run_pre_command_scripts
@@ -431,3 +433,36 @@ def test_resolve_format_flags_json_with_explicit_format_raises() -> None:
     opts = _make_common_cli_opts(output_format="jsonl", json_flag=True)
     with pytest.raises(click.UsageError, match="mutually exclusive"):
         _resolve_format_flags(ctx, opts)
+
+
+# =============================================================================
+# Tests for _apply_process_env
+# =============================================================================
+
+
+def test_apply_process_env_sets_variables(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_apply_process_env should set environment variables in os.environ."""
+    # Register keys with monkeypatch first so they're cleaned up after the test
+    monkeypatch.delenv("MNG_TEST_PROCESS_ENV_A", raising=False)
+    monkeypatch.delenv("MNG_TEST_PROCESS_ENV_B", raising=False)
+
+    _apply_process_env({"MNG_TEST_PROCESS_ENV_A": "value_a", "MNG_TEST_PROCESS_ENV_B": "value_b"})
+
+    assert os.environ["MNG_TEST_PROCESS_ENV_A"] == "value_a"
+    assert os.environ["MNG_TEST_PROCESS_ENV_B"] == "value_b"
+
+
+def test_apply_process_env_overwrites_existing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_apply_process_env should overwrite existing environment variables."""
+    monkeypatch.setenv("MNG_TEST_PROCESS_ENV_X", "old_value")
+
+    _apply_process_env({"MNG_TEST_PROCESS_ENV_X": "new_value"})
+
+    assert os.environ["MNG_TEST_PROCESS_ENV_X"] == "new_value"
+
+
+def test_apply_process_env_empty_dict_is_noop() -> None:
+    """_apply_process_env with empty dict should not modify os.environ."""
+    before = dict(os.environ)
+    _apply_process_env({})
+    assert dict(os.environ) == before

@@ -901,6 +901,36 @@ def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_tom
 
 
 # =============================================================================
+# Tests for process_env via load_config
+# =============================================================================
+
+
+def test_load_config_preserves_process_env_from_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cg: ConcurrencyGroup
+) -> None:
+    """load_config should forward process_env from TOML to the final config."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+    load_all_registries(pm)
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("MNG_PREFIX", raising=False)
+    monkeypatch.delenv("MNG_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
+
+    # Write a user config with process_env
+    mng_dir = tmp_path / ".mng"
+    mng_dir.mkdir(parents=True, exist_ok=True)
+    profile_dir = get_or_create_profile_dir(mng_dir)
+    settings_path = profile_dir / "settings.toml"
+    settings_path.write_text('[process_env]\nTMUX_TMPDIR = "~/.mng/tmux"\nMY_CUSTOM_VAR = "hello"\n')
+
+    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+
+    assert mng_ctx.config.process_env == {"TMUX_TMPDIR": "~/.mng/tmux", "MY_CUSTOM_VAR": "hello"}
+
+
+# =============================================================================
 # Tests for _parse_commands with default_subcommand
 # =============================================================================
 
