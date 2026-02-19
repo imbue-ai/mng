@@ -455,7 +455,7 @@ def _parse_commands(raw_commands: dict[str, dict[str, Any]]) -> dict[str, Comman
              new_host = "docker"
              connect = false
 
-    The special key ``default_subcommand`` is extracted separately from the
+    The special key `default_subcommand` is extracted separately from the
     parameter defaults dict so it can be stored on CommandDefaults as a
     first-class field.
 
@@ -621,28 +621,28 @@ def _merge_command_defaults(
 # Lightweight default-subcommand reader
 # =============================================================================
 #
-# These functions read *only* the ``default_subcommand`` values from config
+# These functions read only the `default_subcommand` values from config
 # files.  They run at CLI parse time -- before the full config is loaded --
 # so they intentionally avoid plugin hooks, full config validation, and
 # anything that needs a PluginManager.
 #
-# ``DefaultCommandGroup.make_context`` calls ``read_default_command`` once
+# `DefaultCommandGroup.make_context` calls `read_default_command` once
 # per invocation and writes the result onto the group instance so that
-# ``parse_args`` / ``resolve_command`` can use it directly.
+# `parse_args` / `resolve_command` can use it directly.
 
 
 def read_default_command(command_name: str) -> str:
-    """Return the configured default subcommand for *command_name*.
+    """Return the configured default subcommand for `command_name`.
 
-    If no config files set ``default_subcommand`` for the given command
-    group, falls back to ``"create"``.  An empty string means "disabled"
+    If no config files set `default_subcommand` for the given command
+    group, falls back to `"create"`.  An empty string means "disabled"
     (the caller should show help instead of defaulting).
     """
     return _read_all_default_subcommands().get(command_name, "create")
 
 
 def _read_all_default_subcommands() -> dict[str, str]:
-    """Read ``default_subcommand`` from all config layers and merge.
+    """Read `default_subcommand` from all config layers and merge.
 
     Precedence (lowest to highest): user config, project config, local config.
     Returns a dict mapping command-group name to default subcommand string.
@@ -677,7 +677,7 @@ def _read_all_default_subcommands() -> dict[str, str]:
 
 
 def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> None:
-    """Extract ``default_subcommand`` entries from a TOML config file into *target*."""
+    """Extract `default_subcommand` entries from a TOML config file into `target`."""
     try:
         raw = _load_toml(path)
     except (ConfigNotFoundError, ConfigParseError):
@@ -694,10 +694,10 @@ def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> 
 
 
 def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:
-    """Like ``get_or_create_profile_dir`` but read-only (never creates dirs/files).
+    """Like `get_or_create_profile_dir` but read-only (never creates dirs/files).
 
     Returns the profile directory if it can be determined from existing files,
-    or ``None`` otherwise.
+    or `None` otherwise.
     """
     config_path = base_dir / ROOT_CONFIG_FILENAME
     if not config_path.exists():

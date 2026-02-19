@@ -11,15 +11,15 @@ class DefaultCommandGroup(click.Group):
     When no subcommand is provided, or when an unrecognized subcommand is given,
     the arguments are forwarded to the default command.
 
-    Subclasses can set ``_default_command`` to change the compile-time default
-    (defaults to ``"create"``).
+    Subclasses can set `_default_command` to change the compile-time default
+    (defaults to `"create"`).
 
-    Subclasses can also set ``_config_key`` to enable runtime configuration of
-    the default via ``[commands.<config_key>].default_subcommand`` in config
-    files.  When ``_config_key`` is set, the config value is read at the start
-    of each invocation (in ``make_context``) and written to
-    ``_default_command``.  An empty string in config disables defaulting
-    entirely (the group shows help / "No such command" instead).
+    Subclasses can also set `_config_key` to enable runtime configuration of
+    the default via `[commands.<config_key>].default_subcommand` in config
+    files.  When `_config_key` is set, the config value is read at the start
+    of each invocation (in `make_context`) and written to `_default_command`.
+    An empty string in config disables defaulting entirely (the group shows
+    help / "No such command" instead).
     """
 
     _default_command: str = "create"

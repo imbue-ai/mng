@@ -162,14 +162,11 @@ def _make_config_key_group(
 
 def test_config_key_custom_default(
     monkeypatch: pytest.MonkeyPatch,
+    project_config_dir: Path,
     temp_git_repo: Path,
-    mngr_test_root_name: str,
 ) -> None:
     """A group with _config_key should use default_subcommand from config."""
-
-    config_dir = temp_git_repo / f".{mngr_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = "list"\n')
+    (project_config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = "list"\n')
     monkeypatch.chdir(temp_git_repo)
 
     record: dict[str, str | None] = {}
@@ -182,35 +179,28 @@ def test_config_key_custom_default(
 
 def test_config_key_disabled_shows_help(
     monkeypatch: pytest.MonkeyPatch,
+    project_config_dir: Path,
     temp_git_repo: Path,
-    mngr_test_root_name: str,
 ) -> None:
     """When default_subcommand is empty string, bare invocation shows help."""
-
-    config_dir = temp_git_repo / f".{mngr_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
+    (project_config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
     monkeypatch.chdir(temp_git_repo)
 
     record: dict[str, str | None] = {}
     group = _make_config_key_group(record, config_key="testgrp")
     runner = CliRunner()
     result = runner.invoke(group, [])
-    # With no default, click should show help (which contains "Commands:")
     assert "Commands:" in result.output or "Usage:" in result.output
     assert "command" not in record
 
 
 def test_config_key_disabled_unrecognized_errors(
     monkeypatch: pytest.MonkeyPatch,
+    project_config_dir: Path,
     temp_git_repo: Path,
-    mngr_test_root_name: str,
 ) -> None:
     """When default_subcommand is empty string, unrecognized command shows error."""
-
-    config_dir = temp_git_repo / f".{mngr_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
+    (project_config_dir / "settings.toml").write_text('[commands.testgrp]\ndefault_subcommand = ""\n')
     monkeypatch.chdir(temp_git_repo)
 
     record: dict[str, str | None] = {}
