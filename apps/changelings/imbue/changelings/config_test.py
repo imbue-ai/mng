@@ -69,9 +69,9 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
         initial_message="Custom analysis instructions",
         agent_type="code-guardian",
         secrets=("CUSTOM_KEY", "OTHER_SECRET"),
-        extra_mngr_args="--verbose",
+        extra_mng_args="--verbose",
         env_vars={"MY_VAR": "my_value"},
-        mngr_options={"gpu": "a10g", "timeout": "600"},
+        mng_options={"gpu": "a10g", "timeout": "600"},
         is_enabled=False,
     )
     config = ChangelingConfig(
@@ -85,9 +85,9 @@ def test_save_and_load_config_preserves_optional_fields() -> None:
     assert loaded_def.schedule == CronSchedule("0 4 * * 1")
     assert loaded_def.initial_message == "Custom analysis instructions"
     assert loaded_def.secrets == ("CUSTOM_KEY", "OTHER_SECRET")
-    assert loaded_def.extra_mngr_args == "--verbose"
+    assert loaded_def.extra_mng_args == "--verbose"
     assert loaded_def.env_vars == {"MY_VAR": "my_value"}
-    assert loaded_def.mngr_options == {"gpu": "a10g", "timeout": "600"}
+    assert loaded_def.mng_options == {"gpu": "a10g", "timeout": "600"}
     assert loaded_def.is_enabled is False
 
 
@@ -168,12 +168,12 @@ def test_upsert_changeling_updates_when_exists() -> None:
     assert result.branch == "updated"
 
 
-def test_save_and_load_config_preserves_mngr_profile() -> None:
-    """The mngr_profile field should survive a save/load roundtrip."""
+def test_save_and_load_config_preserves_mng_profile() -> None:
+    """The mng_profile field should survive a save/load roundtrip."""
     definition = ChangelingDefinition(
         name=ChangelingName("profiled-changeling"),
         agent_type="code-guardian",
-        mngr_profile="abc123def456",
+        mng_profile="abc123def456",
     )
     config = ChangelingConfig(
         changeling_by_name={definition.name: definition},
@@ -183,7 +183,7 @@ def test_save_and_load_config_preserves_mngr_profile() -> None:
     loaded = load_config()
 
     loaded_def = loaded.changeling_by_name[ChangelingName("profiled-changeling")]
-    assert loaded_def.mngr_profile == "abc123def456"
+    assert loaded_def.mng_profile == "abc123def456"
 
 
 def test_load_config_raises_on_malformed_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

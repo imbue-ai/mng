@@ -12,7 +12,7 @@ from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.data_types import DEFAULT_SECRETS
 from imbue.changelings.deploy.deploy import _forward_output
 from imbue.changelings.deploy.deploy import _resolve_timezone_from_paths
-from imbue.changelings.deploy.deploy import build_cron_mngr_command
+from imbue.changelings.deploy.deploy import build_cron_mng_command
 from imbue.changelings.deploy.deploy import build_deploy_env
 from imbue.changelings.deploy.deploy import build_modal_deploy_command
 from imbue.changelings.deploy.deploy import build_modal_run_command
@@ -28,7 +28,7 @@ from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.deploy.deploy import get_modal_environment_name
 from imbue.changelings.deploy.deploy import get_modal_secret_name
 from imbue.changelings.deploy.deploy import get_modal_volume_name
-from imbue.changelings.deploy.deploy import list_mngr_profiles
+from imbue.changelings.deploy.deploy import list_mng_profiles
 from imbue.changelings.deploy.deploy import push_current_branch
 from imbue.changelings.deploy.deploy import read_profile_user_id
 from imbue.changelings.deploy.deploy import serialize_changeling_config
@@ -350,9 +350,9 @@ def test_serialize_changeling_config_includes_all_fields() -> None:
         agent_type="claude",
         branch="develop",
         initial_message="Fix all the things",
-        extra_mngr_args="--verbose",
+        extra_mng_args="--verbose",
         env_vars={"DEBUG": "true"},
-        mngr_options={"gpu": "a10g"},
+        mng_options={"gpu": "a10g"},
         secrets=("MY_TOKEN",),
     )
 
@@ -363,9 +363,9 @@ def test_serialize_changeling_config_includes_all_fields() -> None:
     assert parsed["agent_type"] == "claude"
     assert parsed["branch"] == "develop"
     assert parsed["initial_message"] == "Fix all the things"
-    assert parsed["extra_mngr_args"] == "--verbose"
+    assert parsed["extra_mng_args"] == "--verbose"
     assert parsed["env_vars"] == {"DEBUG": "true"}
-    assert parsed["mngr_options"] == {"gpu": "a10g"}
+    assert parsed["mng_options"] == {"gpu": "a10g"}
     assert parsed["secrets"] == ["MY_TOKEN"]
 
 
@@ -384,106 +384,106 @@ def test_serialize_changeling_config_roundtrip_preserves_defaults() -> None:
     assert parsed["is_enabled"] is True
 
 
-# -- build_cron_mngr_command tests --
+# -- build_cron_mng_command tests --
 
 
-def test_build_cron_mngr_command_starts_with_uv_run_mngr() -> None:
-    """The cron command should use `uv run mngr` instead of python -m."""
+def test_build_cron_mng_command_starts_with_uv_run_mng() -> None:
+    """The cron command should use `uv run mng` instead of python -m."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert cmd[0] == "uv"
     assert cmd[1] == "run"
-    assert cmd[2] == "mngr"
+    assert cmd[2] == "mng"
     assert cmd[3] == "create"
 
 
-def test_build_cron_mngr_command_does_not_include_python_module_invocation() -> None:
-    """The cron command should use uv run mngr, not python -m."""
+def test_build_cron_mng_command_does_not_include_python_module_invocation() -> None:
+    """The cron command should use uv run mng, not python -m."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert "-m" not in cmd
-    assert "imbue.mngr.main" not in cmd
+    assert "imbue.mng.main" not in cmd
 
 
-def test_build_cron_mngr_command_includes_modal_flag() -> None:
+def test_build_cron_mng_command_includes_modal_flag() -> None:
     """The cron command should always target Modal."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     in_idx = cmd.index("--in")
     assert cmd[in_idx + 1] == "modal"
 
 
-def test_build_cron_mngr_command_includes_env_file() -> None:
+def test_build_cron_mng_command_includes_env_file() -> None:
     """The cron command should include the env file path."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/my-secrets.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     file_idx = cmd.index("--host-env-file")
     assert cmd[file_idx + 1] == "/tmp/my-secrets.env"
 
 
-def test_build_cron_mngr_command_includes_core_flags() -> None:
+def test_build_cron_mng_command_includes_core_flags() -> None:
     """The cron command should include all core changeling flags."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert "--no-connect" in cmd
     assert "--no-ensure-clean" in cmd
     assert "CREATOR=changeling" in cmd
 
 
-def test_build_cron_mngr_command_includes_agent_name_with_timestamp() -> None:
+def test_build_cron_mng_command_includes_agent_name_with_timestamp() -> None:
     """The agent name should include the changeling name and a timestamp."""
     changeling = make_test_changeling(name="my-guardian")
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     agent_name = cmd[4]
     assert agent_name.startswith("my-guardian-")
 
 
-def test_build_cron_mngr_command_uses_agent_type() -> None:
+def test_build_cron_mng_command_uses_agent_type() -> None:
     """The cron command should use the configured agent type."""
     changeling = make_test_changeling(agent_type="code-guardian")
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert cmd[5] == "code-guardian"
 
 
-def test_build_cron_mngr_command_includes_verbose_flag() -> None:
-    """The mngr create command should include -vv for verbose output."""
+def test_build_cron_mng_command_includes_verbose_flag() -> None:
+    """The mng create command should include -vv for verbose output."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert "-vv" in cmd
 
 
-def test_build_cron_mngr_command_includes_extra_mngr_args() -> None:
-    """Extra mngr args should be appended to the cron command."""
-    changeling = make_test_changeling(extra_mngr_args="--verbose --timeout 300")
+def test_build_cron_mng_command_includes_extra_mng_args() -> None:
+    """Extra mng args should be appended to the cron command."""
+    changeling = make_test_changeling(extra_mng_args="--verbose --timeout 300")
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert "--verbose" in cmd
     assert "--timeout" in cmd
     assert "300" in cmd
 
 
-def test_build_cron_mngr_command_includes_dangerously_skip_permissions() -> None:
+def test_build_cron_mng_command_includes_dangerously_skip_permissions() -> None:
     """The cron command should pass --dangerously-skip-permissions after -- to the agent."""
     changeling = make_test_changeling()
     env_file = Path("/tmp/test.env")
-    cmd = build_cron_mngr_command(changeling, env_file)
+    cmd = build_cron_mng_command(changeling, env_file)
 
     assert "--" in cmd
     separator_idx = cmd.index("--")
@@ -560,32 +560,32 @@ def test_get_imbue_repo_url_raises_outside_git_repo(
         get_imbue_repo_url()
 
 
-# -- list_mngr_profiles tests --
+# -- list_mng_profiles tests --
 
 
-def test_list_mngr_profiles_returns_empty_when_no_profiles_dir() -> None:
-    result = list_mngr_profiles()
+def test_list_mng_profiles_returns_empty_when_no_profiles_dir() -> None:
+    result = list_mng_profiles()
     assert result == []
 
 
-def test_list_mngr_profiles_returns_profile_ids(tmp_path: Path) -> None:
-    profiles_dir = tmp_path / ".mngr" / "profiles"
+def test_list_mng_profiles_returns_profile_ids(tmp_path: Path) -> None:
+    profiles_dir = tmp_path / ".mng" / "profiles"
     (profiles_dir / "abc123").mkdir(parents=True)
     (profiles_dir / "def456").mkdir(parents=True)
 
-    result = list_mngr_profiles()
+    result = list_mng_profiles()
 
     assert result == ["abc123", "def456"]
 
 
-def test_list_mngr_profiles_ignores_files(tmp_path: Path) -> None:
+def test_list_mng_profiles_ignores_files(tmp_path: Path) -> None:
     """Only directories should be listed as profiles."""
-    profiles_dir = tmp_path / ".mngr" / "profiles"
+    profiles_dir = tmp_path / ".mng" / "profiles"
     profiles_dir.mkdir(parents=True)
     (profiles_dir / "real-profile").mkdir()
     (profiles_dir / "not-a-profile.txt").write_text("ignored")
 
-    result = list_mngr_profiles()
+    result = list_mng_profiles()
 
     assert result == ["real-profile"]
 
@@ -594,7 +594,7 @@ def test_list_mngr_profiles_ignores_files(tmp_path: Path) -> None:
 
 
 def test_read_profile_user_id_returns_user_id(tmp_path: Path) -> None:
-    profile_dir = tmp_path / ".mngr" / "profiles" / "my-profile"
+    profile_dir = tmp_path / ".mng" / "profiles" / "my-profile"
     profile_dir.mkdir(parents=True)
     (profile_dir / "user_id").write_text("abc123def456\n")
 
@@ -612,12 +612,12 @@ def test_read_profile_user_id_raises_when_file_missing() -> None:
 
 
 def test_get_modal_environment_name_formats_correctly() -> None:
-    assert get_modal_environment_name("abc123") == "mngr-abc123"
+    assert get_modal_environment_name("abc123") == "mng-abc123"
 
 
 def test_get_modal_environment_name_uses_full_user_id() -> None:
     result = get_modal_environment_name("8caed3bc40df435fae5817ea0afdbf77")
-    assert result == "mngr-8caed3bc40df435fae5817ea0afdbf77"
+    assert result == "mng-8caed3bc40df435fae5817ea0afdbf77"
 
 
 # -- get_git_config_value tests --
