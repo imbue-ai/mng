@@ -29,6 +29,11 @@ from utils import check_versions_in_sync
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 
 
+def run(*args: str) -> str:
+    """Run a command in the repo root. Returns stripped stdout."""
+    return subprocess.run(args, cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.strip()
+
+
 def get_current_version() -> str:
     """Read and validate the current version across all packages."""
     return check_versions_in_sync()
@@ -81,27 +86,18 @@ def main() -> None:
         return
 
     # Ensure we're on main and up to date before prompting for confirmation
-    branch = subprocess.run(
-        ["git", "branch", "--show-current"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    branch = run("git", "branch", "--show-current")
     if branch != "main":
         print(f"ERROR: Must be on main branch (currently on {branch})", file=sys.stderr)
         sys.exit(1)
 
-    status = subprocess.run(
-        ["git", "status", "--porcelain"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
-    if status:
+    if run("git", "status", "--porcelain"):
         print("ERROR: Working tree is not clean. Commit or stash changes first.", file=sys.stderr)
         sys.exit(1)
 
-    subprocess.run(["git", "fetch", "origin", "main"], cwd=REPO_ROOT, check=True)
-    local_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
-    remote_sha = subprocess.run(
-        ["git", "rev-parse", "origin/main"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    run("git", "fetch", "origin", "main")
+    local_sha = run("git", "rev-parse", "HEAD")
+    remote_sha = run("git", "rev-parse", "origin/main")
     if local_sha != remote_sha:
         print(
             f"ERROR: Local main ({local_sha[:8]}) is not up to date with origin ({remote_sha[:8]}).", file=sys.stderr
@@ -120,15 +116,15 @@ def main() -> None:
 
     # Regenerate lock
     print("\nRegenerating uv.lock...")
-    subprocess.run(["uv", "lock"], cwd=REPO_ROOT, check=True)
+    run("uv", "lock")
 
     # Commit, tag, push
     tag = f"v{new_version}"
     files_to_add = [str(p.relative_to(REPO_ROOT)) for p in modified] + ["uv.lock"]
-    subprocess.run(["git", "add", *files_to_add], cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "commit", "-m", f"Bump version to {new_version}"], cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "tag", tag], cwd=REPO_ROOT, check=True)
-    subprocess.run(["git", "push", "origin", "main", tag], cwd=REPO_ROOT, check=True)
+    run("git", "add", *files_to_add)
+    run("git", "commit", "-m", f"Bump version to {new_version}")
+    run("git", "tag", tag)
+    run("git", "push", "origin", "main", tag)
 
     print(f"\nRelease {new_version} pushed. The publish workflow will run automatically.")
     print("  https://github.com/imbue-ai/mngr/actions/workflows/publish.yml")
