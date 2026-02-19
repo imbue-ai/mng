@@ -66,18 +66,6 @@ else
     NC=''
 fi
 
-log_info() {
-    echo -e "${GREEN}$1${NC}"
-}
-
-log_warn() {
-    echo -e "${YELLOW}$1${NC}" >&2
-}
-
-log_error() {
-    echo -e "${RED}ERROR: $1${NC}" >&2
-}
-
 # File logging (uses STOP_HOOK_LOG exported by main_stop_hook)
 _log_to_file() {
     local level="$1"
@@ -87,6 +75,21 @@ _log_to_file() {
         ts=$(date '+%Y-%m-%d %H:%M:%S')
         echo "[$ts] [$$] [poll_pr_checks] [$level] $msg" >> "$STOP_HOOK_LOG"
     fi
+}
+
+log_info() {
+    echo -e "${GREEN}$1${NC}"
+    _log_to_file "INFO" "$1"
+}
+
+log_warn() {
+    echo -e "${YELLOW}$1${NC}" >&2
+    _log_to_file "WARN" "$1"
+}
+
+log_error() {
+    echo -e "${RED}ERROR: $1${NC}" >&2
+    _log_to_file "ERROR" "$1"
 }
 
 _log_to_file "INFO" "poll_pr_checks started (pid=$$, ppid=$PPID, arg=$BRANCH_OR_PR, timeout=$TIMEOUT, interval=$INTERVAL)"

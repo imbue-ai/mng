@@ -81,14 +81,17 @@ fi
 
 log_error() {
     echo -e "${RED}[$WINDOW] ERROR: $1${NC}" >&2
+    _log_to_file "ERROR" "$1"
 }
 
 log_warn() {
     echo -e "${YELLOW}[$WINDOW] WARN: $1${NC}" >&2
+    _log_to_file "WARN" "$1"
 }
 
 log_info() {
     echo -e "${GREEN}[$WINDOW] $1${NC}"
+    _log_to_file "INFO" "$1"
 }
 
 # Send the review command to the tmux window
