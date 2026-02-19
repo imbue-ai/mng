@@ -70,8 +70,9 @@ class SnapshotCreateCliOptions(CommonCliOptions):
 class SnapshotListCliOptions(CommonCliOptions):
     """Options for the snapshot list subcommand."""
 
-    agents: tuple[str, ...]
+    identifiers: tuple[str, ...]
     agent_list: tuple[str, ...]
+    hosts: tuple[str, ...]
     all_agents: bool
     limit: int | None
     # Future options
@@ -604,13 +605,19 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @snapshot.command(name="list")
-@click.argument("agents", nargs=-1, required=False)
+@click.argument("identifiers", nargs=-1, required=False)
 @optgroup.group("Target Selection")
 @optgroup.option(
     "--agent",
     "agent_list",
     multiple=True,
     help="Agent name or ID to list snapshots for (can be specified multiple times)",
+)
+@optgroup.option(
+    "--host",
+    "hosts",
+    multiple=True,
+    help="Host ID or name to list snapshots for directly (can be specified multiple times)",
 )
 @optgroup.option(
     "-a",
@@ -654,6 +661,10 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
 
     Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
+    Positional arguments can be agent names/IDs or host names/IDs. Each
+    identifier is automatically resolved: if it matches a known agent, that
+    agent's host is used; otherwise it is treated as a host identifier.
+
     Supports custom format templates via --format. Available fields:
     id, name, created_at, size, size_bytes, host_id.
 
@@ -680,19 +691,23 @@ def snapshot_list(ctx: click.Context, **kwargs: Any) -> None:
 
     _check_list_future_options(opts)
 
-    # Validate inputs
-    agent_identifiers = list(opts.agents) + list(opts.agent_list)
+    # Classify mixed positional identifiers as agents or hosts
+    mixed_agent_ids, mixed_host_ids = _classify_mixed_identifiers(list(opts.identifiers), mngr_ctx)
 
-    if not agent_identifiers and not opts.all_agents:
-        raise click.UsageError("Must specify at least one agent or use --all")
+    # Combine with explicit --agent and --host options
+    agent_identifiers = mixed_agent_ids + list(opts.agent_list)
+    host_identifiers = mixed_host_ids + list(opts.hosts)
 
-    if agent_identifiers and opts.all_agents:
-        raise click.UsageError("Cannot specify both agent names and --all")
+    if not agent_identifiers and not host_identifiers and not opts.all_agents:
+        raise click.UsageError("Must specify at least one agent, host, or use --all")
+
+    if (agent_identifiers or host_identifiers) and opts.all_agents:
+        raise click.UsageError("Cannot specify both agent/host names and --all")
 
     # Resolve to hosts
     targets = _resolve_snapshot_hosts(
         agent_identifiers=agent_identifiers,
-        host_identifiers=[],
+        host_identifiers=host_identifiers,
         all_agents=opts.all_agents,
         mngr_ctx=mngr_ctx,
     )

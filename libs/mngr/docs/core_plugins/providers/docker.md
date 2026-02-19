@@ -54,13 +54,13 @@ Docker containers support snapshots via `docker commit`:
 
 ```bash
 # Create a snapshot
-mngr snapshot create my-host
+mngr snapshot create my-agent
 
 # List snapshots
-mngr snapshot list my-host
+mngr snapshot list my-agent
 
-# Start from a snapshot (creates a new container from the committed image)
-mngr start my-host --snapshot <snapshot-id>
+# Start from a snapshot (creates a new container from the committed image) [future]
+mngr start my-agent --snapshot <snapshot-id>
 ```
 
 Snapshots capture the container's filesystem layers. Volume mounts are not included in snapshots.
@@ -70,11 +70,11 @@ Snapshots capture the container's filesystem layers. Volume mounts are not inclu
 Unlike Modal, Docker supports native stop/start. Stopping a container preserves its filesystem state:
 
 ```bash
-# Stop a container (filesystem is preserved)
-mngr stop my-host
+# Stop an agent (container filesystem is preserved)
+mngr stop my-agent
 
-# Start the stopped container (filesystem state is restored)
-mngr start my-host
+# Start the stopped agent (container filesystem state is restored)
+mngr start my-agent
 ```
 
 ## Tags

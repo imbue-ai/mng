@@ -33,7 +33,7 @@ See the [conventions doc](./conventions.md) for full details.
 ## Responsibilities
 
 mngr is responsible for:
-- implementing the [core CLI commands](../README.md) (create, connect, stop, list, push, pull, pair, etc.)
+- implementing the [core CLI commands](../README.md) (create, connect, stop, list, push, pull, etc.)
 - enforcing the [host lifecycle](./concepts/hosts.md#Lifecycle), including automatically stopping a host when all its agents are idle
 - configuring/enabling/disabling [plugins](./concepts/plugins.md)
 - handling [permissions](./concepts/permissions.md) [future] for remote hosts

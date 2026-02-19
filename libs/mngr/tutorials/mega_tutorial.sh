@@ -64,7 +64,7 @@ mngr create my-task --agent-command python --idle-mode run --idle-timeout 60 -- 
 mngr create my-task --add-command server="npm run dev" --add-command logs="tail -f app.log"
 # that command automatically starts two tmux windows named "server" and "logs" that run those commands (in addition to the main window that runs the agent)
 
-## SENDING SENDING MESSAGES ON LAUNCH
+## SENDING MESSAGES ON LAUNCH
 
 # you can send an initial message (so you don't have to wait around, eg, while a Modal container starts)
 mngr create my-task --in modal --no-connect --message "Speed up one of my tests and make a PR on github"
@@ -210,11 +210,11 @@ mngr create my-task --in modal --pass-host-env MY_VAR
 ## TEMPLATES, ALIASES, AND SHORTCUTS
 
 # you can use templates to quickly apply a set of preconfigured options:
-echo "[create_templates.my_modal_template]" >> .mngr/config.local.toml
-echo "in: modal" >> .mngr/config.local.toml
-echo 'build_args = "cpu=4' >> .mngr/config.local.toml
+echo '[create_templates.my_modal_template]' >> .mngr/settings.local.toml
+echo 'new_host = "modal"' >> .mngr/settings.local.toml
+echo 'build_args = "cpu=4"' >> .mngr/settings.local.toml
 mngr create my-task --template my_modal_template
-# templates are defined in your config (see the CONFIGURATION section for more) and can be stacked: -template modal --template codex
+# templates are defined in your config (see the CONFIGURATION section for more) and can be stacked: --template modal --template codex
 # templates take exactly the same parameters as the create command
 # -t is short for --template. Many commands have a short form (see the "--help")
 
@@ -249,17 +249,17 @@ mngr create my-task --label team=backend --tag env=staging
 ## CREATING AND USING AGENTS PROGRAMMATICALLY
 
 # mngr is very much meant to be used for scripting and automation, so nothing requires interactivity.
-# if you want to be sure that interactivity is disabled, you can use the --headless flag:
+# if you want to be sure that interactivity is disabled, you can use the --headless flag: [future]
 mngr create my-task --headless
 
-# or you can set that option in your config so that it always applies:
+# or you can set that option in your config so that it always applies: [future]
 mngr config set headless True
 
-# or you can set it as an environment variable:
+# or you can set it as an environment variable: [future]
 export MNGR_HEADLESS=True
 
 # *all* mngr options work like that. For example, if you want to always run agents in Modal by default, you can set that in your config:
-mngr config set commands.create in modal
+mngr config set commands.create.in modal
 # for more on configuration, see the CONFIGURATION section below
 
 # you can control output format for scripting:
@@ -279,7 +279,7 @@ mngr create my-task --resume-message "Continue where you left off"
 # tons more arguments for anything you could want! As always, you can learn more via --help
 mngr create --help
 
-# or see the other commands--list, destroy, message, connect, push, pull, copy, and more!  These other commands are covered in their own sections below.
+# or see the other commands--list, destroy, message, connect, push, pull, clone, and more!  These other commands are covered in their own sections below.
 mngr --help
 
 ##############################################################################
