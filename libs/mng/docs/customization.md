@@ -174,7 +174,7 @@ By default, `mng` creates tmux sessions on your default tmux server. To isolate 
 TMUX_TMPDIR = "/tmp/mng-tmux"
 ```
 
-Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
+(Note: the directory must already exist -- `mkdir -p /tmp/mng-tmux`.) Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
 
 ```bash
 TMUX_TMPDIR=/tmp/mng-tmux tmux ls
