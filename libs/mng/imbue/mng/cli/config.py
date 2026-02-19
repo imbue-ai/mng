@@ -756,9 +756,7 @@ CommandHelpMetadata(
     key="config",
     one_line_description="Manage mng configuration",
     synopsis="mng [config|cfg] <subcommand> [OPTIONS]",
-    description="""Manage mng configuration.
-
-View, edit, and modify mng configuration settings at the user, project, or
+    description="""View, edit, and modify mng configuration settings at the user, project, or
 local level. Much like a simpler version of `git config`, this command allows
 you to manage configuration settings at different scopes.
 
@@ -785,9 +783,7 @@ CommandHelpMetadata(
     key="config.list",
     one_line_description="List all configuration values",
     synopsis="mng config list [OPTIONS]",
-    description="""List all configuration values.
-
-Shows all configuration settings from the specified scope, or from the
+    description="""Shows all configuration settings from the specified scope, or from the
 merged configuration if no scope is specified.
 
 Supports custom format templates via --format. Available fields:
@@ -809,9 +805,7 @@ CommandHelpMetadata(
     key="config.get",
     one_line_description="Get a configuration value",
     synopsis="mng config get KEY [OPTIONS]",
-    description="""Get a configuration value.
-
-Retrieves the value of a specific configuration key. Use dot notation
+    description="""Retrieves the value of a specific configuration key. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
 
 By default reads from the merged configuration. Use --scope to read
@@ -832,9 +826,7 @@ CommandHelpMetadata(
     key="config.set",
     one_line_description="Set a configuration value",
     synopsis="mng config set KEY VALUE [OPTIONS]",
-    description="""Set a configuration value.
-
-Sets a configuration value at the specified scope. Use dot notation
+    description="""Sets a configuration value at the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
 
 Values are parsed as JSON if possible, otherwise as strings.
@@ -855,9 +847,7 @@ CommandHelpMetadata(
     key="config.unset",
     one_line_description="Remove a configuration value",
     synopsis="mng config unset KEY [OPTIONS]",
-    description="""Remove a configuration value.
-
-Removes a configuration value from the specified scope. Use dot notation
+    description="""Removes a configuration value from the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').""",
     examples=(
         ("Remove a key from project scope", "mng config unset commands.create.connect"),
@@ -874,9 +864,7 @@ CommandHelpMetadata(
     key="config.edit",
     one_line_description="Open configuration file in editor",
     synopsis="mng config edit [OPTIONS]",
-    description="""Open configuration file in editor.
-
-Opens the configuration file for the specified scope in your default
+    description="""Opens the configuration file for the specified scope in your default
 editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
 
 If the config file doesn't exist, it will be created with an empty template.""",
@@ -896,9 +884,7 @@ CommandHelpMetadata(
     key="config.path",
     one_line_description="Show configuration file paths",
     synopsis="mng config path [OPTIONS]",
-    description="""Show configuration file paths.
-
-Shows the paths to configuration files. If --scope is specified, shows
+    description="""Shows the paths to configuration files. If --scope is specified, shows
 only that scope's path. Otherwise shows all paths and whether they exist.""",
     examples=(
         ("Show all config file paths", "mng config path"),

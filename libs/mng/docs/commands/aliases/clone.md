@@ -9,7 +9,7 @@
 mng clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]
 ```
 
-Create a new agent by cloning an existing one. [experimental]
+Create a new agent by cloning an existing one [experimental]
 
 This is a convenience wrapper around `mng create --from-agent <source>`.
 The first argument is the source agent to clone from. An optional second

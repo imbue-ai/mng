@@ -708,9 +708,7 @@ CommandHelpMetadata(
     key="plugin",
     one_line_description="Manage available and active plugins [experimental]",
     synopsis="mng [plugin|plug] <subcommand> [OPTIONS]",
-    description="""Manage available and active plugins.
-
-Install, remove, view, enable, and disable plugins registered with mng.
+    description="""Install, remove, view, enable, and disable plugins registered with mng.
 Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.""",
     aliases=("plug",),
     examples=(
@@ -736,9 +734,7 @@ CommandHelpMetadata(
     key="plugin.list",
     one_line_description="List discovered plugins [experimental]",
     synopsis="mng plugin list [OPTIONS]",
-    description="""List discovered plugins.
-
-Shows all plugins registered with mng, including built-in plugins
+    description="""Shows all plugins registered with mng, including built-in plugins
 and any externally installed plugins.
 
 Supports custom format templates via --format. Available fields:
@@ -761,9 +757,7 @@ CommandHelpMetadata(
     key="plugin.add",
     one_line_description="Install a plugin package [experimental]",
     synopsis="mng plugin add [NAME] [OPTIONS]",
-    description="""Install a plugin package.
-
-Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
+    description="""Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
 package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
 from a local directory in editable mode. --git installs from a git URL.""",
     examples=(
@@ -783,9 +777,7 @@ CommandHelpMetadata(
     key="plugin.remove",
     one_line_description="Uninstall a plugin package [experimental]",
     synopsis="mng plugin remove [NAME] [OPTIONS]",
-    description="""Uninstall a plugin package.
-
-Provide exactly one of NAME (positional) or --path. For local paths,
+    description="""Provide exactly one of NAME (positional) or --path. For local paths,
 the package name is read from pyproject.toml.""",
     examples=(
         ("Remove by name", "mng plugin remove mng-pair"),
@@ -802,9 +794,7 @@ CommandHelpMetadata(
     key="plugin.enable",
     one_line_description="Enable a plugin [experimental]",
     synopsis="mng plugin enable NAME [OPTIONS]",
-    description="""Enable a plugin.
-
-Sets plugins.<name>.enabled = true in the configuration file at the
+    description="""Sets plugins.<name>.enabled = true in the configuration file at the
 specified scope.""",
     examples=(
         ("Enable at project scope (default)", "mng plugin enable modal"),
@@ -821,9 +811,7 @@ CommandHelpMetadata(
     key="plugin.disable",
     one_line_description="Disable a plugin [experimental]",
     synopsis="mng plugin disable NAME [OPTIONS]",
-    description="""Disable a plugin.
-
-Sets plugins.<name>.enabled = false in the configuration file at the
+    description="""Sets plugins.<name>.enabled = false in the configuration file at the
 specified scope.""",
     examples=(
         ("Disable at project scope (default)", "mng plugin disable modal"),

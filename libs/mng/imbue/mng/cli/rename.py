@@ -145,9 +145,7 @@ CommandHelpMetadata(
     one_line_description="Rename an agent or host [experimental]",
     synopsis="mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
     arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
-    description="""Rename an agent or host.
-
-Updates the agent's name in its data.json and renames the tmux session
+    description="""Updates the agent's name in its data.json and renames the tmux session
 if the agent is currently running. Git branch names are not renamed.
 
 If a previous rename was interrupted (e.g., the tmux session was renamed

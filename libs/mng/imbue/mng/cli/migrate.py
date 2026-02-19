@@ -36,9 +36,7 @@ CommandHelpMetadata(
     key="migrate",
     one_line_description="Move an agent to a different host [experimental]",
     synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-    description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
-
-This is equivalent to running `mng clone <source>` followed by
+    description="""This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to
 migrate. An optional second positional argument sets the new agent's name.
 All remaining arguments are passed through to the create command.

@@ -477,9 +477,7 @@ CommandHelpMetadata(
     key="connect",
     one_line_description="Connect to an existing agent via the terminal",
     synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
-    description="""Connect to an existing agent via the terminal.
-
-Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+    description="""Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mng open` to
 open an agent's URLs in a web browser instead.
 

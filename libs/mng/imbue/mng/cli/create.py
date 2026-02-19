@@ -1619,9 +1619,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
 - `AGENT_ARGS`: Additional arguments passed to the agent""",
-    description="""Create a new agent and optionally connect to it.
-
-This command sets up an agent's working directory, optionally provisions a
+    description="""This command sets up an agent's working directory, optionally provisions a
 new host (or uses an existing one), runs the specified agent process, and
 connects to it by default.
 

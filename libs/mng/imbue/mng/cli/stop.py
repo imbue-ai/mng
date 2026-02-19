@@ -236,9 +236,7 @@ CommandHelpMetadata(
     key="stop",
     one_line_description="Stop running agent(s)",
     synopsis="mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
-    description="""Stop one or more running agents.
-
-For remote hosts, this stops the agent's tmux session. The host remains
+    description="""For remote hosts, this stops the agent's tmux session. The host remains
 running unless idle detection stops it automatically.
 
 For local agents, this stops the agent's tmux session. The local host

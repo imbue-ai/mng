@@ -504,9 +504,7 @@ CommandHelpMetadata(
     key="destroy",
     one_line_description="Destroy agent(s) and clean up resources",
     synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
-    description="""Destroy one or more agents and clean up their resources.
-
-When the last agent on a host is destroyed, the host itself is also destroyed
+    description="""When the last agent on a host is destroyed, the host itself is also destroyed
 (including containers, volumes, snapshots, and any remote infrastructure).
 
 Use with caution! This operation is irreversible.

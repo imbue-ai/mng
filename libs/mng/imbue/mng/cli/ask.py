@@ -323,7 +323,7 @@ def _build_ask_context() -> str:
         parts.append("")
         parts.append(f"Synopsis: {metadata.synopsis}")
         parts.append("")
-        parts.append(metadata.description.strip())
+        parts.append(metadata.full_description.strip())
         parts.append("")
         if metadata.examples:
             parts.append("Examples:")
@@ -453,10 +453,7 @@ CommandHelpMetadata(
     key="ask",
     one_line_description="Chat with mng for help [experimental]",
     synopsis="mng ask [--execute] QUERY...",
-    description="""Chat directly with mng for help -- it can create the
-necessary CLI call for pretty much anything you want to do.
-
-If no query is provided, shows general help about available commands
+    description="""If no query is provided, shows general help about available commands
 and common workflows.
 
 When --execute is specified, the generated CLI command is executed

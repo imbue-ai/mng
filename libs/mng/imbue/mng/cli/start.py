@@ -293,9 +293,7 @@ CommandHelpMetadata(
     key="start",
     one_line_description="Start stopped agent(s)",
     synopsis="mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]",
-    description="""Start one or more stopped agents.
-
-For remote hosts, this restores from the most recent snapshot and starts
+    description="""For remote hosts, this restores from the most recent snapshot and starts
 the container/instance. For local agents, this starts the agent's tmux
 session.
 

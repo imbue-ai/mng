@@ -1003,9 +1003,7 @@ CommandHelpMetadata(
     key="list",
     one_line_description="List all agents managed by mng",
     synopsis="mng [list|ls] [OPTIONS]",
-    description="""List all agents managed by mng.
-
-Displays agents with their status, host information, and other metadata.
+    description="""Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.""",
     aliases=("ls",),
     examples=(

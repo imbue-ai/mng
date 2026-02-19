@@ -278,9 +278,7 @@ CommandHelpMetadata(
         "- `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command\n"
         "- `COMMAND`: Shell command to execute on the agent's host"
     ),
-    description="""Execute a shell command on the host(s) where one or more agents run.
-
-The command runs in each agent's work_dir by default. Use --cwd to override
+    description="""The command runs in each agent's work_dir by default. Use --cwd to override
 the working directory.
 
 The command's stdout is printed to stdout and stderr to stderr. The exit

@@ -9,7 +9,7 @@
 mng gc [OPTIONS]
 ```
 
-Garbage collect unused resources.
+Garbage collect unused resources
 
 Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.

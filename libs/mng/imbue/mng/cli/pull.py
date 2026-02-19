@@ -334,9 +334,7 @@ CommandHelpMetadata(
     key="pull",
     one_line_description="Pull files or git commits from an agent to local machine [experimental]",
     synopsis="mng pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]",
-    description="""Pull files or git commits from an agent to local machine.
-
-Syncs files or git state from an agent's working directory to a local directory.
+    description="""Syncs files or git state from an agent's working directory to a local directory.
 Default behavior uses rsync for efficient incremental file transfer.
 Use --sync-mode=git to merge git branches instead of syncing files.
 

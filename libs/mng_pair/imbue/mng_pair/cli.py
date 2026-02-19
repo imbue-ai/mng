@@ -221,9 +221,7 @@ CommandHelpMetadata(
     key="pair",
     one_line_description="Continuously sync files between an agent and local directory [experimental]",
     synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
-    description="""Continuously sync files between an agent and local directory.
-
-This command establishes a bidirectional file sync between an agent's working
+    description="""This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
 
 If git repositories exist on both sides, the command first synchronizes git

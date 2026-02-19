@@ -9,7 +9,7 @@
 mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]
 ```
 
-Re-run provisioning on an existing agent.
+Re-run provisioning on an existing agent [experimental]
 
 This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for

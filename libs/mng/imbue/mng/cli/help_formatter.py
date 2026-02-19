@@ -29,7 +29,7 @@ class CommandHelpMetadata(FrozenModel):
     key: str = Field(description="Dot-separated registry key (e.g., 'create', 'snapshot.create')")
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
-    description: str = Field(description="Detailed description of the command")
+    description: str = Field(description="Extended description (paragraphs after the one-line summary)")
     aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
     arguments_description: str | None = Field(
         default=None,
@@ -57,6 +57,13 @@ class CommandHelpMetadata(FrozenModel):
     def name(self) -> str:
         """Display name derived from key (e.g., key='snapshot.create' -> 'mng snapshot create')."""
         return "mng " + self.key.replace(".", " ")
+
+    @property
+    def full_description(self) -> str:
+        """One-line description + extended description, separated by a blank line."""
+        if self.description:
+            return self.one_line_description + "\n\n" + self.description
+        return self.one_line_description
 
     def register(self) -> None:
         """Register this metadata in the global help registry, keyed by self.key."""
@@ -269,7 +276,7 @@ def _write_git_style_help(
 
     # DESCRIPTION section
     output.write(f"{_format_section_title('Description')}\n")
-    for paragraph in metadata.description.strip().split("\n\n"):
+    for paragraph in metadata.full_description.strip().split("\n\n"):
         wrapped = _wrap_text(paragraph.strip(), width - 7, "       ", None)
         output.write(f"{wrapped}\n\n")
 

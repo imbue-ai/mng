@@ -9,7 +9,7 @@
 mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] [--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]
 ```
 
-Destroy or stop agents and hosts in order to free up resources.
+Destroy or stop agents and hosts to free up resources [experimental]
 
 When running in a pty, defaults to providing an interactive interface for
 reviewing running agents and hosts and selecting which ones to destroy or stop.

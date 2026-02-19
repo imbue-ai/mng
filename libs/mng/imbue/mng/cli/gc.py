@@ -462,9 +462,7 @@ CommandHelpMetadata(
     key="gc",
     one_line_description="Garbage collect unused resources",
     synopsis="mng gc [OPTIONS]",
-    description="""Garbage collect unused resources.
-
-Automatically removes containers, old snapshots, unused hosts, cached images,
+    description="""Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.
 
 `mng destroy` automatically cleans up resources when an agent is deleted.

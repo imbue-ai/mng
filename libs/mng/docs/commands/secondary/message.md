@@ -9,7 +9,7 @@
 mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
-Send a message to one or more agents.
+Send a message to one or more agents
 
 Agent IDs can be specified as positional arguments for convenience. The
 message is sent to the agent's stdin.

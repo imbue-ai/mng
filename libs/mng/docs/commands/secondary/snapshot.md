@@ -9,7 +9,7 @@
 mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
-Create, list, and destroy snapshots of agent hosts.
+Create, list, and destroy host snapshots [experimental]
 
 Snapshots capture the complete filesystem state of a host, allowing it to be
 restored later. Because the snapshot is at the host level, the state of all
@@ -53,7 +53,7 @@ mng snapshot [OPTIONS] COMMAND [ARGS]...
 
 ## mng snapshot create
 
-Create a snapshot of agent host(s).
+Create a snapshot of agent host(s) [experimental]
 
 Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
@@ -143,7 +143,7 @@ $ mng snapshot create agent1 agent2 --on-error continue
 
 ## mng snapshot list
 
-List snapshots for agent host(s).
+List snapshots for agent host(s) [experimental]
 
 Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
@@ -232,7 +232,7 @@ $ mng snapshot list my-agent --format '{name}\t{size}\t{host_id}'
 
 ## mng snapshot destroy
 
-Destroy snapshots for agent host(s).
+Destroy snapshots for agent host(s) [experimental]
 
 Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is

@@ -848,9 +848,7 @@ CommandHelpMetadata(
     key="snapshot",
     one_line_description="Create, list, and destroy host snapshots [experimental]",
     synopsis="mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
-    description="""Create, list, and destroy snapshots of agent hosts.
-
-Snapshots capture the complete filesystem state of a host, allowing it to be
+    description="""Snapshots capture the complete filesystem state of a host, allowing it to be
 restored later. Because the snapshot is at the host level, the state of all
 agents on the host is saved.
 
@@ -887,9 +885,7 @@ CommandHelpMetadata(
     key="snapshot.create",
     one_line_description="Create a snapshot of agent host(s) [experimental]",
     synopsis="mng snapshot create [IDENTIFIERS...] [OPTIONS]",
-    description="""Create a snapshot of agent host(s).
-
-Positional arguments can be agent names/IDs or host names/IDs. Each
+    description="""Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
 agent's host is snapshotted; otherwise it is treated as a host identifier.
 Multiple identifiers that resolve to the same host are deduplicated.""",
@@ -910,9 +906,7 @@ CommandHelpMetadata(
     key="snapshot.list",
     one_line_description="List snapshots for agent host(s) [experimental]",
     synopsis="mng snapshot list [IDENTIFIERS...] [OPTIONS]",
-    description="""List snapshots for agent host(s).
-
-Shows snapshot ID, name, creation time, size, and host for each snapshot.
+    description="""Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
 Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
@@ -938,9 +932,7 @@ CommandHelpMetadata(
     key="snapshot.destroy",
     one_line_description="Destroy snapshots for agent host(s) [experimental]",
     synopsis="mng snapshot destroy [AGENTS...] [OPTIONS]",
-    description="""Destroy snapshots for agent host(s).
-
-Requires either --snapshot (to delete specific snapshots) or --all-snapshots
+    description="""Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
 shown unless --force is specified.""",
     examples=(

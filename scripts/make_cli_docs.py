@@ -288,7 +288,7 @@ def _format_usage_block(command: click.Command, prog_name: str) -> str:
 def _format_description_block(metadata: CommandHelpMetadata) -> str:
     """Format a description + alias block from metadata for markdown docs."""
     lines: list[str] = []
-    for paragraph in metadata.description.strip().split("\n\n"):
+    for paragraph in metadata.full_description.strip().split("\n\n"):
         lines.append(paragraph.strip())
         lines.append("")
 
@@ -415,7 +415,7 @@ def generate_subcommand_docs(command: click.Group, prog_name: str, parent_key: s
         lines.append("")
 
         # Description from metadata
-        if subcmd_metadata is not None and subcmd_metadata.description:
+        if subcmd_metadata is not None and subcmd_metadata.full_description:
             lines.append(_format_description_block(subcmd_metadata))
 
         # Usage
@@ -472,7 +472,7 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
             content_parts.append(synopsis)
 
     # Description from metadata
-    if metadata is not None and metadata.description:
+    if metadata is not None:
         content_parts.append(_format_description_block(metadata))
 
     # Usage from click
@@ -552,9 +552,8 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
         content_parts.append(synopsis)
 
     # Description
-    if metadata.description:
-        content_parts.append(metadata.description)
-        content_parts.append("")
+    content_parts.append(metadata.full_description)
+    content_parts.append("")
 
     # Additional sections
     additional = format_additional_sections(metadata)

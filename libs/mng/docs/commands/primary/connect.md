@@ -9,7 +9,7 @@
 mng [connect|conn] [OPTIONS] [AGENT]
 ```
 
-Connect to an existing agent via the terminal.
+Connect to an existing agent via the terminal
 
 Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mng open` to

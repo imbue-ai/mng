@@ -191,9 +191,7 @@ CommandHelpMetadata(
         "- `TARGET`: Agent or host name/ID whose logs to view\n"
         "- `LOG_FILE`: Name of the log file to view (optional; lists files if omitted)"
     ),
-    description="""View log files from an agent or host.
-
-TARGET identifies an agent (by name or ID) or a host (by name or ID).
+    description="""TARGET identifies an agent (by name or ID) or a host (by name or ID).
 The command first tries to match TARGET as an agent, then as a host.
 
 If LOG_FILE is not specified, lists all available log files.

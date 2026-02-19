@@ -9,7 +9,7 @@
 mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
 ```
 
-Destroy one or more agents and clean up their resources.
+Destroy agent(s) and clean up resources
 
 When the last agent on a host is destroyed, the host itself is also destroyed
 (including containers, volumes, snapshots, and any remote infrastructure).
