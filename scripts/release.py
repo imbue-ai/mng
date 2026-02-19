@@ -47,7 +47,14 @@ def bump_version(new_version: str) -> list[Path]:
 def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     """Run a command and print it."""
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check, cwd=REPO_ROOT, capture_output=True, text=True)
+    try:
+        return subprocess.run(cmd, check=check, cwd=REPO_ROOT, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        if e.stdout:
+            print(e.stdout, file=sys.stderr)
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+        raise
 
 
 def main() -> None:
