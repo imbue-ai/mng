@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate markdown documentation for mngr CLI commands.
+"""Generate markdown documentation for mng CLI commands.
 
 Usage:
     uv run python scripts/make_cli_docs.py
 
 This script generates markdown documentation for all CLI commands
-and writes them to libs/mngr/docs/commands/. It preserves option
+and writes them to libs/mng/docs/commands/. It preserves option
 groups defined via click_option_group in the generated markdown.
 """
 
@@ -15,10 +15,11 @@ import click
 from click_option_group import GroupedOption
 from mkdocs_click._docs import make_command_docs
 
-from imbue.mngr.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
-from imbue.mngr.cli.help_formatter import get_help_metadata
-from imbue.mngr.main import BUILTIN_COMMANDS
-from imbue.mngr.main import cli
+from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mng.cli.help_formatter import get_help_metadata
+from imbue.mng.main import BUILTIN_COMMANDS
+from imbue.mng.main import PLUGIN_COMMANDS
+from imbue.mng.main import cli
 
 # Commands categorized by their documentation location
 PRIMARY_COMMANDS = {
@@ -272,7 +273,7 @@ def format_synopsis(command_name: str) -> str:
 
     The synopsis shows the command usage pattern with common options,
     matching what's shown at the top of --help output. Aliases are
-    included in the synopsis (e.g., "mngr [create|c]").
+    included in the synopsis (e.g., "mng [create|c]").
     """
     metadata = get_help_metadata(command_name)
     if metadata is None or not metadata.synopsis:
@@ -353,7 +354,7 @@ def get_relative_link(from_command: str, to_command: str) -> str:
 
     if to_category is None:
         # Target command doesn't have docs, just return the command name
-        return f"mngr {to_command}"
+        return f"mng {to_command}"
 
     if from_category == to_category:
         return f"./{to_command}.md"
@@ -370,7 +371,7 @@ def format_see_also_section(command_name: str) -> str:
     lines = ["", "## See Also", ""]
     for ref_command, description in metadata.see_also:
         link = get_relative_link(command_name, ref_command)
-        lines.append(f"- [mngr {ref_command}]({link}) - {description}")
+        lines.append(f"- [mng {ref_command}]({link}) - {description}")
 
     lines.append("")
     return "\n".join(lines)
@@ -442,7 +443,7 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         print(f"Warning: Command '{command_name}' not found")
         return
 
-    prog_name = f"mngr {command_name}"
+    prog_name = f"mng {command_name}"
 
     # Generate markdown using mkdocs-click for header/usage/description
     mkdocs_lines = list(
@@ -538,7 +539,7 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
     content_parts: list[str] = []
 
     # Title
-    content_parts.append(f"# mngr {command_name}")
+    content_parts.append(f"# mng {command_name}")
 
     # Synopsis
     synopsis = format_synopsis(command_name)
@@ -585,10 +586,10 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
 
 def main() -> None:
     # Base output directory
-    base_dir = Path(__file__).parent.parent / "libs" / "mngr" / "docs" / "commands"
+    base_dir = Path(__file__).parent.parent / "libs" / "mng" / "docs" / "commands"
 
-    # Generate docs for each built-in command
-    for cmd in BUILTIN_COMMANDS:
+    # Generate docs for each built-in command and plugin command
+    for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
         if cmd.name is not None:
             generate_command_doc(cmd.name, base_dir)
 

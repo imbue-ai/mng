@@ -8,6 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.core import get_ratchet_failures
 
 
 class RatchetRuleInfo(FrozenModel):
@@ -33,9 +34,19 @@ def check_ratchet_rule(
     source_dir: Path,
     excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
-    """Run a regex-based ratchet rule against a source directory."""
+    """Run a regex-based ratchet rule against Python files in a source directory."""
     pattern = RegexPattern(rule.pattern_string, multiline=rule.is_multiline)
     return check_regex_ratchet(source_dir, FileExtension(".py"), pattern, excluded_path_patterns)
+
+
+def check_ratchet_rule_all_files(
+    rule: RegexRatchetRule,
+    source_dir: Path,
+    excluded_path_patterns: tuple[str, ...] = (),
+) -> tuple[RatchetMatchChunk, ...]:
+    """Run a regex-based ratchet rule against all tracked files (not just .py)."""
+    pattern = RegexPattern(rule.pattern_string, multiline=rule.is_multiline)
+    return get_ratchet_failures(source_dir, None, pattern, excluded_path_patterns)
 
 
 # --- Code safety ---
@@ -78,7 +89,11 @@ PREVENT_GLOBAL_KEYWORD = RegexRatchetRule(
 
 PREVENT_BARE_PRINT = RegexRatchetRule(
     rule_name="bare print statements",
-    rule_description="Do not use bare print statements. Use logger.info(), logger.debug(), logger.warning(), etc instead",
+    rule_description=(
+        "Do not use bare print statements. Consider what kind of output you are producing: "
+        "for user-facing command output (results, tables, status messages), use write_human_line(); "
+        "for diagnostic/debug messages, use logger.info(), logger.debug(), logger.warning(), etc."
+    ),
     pattern_string=r"^\s*print\s*\(",
     is_multiline=True,
 )
@@ -282,7 +297,10 @@ PREVENT_FSTRING_LOGGING = RegexRatchetRule(
 
 PREVENT_CLICK_ECHO = RegexRatchetRule(
     rule_name="click.echo usage",
-    rule_description="Do not use click.echo. Use logger.info() instead for consistent logging",
+    rule_description=(
+        "Do not use click.echo. For user-facing command output, use write_human_line(); "
+        "for diagnostic/debug messages, use logger.info(), logger.debug(), etc."
+    ),
     pattern_string=r"\bclick\.echo\b|\bfrom\s+click\s+import\s+.*\becho\b",
 )
 

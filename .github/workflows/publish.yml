@@ -1,0 +1,83 @@
+name: Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g. 0.1.0). Must match the version in pyproject.toml files.'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install build dependencies
+        run: uv tool install build
+
+      - name: Verify version consistency
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          MNG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mng/pyproject.toml', 'rb'))['project']['version'])")
+          COMMON_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
+          CG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/concurrency_group/pyproject.toml', 'rb'))['project']['version'])")
+
+          echo "mng version: $MNG_VERSION"
+          echo "imbue-common version: $COMMON_VERSION"
+          echo "concurrency-group version: $CG_VERSION"
+
+          if [ "$MNG_VERSION" != "$COMMON_VERSION" ] || [ "$MNG_VERSION" != "$CG_VERSION" ]; then
+            echo "ERROR: Version mismatch across packages"
+            exit 1
+          fi
+
+          if [ -n "$INPUT_VERSION" ] && [ "$MNG_VERSION" != "$INPUT_VERSION" ]; then
+            echo "ERROR: Input version ($INPUT_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
+            exit 1
+          fi
+
+          if [ "$REF_TYPE" = "tag" ]; then
+            TAG_VERSION="${REF_NAME#v}"
+            if [ "$MNG_VERSION" != "$TAG_VERSION" ]; then
+              echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
+              exit 1
+            fi
+          fi
+
+      - name: Build imbue-common
+        run: pyproject-build libs/imbue_common -o dist/
+
+      - name: Build concurrency-group
+        run: pyproject-build libs/concurrency_group -o dist/
+
+      - name: Build mng
+        run: pyproject-build libs/mng -o dist/
+
+      - name: Publish packages to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true

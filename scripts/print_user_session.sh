@@ -2,7 +2,7 @@
 # Print out Claude Code conversation history in a way that is easier to read and analyze.
 # Prints all sessions in chronological order using the session ID history file.
 #
-# Uses export_transcript.sh (from the mngr resources) for raw JSONL extraction,
+# Uses export_transcript.sh (from the mng resources) for raw JSONL extraction,
 # then applies filtering and formatting.
 
 set -euo pipefail
@@ -10,7 +10,7 @@ set -euo pipefail
 # Locate the export_transcript.sh script
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXPORT_SCRIPT="$REPO_ROOT/libs/mngr/imbue/mngr/resources/export_transcript.sh"
+EXPORT_SCRIPT="$REPO_ROOT/libs/mng/imbue/mng/resources/export_transcript.sh"
 
 if [ ! -f "$EXPORT_SCRIPT" ]; then
     echo "export_transcript.sh not found at $EXPORT_SCRIPT" >&2
