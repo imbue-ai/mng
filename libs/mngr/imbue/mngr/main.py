@@ -391,5 +391,7 @@ def _update_create_help_with_provider_args() -> None:
         register_help_metadata(command_name, updated_metadata)
 
 
-# Attach the lazy loader so that help_formatter can trigger it on --help
+# Attach the lazy loader so that help_formatter can trigger it on --help.
+# ty: ignore because click.Command has no typed slot for custom attributes.
+# If more custom attributes accumulate, consider a click.Command subclass instead.
 create.ensure_provider_help = _update_create_help_with_provider_args  # ty: ignore[unresolved-attribute]
