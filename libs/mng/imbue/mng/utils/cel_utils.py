@@ -59,6 +59,7 @@ def apply_cel_filters_to_context(
     context: dict[str, Any],
     include_filters: Sequence[Any],
     exclude_filters: Sequence[Any],
+    # Used in warning messages to identify what is being filtered
     error_context_description: str,
 ) -> bool:
     """Apply CEL filters to a context dictionary.
