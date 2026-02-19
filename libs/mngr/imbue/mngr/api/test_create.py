@@ -74,9 +74,10 @@ def _setup_claude_trust_config(work_dir: Path, tmp_home_dir: Path) -> None:
     this ends up writing ~/.claude.json for the home dir set and used in setup_test_mngr_env
     """
     claude_config = {
+        "effortCalloutDismissed": True,
         "projects": {
             str(work_dir): {"allowedTools": [], "hasTrustDialogAccepted": True},
-        }
+        },
     }
     (tmp_home_dir / ".claude.json").write_text(json.dumps(claude_config))
 

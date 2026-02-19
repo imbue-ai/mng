@@ -381,9 +381,11 @@ def setup_claude_trust_config_for_subprocess(
         # - hasCompletedOnboarding: skips theme picker
         # - numStartups: signals this isn't a first run
         # - bypassPermissionsModeAccepted: skips permissions mode prompt
+        # - effortCalloutDismissed: skips effort callout that could intercept keystrokes
         "hasCompletedOnboarding": True,
         "numStartups": 1,
         "bypassPermissionsModeAccepted": True,
+        "effortCalloutDismissed": True,
     }
 
     # Pre-approve any ANTHROPIC_API_KEY so Claude doesn't prompt for confirmation.

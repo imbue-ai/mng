@@ -19,10 +19,15 @@ from imbue.imbue_common.logging import log_span
 from imbue.mngr import hookimpl
 from imbue.mngr.agents.base_agent import BaseAgent
 from imbue.mngr.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
+from imbue.mngr.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mngr.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mngr.agents.default_plugins.claude_config import build_readiness_hooks_config
-from imbue.mngr.agents.default_plugins.claude_config import check_source_directory_trusted
+from imbue.mngr.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import dismiss_effort_callout
+from imbue.mngr.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mngr.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
+from imbue.mngr.agents.default_plugins.claude_config import is_effort_callout_dismissed
+from imbue.mngr.agents.default_plugins.claude_config import is_source_directory_trusted
 from imbue.mngr.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mngr.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mngr.config.data_types import AgentTypeConfig
@@ -109,11 +114,21 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
     """Prompt the user to trust a directory for Claude Code."""
     logger.info(
         "\nSource directory {} is not yet trusted by Claude Code.\n"
-        "mngr needs to add a trust entry to ~/.claude.json so that Claude Code\n"
-        "can start without showing a trust dialog.\n",
+        "mngr needs to add a trust entry for this directory to ~/.claude.json\n"
+        "so that Claude Code can start without showing a trust dialog.\n",
         source_path,
     )
-    return click.confirm("Would you like to trust this directory?", default=False)
+    return click.confirm("Would you like to update ~/.claude.json to trust this directory?", default=False)
+
+
+def _prompt_user_for_effort_callout_dismissal() -> bool:
+    """Prompt the user to dismiss the Claude Code effort callout."""
+    logger.info(
+        "\nClaude Code wants you to know that you can set model effort with /model.\n"
+        "mngr needs to dismiss this callout in ~/.claude.json so that Claude Code\n"
+        "can start without it interfering with automated input.\n",
+    )
+    return click.confirm("Would you like to update ~/.claude.json to dismiss this?", default=False)
 
 
 def _claude_json_has_primary_api_key() -> bool:
@@ -370,10 +385,10 @@ class ClaudeAgent(BaseAgent):
         This method performs read-only validation only. No writes to
         disk or interactive prompts -- actual setup happens in provision().
 
-        For worktree mode on non-interactive runs: validates that the
-        source directory is trusted in Claude's config (~/.claude.json)
+        For worktree mode on non-interactive runs: validates that all
+        known Claude startup dialogs (trust, effort callout) are dismissed
         so we fail early with a clear message. Interactive and auto-approve
-        runs skip this check because provision() will handle trust.
+        runs skip these checks because provision() will handle them.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             if not host.is_local:
@@ -386,7 +401,7 @@ class ClaudeAgent(BaseAgent):
                 git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
                 if git_common_dir is not None:
                     source_path = git_common_dir.parent
-                    check_source_directory_trusted(source_path)
+                    check_claude_dialogs_dismissed(source_path)
 
         config = self._get_claude_config()
         if not config.check_installation:
@@ -493,6 +508,27 @@ class ClaudeAgent(BaseAgent):
         with log_span("Configuring readiness hooks in {}", settings_path):
             host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
 
+    def _ensure_no_blocking_dialogs(self, source_path: Path, mngr_ctx: MngrContext) -> None:
+        """Ensure all known Claude startup dialogs are dismissed for source_path.
+
+        For auto-approve mode, silently dismisses all dialogs. For interactive
+        mode, prompts the user for each undismissed dialog. For non-interactive
+        mode, raises the appropriate error.
+        """
+        if mngr_ctx.is_auto_approve:
+            ensure_claude_dialogs_dismissed(source_path)
+            return
+
+        if not is_source_directory_trusted(source_path):
+            if not mngr_ctx.is_interactive or not _prompt_user_for_trust(source_path):
+                raise ClaudeDirectoryNotTrustedError(str(source_path))
+            add_claude_trust_for_path(source_path)
+
+        if not is_effort_callout_dismissed():
+            if not mngr_ctx.is_interactive or not _prompt_user_for_effort_callout_dismissal():
+                raise ClaudeEffortCalloutNotDismissedError()
+            dismiss_effort_callout()
+
     def provision(
         self,
         host: OnlineHostInterface,
@@ -501,23 +537,15 @@ class ClaudeAgent(BaseAgent):
     ) -> None:
         """Extend trust for worktrees and install Claude if needed.
 
-        For worktree-mode agents, copies the source directory's Claude trust
-        config to the new worktree. If the source directory isn't yet trusted,
-        interactive runs prompt the user to add trust (re-raising if declined);
-        non-interactive runs re-raise the error.
+        For worktree-mode agents, ensures all Claude startup dialogs are
+        dismissed and extends trust to the worktree.
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir, mngr_ctx.concurrency_group)
             if git_common_dir is not None:
                 source_path = git_common_dir.parent
-                try:
-                    extend_claude_trust_to_worktree(source_path, self.work_dir)
-                except ClaudeDirectoryNotTrustedError:
-                    if mngr_ctx.is_auto_approve or (mngr_ctx.is_interactive and _prompt_user_for_trust(source_path)):
-                        add_claude_trust_for_path(source_path)
-                        extend_claude_trust_to_worktree(source_path, self.work_dir)
-                    else:
-                        raise
+                self._ensure_no_blocking_dialogs(source_path, mngr_ctx)
+                extend_claude_trust_to_worktree(source_path, self.work_dir)
 
         config = self._get_claude_config()
 
@@ -590,9 +618,11 @@ class ClaudeAgent(BaseAgent):
                 claude_json_path = Path.home() / ".claude.json"
                 if claude_json_path.exists():
                     logger.info("Transferring ~/.claude.json to remote host...")
-                    # hack--add an extra key in there because otherwise we get prompted about skipping permissions:
+                    # Set global fields that prevent startup dialogs from intercepting
+                    # automated input via tmux send-keys:
                     claude_json_data = json.loads(claude_json_path.read_text())
                     claude_json_data["bypassPermissionsModeAccepted"] = True
+                    claude_json_data["effortCalloutDismissed"] = True
                     # If the local file lacks primaryApiKey, try the macOS keychain
                     if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
                         keychain_api_key = _read_macos_keychain_credential("Claude Code", mngr_ctx.concurrency_group)
