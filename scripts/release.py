@@ -16,6 +16,9 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+from typing import Final
+from typing import cast
 
 import semver
 import tomlkit
@@ -23,13 +26,15 @@ import tomlkit
 from scripts.publishable_packages import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 from scripts.publishable_packages import REPO_ROOT
 
-BUMP_KINDS = ("major", "minor", "patch")
+BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 
 
 def get_current_version() -> str:
     """Read the current version from the first package."""
     doc = tomlkit.loads(PUBLISHABLE_PACKAGE_PYPROJECT_PATHS[0].read_text())
-    return doc["project"]["version"]
+    # Cast needed because tomlkit stubs don't reflect that Table is a dict
+    project = cast(dict[str, Any], doc["project"])
+    return project["version"]
 
 
 def bump_version(new_version: str) -> list[Path]:
@@ -37,8 +42,10 @@ def bump_version(new_version: str) -> list[Path]:
     modified = []
     for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         doc = tomlkit.loads(path.read_text())
-        if doc["project"]["version"] != new_version:
-            doc["project"]["version"] = new_version
+        # Cast needed because tomlkit stubs don't reflect that Table is a dict
+        project = cast(dict[str, Any], doc["project"])
+        if project["version"] != new_version:
+            project["version"] = new_version
             path.write_text(tomlkit.dumps(doc))
             modified.append(path)
     return modified
@@ -81,7 +88,7 @@ def main() -> None:
 
     print(f"Current version: {current_version}")
     print(f"New version:     {new_version}")
-    print(f"Files to update:")
+    print("Files to update:")
     for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         print(f"  {path.relative_to(REPO_ROOT)}")
 
@@ -89,12 +96,7 @@ def main() -> None:
         print("\n(dry run -- no changes made)")
         return
 
-    confirm = input(f"\nProceed with release {new_version}? [y/N] ")
-    if confirm.lower() != "y":
-        print("Aborted.")
-        return
-
-    # Ensure we're on main and up to date
+    # Ensure we're on main and up to date before prompting for confirmation
     result = run(["git", "branch", "--show-current"])
     branch = result.stdout.strip()
     if branch != "main":
@@ -116,6 +118,11 @@ def main() -> None:
         print("Run 'git pull' first.", file=sys.stderr)
         sys.exit(1)
 
+    confirm = input(f"\nProceed with release {new_version}? [y/N] ")
+    if confirm.lower() != "y":
+        print("Aborted.")
+        return
+
     # Bump versions
     modified = bump_version(new_version)
     print(f"\nUpdated {len(modified)} file(s)")
@@ -133,7 +140,7 @@ def main() -> None:
     run(["git", "push", "origin", "main", tag])
 
     print(f"\nRelease {new_version} pushed. The publish workflow will run automatically.")
-    print(f"  https://github.com/imbue-ai/mngr/actions/workflows/publish.yml")
+    print("  https://github.com/imbue-ai/mngr/actions/workflows/publish.yml")
 
 
 if __name__ == "__main__":
