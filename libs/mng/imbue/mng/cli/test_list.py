@@ -1229,7 +1229,7 @@ def test_process_env_is_applied_before_commands(
     )
 
     # Register cleanup so the env var is removed after the test, even though
-    # _apply_process_env sets it directly via os.environ (bypassing monkeypatch).
+    # setup_command_context sets it directly via os.environ (bypassing monkeypatch).
     monkeypatch.setenv("MNG_TEST_PROCESS_ENV_INTEGRATION", "")
     monkeypatch.delenv("MNG_TEST_PROCESS_ENV_INTEGRATION")
 
