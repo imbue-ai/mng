@@ -626,9 +626,9 @@ def _merge_command_defaults(
 # so they intentionally avoid plugin hooks, full config validation, and
 # anything that needs a PluginManager.
 #
-# There is no caching here.  ``DefaultCommandGroup.make_context`` calls
-# ``read_default_command`` once per invocation, writing the result onto the
-# instance so that ``parse_args`` / ``resolve_command`` can use it directly.
+# ``DefaultCommandGroup.make_context`` calls ``read_default_command`` once
+# per invocation and writes the result onto the group instance so that
+# ``parse_args`` / ``resolve_command`` can use it directly.
 
 
 def read_default_command(command_name: str) -> str:
