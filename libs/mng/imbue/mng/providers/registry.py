@@ -1,4 +1,5 @@
 import importlib
+from typing import Final
 
 import pluggy
 
@@ -21,7 +22,7 @@ config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 _backends_loaded: dict[str, bool] = {"value": False}
 
 # Maps backend names to their module paths for on-demand loading
-BACKEND_MODULES: dict[str, str] = {
+BACKEND_MODULES: Final[dict[str, str]] = {
     "local": "imbue.mng.providers.local.backend",
     "ssh": "imbue.mng.providers.ssh.backend",
     "docker": "imbue.mng.providers.docker.backend",
