@@ -18,8 +18,8 @@ from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
@@ -755,8 +755,8 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "config",
-    build_help_metadata(
-        "config",
+    CommandHelpMetadata(
+        key="config",
         one_line_description="Manage mng configuration",
         synopsis="mng [config|cfg] <subcommand> [OPTIONS]",
         description="""Manage mng configuration.
@@ -787,8 +787,8 @@ add_pager_help_option(config)
 
 register_help_metadata(
     "config.list",
-    build_help_metadata(
-        "config.list",
+    CommandHelpMetadata(
+        key="config.list",
         one_line_description="List all configuration values",
         synopsis="mng config list [OPTIONS]",
         description="""List all configuration values.
@@ -814,8 +814,8 @@ add_pager_help_option(config_list)
 
 register_help_metadata(
     "config.get",
-    build_help_metadata(
-        "config.get",
+    CommandHelpMetadata(
+        key="config.get",
         one_line_description="Get a configuration value",
         synopsis="mng config get KEY [OPTIONS]",
         description="""Get a configuration value.
@@ -840,8 +840,8 @@ add_pager_help_option(config_get)
 
 register_help_metadata(
     "config.set",
-    build_help_metadata(
-        "config.set",
+    CommandHelpMetadata(
+        key="config.set",
         one_line_description="Set a configuration value",
         synopsis="mng config set KEY VALUE [OPTIONS]",
         description="""Set a configuration value.
@@ -866,8 +866,8 @@ add_pager_help_option(config_set)
 
 register_help_metadata(
     "config.unset",
-    build_help_metadata(
-        "config.unset",
+    CommandHelpMetadata(
+        key="config.unset",
         one_line_description="Remove a configuration value",
         synopsis="mng config unset KEY [OPTIONS]",
         description="""Remove a configuration value.
@@ -888,8 +888,8 @@ add_pager_help_option(config_unset)
 
 register_help_metadata(
     "config.edit",
-    build_help_metadata(
-        "config.edit",
+    CommandHelpMetadata(
+        key="config.edit",
         one_line_description="Open configuration file in editor",
         synopsis="mng config edit [OPTIONS]",
         description="""Open configuration file in editor.
@@ -913,8 +913,8 @@ add_pager_help_option(config_edit)
 
 register_help_metadata(
     "config.path",
-    build_help_metadata(
-        "config.path",
+    CommandHelpMetadata(
+        key="config.path",
         one_line_description="Show configuration file paths",
         synopsis="mng config path [OPTIONS]",
         description="""Show configuration file paths.

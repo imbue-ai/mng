@@ -19,8 +19,8 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import get_all_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
@@ -452,8 +452,8 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "ask",
-    build_help_metadata(
-        "ask",
+    CommandHelpMetadata(
+        key="ask",
         one_line_description="Chat with mng for help [experimental]",
         synopsis="mng ask [--execute] QUERY...",
         description="""Chat directly with mng for help -- it can create the

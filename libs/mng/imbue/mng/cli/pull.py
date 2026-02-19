@@ -13,8 +13,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import output_sync_files_result
@@ -333,8 +333,8 @@ def pull(ctx: click.Context, **kwargs) -> None:
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "pull",
-    build_help_metadata(
-        "pull",
+    CommandHelpMetadata(
+        key="pull",
         one_line_description="Pull files or git commits from an agent to local machine [experimental]",
         synopsis="mng pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]",
         description="""Pull files or git commits from an agent to local machine.

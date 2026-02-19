@@ -12,8 +12,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -234,8 +234,8 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "provision",
-    build_help_metadata(
-        "provision",
+    CommandHelpMetadata(
+        key="provision",
         one_line_description="Re-run provisioning on an existing agent [experimental]",
         synopsis="mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
         description="""Re-run provisioning on an existing agent.

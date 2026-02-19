@@ -39,8 +39,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -1606,8 +1606,8 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 
 
 # Register help metadata for git-style help formatting
-_CREATE_HELP_METADATA = build_help_metadata(
-    "create",
+_CREATE_HELP_METADATA = CommandHelpMetadata(
+    key="create",
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]

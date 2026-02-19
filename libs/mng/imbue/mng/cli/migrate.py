@@ -3,8 +3,8 @@ from loguru import logger
 
 from imbue.mng.cli.clone import parse_source_and_invoke_create
 from imbue.mng.cli.destroy import destroy as destroy_cmd
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 
 
@@ -35,8 +35,8 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
 
 register_help_metadata(
     "migrate",
-    build_help_metadata(
-        "migrate",
+    CommandHelpMetadata(
+        key="migrate",
         one_line_description="Move an agent to a different host [experimental]",
         synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
         description="""Move an agent to a different host by cloning it and destroying the original. [experimental]

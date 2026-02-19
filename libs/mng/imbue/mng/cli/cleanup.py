@@ -29,8 +29,8 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.connect import build_status_text
 from imbue.mng.cli.connect import filter_agents
 from imbue.mng.cli.connect import handle_search_key
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -660,8 +660,8 @@ def _emit_result(
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "cleanup",
-    build_help_metadata(
-        "cleanup",
+    CommandHelpMetadata(
+        key="cleanup",
         one_line_description="Destroy or stop agents and hosts to free up resources [experimental]",
         synopsis="mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
         "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",

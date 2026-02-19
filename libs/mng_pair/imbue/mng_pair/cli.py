@@ -131,28 +131,6 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def pair(ctx: click.Context, **kwargs) -> None:
-    """Continuously sync files between an agent and local directory. [experimental]
-
-    This command establishes a bidirectional file sync between an agent's working
-    directory and a local directory. Changes are watched and synced in real-time.
-
-    If git repositories exist on both sides, the command first synchronizes git
-    state (branches and commits) before starting the continuous file sync.
-
-    Press Ctrl+C to stop the sync.
-
-    During rapid concurrent edits, changes will be debounced to avoid partial
-    writes [future].
-
-    \b
-    Examples:
-      mng pair my-agent
-      mng pair my-agent --target ./local-dir
-      mng pair --source-agent my-agent --target ./local-copy
-      mng pair my-agent --sync-direction=forward
-      mng pair my-agent --conflict=source
-      mng pair my-agent --source-host @local
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="pair",
@@ -240,11 +218,13 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PAIR_HELP_METADATA = CommandHelpMetadata(
-    name="mng-pair",
-    one_line_description="Continuously sync files between an agent and local directory [experimental]",
-    synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
-    description="""Continuously sync files between an agent and local directory.
+register_help_metadata(
+    "pair",
+    CommandHelpMetadata(
+        key="pair",
+        one_line_description="Continuously sync files between an agent and local directory [experimental]",
+        synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
+        description="""Continuously sync files between an agent and local directory.
 
 This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
@@ -253,21 +233,20 @@ If git repositories exist on both sides, the command first synchronizes git
 state (branches and commits) before starting the continuous file sync.
 
 Press Ctrl+C to stop the sync.""",
-    examples=(
-        ("Pair with an agent", "mng pair my-agent"),
-        ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
-        ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
-        ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
-        ("Filter to specific host", "mng pair my-agent --source-host @local"),
-    ),
-    see_also=(
-        ("push", "Push files or git commits to an agent"),
-        ("pull", "Pull files or git commits from an agent"),
-        ("create", "Create a new agent"),
-        ("list", "List agents to find one to pair with"),
+        examples=(
+            ("Pair with an agent", "mng pair my-agent"),
+            ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
+            ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
+            ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
+            ("Filter to specific host", "mng pair my-agent --source-host @local"),
+        ),
+        see_also=(
+            ("push", "Push files or git commits to an agent"),
+            ("pull", "Pull files or git commits from an agent"),
+            ("create", "Create a new agent"),
+            ("list", "List agents to find one to pair with"),
+        ),
     ),
 )
-
-register_help_metadata("pair", _PAIR_HELP_METADATA)
 
 add_pager_help_option(pair)

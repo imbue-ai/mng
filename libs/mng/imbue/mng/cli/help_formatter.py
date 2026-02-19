@@ -26,7 +26,7 @@ class CommandHelpMetadata(FrozenModel):
     that isn't available from click's standard help machinery.
     """
 
-    name: str = Field(description="Command name (e.g., 'mng-create')")
+    key: str = Field(description="Dot-separated registry key (e.g., 'create', 'snapshot.create')")
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
     description: str = Field(description="Detailed description of the command")
@@ -52,6 +52,11 @@ class CommandHelpMetadata(FrozenModel):
         description="See Also references as (command_name, description) tuples. "
         "Command name is just the subcommand (e.g., 'create' not 'mng create').",
     )
+
+    @property
+    def name(self) -> str:
+        """Display name derived from key (e.g., key='snapshot.create' -> 'mng snapshot create')."""
+        return "mng " + self.key.replace(".", " ")
 
 
 # Registry of help metadata for commands that have been configured
@@ -107,34 +112,6 @@ def _resolve_help_metadata(ctx: click.Context) -> CommandHelpMetadata | None:
     if key is None:
         return None
     return _help_metadata_registry.get(key)
-
-
-def build_help_metadata(
-    key: str,
-    *,
-    synopsis: str,
-    description: str,
-    one_line_description: str,
-    aliases: tuple[str, ...] = (),
-    examples: tuple[tuple[str, str], ...] = (),
-    see_also: tuple[tuple[str, str], ...] = (),
-    additional_sections: tuple[tuple[str, str], ...] = (),
-    group_intros: tuple[tuple[str, str], ...] = (),
-    arguments_description: str | None = None,
-) -> CommandHelpMetadata:
-    """Build help metadata, deriving the `name` field from the registry key."""
-    return CommandHelpMetadata(
-        name="mng " + key.replace(".", " "),
-        one_line_description=one_line_description,
-        synopsis=synopsis,
-        description=description,
-        aliases=aliases,
-        examples=examples,
-        see_also=see_also,
-        additional_sections=additional_sections,
-        group_intros=group_intros,
-        arguments_description=arguments_description,
-    )
 
 
 def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:

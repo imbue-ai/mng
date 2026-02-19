@@ -5,8 +5,8 @@ import click
 
 from imbue.imbue_common.pure import pure
 from imbue.mng.cli.create import create as create_cmd
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 
 
@@ -125,8 +125,8 @@ def _reject_source_agent_options(
 
 register_help_metadata(
     "clone",
-    build_help_metadata(
-        "clone",
+    CommandHelpMetadata(
+        key="clone",
         one_line_description="Create a new agent by cloning an existing one [experimental]",
         synopsis="mng clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
         description="""Create a new agent by cloning an existing one. [experimental]

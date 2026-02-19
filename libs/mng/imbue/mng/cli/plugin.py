@@ -27,8 +27,8 @@ from imbue.mng.cli.config import get_config_path
 from imbue.mng.cli.config import load_config_file_tomlkit
 from imbue.mng.cli.config import save_config_file
 from imbue.mng.cli.config import set_nested_value
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
@@ -707,8 +707,8 @@ def _emit_plugin_toggle_result(
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "plugin",
-    build_help_metadata(
-        "plugin",
+    CommandHelpMetadata(
+        key="plugin",
         one_line_description="Manage available and active plugins [experimental]",
         synopsis="mng [plugin|plug] <subcommand> [OPTIONS]",
         description="""Manage available and active plugins.
@@ -738,8 +738,8 @@ add_pager_help_option(plugin)
 
 register_help_metadata(
     "plugin.list",
-    build_help_metadata(
-        "plugin.list",
+    CommandHelpMetadata(
+        key="plugin.list",
         one_line_description="List discovered plugins [experimental]",
         synopsis="mng plugin list [OPTIONS]",
         description="""List discovered plugins.
@@ -766,8 +766,8 @@ add_pager_help_option(plugin_list)
 
 register_help_metadata(
     "plugin.add",
-    build_help_metadata(
-        "plugin.add",
+    CommandHelpMetadata(
+        key="plugin.add",
         one_line_description="Install a plugin package [experimental]",
         synopsis="mng plugin add [NAME] [OPTIONS]",
         description="""Install a plugin package.
@@ -791,8 +791,8 @@ add_pager_help_option(plugin_add)
 
 register_help_metadata(
     "plugin.remove",
-    build_help_metadata(
-        "plugin.remove",
+    CommandHelpMetadata(
+        key="plugin.remove",
         one_line_description="Uninstall a plugin package [experimental]",
         synopsis="mng plugin remove [NAME] [OPTIONS]",
         description="""Uninstall a plugin package.
@@ -813,8 +813,8 @@ add_pager_help_option(plugin_remove)
 
 register_help_metadata(
     "plugin.enable",
-    build_help_metadata(
-        "plugin.enable",
+    CommandHelpMetadata(
+        key="plugin.enable",
         one_line_description="Enable a plugin [experimental]",
         synopsis="mng plugin enable NAME [OPTIONS]",
         description="""Enable a plugin.
@@ -835,8 +835,8 @@ add_pager_help_option(plugin_enable)
 
 register_help_metadata(
     "plugin.disable",
-    build_help_metadata(
-        "plugin.disable",
+    CommandHelpMetadata(
+        key="plugin.disable",
         one_line_description="Disable a plugin [experimental]",
         synopsis="mng plugin disable NAME [OPTIONS]",
         description="""Disable a plugin.

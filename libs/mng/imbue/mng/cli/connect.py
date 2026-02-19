@@ -29,8 +29,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
@@ -476,8 +476,8 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "connect",
-    build_help_metadata(
-        "connect",
+    CommandHelpMetadata(
+        key="connect",
         one_line_description="Connect to an existing agent via the terminal",
         synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
         description="""Connect to an existing agent via the terminal.

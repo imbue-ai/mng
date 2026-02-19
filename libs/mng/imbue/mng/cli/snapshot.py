@@ -14,8 +14,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -847,8 +847,8 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
 
 register_help_metadata(
     "snapshot",
-    build_help_metadata(
-        "snapshot",
+    CommandHelpMetadata(
+        key="snapshot",
         one_line_description="Create, list, and destroy host snapshots [experimental]",
         synopsis="mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]",
         description="""Create, list, and destroy snapshots of agent hosts.
@@ -889,8 +889,8 @@ add_pager_help_option(snapshot)
 
 register_help_metadata(
     "snapshot.create",
-    build_help_metadata(
-        "snapshot.create",
+    CommandHelpMetadata(
+        key="snapshot.create",
         one_line_description="Create a snapshot of agent host(s) [experimental]",
         synopsis="mng snapshot create [IDENTIFIERS...] [OPTIONS]",
         description="""Create a snapshot of agent host(s).
@@ -915,8 +915,8 @@ add_pager_help_option(snapshot_create)
 
 register_help_metadata(
     "snapshot.list",
-    build_help_metadata(
-        "snapshot.list",
+    CommandHelpMetadata(
+        key="snapshot.list",
         one_line_description="List snapshots for agent host(s) [experimental]",
         synopsis="mng snapshot list [IDENTIFIERS...] [OPTIONS]",
         description="""List snapshots for agent host(s).
@@ -946,8 +946,8 @@ add_pager_help_option(snapshot_list)
 
 register_help_metadata(
     "snapshot.destroy",
-    build_help_metadata(
-        "snapshot.destroy",
+    CommandHelpMetadata(
+        key="snapshot.destroy",
         one_line_description="Destroy snapshots for agent host(s) [experimental]",
         synopsis="mng snapshot destroy [AGENTS...] [OPTIONS]",
         description="""Destroy snapshots for agent host(s).

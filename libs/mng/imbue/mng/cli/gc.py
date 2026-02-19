@@ -14,8 +14,8 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -461,8 +461,8 @@ def _get_selected_providers(mng_ctx: MngContext, opts: GcCliOptions) -> list[Pro
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "gc",
-    build_help_metadata(
-        "gc",
+    CommandHelpMetadata(
+        key="gc",
         one_line_description="Garbage collect unused resources",
         synopsis="mng gc [OPTIONS]",
         description="""Garbage collect unused resources.

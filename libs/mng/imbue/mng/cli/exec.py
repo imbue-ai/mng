@@ -13,8 +13,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -273,8 +273,8 @@ def _emit_json_output(result: MultiExecResult) -> None:
 # Register help metadata for git-style help formatting
 register_help_metadata(
     "exec",
-    build_help_metadata(
-        "exec",
+    CommandHelpMetadata(
+        key="exec",
         one_line_description="Execute a shell command on one or more agents' hosts [experimental]",
         synopsis="mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]",
         arguments_description=(
