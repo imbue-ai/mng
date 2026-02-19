@@ -10,7 +10,7 @@ from imbue.mng.interfaces.agent import AgentInterface
 
 _SKILL_NAME: Final[str] = "fixme-fairy"
 
-_FIXME_FAIRY_SKILL_CONTENT: Final[str] = """
+_FIXME_FAIRY_SKILL_CONTENT: Final[str] = """\
 ---
 name: fixme-fairy
 description: >
