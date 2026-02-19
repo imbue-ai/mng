@@ -160,16 +160,6 @@ def list_backends() -> list[str]:
     return sorted(str(k) for k in backend_registry.keys())
 
 
-def list_known_backends() -> list[str]:
-    """List all known backend names (including those not yet loaded).
-
-    Returns names from config_registry, which is populated by
-    register_config_classes() and includes backends whose implementations
-    may not have been loaded yet. Used for tab completion and help text.
-    """
-    return sorted(str(k) for k in config_registry.keys())
-
-
 def build_provider_instance(
     instance_name: ProviderInstanceName,
     backend_name: ProviderBackendName,
