@@ -214,9 +214,14 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     profiles_dir = base_dir / PROFILES_DIRNAME
     profiles_dir.mkdir(parents=True, exist_ok=True)
-    config_path = base_dir / ROOT_CONFIG_FILENAME
 
-    # Try to read the active profile from config.toml
+    # Try read-only lookup first
+    existing = _find_profile_dir_lightweight(base_dir)
+    if existing is not None:
+        return existing
+
+    # Config specifies a profile ID but the directory doesn't exist yet -- create it
+    config_path = base_dir / ROOT_CONFIG_FILENAME
     if config_path.exists():
         try:
             with open(config_path, "rb") as f:
@@ -224,21 +229,16 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
             profile_id = root_config.get("profile")
             if profile_id:
                 profile_dir = profiles_dir / profile_id
-                if profile_dir.exists() and profile_dir.is_dir():
-                    return profile_dir
-                # Profile specified but doesn't exist - create it
                 profile_dir.mkdir(parents=True, exist_ok=True)
                 return profile_dir
         except tomllib.TOMLDecodeError:
-            # Invalid config.toml - will create new profile
             pass
 
-    # No valid config.toml or no profile specified - create a new profile
+    # No valid config.toml or no profile specified -- create a new profile
     profile_id = uuid4().hex
     profile_dir = profiles_dir / profile_id
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save the new profile ID to config.toml
     config_path.write_text(f'profile = "{profile_id}"\n')
 
     return profile_dir
@@ -455,12 +455,22 @@ def _parse_commands(raw_commands: dict[str, dict[str, Any]]) -> dict[str, Comman
              new_host = "docker"
              connect = false
 
+    The special key `default_subcommand` is extracted separately from the
+    parameter defaults dict so it can be stored on CommandDefaults as a
+    first-class field.
+
     Uses model_construct to bypass validation and explicitly set None for unset fields.
     """
     commands: dict[str, CommandDefaults] = {}
 
     for command_name, raw_defaults in raw_commands.items():
-        commands[command_name] = CommandDefaults.model_construct(defaults=raw_defaults)
+        # Make a mutable copy so we don't mutate the caller's dict
+        raw_defaults = dict(raw_defaults)
+        default_subcommand = raw_defaults.pop("default_subcommand", None)
+        commands[command_name] = CommandDefaults.model_construct(
+            defaults=raw_defaults,
+            default_subcommand=default_subcommand,
+        )
 
     return commands
 
@@ -605,3 +615,102 @@ def _merge_command_defaults(
             result[command_name] = override_defaults
 
     return result
+
+
+# =============================================================================
+# Lightweight default-subcommand reader
+# =============================================================================
+#
+# These functions read only the `default_subcommand` values from config
+# files.  They run at CLI parse time -- before the full config is loaded --
+# so they intentionally avoid plugin hooks, full config validation, and
+# anything that needs a PluginManager.
+#
+# `DefaultCommandGroup.make_context` calls `read_default_command` once
+# per invocation and writes the result onto the group instance so that
+# `parse_args` / `resolve_command` can use it directly.
+
+
+def read_default_command(command_name: str) -> str:
+    """Return the configured default subcommand for `command_name`.
+
+    If no config files set `default_subcommand` for the given command
+    group, falls back to `"create"`.  An empty string means "disabled"
+    (the caller should show help instead of defaulting).
+    """
+    return _read_all_default_subcommands().get(command_name, "create")
+
+
+def _read_all_default_subcommands() -> dict[str, str]:
+    """Read `default_subcommand` from all config layers and merge.
+
+    Precedence (lowest to highest): user config, project config, local config.
+    Returns a dict mapping command-group name to default subcommand string.
+    """
+    root_name = os.environ.get("MNGR_ROOT_NAME", "mngr")
+    env_host_dir = os.environ.get("MNGR_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    merged: dict[str, str] = {}
+
+    # User config
+    profile_dir = _find_profile_dir_lightweight(base_dir)
+    if profile_dir is not None:
+        user_config_path = _get_user_config_path(profile_dir)
+        if user_config_path.exists():
+            _merge_default_subcommands_from_file(user_config_path, merged)
+
+    # Project + local config need the project root
+    cg = ConcurrencyGroup(name="default-subcmd-reader")
+    with cg:
+        project_config_path = _find_project_config(None, root_name, cg)
+        local_config_path = _find_local_config(None, root_name, cg)
+
+    if project_config_path is not None and project_config_path.exists():
+        _merge_default_subcommands_from_file(project_config_path, merged)
+
+    if local_config_path is not None and local_config_path.exists():
+        _merge_default_subcommands_from_file(local_config_path, merged)
+
+    return merged
+
+
+def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> None:
+    """Extract `default_subcommand` entries from a TOML config file into `target`."""
+    try:
+        raw = _load_toml(path)
+    except (ConfigNotFoundError, ConfigParseError):
+        return
+    raw_commands = raw.get("commands")
+    if not isinstance(raw_commands, dict):
+        return
+    for cmd_name, cmd_section in raw_commands.items():
+        if not isinstance(cmd_section, dict):
+            continue
+        value = cmd_section.get("default_subcommand")
+        if value is not None:
+            target[cmd_name] = str(value)
+
+
+def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:
+    """Like `get_or_create_profile_dir` but read-only (never creates dirs/files).
+
+    Returns the profile directory if it can be determined from existing files,
+    or `None` otherwise.
+    """
+    config_path = base_dir / ROOT_CONFIG_FILENAME
+    if not config_path.exists():
+        return None
+    try:
+        with open(config_path, "rb") as f:
+            root_config = tomllib.load(f)
+        profile_id = root_config.get("profile")
+        if not profile_id:
+            return None
+        profile_dir = base_dir / PROFILES_DIRNAME / profile_id
+        if profile_dir.exists() and profile_dir.is_dir():
+            return profile_dir
+    except tomllib.TOMLDecodeError:
+        pass
+    return None

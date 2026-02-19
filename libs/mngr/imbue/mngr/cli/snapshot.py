@@ -366,6 +366,8 @@ class _SnapshotGroup(DefaultCommandGroup):
     "Agent or host not found" rather than silently doing something wrong.
     """
 
+    _config_key = "snapshot"
+
 
 @click.group(name="snapshot", cls=_SnapshotGroup)
 @add_common_options
