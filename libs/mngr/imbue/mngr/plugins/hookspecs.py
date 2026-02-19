@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import click
@@ -9,9 +10,12 @@ from imbue.mngr.api.data_types import OnBeforeCreateArgs
 from imbue.mngr.cli.data_types import OptionStackItem
 from imbue.mngr.config.data_types import ProviderInstanceConfig
 from imbue.mngr.interfaces.agent import AgentInterface
+from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.interfaces.provider_backend import ProviderBackendInterface
+from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import ProviderInstanceName
 
 hookspec = pluggy.HookspecMarker("mngr")
 
@@ -43,40 +47,132 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type | None
     """
 
 
+# --- Host lifecycle hooks ---
+
+
+@hookspec
+def on_before_host_create(name: HostName, provider_name: ProviderInstanceName) -> None:
+    """[experimental] Called before a new host is created.
+
+    This hook fires before provider.create_host() is called during `mngr create`
+    when a new host is being created. It does not fire when an existing host is reused.
+
+    If a hook raises an exception, host creation is aborted.
+    """
+
+
+@hookspec
+def on_host_created(host: HostInterface) -> None:
+    """[experimental] Called after a new host has been created.
+
+    This hook fires after provider.create_host() completes during `mngr create`
+    when a new host was created. It does not fire when an existing host is reused.
+    """
+
+
+@hookspec
+def on_before_host_destroy(host: HostInterface) -> None:
+    """[experimental] Called before a host is destroyed.
+
+    This hook fires before provider.destroy_host() is called. The host is still
+    accessible when this hook runs.
+
+    If a hook raises an exception, host destruction is aborted.
+    """
+
+
+@hookspec
+def on_host_destroyed(host: HostInterface) -> None:
+    """[experimental] Called after a host has been destroyed.
+
+    This hook fires after provider.destroy_host() completes. The host's
+    infrastructure is gone but the Python object is still available for
+    reading metadata (name, id, etc.).
+    """
+
+
+# --- Agent lifecycle hooks ---
+
+
+@hookspec
+def on_before_initial_file_copy(agent_options: CreateAgentOptions, host: OnlineHostInterface) -> None:
+    """[experimental] Called before copying files to create the agent's work directory.
+
+    This hook fires before host.create_agent_work_dir() is called during `mngr create`.
+    Only fires when create_work_dir is True.
+    """
+
+
+@hookspec
+def on_after_initial_file_copy(
+    agent_options: CreateAgentOptions, host: OnlineHostInterface, work_dir_path: Path
+) -> None:
+    """[experimental] Called after copying files to create the agent's work directory.
+
+    This hook fires after host.create_agent_work_dir() completes during `mngr create`.
+    Only fires when create_work_dir is True.
+    """
+
+
+@hookspec
+def on_agent_state_dir_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """[experimental] Called after the agent's state directory has been created.
+
+    This hook fires inside host.create_agent_state(), after the state directory
+    and data.json have been written but before provisioning begins.
+    """
+
+
+@hookspec
+def on_before_provisioning(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """[experimental] Called before provisioning an agent.
+
+    This hook fires before host.provision_agent() is called during `mngr create`.
+    """
+
+
+@hookspec
+def on_after_provisioning(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """[experimental] Called after provisioning an agent.
+
+    This hook fires after host.provision_agent() completes during `mngr create`.
+    """
+
+
 @hookspec
 def on_agent_created(agent: AgentInterface, host: OnlineHostInterface) -> None:
-    """Called after an agent has been created.
+    """[experimental] Called after an agent has been fully created and started.
 
-    This hook is called after an agent is fully created and started.
+    This hook fires at the end of create(), after the agent is started.
     Plugins can use this to perform actions like logging, notifications,
     or custom setup.
     """
 
 
 @hookspec
-def on_agent_destroyed(agent: AgentInterface, host: HostInterface) -> None:
-    """Called before an agent is destroyed.
+def on_before_agent_destroy(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """[experimental] Called before an online agent is destroyed.
 
-    This hook is called before an agent is destroyed.
-    Plugins can use this to perform cleanup or logging.
+    This hook fires before host.destroy_agent() is called. The agent is still
+    accessible when this hook runs.
+
+    Only fires for online agents. When an offline host is destroyed (which
+    implicitly destroys its agents), on_before_host_destroy fires instead.
+
+    If a hook raises an exception, agent destruction is aborted.
     """
 
 
 @hookspec
-def on_host_created(host: HostInterface) -> None:
-    """Called after a host has been created.
+def on_agent_destroyed(agent: AgentInterface, host: OnlineHostInterface) -> None:
+    """[experimental] Called after an online agent has been destroyed.
 
-    This hook is called after a host is fully created.
-    Plugins can use this to perform custom setup or logging.
-    """
+    This hook fires after host.destroy_agent() completes. The agent's state
+    directory is gone but the Python object is still available for reading
+    metadata (name, id, type, etc.).
 
-
-@hookspec
-def on_host_destroyed(host: HostInterface) -> None:
-    """Called before a host is destroyed.
-
-    This hook is called before a host is destroyed.
-    Plugins can use this to perform cleanup or logging.
+    Only fires for online agents. When an offline host is destroyed (which
+    implicitly destroys its agents), on_host_destroyed fires instead.
     """
 
 
@@ -196,3 +292,40 @@ def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
                 )
             return None
     """
+
+
+# --- Program lifecycle hooks ---
+
+
+@hookspec
+def on_post_install(plugin_name: str) -> None:
+    """[future] Called after a plugin is installed or upgraded."""
+
+
+@hookspec
+def on_startup() -> None:
+    """[experimental] Called when mngr starts up, before any command runs."""
+
+
+@hookspec
+def on_before_command(command_name: str, command_params: dict[str, Any]) -> None:
+    """[experimental] Called before any command executes.
+
+    Receives the command name and a dict of the resolved command parameters.
+    Plugins can raise an exception to abort execution.
+    """
+
+
+@hookspec
+def on_after_command(command_name: str, command_params: dict[str, Any]) -> None:
+    """[experimental] Called after a command completes successfully."""
+
+
+@hookspec
+def on_error(command_name: str, command_params: dict[str, Any], error: BaseException) -> None:
+    """[experimental] Called when a command raises an exception."""
+
+
+@hookspec
+def on_shutdown() -> None:
+    """[experimental] Called when mngr is shutting down, after the command has completed."""
