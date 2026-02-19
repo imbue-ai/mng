@@ -285,7 +285,7 @@ def _emit_plugin_add_result(
     """Emit the result of a plugin add operation."""
     match output_opts.output_format:
         case OutputFormat.HUMAN:
-            logger.info("Installed plugin package '{}'", package_name)
+            write_human_line("Installed plugin package '{}'", package_name)
             if not has_entry_points:
                 logger.warning(
                     "Package installed but no mngr entry points found -- this package may not be a mngr plugin"
@@ -318,7 +318,7 @@ def _emit_plugin_remove_result(
     """Emit the result of a plugin remove operation."""
     match output_opts.output_format:
         case OutputFormat.HUMAN:
-            logger.info("Removed plugin package '{}'", package_name)
+            write_human_line("Removed plugin package '{}'", package_name)
         case OutputFormat.JSON:
             emit_final_json(
                 {
