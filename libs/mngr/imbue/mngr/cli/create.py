@@ -1446,8 +1446,6 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        parsed_host_name = HostName(opts.host_name) if opts.host_name else None
-
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
@@ -1483,7 +1481,7 @@ def _parse_target_host(
         parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
         parsed_target_host = NewHostOptions(
             provider=ProviderInstanceName(opts.new_host),
-            name=parsed_host_name,
+            name=HostName(opts.host_name) if opts.host_name else None,
             name_style=parsed_host_name_style,
             tags=tags,
             build=build_options,
