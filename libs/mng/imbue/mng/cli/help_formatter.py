@@ -338,13 +338,14 @@ def _write_options_section(
 
     for group_name in ordered_group_names:
         options = options_by_group[group_name]
+        visible_options = [o for o in options if not o.hidden]
+        if not visible_options:
+            continue
         # Display "Ungrouped" for options without a group
         display_name = group_name if group_name is not None else "Ungrouped"
         output.write(f"\n   {display_name}\n")
 
-        for option in options:
-            if option.hidden:
-                continue
+        for option in visible_options:
             _write_option(output, ctx, option, width)
 
 
