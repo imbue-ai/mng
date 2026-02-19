@@ -214,9 +214,14 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     profiles_dir = base_dir / PROFILES_DIRNAME
     profiles_dir.mkdir(parents=True, exist_ok=True)
-    config_path = base_dir / ROOT_CONFIG_FILENAME
 
-    # Try to read the active profile from config.toml
+    # Try read-only lookup first
+    existing = _find_profile_dir_lightweight(base_dir)
+    if existing is not None:
+        return existing
+
+    # Config specifies a profile ID but the directory doesn't exist yet -- create it
+    config_path = base_dir / ROOT_CONFIG_FILENAME
     if config_path.exists():
         try:
             with open(config_path, "rb") as f:
@@ -224,21 +229,16 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
             profile_id = root_config.get("profile")
             if profile_id:
                 profile_dir = profiles_dir / profile_id
-                if profile_dir.exists() and profile_dir.is_dir():
-                    return profile_dir
-                # Profile specified but doesn't exist - create it
                 profile_dir.mkdir(parents=True, exist_ok=True)
                 return profile_dir
         except tomllib.TOMLDecodeError:
-            # Invalid config.toml - will create new profile
             pass
 
-    # No valid config.toml or no profile specified - create a new profile
+    # No valid config.toml or no profile specified -- create a new profile
     profile_id = uuid4().hex
     profile_dir = profiles_dir / profile_id
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save the new profile ID to config.toml
     config_path.write_text(f'profile = "{profile_id}"\n')
 
     return profile_dir
