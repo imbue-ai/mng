@@ -142,10 +142,9 @@ def test_apply_plugin_cli_options_adds_string_option() -> None:
         assert "test_plugin_option" in param_names
 
         option = next(p for p in test_cmd.params if p.name == "test_plugin_option")
+        assert isinstance(option, GroupedOption)
         assert option.default is None
         assert option.help == "Test option from plugin"
-
-        assert isinstance(option, GroupedOption)
         assert option.group.name == "Test Plugin Options"
 
 
@@ -163,10 +162,9 @@ def test_apply_plugin_cli_options_adds_flag_option() -> None:
         assert "test_flag" in param_names
 
         option = next(p for p in test_cmd.params if p.name == "test_flag")
+        assert isinstance(option, GroupedOption)
         assert option.default is False
         assert option.is_flag is True
-
-        assert isinstance(option, GroupedOption)
         assert option.group.name == "Test Flag Options"
 
 
