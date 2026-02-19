@@ -21,7 +21,7 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
-from imbue.mng.cli.help_formatter import set_help_metadata
+from imbue.mng.cli.help_formatter import register_subcommand_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -885,7 +885,6 @@ register_help_metadata("config", _CONFIG_HELP_METADATA)
 for alias in _CONFIG_HELP_METADATA.aliases:
     register_help_metadata(alias, _CONFIG_HELP_METADATA)
 
-set_help_metadata(config, _CONFIG_HELP_METADATA)
 add_pager_help_option(config)
 
 # -- Subcommand help metadata --
@@ -913,7 +912,7 @@ key, value.""",
     ),
 )
 
-set_help_metadata(config_list, _CONFIG_LIST_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "list", _CONFIG_LIST_HELP_METADATA)
 add_pager_help_option(config_list)
 
 _CONFIG_GET_HELP_METADATA = CommandHelpMetadata(
@@ -938,7 +937,7 @@ from a specific scope.""",
     ),
 )
 
-set_help_metadata(config_get, _CONFIG_GET_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "get", _CONFIG_GET_HELP_METADATA)
 add_pager_help_option(config_get)
 
 _CONFIG_SET_HELP_METADATA = CommandHelpMetadata(
@@ -963,7 +962,7 @@ Use 'true'/'false' for booleans, numbers for integers/floats.""",
     ),
 )
 
-set_help_metadata(config_set, _CONFIG_SET_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "set", _CONFIG_SET_HELP_METADATA)
 add_pager_help_option(config_set)
 
 _CONFIG_UNSET_HELP_METADATA = CommandHelpMetadata(
@@ -984,7 +983,7 @@ for nested keys (e.g., 'commands.create.connect').""",
     ),
 )
 
-set_help_metadata(config_unset, _CONFIG_UNSET_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "unset", _CONFIG_UNSET_HELP_METADATA)
 add_pager_help_option(config_unset)
 
 _CONFIG_EDIT_HELP_METADATA = CommandHelpMetadata(
@@ -1008,7 +1007,7 @@ If the config file doesn't exist, it will be created with an empty template.""",
     ),
 )
 
-set_help_metadata(config_edit, _CONFIG_EDIT_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "edit", _CONFIG_EDIT_HELP_METADATA)
 add_pager_help_option(config_edit)
 
 _CONFIG_PATH_HELP_METADATA = CommandHelpMetadata(
@@ -1029,5 +1028,5 @@ only that scope's path. Otherwise shows all paths and whether they exist.""",
     ),
 )
 
-set_help_metadata(config_path, _CONFIG_PATH_HELP_METADATA)
+register_subcommand_help_metadata(_CONFIG_HELP_METADATA, "path", _CONFIG_PATH_HELP_METADATA)
 add_pager_help_option(config_path)
