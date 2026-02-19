@@ -11,7 +11,7 @@ from imbue.mngr.api.find import AgentMatch
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import group_agents_by_host
 from imbue.mngr.api.find import resolve_host_reference
-from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -32,7 +32,6 @@ from imbue.mngr.interfaces.host import HostInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
-from imbue.mngr.primitives import HostName
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import IdleMode
 from imbue.mngr.primitives import OutputFormat
@@ -209,21 +208,8 @@ def _apply_activity_config_to_host(
 
 def _build_host_references(mngr_ctx: MngrContext) -> list[HostReference]:
     """Build a deduplicated list of HostReferences from all known agents."""
-    result = list_agents(mngr_ctx, is_streaming=False)
-    all_hosts: list[HostReference] = []
-    seen_host_ids: set[str] = set()
-    for agent_info in result.agents:
-        host_ref_key = str(agent_info.host.id)
-        if host_ref_key not in seen_host_ids:
-            seen_host_ids.add(host_ref_key)
-            all_hosts.append(
-                HostReference(
-                    host_id=agent_info.host.id,
-                    host_name=HostName(agent_info.host.name),
-                    provider_name=agent_info.host.provider_name,
-                )
-            )
-    return all_hosts
+    agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
+    return list(agents_by_host.keys())
 
 
 def _resolve_host_identifiers(

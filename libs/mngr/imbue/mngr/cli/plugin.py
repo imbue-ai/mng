@@ -1,4 +1,8 @@
+import importlib.metadata
+import json
 import os
+import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -6,10 +10,14 @@ from typing import assert_never
 
 import click
 from loguru import logger
+from packaging.requirements import InvalidRequirement
+from packaging.requirements import Requirement
 from pydantic import Field
 from tabulate import tabulate
 
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
@@ -30,6 +38,7 @@ from imbue.mngr.cli.output_helpers import write_human_line
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
 from imbue.mngr.config.data_types import OutputOptions
+from imbue.mngr.errors import PluginSpecifierError
 from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import PluginName
 
@@ -50,6 +59,8 @@ class PluginCliOptions(CommonCliOptions):
     fields: str | None = None
     name: str | None = None
     scope: str | None = None
+    path: str | None = None
+    git: str | None = None
 
 
 class PluginInfo(FrozenModel):
@@ -193,13 +204,145 @@ def _parse_fields(fields_str: str | None) -> tuple[str, ...]:
     return tuple(f.strip() for f in fields_str.split(",") if f.strip())
 
 
+@pure
+def _parse_pypi_package_name(specifier: str) -> str | None:
+    """Extract the canonical package name from a PyPI requirement string.
+
+    Parses specifiers like 'mngr-opencode>=1.0' and returns just the name
+    ('mngr-opencode'). Returns None if the specifier is not a valid PyPI
+    requirement.
+    """
+    try:
+        req = Requirement(specifier)
+    except InvalidRequirement:
+        return None
+    return req.name
+
+
+def _build_uv_pip_install_command_for_path(local_path: str) -> tuple[str, ...]:
+    """Build the uv pip install command for a local path (editable mode)."""
+    resolved = str(Path(local_path).expanduser().resolve())
+    return ("uv", "pip", "install", "--python", sys.executable, "-e", resolved)
+
+
+@pure
+def _build_uv_pip_install_command_for_name_or_url(specifier: str) -> tuple[str, ...]:
+    """Build the uv pip install command for a PyPI name or git URL."""
+    return ("uv", "pip", "install", "--python", sys.executable, specifier)
+
+
+@pure
+def _build_uv_pip_uninstall_command(package_name: str) -> tuple[str, ...]:
+    """Build the uv pip uninstall command for a given package name."""
+    return ("uv", "pip", "uninstall", "--python", sys.executable, package_name)
+
+
+def _get_installed_package_names(concurrency_group: Any) -> set[str]:
+    """Get the set of currently installed package names via `uv pip list --format json`."""
+    result = concurrency_group.run_process_to_completion(
+        ("uv", "pip", "list", "--python", sys.executable, "--format", "json")
+    )
+    packages = json.loads(result.stdout)
+    return {pkg["name"] for pkg in packages}
+
+
+def _read_package_name_from_pyproject(local_path: str) -> str:
+    """Read the package name from a local path's pyproject.toml.
+
+    Raises PluginSpecifierError if the file is missing or has no project.name.
+    """
+    resolved = Path(local_path).expanduser().resolve()
+    pyproject_path = resolved / "pyproject.toml"
+    if not pyproject_path.exists():
+        raise PluginSpecifierError(f"No pyproject.toml found at '{resolved}' -- cannot determine package name")
+    with pyproject_path.open("rb") as f:
+        data = tomllib.load(f)
+    name = data.get("project", {}).get("name")
+    if not name:
+        raise PluginSpecifierError(f"pyproject.toml at '{resolved}' does not have a project.name field")
+    return name
+
+
+def _check_for_mngr_entry_points(package_name: str) -> bool:
+    """Check whether an installed package registered any mngr entry points.
+
+    Returns True if entry points were found, False otherwise.
+    """
+    try:
+        dist = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    entry_points = dist.entry_points
+    return any(ep.group == "mngr" for ep in entry_points)
+
+
+def _emit_plugin_add_result(
+    specifier: str,
+    package_name: str,
+    has_entry_points: bool,
+    output_opts: OutputOptions,
+) -> None:
+    """Emit the result of a plugin add operation."""
+    match output_opts.output_format:
+        case OutputFormat.HUMAN:
+            logger.info("Installed plugin package '{}'", package_name)
+            if not has_entry_points:
+                logger.warning(
+                    "Package installed but no mngr entry points found -- this package may not be a mngr plugin"
+                )
+        case OutputFormat.JSON:
+            emit_final_json(
+                {
+                    "specifier": specifier,
+                    "package": package_name,
+                    "has_entry_points": has_entry_points,
+                }
+            )
+        case OutputFormat.JSONL:
+            emit_final_json(
+                {
+                    "event": "plugin_added",
+                    "specifier": specifier,
+                    "package": package_name,
+                    "has_entry_points": has_entry_points,
+                }
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _emit_plugin_remove_result(
+    package_name: str,
+    output_opts: OutputOptions,
+) -> None:
+    """Emit the result of a plugin remove operation."""
+    match output_opts.output_format:
+        case OutputFormat.HUMAN:
+            logger.info("Removed plugin package '{}'", package_name)
+        case OutputFormat.JSON:
+            emit_final_json(
+                {
+                    "package": package_name,
+                }
+            )
+        case OutputFormat.JSONL:
+            emit_final_json(
+                {
+                    "event": "plugin_removed",
+                    "package": package_name,
+                }
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 @click.group(name="plugin", invoke_without_command=True)
 @add_common_options
 @click.pass_context
 def plugin(ctx: click.Context, **kwargs: Any) -> None:
     """Manage available and active plugins. [experimental]
 
-    View, enable, and disable plugins registered with mngr.
+    Install, remove, view, enable, and disable plugins registered with mngr.
 
     Examples:
 
@@ -276,21 +419,223 @@ def _plugin_list_impl(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @plugin.command(name="add")
-@click.argument("name")
+@click.argument("name", required=False, default=None)
+@click.option("--path", default=None, help="Install from a local path (editable mode)")
+@click.option("--git", default=None, help="Install from a git URL")
 @add_common_options
 @click.pass_context
-def plugin_add(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Add a plugin. [future]"""
-    raise NotImplementedError("'mngr plugin add' is not yet implemented")
+def plugin_add(ctx: click.Context, **kwargs: Any) -> None:
+    """Install a plugin package. [experimental]
+
+    Provide exactly one of NAME (positional), --path, or --git.
+
+    Examples:
+
+      mngr plugin add mngr-opencode
+
+      mngr plugin add mngr-opencode>=1.0
+
+      mngr plugin add --path ./my-plugin
+
+      mngr plugin add --git https://github.com/user/mngr-plugin.git
+    """
+    try:
+        _plugin_add_impl(ctx)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
 
 
 @plugin.command(name="remove")
-@click.argument("name")
+@click.argument("name", required=False, default=None)
+@click.option("--path", default=None, help="Remove by local path (reads package name from pyproject.toml)")
 @add_common_options
 @click.pass_context
-def plugin_remove(ctx: click.Context, name: str, **kwargs: Any) -> None:
-    """Remove a plugin. [future]"""
-    raise NotImplementedError("'mngr plugin remove' is not yet implemented")
+def plugin_remove(ctx: click.Context, **kwargs: Any) -> None:
+    """Uninstall a plugin package. [experimental]
+
+    Provide exactly one of NAME (positional) or --path. For local paths,
+    the package name is read from pyproject.toml.
+
+    Examples:
+
+      mngr plugin remove mngr-opencode
+
+      mngr plugin remove --path ./my-plugin
+    """
+    try:
+        _plugin_remove_impl(ctx)
+    except AbortError as e:
+        logger.error("Aborted: {}", e.message)
+        ctx.exit(1)
+
+
+class _PypiSource(FrozenModel):
+    """Plugin source: a PyPI package name (possibly with version constraint)."""
+
+    name: str = Field(description="PyPI package specifier (e.g. 'mngr-opencode>=1.0')")
+
+
+class _PathSource(FrozenModel):
+    """Plugin source: a local filesystem path."""
+
+    path: str = Field(description="Local filesystem path to the plugin package")
+
+
+class _GitSource(FrozenModel):
+    """Plugin source: a git URL."""
+
+    url: str = Field(description="Git repository URL for the plugin package")
+
+
+_AddSource = _PypiSource | _PathSource | _GitSource
+_RemoveSource = _PypiSource | _PathSource
+
+
+@pure
+def _parse_add_source(opts: PluginCliOptions) -> _AddSource:
+    """Parse and validate the plugin source for an add command.
+
+    Exactly one of name, --path, or --git must be provided.
+    """
+    source_count = sum(x is not None for x in (opts.name, opts.path, opts.git))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME, --path, or --git")
+    if source_count > 1:
+        raise AbortError("NAME, --path, and --git are mutually exclusive")
+
+    if opts.path is not None:
+        return _PathSource(path=opts.path)
+    if opts.git is not None:
+        return _GitSource(url=opts.git)
+
+    assert opts.name is not None
+    if _parse_pypi_package_name(opts.name) is None:
+        raise AbortError(f"Invalid package name '{opts.name}'")
+    return _PypiSource(name=opts.name)
+
+
+@pure
+def _parse_remove_source(opts: PluginCliOptions) -> _RemoveSource:
+    """Parse and validate the plugin source for a remove command.
+
+    Exactly one of name or --path must be provided.
+    """
+    source_count = sum(x is not None for x in (opts.name, opts.path))
+    if source_count == 0:
+        raise AbortError("Provide exactly one of NAME or --path")
+    if source_count > 1:
+        raise AbortError("NAME and --path are mutually exclusive")
+
+    if opts.path is not None:
+        return _PathSource(path=opts.path)
+
+    assert opts.name is not None
+    if _parse_pypi_package_name(opts.name) is None:
+        raise AbortError(f"Invalid package name '{opts.name}'")
+    return _PypiSource(name=opts.name)
+
+
+def _plugin_add_impl(ctx: click.Context) -> None:
+    """Implementation of plugin add command."""
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="plugin",
+        command_class=PluginCliOptions,
+    )
+
+    source = _parse_add_source(opts)
+
+    # Build the install command and determine the display specifier
+    match source:
+        case _PathSource(path=path):
+            specifier = path
+            command = _build_uv_pip_install_command_for_path(path)
+        case _GitSource(url=url):
+            specifier = url
+            command = _build_uv_pip_install_command_for_name_or_url(url)
+        case _PypiSource(name=name):
+            specifier = name
+            command = _build_uv_pip_install_command_for_name_or_url(name)
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    # For git installs, snapshot installed packages before install so we can diff afterward
+    packages_before: set[str] | None = None
+    if isinstance(source, _GitSource):
+        packages_before = _get_installed_package_names(mngr_ctx.concurrency_group)
+
+    with log_span("Installing plugin package '{}'", specifier):
+        try:
+            mngr_ctx.concurrency_group.run_process_to_completion(command)
+        except ProcessError as e:
+            raise AbortError(
+                f"Failed to install plugin package '{specifier}': {e.stderr.strip() or e.stdout.strip()}",
+                original_exception=e,
+            ) from e
+
+    # Resolve the canonical package name from the install
+    match source:
+        case _PypiSource(name=name):
+            resolved_package_name = _parse_pypi_package_name(name) or name
+        case _PathSource(path=path):
+            try:
+                resolved_package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError:
+                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
+                resolved_package_name = path
+        case _GitSource(url=url):
+            assert packages_before is not None
+            packages_after = _get_installed_package_names(mngr_ctx.concurrency_group)
+            new_packages = packages_after - packages_before
+            resolved_package_name = next(iter(new_packages)) if new_packages else url
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    has_entry_points = _check_for_mngr_entry_points(resolved_package_name)
+    _emit_plugin_add_result(specifier, resolved_package_name, has_entry_points, output_opts)
+
+
+def _plugin_remove_impl(ctx: click.Context) -> None:
+    """Implementation of plugin remove command."""
+    mngr_ctx, output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="plugin",
+        command_class=PluginCliOptions,
+    )
+
+    source = _parse_remove_source(opts)
+
+    match source:
+        case _PathSource(path=path):
+            try:
+                package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError as e:
+                raise AbortError(str(e)) from e
+        case _PypiSource(name=name):
+            # _parse_remove_source already validated the name; this extracts the canonical form
+            package_name = _parse_pypi_package_name(name) or name
+        case _ as unreachable:
+            assert_never(unreachable)
+
+    # Verify the package is actually installed before trying to uninstall
+    try:
+        importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        raise AbortError(f"Package '{package_name}' is not installed") from None
+
+    command = _build_uv_pip_uninstall_command(package_name)
+
+    with log_span("Removing plugin package '{}'", package_name):
+        try:
+            mngr_ctx.concurrency_group.run_process_to_completion(command)
+        except ProcessError as e:
+            raise AbortError(
+                f"Failed to remove plugin package '{package_name}': {e.stderr.strip() or e.stdout.strip()}",
+                original_exception=e,
+            ) from e
+
+    _emit_plugin_remove_result(package_name, output_opts)
 
 
 # FOLLOWUP: in addition to the above, I also want a sub-command for "mngr plugin search" so that you can easily search across all plugins (once there are a bunch of them)
@@ -449,14 +794,18 @@ _PLUGIN_HELP_METADATA = CommandHelpMetadata(
     synopsis="mngr [plugin|plug] <subcommand> [OPTIONS]",
     description="""Manage available and active plugins.
 
-View, enable, and disable plugins registered with mngr. Plugins provide
-agent types, provider backends, CLI commands, and lifecycle hooks.""",
+Install, remove, view, enable, and disable plugins registered with mngr.
+Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.""",
     aliases=("plug",),
     examples=(
         ("List all plugins", "mngr plugin list"),
         ("List only active plugins", "mngr plugin list --active"),
         ("List plugins as JSON", "mngr plugin list --format json"),
         ("Show specific fields", "mngr plugin list --fields name,enabled"),
+        ("Install a plugin from PyPI", "mngr plugin add mngr-opencode"),
+        ("Install a local plugin", "mngr plugin add --path ./my-plugin"),
+        ("Install a plugin from git", "mngr plugin add --git https://github.com/user/mngr-plugin.git"),
+        ("Remove a plugin", "mngr plugin remove mngr-opencode"),
         ("Enable a plugin", "mngr plugin enable modal"),
         ("Disable a plugin", "mngr plugin disable modal --scope user"),
     ),
