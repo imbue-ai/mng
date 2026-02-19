@@ -30,10 +30,10 @@ mngr --help
 
 **mngr is fast:**
 ```bash
-> time mngr local-hello  --message "Just say hello" --no-connect --in local
+> time mngr local-hello  --message "Just say hello" --no-connect --await-ready --in local
 # (time results)
 
-> time mngr remote-hello --message "Just say hello" --no-connect --in modal
+> time mngr remote-hello --message "Just say hello" --no-connect --await-ready --in modal
 # (time results)
 
 > time mngr list
