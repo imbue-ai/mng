@@ -32,4 +32,4 @@ Each provider backend has different trade-offs:
 
 Browse [100's of additional plugins](http://imbue.com/mngr/plugins) [future] for other provider backends (like AWS [future], GCP, Kubernetes, etc.).
 
-You can also create custom plugins to register additional provider backends. Implement the `register_provider_backend` hookspec with `@hookimpl` and return a tuple of `(backend_class, config_class)` where `backend_class` implements `ProviderBackendInterface` and `config_class` is a subclass of `ProviderInstanceConfig`. See the built-in providers (local, docker, modal) for examples.
+Custom plugins can register additional provider backends via the `register_provider_backend` hook. See [the plugin API](./api.md) and the built-in providers (local, docker, modal) for examples.
