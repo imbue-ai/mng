@@ -13,13 +13,12 @@ Usage:
 """
 
 import argparse
-import re
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 import semver
+import tomlkit
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -29,28 +28,23 @@ PACKAGES = [
     REPO_ROOT / "libs" / "concurrency_group" / "pyproject.toml",
 ]
 
-VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
-
 BUMP_KINDS = ("major", "minor", "patch")
 
 
 def get_current_version() -> str:
     """Read the current version from the first package."""
-    data = tomllib.loads(PACKAGES[0].read_text())
-    return data["project"]["version"]
+    doc = tomlkit.loads(PACKAGES[0].read_text())
+    return doc["project"]["version"]
 
 
 def bump_version(new_version: str) -> list[Path]:
     """Update the version in all package pyproject.toml files. Returns modified files."""
     modified = []
     for path in PACKAGES:
-        text = path.read_text()
-        new_text, count = VERSION_RE.subn(rf"\g<1>{new_version}\3", text)
-        if count == 0:
-            print(f"ERROR: Could not find version in {path}", file=sys.stderr)
-            sys.exit(1)
-        if new_text != text:
-            path.write_text(new_text)
+        doc = tomlkit.loads(path.read_text())
+        if doc["project"]["version"] != new_version:
+            doc["project"]["version"] = new_version
+            path.write_text(tomlkit.dumps(doc))
             modified.append(path)
     return modified
 
