@@ -36,6 +36,7 @@ from imbue.mngr.interfaces.volume import HostVolume
 from imbue.mngr.primitives import ActivitySource
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostNameStyle
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
@@ -80,8 +81,7 @@ class LocalProviderInstance(BaseProviderInstance):
     supported. The host ID is persistent (generated once and saved to disk).
     """
 
-    @property
-    def default_host_name(self) -> HostName:
+    def generate_host_name(self, style: HostNameStyle) -> HostName:
         return HostName("localhost")
 
     @property

@@ -14,7 +14,6 @@ from imbue.mngr.hosts.host import HostLocation
 from imbue.mngr.interfaces.host import CreateAgentOptions
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.utils.env_utils import parse_env_file
-from imbue.mngr.utils.name_generator import generate_host_name
 
 
 def _call_on_before_create_hooks(
@@ -188,14 +187,9 @@ def resolve_target_host(
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
         provider = get_provider_instance(target_host.provider, mngr_ctx)
-
-        # Resolve host name: use explicit name, provider default, or auto-generate
-        if target_host.name is not None:
-            host_name = target_host.name
-        elif provider.default_host_name is not None:
-            host_name = provider.default_host_name
-        else:
-            host_name = generate_host_name(target_host.name_style)
+        host_name = (
+            target_host.name if target_host.name is not None else provider.generate_host_name(target_host.name_style)
+        )
 
         with log_span("Calling on_before_host_create hooks"):
             mngr_ctx.pm.hook.on_before_host_create(name=host_name, provider_name=target_host.provider)

@@ -26,12 +26,14 @@ from imbue.mngr.primitives import AgentId
 from imbue.mngr.primitives import AgentReference
 from imbue.mngr.primitives import HostId
 from imbue.mngr.primitives import HostName
+from imbue.mngr.primitives import HostNameStyle
 from imbue.mngr.primitives import HostReference
 from imbue.mngr.primitives import ImageReference
 from imbue.mngr.primitives import ProviderInstanceName
 from imbue.mngr.primitives import SnapshotId
 from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
+from imbue.mngr.utils.name_generator import generate_host_name as _generate_host_name
 
 
 class ProviderInstanceInterface(MutableModel, ABC):
@@ -48,17 +50,14 @@ class ProviderInstanceInterface(MutableModel, ABC):
     # Capability Properties
     # =========================================================================
 
-    @property
-    def default_host_name(self) -> HostName | None:
-        """The fixed host name for this provider, if it only supports one.
+    def generate_host_name(self, style: HostNameStyle) -> HostName:
+        """Generate a host name for a new host.
 
-        Providers that only support a single well-known host name (e.g. "localhost"
-        for the local provider) should override this to return that name. When set,
-        host name generation is skipped during ``mngr create --in <provider>``.
-
-        Returns None by default, meaning a host name will be auto-generated.
+        The default implementation auto-generates a name using the given style.
+        Providers that only support a fixed host name (e.g. "localhost" for the
+        local provider) should override this to return that name.
         """
-        return None
+        return _generate_host_name(style)
 
     @property
     @abstractmethod
