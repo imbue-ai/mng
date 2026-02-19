@@ -1,7 +1,4 @@
-"""Integration tests for the gc CLI command.
-
-Note: Unit tests for gc API functions (CEL filters, resource conversion) are in api/gc_test.py
-"""
+"""Integration tests for the gc CLI command."""
 
 import json
 from datetime import datetime
@@ -86,70 +83,3 @@ def test_gc_work_dirs_removes_orphaned_directory(
 
     updated_data = CertifiedHostData.model_validate_json(data_path.read_text())
     assert str(orphaned_dir) not in updated_data.generated_work_dirs, "generated_work_dirs should be updated"
-
-
-def test_gc_work_dirs_with_cel_filter(
-    cli_runner: CliRunner,
-    temp_host_dir: Path,
-    per_host_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test gc --work-dirs with CEL filters."""
-    orphaned_dir1 = temp_host_dir / "worktrees" / "temp-agent-123"
-    orphaned_dir1.mkdir(parents=True)
-
-    orphaned_dir2 = temp_host_dir / "worktrees" / "prod-agent-456"
-    orphaned_dir2.mkdir(parents=True)
-
-    _write_certified_data(per_host_dir, temp_host_dir, (str(orphaned_dir1), str(orphaned_dir2)))
-
-    result = cli_runner.invoke(
-        gc,
-        ["--work-dirs", "--exclude", "name.startsWith('temp')"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-
-    assert result.exit_code == 0
-    assert "Work directories: 1" in result.output
-    assert orphaned_dir1.exists(), "temp directory should still exist (excluded)"
-    assert not orphaned_dir2.exists(), "prod directory should be removed"
-
-
-def test_gc_work_dirs_with_provider_name_filter(
-    cli_runner: CliRunner,
-    temp_host_dir: Path,
-    per_host_dir: Path,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test gc work-dirs with provider_name CEL filter.
-
-    This test verifies that the documented CEL field name 'provider_name' works correctly.
-    The gc CEL context is flat (no x. prefix needed), so filters use field names directly.
-    """
-    orphaned_dir = temp_host_dir / "worktrees" / "orphaned-provider-test"
-    orphaned_dir.mkdir(parents=True, exist_ok=True)
-
-    _write_certified_data(per_host_dir, temp_host_dir, (str(orphaned_dir),))
-
-    # Filter by provider_name - should match local provider
-    result = cli_runner.invoke(
-        gc,
-        ["--work-dirs", "--include", 'provider_name == "local"', "--dry-run"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-
-    assert result.exit_code == 0
-    assert "Work directories: 1" in result.output
-
-    # Filter by non-matching provider_name - should find nothing
-    result_no_match = cli_runner.invoke(
-        gc,
-        ["--work-dirs", "--include", 'provider_name == "docker"', "--dry-run"],
-        obj=plugin_manager,
-        catch_exceptions=False,
-    )
-
-    assert result_no_match.exit_code == 0
-    assert "No resources found" in result_no_match.output
