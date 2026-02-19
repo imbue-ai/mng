@@ -21,6 +21,19 @@ fi
 SESSION="$1"
 WINDOW="$2"
 
+# File logging (uses STOP_HOOK_LOG exported by main_stop_hook)
+_log_to_file() {
+    local level="$1"
+    local msg="$2"
+    if [[ -n "${STOP_HOOK_LOG:-}" ]]; then
+        local ts
+        ts=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$ts] [$$] [run_reviewer:$WINDOW] [$level] $msg" >> "$STOP_HOOK_LOG"
+    fi
+}
+
+_log_to_file "INFO" "run_reviewer started (pid=$$, ppid=$PPID, session=$SESSION, window=$WINDOW)"
+
 # Configuration
 REVIEW_TIMEOUT=600  # 10 minutes max wait for review
 POLL_INTERVAL=5     # Check every 5 seconds
@@ -44,6 +57,7 @@ if [[ -f "$CACHE_COMMIT_FILE" && -f "$CACHE_OUTPUT_FILE" && -f "$CACHE_EXIT_CODE
         mkdir -p "$REVIEW_OUTPUT_DIR"
         cp "$CACHE_OUTPUT_FILE" "$REVIEW_OUTPUT_FILE"
         echo -e "[$WINDOW] Commit $CURRENT_COMMIT already reviewed -- using cached results (exit code $CACHED_EXIT_CODE)"
+        _log_to_file "INFO" "Cache hit for commit $CURRENT_COMMIT, exiting with cached code $CACHED_EXIT_CODE"
         exit "$CACHED_EXIT_CODE"
     fi
 fi
@@ -78,6 +92,7 @@ log_info() {
 }
 
 # Send the review command to the tmux window
+_log_to_file "INFO" "Sending review commands to tmux $SESSION:$WINDOW"
 log_info "Triggering review in $SESSION:$WINDOW..."
 tmux send-keys -t "$SESSION:$WINDOW" "/clear"
 # see below note
@@ -101,12 +116,14 @@ while true; do
 
     if [[ $CURRENT_TIME -ge $END_TIME ]]; then
         log_error "Timeout waiting for review after ${REVIEW_TIMEOUT}s"
+        _log_to_file "ERROR" "Timeout waiting for review after ${REVIEW_TIMEOUT}s, exiting with 3"
         exit 3
     fi
 
     if [[ -f "$REVIEW_DONE_MARKER" ]]; then
         ELAPSED=$((CURRENT_TIME - START_TIME))
         log_info "Review completed in ${ELAPSED}s"
+        _log_to_file "INFO" "Review done marker found after ${ELAPSED}s"
         break
     fi
 
@@ -209,10 +226,12 @@ upload_reviewer_output() {
 if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
     log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
     cache_results 2
+    _log_to_file "INFO" "Found $BLOCKING_ISSUES blocking issues, exiting with 2"
     exit 2
 fi
 
 log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
 upload_reviewer_output "$REVIEW_OUTPUT_FILE" "$CURRENT_COMMIT"
 cache_results 0
+_log_to_file "INFO" "run_reviewer completed successfully, exiting with 0"
 exit 0

@@ -19,16 +19,35 @@ else
     NC=''
 fi
 
+# File logging: all log functions write to $STOP_HOOK_LOG if set.
+# Each sourcing script should set STOP_HOOK_LOG before calling log functions.
+# Format: [YYYY-MM-DD HH:MM:SS] [SCRIPT_NAME] [LEVEL] message
+STOP_HOOK_LOG="${STOP_HOOK_LOG:-}"
+STOP_HOOK_SCRIPT_NAME="${STOP_HOOK_SCRIPT_NAME:-unknown}"
+
+_log_to_file() {
+    local level="$1"
+    local msg="$2"
+    if [[ -n "$STOP_HOOK_LOG" ]]; then
+        local ts
+        ts=$(date '+%Y-%m-%d %H:%M:%S')
+        echo "[$ts] [$$] [$STOP_HOOK_SCRIPT_NAME] [$level] $msg" >> "$STOP_HOOK_LOG"
+    fi
+}
+
 log_error() {
     echo -e "${RED}ERROR: $1${NC}" >&2
+    _log_to_file "ERROR" "$1"
 }
 
 log_warn() {
     echo -e "${YELLOW}WARN: $1${NC}" >&2
+    _log_to_file "WARN" "$1"
 }
 
 log_info() {
     echo -e "${GREEN}$1${NC}"
+    _log_to_file "INFO" "$1"
 }
 
 # Retry a command with exponential backoff

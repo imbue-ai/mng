@@ -56,8 +56,30 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Set up file logging before sourcing common
+if [[ -n "${MNG_AGENT_STATE_DIR:-}" ]]; then
+    export STOP_HOOK_LOG="$MNG_AGENT_STATE_DIR/stop_hook.log"
+fi
+export STOP_HOOK_SCRIPT_NAME="main_stop_hook"
+
 # Source shared function definitions (log_error, log_warn, log_info, retry_command)
 source "$SCRIPT_DIR/stop_hook_common.sh"
+
+_log_to_file "INFO" "========================================================"
+_log_to_file "INFO" "Stop hook started (pid=$$, ppid=$PPID)"
+_log_to_file "INFO" "TMUX_SESSION=$TMUX_SESSION, MAIN_CLAUDE_SESSION_ID=$MAIN_CLAUDE_SESSION_ID"
+_log_to_file "INFO" "========================================================"
+
+# Trap signals so we can log unexpected terminations
+_on_signal() {
+    local sig="$1"
+    _log_to_file "ERROR" "main_stop_hook received signal $sig (pid=$$) -- UNEXPECTED TERMINATION"
+    exit 128
+}
+for _sig in HUP INT QUIT TERM PIPE; do
+    trap "_on_signal $_sig" "$_sig"
+done
+trap '_log_to_file "INFO" "main_stop_hook EXIT trap fired (pid=$$, exit_code=$?)"' EXIT
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BASE_BRANCH="${GIT_BASE_BRANCH:-main}"
@@ -126,6 +148,7 @@ fi
 
 if [[ "$IS_INFORMATIONAL_ONLY" == "true" ]]; then
     log_info "No code changes detected compared to $BASE_BRANCH - this is an informational session. Exiting cleanly."
+    _log_to_file "INFO" "Informational-only session, exiting cleanly (exit 0)"
     notify_user || echo "No notify_user function defined, skipping."
     rm -f "$MNG_AGENT_STATE_DIR/active"
     exit 0
@@ -162,12 +185,16 @@ fi
 export TMUX_SESSION SCRIPT_DIR CURRENT_BRANCH BASE_BRANCH
 export RED GREEN YELLOW NC
 
+_log_to_file "INFO" "Launching child scripts in parallel..."
+
 # Launch both scripts in parallel
 "$SCRIPT_DIR/stop_hook_pr_and_ci.sh" &
 PR_CI_PID=$!
+_log_to_file "INFO" "Launched stop_hook_pr_and_ci.sh (pid=$PR_CI_PID)"
 
 "$SCRIPT_DIR/stop_hook_reviewer.sh" &
 REVIEWER_PID=$!
+_log_to_file "INFO" "Launched stop_hook_reviewer.sh (pid=$REVIEWER_PID)"
 
 # Poll until either process exits with code 2 (actionable failure) or both finish.
 # Exit code 2 means the agent needs to fix something, so we return immediately
@@ -175,15 +202,19 @@ REVIEWER_PID=$!
 PR_CI_EXIT=""
 REVIEWER_EXIT=""
 
+_log_to_file "INFO" "Entering poll loop (waiting for children to finish)..."
+
 while true; do
     # Check PR/CI process
     if [[ -z "$PR_CI_EXIT" ]] && ! kill -0 "$PR_CI_PID" 2>/dev/null; then
         wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
+        _log_to_file "INFO" "PR/CI process (pid=$PR_CI_PID) exited with code $PR_CI_EXIT"
         if [[ $PR_CI_EXIT -eq 2 ]]; then
             log_error "PR/CI hook failed (exit code 2)"
             log_error "Reviewer hook is still running in the background -- go fix the tests first, then check the outputs from the reviewers."
             log_error "Run 'cat .reviews/final_issue_json/*.json' to see those issues when you're ready (after fixing CI failures)."
             log_error "And remember that you MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure); reviewer pid=$REVIEWER_PID still running"
             exit 2
         elif [[ $PR_CI_EXIT -ne 0 ]]; then
             log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
@@ -193,6 +224,7 @@ while true; do
     # Check reviewer process
     if [[ -z "$REVIEWER_EXIT" ]] && ! kill -0 "$REVIEWER_PID" 2>/dev/null; then
         wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
+        _log_to_file "INFO" "Reviewer process (pid=$REVIEWER_PID) exited with code $REVIEWER_EXIT"
         if [[ $REVIEWER_EXIT -eq 2 ]]; then
             log_error "Reviewer hook failed (exit code 2)"
             log_error "PR/CI hook is still running in the background -- go fix the issues flagged by the reviewer first, then check back in to see if the tests passed in CI."
@@ -202,6 +234,7 @@ while true; do
             log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
             log_error "If it is impossible to fix the test, tell the user and say that you failed."
             log_error "Otherwise, once you have understood and fixed any issues, you can simply commit to try again."
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (reviewer failure); pr_ci pid=$PR_CI_PID still running"
             exit 2
         elif [[ $REVIEWER_EXIT -ne 0 ]]; then
             log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
@@ -210,6 +243,7 @@ while true; do
 
     # Both finished
     if [[ -n "$PR_CI_EXIT" && -n "$REVIEWER_EXIT" ]]; then
+        _log_to_file "INFO" "Both children finished: PR_CI_EXIT=$PR_CI_EXIT, REVIEWER_EXIT=$REVIEWER_EXIT"
         break
     fi
 
@@ -218,15 +252,18 @@ done
 
 # If either had a non-2 failure, propagate it
 if [[ $PR_CI_EXIT -ne 0 ]]; then
+    _log_to_file "ERROR" "main_stop_hook exiting with PR/CI exit code $PR_CI_EXIT"
     notify_user || echo "No notify_user function defined, skipping."
     exit $PR_CI_EXIT
 fi
 if [[ $REVIEWER_EXIT -ne 0 ]]; then
+    _log_to_file "ERROR" "main_stop_hook exiting with reviewer exit code $REVIEWER_EXIT"
     notify_user || echo "No notify_user function defined, skipping."
     exit $REVIEWER_EXIT
 fi
 
 # Call local notification script if it exists
+_log_to_file "INFO" "main_stop_hook completed successfully (exit 0)"
 rm -f "$MNG_AGENT_STATE_DIR/active"
 notify_user || echo "No notify_user function defined, skipping."
 
