@@ -479,6 +479,12 @@ class MngConfig(FrozenModel):
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
     )
+    tmux_socket_dir: Path | None = Field(
+        default=None,
+        description="Directory for mng's tmux server socket. When set, mng uses a separate tmux server "
+        "(via TMUX_TMPDIR), isolating its sessions from your personal tmux. "
+        "Example: '~/.mng/tmux'",
+    )
     is_error_reporting_enabled: bool = Field(
         default=True,
         description="Whether to prompt users to report unexpected errors as GitHub issues when running interactively",
@@ -611,6 +617,11 @@ class MngConfig(FrozenModel):
         if override.is_nested_tmux_allowed is not None:
             merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
 
+        # Merge tmux_socket_dir (scalar - override wins if not None)
+        merged_tmux_socket_dir = (
+            override.tmux_socket_dir if override.tmux_socket_dir is not None else self.tmux_socket_dir
+        )
+
         # Merge is_error_reporting_enabled (scalar - override wins if not None)
         merged_is_error_reporting_enabled = self.is_error_reporting_enabled
         if override.is_error_reporting_enabled is not None:
@@ -647,6 +658,7 @@ class MngConfig(FrozenModel):
             connect_command=merged_connect_command,
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
+            tmux_socket_dir=merged_tmux_socket_dir,
             is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,
             default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,

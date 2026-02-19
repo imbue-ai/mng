@@ -909,3 +909,27 @@ def test_mng_config_merge_keeps_base_connect_command_when_override_none(mng_test
 def test_mng_config_connect_command_defaults_to_none(mng_test_prefix: str) -> None:
     config = MngConfig(prefix=mng_test_prefix)
     assert config.connect_command is None
+
+
+# =============================================================================
+# Tests for MngConfig.tmux_socket_dir
+# =============================================================================
+
+
+def test_mng_config_tmux_socket_dir_defaults_to_none(mng_test_prefix: str) -> None:
+    config = MngConfig(prefix=mng_test_prefix)
+    assert config.tmux_socket_dir is None
+
+
+def test_mng_config_merge_overrides_tmux_socket_dir(mng_test_prefix: str) -> None:
+    base = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/base/tmux"))
+    override = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/override/tmux"))
+    merged = base.merge_with(override)
+    assert merged.tmux_socket_dir == Path("/override/tmux")
+
+
+def test_mng_config_merge_keeps_base_tmux_socket_dir_when_override_none(mng_test_prefix: str) -> None:
+    base = MngConfig(prefix=mng_test_prefix, tmux_socket_dir=Path("/base/tmux"))
+    override = MngConfig.model_construct(prefix=mng_test_prefix, tmux_socket_dir=None)
+    merged = base.merge_with(override)
+    assert merged.tmux_socket_dir == Path("/base/tmux")

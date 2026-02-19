@@ -535,6 +535,49 @@ def test_connect_to_agent_local_raises_nested_tmux_error_when_tmux_is_set(
     assert "is_nested_tmux_allowed" in exc_info.value.user_help_text
 
 
+def test_connect_to_agent_local_no_nested_tmux_error_when_tmux_socket_dir_set(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """When tmux_socket_dir is set and TMUX is set, connect_to_agent should NOT raise NestedTmuxError.
+
+    Instead it should unset TMUX and set TMUX_TMPDIR in the env passed to execvpe.
+    """
+    socket_dir = tmp_path / "mng-tmux"
+    config = MngConfig(
+        default_host_dir=temp_host_dir,
+        prefix="test-",
+        tmux_socket_dir=socket_dir,
+    )
+    mng_ctx = MngContext(config=config, pm=plugin_manager, profile_dir=temp_profile_dir)
+    host, agent = _make_local_host_and_agent(local_provider, mng_ctx, agent_name="iso-agent")
+    opts = ConnectionOptions(is_unknown_host_allowed=False)
+
+    # Simulate being inside a tmux session
+    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,12345,0")
+
+    # Intercept os.execvpe to capture the env
+    captured_env: dict[str, str] = {}
+    captured_args: list[str] = []
+
+    def fake_execvpe(cmd: str, args: list[str], env: dict[str, str]) -> None:
+        captured_args.extend(args)
+        captured_env.update(env)
+
+    monkeypatch.setattr("imbue.mng.api.connect.os.execvpe", fake_execvpe)
+
+    # Should NOT raise NestedTmuxError
+    connect_to_agent(agent, host, mng_ctx, opts)
+
+    assert "TMUX" not in captured_env
+    assert captured_env["TMUX_TMPDIR"] == str(socket_dir)
+    assert captured_args == ["tmux", "attach", "-t", "test-iso-agent"]
+
+
 # =========================================================================
 # Tests for run_connect_command
 # =========================================================================

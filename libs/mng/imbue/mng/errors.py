@@ -344,7 +344,9 @@ class NestedTmuxError(MngError):
             f"You're already in a tmux session. You can attach to the agent with:\n  tmux attach -t {session_name}"
         )
         self.user_help_text = (
-            "To allow mng to attach automatically inside tmux, run:\n"
+            "Option 1 (recommended): isolate mng's tmux sessions onto a separate server:\n"
+            '  mng config set --scope user tmux_socket_dir "~/.mng/tmux"\n'
+            "Option 2: allow nested tmux attachment (sessions will still appear in your tmux ls):\n"
             "  mng config set --scope user is_nested_tmux_allowed true"
         )
 

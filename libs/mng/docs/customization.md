@@ -153,6 +153,29 @@ Templates are useful when:
 
 Templates differ from command defaults in that they must be explicitly selected with `--template`, while command defaults are always applied automatically.
 
+## Tmux Session Isolation
+
+By default, `mng` creates tmux sessions on your default tmux server. This means `mng`'s sessions appear in your `tmux ls` output alongside your personal sessions. To keep them separate, set `tmux_socket_dir`:
+
+```toml
+# ~/.mng/profiles/<profile_id>/settings.toml
+tmux_socket_dir = "~/.mng/tmux"
+```
+
+Or via the CLI:
+
+```bash
+mng config set --scope user tmux_socket_dir "~/.mng/tmux"
+```
+
+When set, `mng` sets `TMUX_TMPDIR` to the specified directory before running any tmux commands, causing all of its sessions to live on a separate tmux server. Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
+
+```bash
+TMUX_TMPDIR=~/.mng/tmux tmux ls
+```
+
+This also eliminates the "nested tmux" problem: since `mng` uses a different server, you can freely run `mng connect` from inside your own tmux sessions without needing `is_nested_tmux_allowed = true`.
+
 ## See Also
 
 - [Agent Types](./concepts/agent_types.md) - Creating custom agent types and overriding defaults

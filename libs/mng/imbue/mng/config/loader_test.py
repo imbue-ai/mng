@@ -569,6 +569,19 @@ def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds()
     assert result.default_destroyed_host_persisted_seconds is None
 
 
+def test_parse_config_parses_tmux_socket_dir() -> None:
+    """_parse_config should parse tmux_socket_dir from config."""
+    raw = {"tmux_socket_dir": "~/.mng/tmux"}
+    result = _parse_config(raw)
+    assert result.tmux_socket_dir == "~/.mng/tmux"
+
+
+def test_parse_config_handles_missing_tmux_socket_dir() -> None:
+    """_parse_config should set None when tmux_socket_dir is absent."""
+    result = _parse_config({})
+    assert result.tmux_socket_dir is None
+
+
 def test_parse_providers_accepts_destroyed_host_persisted_seconds() -> None:
     """_parse_providers should accept destroyed_host_persisted_seconds on any provider config."""
     raw_providers = {

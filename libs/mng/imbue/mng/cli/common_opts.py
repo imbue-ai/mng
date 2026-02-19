@@ -1,3 +1,4 @@
+import os
 import string
 import sys
 import uuid
@@ -142,6 +143,19 @@ def add_common_options(command: TDecorated) -> TDecorated:
     return command
 
 
+def _apply_tmux_isolation(tmux_socket_dir: Path) -> None:
+    """Set TMUX_TMPDIR so that all local tmux commands use a separate server.
+
+    This isolates mng's tmux sessions from the user's personal tmux,
+    preventing clutter in `tmux ls` output. Also unsets TMUX so that
+    tmux doesn't think we're inside an existing session.
+    """
+    resolved = tmux_socket_dir.expanduser()
+    resolved.mkdir(parents=True, exist_ok=True)
+    os.environ["TMUX_TMPDIR"] = str(resolved)
+    os.environ.pop("TMUX", None)
+
+
 def setup_command_context(
     ctx: click.Context,
     command_name: str,
@@ -184,6 +198,10 @@ def setup_command_context(
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
     )
+
+    # Apply tmux isolation if configured
+    if mng_ctx.config.tmux_socket_dir is not None:
+        _apply_tmux_isolation(mng_ctx.config.tmux_socket_dir)
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mng_ctx.config, command_name)
