@@ -1,10 +1,12 @@
 import os
 import tomllib
+from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Sequence
+from typing import TypeVar
 from uuid import uuid4
 
 import pluggy
@@ -634,17 +636,58 @@ def _merge_command_defaults(
 
 
 # =============================================================================
-# Lightweight default-subcommand reader
+# Lightweight config pre-readers
 # =============================================================================
 #
-# These functions read only the `default_subcommand` values from config
-# files.  They run at CLI parse time -- before the full config is loaded --
-# so they intentionally avoid plugin hooks, full config validation, and
-# anything that needs a PluginManager.
+# These functions read specific values from config files before the full
+# config is loaded.  They run early in startup (CLI parse time or plugin
+# manager creation) so they intentionally avoid plugin hooks, full config
+# validation, and anything that needs a PluginManager.
 #
-# `DefaultCommandGroup.make_context` calls `read_default_command` once
-# per invocation and writes the result onto the group instance so that
-# `parse_args` / `resolve_command` can use it directly.
+# Each pre-reader provides a per-file extractor callback that
+# _read_config_layers_lightweight applies across the three config layers
+# (user, project, local) with correct precedence.
+
+T_PreReadTarget = TypeVar("T_PreReadTarget")
+
+
+def _read_config_layers_lightweight(
+    merge_from_file: Callable[[Path, T_PreReadTarget], None],
+    target: T_PreReadTarget,
+) -> None:
+    """Apply a per-file extractor across all config layers with correct precedence.
+
+    Reads user config, project config, and local config in order (lowest
+    to highest priority). The merge_from_file callback is responsible for
+    extracting relevant values from each TOML file and merging them into
+    target.
+    """
+    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
+    env_host_dir = os.environ.get("MNG_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    # User config
+    profile_dir = _find_profile_dir_lightweight(base_dir)
+    if profile_dir is not None:
+        user_config_path = _get_user_config_path(profile_dir)
+        if user_config_path.exists():
+            merge_from_file(user_config_path, target)
+
+    # Project + local config need the project root
+    cg = ConcurrencyGroup(name="config-pre-reader")
+    with cg:
+        project_config_path = _find_project_config(None, root_name, cg)
+        local_config_path = _find_local_config(None, root_name, cg)
+
+    if project_config_path is not None and project_config_path.exists():
+        merge_from_file(project_config_path, target)
+
+    if local_config_path is not None and local_config_path.exists():
+        merge_from_file(local_config_path, target)
+
+
+# --- Default subcommand pre-reader ---
 
 
 def read_default_command(command_name: str) -> str:
@@ -654,42 +697,9 @@ def read_default_command(command_name: str) -> str:
     group, falls back to `"create"`.  An empty string means "disabled"
     (the caller should show help instead of defaulting).
     """
-    return _read_all_default_subcommands().get(command_name, "create")
-
-
-def _read_all_default_subcommands() -> dict[str, str]:
-    """Read `default_subcommand` from all config layers and merge.
-
-    Precedence (lowest to highest): user config, project config, local config.
-    Returns a dict mapping command-group name to default subcommand string.
-    """
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
-    base_dir = base_dir.expanduser()
-
     merged: dict[str, str] = {}
-
-    # User config
-    profile_dir = _find_profile_dir_lightweight(base_dir)
-    if profile_dir is not None:
-        user_config_path = _get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            _merge_default_subcommands_from_file(user_config_path, merged)
-
-    # Project + local config need the project root
-    cg = ConcurrencyGroup(name="default-subcmd-reader")
-    with cg:
-        project_config_path = _find_project_config(None, root_name, cg)
-        local_config_path = _find_local_config(None, root_name, cg)
-
-    if project_config_path is not None and project_config_path.exists():
-        _merge_default_subcommands_from_file(project_config_path, merged)
-
-    if local_config_path is not None and local_config_path.exists():
-        _merge_default_subcommands_from_file(local_config_path, merged)
-
-    return merged
+    _read_config_layers_lightweight(_merge_default_subcommands_from_file, merged)
+    return merged.get(command_name, "create")
 
 
 def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> None:
@@ -709,18 +719,7 @@ def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> 
             target[cmd_name] = str(value)
 
 
-# =============================================================================
-# Lightweight disabled-plugins reader
-# =============================================================================
-#
-# These functions read only the `plugins.<name>.enabled` values from config
-# files.  They run at plugin-manager creation time -- before the full config
-# is loaded -- so they intentionally avoid plugin hooks, full config
-# validation, and anything that needs a PluginManager.
-#
-# `create_plugin_manager` calls `read_disabled_plugins` once and uses the
-# result to call `pm.set_blocked(name)` before loading setuptools entrypoints,
-# so that disabled plugins are never registered in the first place.
+# --- Disabled plugins pre-reader ---
 
 
 def read_disabled_plugins() -> frozenset[str]:
@@ -729,42 +728,8 @@ def read_disabled_plugins() -> frozenset[str]:
     Reads user, project, and local config files for `[plugins.<name>]`
     sections with `enabled = false`.  Later layers override earlier ones.
     """
-    return _read_all_disabled_plugins()
-
-
-def _read_all_disabled_plugins() -> frozenset[str]:
-    """Read plugin enabled/disabled state from all config layers and merge.
-
-    Precedence (lowest to highest): user config, project config, local config.
-    Returns a frozenset of plugin names that are disabled.
-    """
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
-    base_dir = base_dir.expanduser()
-
-    # Maps plugin name -> is_enabled (later layers override earlier)
     merged: dict[str, bool] = {}
-
-    # User config
-    profile_dir = _find_profile_dir_lightweight(base_dir)
-    if profile_dir is not None:
-        user_config_path = _get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            _merge_disabled_plugins_from_file(user_config_path, merged)
-
-    # Project + local config need the project root
-    cg = ConcurrencyGroup(name="disabled-plugins-reader")
-    with cg:
-        project_config_path = _find_project_config(None, root_name, cg)
-        local_config_path = _find_local_config(None, root_name, cg)
-
-    if project_config_path is not None and project_config_path.exists():
-        _merge_disabled_plugins_from_file(project_config_path, merged)
-
-    if local_config_path is not None and local_config_path.exists():
-        _merge_disabled_plugins_from_file(local_config_path, merged)
-
+    _read_config_layers_lightweight(_merge_disabled_plugins_from_file, merged)
     return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
 
 
