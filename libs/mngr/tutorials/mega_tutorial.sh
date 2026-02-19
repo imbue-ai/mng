@@ -44,11 +44,11 @@ mngr create my-task codex
 
 # you can specify the arguments to the *agent* (ie, send args to claude rather than mngr)
 # by using `--` to separate the agent arguments from the mngr arguments:
-mngr -- --model opus
+mngr create my-task -- --model opus
 # that command launches claude with the "opus" model instead of the default
 
 # you can also launch claude remotely in Modal:
-mngr create --in modal
+mngr create my-task --in modal
 # see more details below in "CREATING AGENTS REMOTELY" for relevant options
 
 # you can run *any* literal command instead of a named agent type:
@@ -67,13 +67,13 @@ mngr create my-task --add-command server="npm run dev" --add-command logs="tail 
 ## SENDING SENDING MESSAGES ON LAUNCH
 
 # you can send an initial message (so you don't have to wait around, eg, while a Modal container starts)
-mngr --in modal --no-connect --message "Speed up one of my tests and make a PR on github"
+mngr create my-task --in modal --no-connect --message "Speed up one of my tests and make a PR on github"
 # here we disable the default --connect behavior (because presumably you just wanted to launch that in the background and continue on your way)
 # and then we also pass in an explicit message for the agent to start working on immediately
 # the message can also be specified as the contents of a file (by using --message-file instead of --message)
 
 # you can also edit the message *while the agent is starting up*, which is very handy for making it "feel" instant:
-mngr --in modal --edit-message
+mngr create my-task --in modal --edit-message
 
 ## SPECIFYING DATA FOR THE AGENT
 
@@ -250,7 +250,7 @@ mngr create my-task --label team=backend --tag env=staging
 
 # mngr is very much meant to be used for scripting and automation, so nothing requires interactivity.
 # if you want to be sure that interactivity is disabled, you can use the --headless flag:
-mngr --headless
+mngr create my-task --headless
 
 # or you can set that option in your config so that it always applies:
 mngr config set headless True
