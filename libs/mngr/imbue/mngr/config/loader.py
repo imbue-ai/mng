@@ -624,15 +624,11 @@ def _merge_command_defaults(
 # These functions read *only* the ``default_subcommand`` values from config
 # files.  They run at CLI parse time -- before the full config is loaded --
 # so they intentionally avoid plugin hooks, full config validation, and
-# anything that needs a PluginManager.  The result is cached for the lifetime
-# of the process.
-
-_default_subcommand_cache: dict[str, dict[str, str]] = {}
-
-
-def reset_default_command_cache() -> None:
-    """Clear the cached default-subcommand values (for test isolation)."""
-    _default_subcommand_cache.clear()
+# anything that needs a PluginManager.
+#
+# There is no caching here.  ``DefaultCommandGroup.make_context`` calls
+# ``read_default_command`` once per invocation, writing the result onto the
+# instance so that ``parse_args`` / ``resolve_command`` can use it directly.
 
 
 def read_default_command(command_name: str) -> str:
@@ -642,9 +638,7 @@ def read_default_command(command_name: str) -> str:
     group, falls back to ``"create"``.  An empty string means "disabled"
     (the caller should show help instead of defaulting).
     """
-    if "data" not in _default_subcommand_cache:
-        _default_subcommand_cache["data"] = _read_all_default_subcommands()
-    return _default_subcommand_cache["data"].get(command_name, "create")
+    return _read_all_default_subcommands().get(command_name, "create")
 
 
 def _read_all_default_subcommands() -> dict[str, str]:

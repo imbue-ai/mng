@@ -30,7 +30,6 @@ from imbue.mngr.config.loader import _parse_providers
 from imbue.mngr.config.loader import get_or_create_profile_dir
 from imbue.mngr.config.loader import load_config
 from imbue.mngr.config.loader import read_default_command
-from imbue.mngr.config.loader import reset_default_command_cache
 from imbue.mngr.errors import ConfigNotFoundError
 from imbue.mngr.errors import ConfigParseError
 from imbue.mngr.main import cli
@@ -925,7 +924,7 @@ def test_parse_commands_empty_string_default_subcommand() -> None:
 
 def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """read_default_command should return 'create' when no config files exist."""
-    reset_default_command_cache()
+
     monkeypatch.setenv("MNGR_HOST_DIR", str(tmp_path / "nonexistent"))
     monkeypatch.setenv("MNGR_ROOT_NAME", "mngr-test-nocfg")
     assert read_default_command("mngr") == "create"
@@ -937,7 +936,6 @@ def test_read_default_command_reads_from_project_config(
     mngr_test_root_name: str,
 ) -> None:
     """read_default_command should read default_subcommand from project config."""
-    reset_default_command_cache()
 
     # Create project config file
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
@@ -958,7 +956,6 @@ def test_read_default_command_local_overrides_project(
     mngr_test_root_name: str,
 ) -> None:
     """read_default_command should let local config override project config."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -979,7 +976,6 @@ def test_read_default_command_empty_string_disables(
     mngr_test_root_name: str,
 ) -> None:
     """read_default_command should return empty string when config disables defaulting."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -997,7 +993,6 @@ def test_read_default_command_independent_command_names(
     mngr_test_root_name: str,
 ) -> None:
     """read_default_command should handle multiple command names independently."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)

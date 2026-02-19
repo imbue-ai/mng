@@ -1,3 +1,5 @@
+from typing import Any
+
 import click
 
 from imbue.mngr.config.loader import read_default_command
@@ -14,7 +16,8 @@ class DefaultCommandGroup(click.Group):
 
     Subclasses can also set ``_config_key`` to enable runtime configuration of
     the default via ``[commands.<config_key>].default_subcommand`` in config
-    files.  When ``_config_key`` is set, the config value takes precedence over
+    files.  When ``_config_key`` is set, the config value is read at the start
+    of each invocation (in ``make_context``) and written to
     ``_default_command``.  An empty string in config disables defaulting
     entirely (the group shows help / "No such command" instead).
     """
@@ -22,17 +25,20 @@ class DefaultCommandGroup(click.Group):
     _default_command: str = "create"
     _config_key: str | None = None
 
-    def _get_default_command(self) -> str:
-        """Return the effective default command, consulting config if available."""
+    def make_context(
+        self,
+        info_name: str | None,
+        args: list[str],
+        parent: click.Context | None = None,
+        **extra: Any,
+    ) -> click.Context:
         if self._config_key is not None:
-            return read_default_command(self._config_key)
-        return self._default_command
+            self._default_command = read_default_command(self._config_key)
+        return super().make_context(info_name, args, parent=parent, **extra)
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        if not args:
-            default = self._get_default_command()
-            if default:
-                args = [default]
+        if not args and self._default_command:
+            args = [self._default_command]
         return super().parse_args(ctx, args)
 
     def resolve_command(
@@ -40,8 +46,6 @@ class DefaultCommandGroup(click.Group):
     ) -> tuple[str | None, click.Command | None, list[str]]:
         if args:
             cmd = self.get_command(ctx, args[0])
-            if cmd is None:
-                default = self._get_default_command()
-                if default:
-                    return super().resolve_command(ctx, [default] + args)
+            if cmd is None and self._default_command:
+                return super().resolve_command(ctx, [self._default_command] + args)
         return super().resolve_command(ctx, args)

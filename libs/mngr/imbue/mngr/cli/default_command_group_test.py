@@ -7,7 +7,6 @@ from click.testing import CliRunner
 
 from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.snapshot import snapshot
-from imbue.mngr.config.loader import reset_default_command_cache
 from imbue.mngr.main import cli
 
 # =============================================================================
@@ -167,7 +166,6 @@ def test_config_key_custom_default(
     mngr_test_root_name: str,
 ) -> None:
     """A group with _config_key should use default_subcommand from config."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +186,6 @@ def test_config_key_disabled_shows_help(
     mngr_test_root_name: str,
 ) -> None:
     """When default_subcommand is empty string, bare invocation shows help."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -210,7 +207,6 @@ def test_config_key_disabled_unrecognized_errors(
     mngr_test_root_name: str,
 ) -> None:
     """When default_subcommand is empty string, unrecognized command shows error."""
-    reset_default_command_cache()
 
     config_dir = temp_git_repo / f".{mngr_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
