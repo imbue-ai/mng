@@ -160,7 +160,7 @@ You can set arbitrary environment variables in the `mng` process before any comm
 ```toml
 # ~/.mng/profiles/<profile_id>/settings.toml
 [process_env]
-TMUX_TMPDIR = "~/.mng/tmux"
+TMUX_TMPDIR = "/tmp/mng-tmux"
 ```
 
 Variables set here are applied at CLI startup, before any commands execute. Later config files override earlier ones on a per-key basis (e.g., local config overrides project config).
@@ -171,13 +171,13 @@ By default, `mng` creates tmux sessions on your default tmux server. To isolate 
 
 ```toml
 [process_env]
-TMUX_TMPDIR = "~/.mng/tmux"
+TMUX_TMPDIR = "/tmp/mng-tmux"
 ```
 
 Your normal `tmux ls` will no longer show `mng`'s sessions. To list them:
 
 ```bash
-TMUX_TMPDIR=~/.mng/tmux tmux ls
+TMUX_TMPDIR=/tmp/mng-tmux tmux ls
 ```
 
 ## See Also

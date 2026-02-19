@@ -192,10 +192,12 @@ def connect_to_agent(
     session_name = f"{mng_ctx.config.prefix}{agent.name}"
 
     if host.is_local:
+        # Detect nested tmux: if $TMUX is set, we're inside a tmux session
         env = os.environ
         if os.environ.get("TMUX"):
             if not mng_ctx.config.is_nested_tmux_allowed:
                 raise NestedTmuxError(session_name)
+            # Copy and remove TMUX so tmux allows the nested attachment
             env = dict(os.environ)
             del env["TMUX"]
         os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
