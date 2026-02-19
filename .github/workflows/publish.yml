@@ -68,31 +68,16 @@ jobs:
           fi
 
       - name: Build imbue-common
-        run: pyproject-build libs/imbue_common -o dist/imbue-common/
+        run: pyproject-build libs/imbue_common -o dist/
 
       - name: Build concurrency-group
-        run: pyproject-build libs/concurrency_group -o dist/concurrency-group/
+        run: pyproject-build libs/concurrency_group -o dist/
 
       - name: Build mng
-        run: pyproject-build libs/mngr -o dist/mng/
+        run: pyproject-build libs/mngr -o dist/
 
-      - name: Publish imbue-common
+      - name: Publish packages to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        continue-on-error: true
         with:
-          packages-dir: dist/imbue-common/
-          skip-existing: true
-
-      - name: Publish concurrency-group
-        uses: pypa/gh-action-pypi-publish@release/v1
-        continue-on-error: true
-        with:
-          packages-dir: dist/concurrency-group/
-          skip-existing: true
-
-      - name: Publish mng
-        uses: pypa/gh-action-pypi-publish@release/v1
-        continue-on-error: true
-        with:
-          packages-dir: dist/mng/
+          packages-dir: dist/
           skip-existing: true
