@@ -453,7 +453,8 @@ CommandHelpMetadata(
     key="ask",
     one_line_description="Chat with mng for help [experimental]",
     synopsis="mng ask [--execute] QUERY...",
-    description="""If no query is provided, shows general help about available commands
+    description="""Ask a question and mng will generate the appropriate CLI command.
+If no query is provided, shows general help about available commands
 and common workflows.
 
 When --execute is specified, the generated CLI command is executed

@@ -11,6 +11,7 @@ mng ask [--execute] QUERY...
 
 Chat with mng for help [experimental].
 
+Ask a question and mng will generate the appropriate CLI command.
 If no query is provided, shows general help about available commands
 and common workflows.
 
