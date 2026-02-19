@@ -135,6 +135,8 @@ def _gather_plugin_info(mng_ctx: MngContext) -> list[PluginInfo]:
     # Include disabled plugins that were blocked and never registered.
     # These won't appear in pm.list_name_plugin() but should still be
     # visible in the plugin list so users can see and re-enable them.
+    # Version/description are unavailable because pluggy doesn't expose
+    # metadata for blocked plugins.
     for disabled_name in mng_ctx.config.disabled_plugins:
         if disabled_name not in plugin_info_by_name:
             plugin_info_by_name[disabled_name] = PluginInfo(
