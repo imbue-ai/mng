@@ -115,6 +115,9 @@ format-command="uv run ruff format --force-exclude --config pyproject.toml --std
 [tool.ty.src]
 exclude = ["scripts/style_guide.py", "contrib/"]
 
+[tool.ty.environment]
+extra-paths = ["scripts"]
+
 [tool.coverage.run]
 source = ["imbue"]
 parallel = true

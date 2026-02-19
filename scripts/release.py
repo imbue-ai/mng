@@ -5,11 +5,11 @@ directly to main. The publish.yml workflow triggers automatically on the
 v* tag push.
 
 Usage:
-    uv run python -m scripts.release patch      # 0.1.0 -> 0.1.1
-    uv run python -m scripts.release minor      # 0.1.0 -> 0.2.0
-    uv run python -m scripts.release major      # 0.1.0 -> 1.0.0
-    uv run python -m scripts.release 0.2.0      # explicit version
-    uv run python -m scripts.release patch --dry-run  # preview without changes
+    uv run python scripts/release.py patch      # 0.1.0 -> 0.1.1
+    uv run python scripts/release.py minor      # 0.1.0 -> 0.2.0
+    uv run python scripts/release.py major      # 0.1.0 -> 1.0.0
+    uv run python scripts/release.py 0.2.0      # explicit version
+    uv run python scripts/release.py patch --dry-run  # preview without changes
 """
 
 import argparse
@@ -22,12 +22,9 @@ from typing import cast
 
 import semver
 import tomlkit
-
-# Must use absolute imports (scripts.utils, not utils) for the ty type checker,
-# which means this script must be invoked with python -m scripts.release.
-from scripts.utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
-from scripts.utils import REPO_ROOT
-from scripts.utils import check_versions_in_sync
+from utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
+from utils import REPO_ROOT
+from utils import check_versions_in_sync
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 
