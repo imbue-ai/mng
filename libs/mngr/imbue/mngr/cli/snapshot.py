@@ -7,16 +7,16 @@ from loguru import logger
 
 from imbue.mngr.api.find import find_agents_by_identifiers_or_state
 from imbue.mngr.api.find import group_agents_by_host
-from imbue.mngr.api.list import list_agents
+from imbue.mngr.api.list import load_all_agents_grouped_by_host
 from imbue.mngr.api.providers import get_all_provider_instances
 from imbue.mngr.api.providers import get_provider_instance
 from imbue.mngr.cli.common_opts import CommonCliOptions
 from imbue.mngr.cli.common_opts import add_common_options
 from imbue.mngr.cli.common_opts import setup_command_context
+from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
-from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
@@ -104,8 +104,11 @@ class SnapshotDestroyCliOptions(CommonCliOptions):
 def _find_host_across_providers(
     host_identifier: str,
     mngr_ctx: MngrContext,
-) -> tuple[HostId, ProviderInstanceName]:
-    """Find a host by ID or name across all providers."""
+) -> tuple[HostId, ProviderInstanceName] | None:
+    """Find a host by ID or name across all providers.
+
+    Returns (host_id, provider_name) if found, or None if no provider has a matching host.
+    """
     for provider in get_all_provider_instances(mngr_ctx):
         try:
             host = provider.get_host(HostId(host_identifier))
@@ -117,7 +120,7 @@ def _find_host_across_providers(
             return host.id, provider.name
         except (HostNotFoundError, ValueError):
             pass
-    raise UserInputError(f"Host not found: {host_identifier}")
+    return None
 
 
 def _classify_mixed_identifiers(
@@ -135,11 +138,20 @@ def _classify_mixed_identifiers(
     if not identifiers:
         return [], []
 
-    all_agent_refs = list_agents(mngr_ctx, is_streaming=False, error_behavior=ErrorBehavior.CONTINUE).agents
+    # Use try/except to gracefully handle provider errors (e.g. unreachable providers).
+    # Partial results are acceptable here since we're only classifying identifiers.
+    try:
+        agents_by_host, _ = load_all_agents_grouped_by_host(mngr_ctx, include_destroyed=False)
+    except BaseMngrError as e:
+        logger.warning("Failed to load agents for identifier classification: {}", e)
+        # Treat all identifiers as host identifiers when agents cannot be loaded
+        return [], identifiers
+
     known_names_and_ids: set[str] = set()
-    for agent_ref in all_agent_refs:
-        known_names_and_ids.add(str(agent_ref.name))
-        known_names_and_ids.add(str(agent_ref.id))
+    for agent_refs in agents_by_host.values():
+        for agent_ref in agent_refs:
+            known_names_and_ids.add(str(agent_ref.agent_name))
+            known_names_and_ids.add(str(agent_ref.agent_id))
 
     agent_ids: list[str] = []
     host_ids: list[str] = []
@@ -184,9 +196,14 @@ def _resolve_snapshot_hosts(
             else:
                 seen_hosts[host_id_str] = (provider_name, agent_names)
 
-    # Resolve from host identifiers
+    # Resolve from host identifiers. These identifiers already failed agent
+    # lookup in _classify_mixed_identifiers, so if host lookup also fails,
+    # the error should mention both.
     for host_str in host_identifiers:
-        host_id, provider_name = _find_host_across_providers(host_str, mngr_ctx)
+        result = _find_host_across_providers(host_str, mngr_ctx)
+        if result is None:
+            raise UserInputError(f"Agent or host not found: {host_str}")
+        host_id, provider_name = result
         host_id_str = str(host_id)
         if host_id_str not in seen_hosts:
             seen_hosts[host_id_str] = (provider_name, [])
@@ -350,7 +367,18 @@ def _emit_destroy_result(
 # =============================================================================
 
 
-@click.group(name="snapshot", invoke_without_command=True)
+class _SnapshotGroup(DefaultCommandGroup):
+    """Snapshot group that defaults to 'create' when no subcommand is given.
+
+    This is safe because the next argument must be a valid agent name,
+    so typos like ``mngr snapshot destory`` will fail with
+    "Agent or host not found" rather than silently doing something wrong.
+    """
+
+    _config_key = "snapshot"
+
+
+@click.group(name="snapshot", cls=_SnapshotGroup)
 @add_common_options
 @click.pass_context
 def snapshot(ctx: click.Context, **kwargs: Any) -> None:
@@ -362,18 +390,7 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
 
     \b
     Alias: snap
-
-    \b
-    Examples:
-
-      mngr snapshot create my-agent
-
-      mngr snapshot list my-agent
-
-      mngr snapshot destroy my-agent --all-snapshots --force
     """
-    if ctx.invoked_subcommand is None:
-        show_help_with_pager(ctx, ctx.command, None)
 
 
 # =============================================================================
@@ -892,12 +909,17 @@ Positional arguments to 'create' can be agent names/IDs or host names/IDs.
 Each identifier is automatically resolved: if it matches a known agent, that
 agent's host is used; otherwise it is treated as a host identifier.
 
+When no subcommand is given, defaults to 'create'. For example,
+``mngr snapshot my-agent`` is equivalent to ``mngr snapshot create my-agent``.
+
 Useful for checkpointing work, creating restore points, or managing disk space.""",
     aliases=("snap",),
     examples=(
-        ("Create a snapshot of an agent's host", "mngr snapshot create my-agent"),
+        ("Snapshot an agent's host (short form)", "mngr snapshot my-agent"),
+        ("Snapshot an agent's host (explicit)", "mngr snapshot create my-agent"),
         ("Create a named snapshot", "mngr snapshot create my-agent --name before-refactor"),
         ("Snapshot by host ID", "mngr snapshot create my-host-id"),
+        ("Snapshot all running agents", "mngr snapshot create --all --dry-run"),
         ("List snapshots for an agent", "mngr snapshot list my-agent"),
         ("Destroy all snapshots for an agent", "mngr snapshot destroy my-agent --all-snapshots --force"),
         ("Preview what would be destroyed", "mngr snapshot destroy my-agent --all-snapshots --dry-run"),

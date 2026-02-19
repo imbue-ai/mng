@@ -11,8 +11,7 @@ Command results are sent to stdout. Console logging is sent to stderr.
 ### Console Logging
 
 - `-q, --quiet`: Suppress all console output
-- `-v, --verbose`: Show DEBUG level logs on console
-- `-vv, --very-verbose`: Show TRACE level logs on console
+- `-v, --verbose`: Show DEBUG level logs on console (can be repeated: `-vv` for TRACE level)
 
 ### File Logging
 

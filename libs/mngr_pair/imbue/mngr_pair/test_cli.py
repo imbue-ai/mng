@@ -3,7 +3,7 @@
 import pluggy
 from click.testing import CliRunner
 
-from imbue.mngr.cli.pair import pair
+from imbue.mngr_pair.cli import pair
 
 
 def test_pair_source_and_source_agent_conflict(

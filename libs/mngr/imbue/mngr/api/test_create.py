@@ -43,7 +43,7 @@ from imbue.mngr.utils.testing import tmux_session_exists
 
 def _get_local_host_for_test(test_ctx: MngrContext) -> OnlineHostInterface:
     local_provider = get_provider_instance(ProviderInstanceName(LOCAL_PROVIDER_NAME), test_ctx)
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     return local_host
 
 
@@ -133,7 +133,7 @@ def test_create_agent_with_new_host(
 
         target_host = NewHostOptions(
             provider=LOCAL_PROVIDER_NAME,
-            name=HostName("test-host"),
+            name=HostName("localhost"),
         )
 
         result = create(

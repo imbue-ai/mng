@@ -5,7 +5,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mngr.api.pair import pair_files
 from imbue.mngr.cli.agent_utils import find_agent_for_command
 from imbue.mngr.cli.agent_utils import parse_agent_spec
 from imbue.mngr.cli.common_opts import CommonCliOptions
@@ -25,6 +24,7 @@ from imbue.mngr.primitives import OutputFormat
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
 from imbue.mngr.utils.git_utils import find_git_worktree_root
+from imbue.mngr_pair.api import pair_files
 
 
 class PairCliOptions(CommonCliOptions):

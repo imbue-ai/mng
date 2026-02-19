@@ -1,0 +1,28 @@
+[project]
+name = "mngr-pair"
+version = "0.1.0"
+description = "Pair command plugin for mngr - continuous file sync between agent and local directory"
+requires-python = ">=3.11"
+dependencies = [
+    "mngr",
+    "click-option-group>=0.5.6",
+]
+
+[project.entry-points.mngr]
+pair = "imbue.mngr_pair.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["imbue"]
+
+[tool.uv.sources]
+mngr = { workspace = true }
+
+[tool.pyright]
+venvPath = "../.."
+venv = ".venv"
+pythonVersion = "3.11"
+strict = ["**/*.py"]

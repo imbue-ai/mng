@@ -707,15 +707,11 @@ def _handle_create(
             return create_result, connection_opts, output_opts, opts, mngr_ctx
 
     # If ensure-clean is set, verify the source work_dir is clean.
-    # Skip the check when using worktree mode with an explicit --base-branch, since the
-    # worktree will be created from that branch and uncommitted changes in the current
-    # working tree are irrelevant.
-    is_worktree_from_other_branch = (
-        agent_opts.git is not None
-        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
-        and opts.base_branch is not None
-    )
-    if opts.ensure_clean and not is_worktree_from_other_branch:
+    # Skip the check when an explicit --base-branch is provided, since the agent
+    # will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant (regardless of copy mode).
+    is_from_explicit_base_branch = agent_opts.git is not None and opts.base_branch is not None
+    if opts.ensure_clean and not is_from_explicit_base_branch:
         _ensure_clean_work_dir(source_location)
 
     # figure out the target host (if we just have a reference)
@@ -1060,7 +1056,7 @@ def _resolve_source_location(
             git_root = find_git_worktree_root(None, mngr_ctx.concurrency_group)
             source_path = str(git_root) if git_root is not None else os.getcwd()
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-        host = provider.get_host(HostName("local"))
+        host = provider.get_host(HostName("localhost"))
         online_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
         source_location = HostLocation(
             host=online_host,
@@ -1087,7 +1083,7 @@ def _resolve_source_location(
             else:
                 source_path = os.getcwd()
             provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-            host = provider.get_host(HostName("local"))
+            host = provider.get_host(HostName("localhost"))
             online_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
             source_location = HostLocation(host=online_host, path=Path(source_path))
         else:
@@ -1115,7 +1111,7 @@ def _resolve_target_host(
     if target_host is None:
         # No host specified, use the local provider's default host
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mngr_ctx)
-        host = provider.get_host(HostName("local"))
+        host = provider.get_host(HostName("localhost"))
         resolved_target_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
     elif isinstance(target_host, HostReference):
         provider = get_provider_instance(target_host.provider_name, mngr_ctx)

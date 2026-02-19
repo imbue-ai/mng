@@ -18,6 +18,7 @@ from imbue.mngr.cli.common_opts import find_option_group
 from imbue.mngr.cli.config import config
 from imbue.mngr.cli.connect import connect
 from imbue.mngr.cli.create import create
+from imbue.mngr.cli.default_command_group import DefaultCommandGroup
 from imbue.mngr.cli.destroy import destroy
 from imbue.mngr.cli.exec import exec_command
 from imbue.mngr.cli.gc import gc
@@ -30,7 +31,6 @@ from imbue.mngr.cli.list import list_command
 from imbue.mngr.cli.logs import logs
 from imbue.mngr.cli.message import message
 from imbue.mngr.cli.migrate import migrate
-from imbue.mngr.cli.pair import pair
 from imbue.mngr.cli.plugin import plugin as plugin_command
 from imbue.mngr.cli.provision import provision
 from imbue.mngr.cli.pull import pull
@@ -90,8 +90,15 @@ def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
         )
 
 
-class AliasAwareGroup(click.Group):
-    """Custom click.Group that shows aliases inline with commands in --help."""
+class AliasAwareGroup(DefaultCommandGroup):
+    """Custom click.Group that shows aliases inline with commands in --help.
+
+    When no subcommand is given, defaults to 'create'. When an unrecognized
+    subcommand is given, it is treated as arguments to 'create' (e.g.
+    ``mngr my-task`` is equivalent to ``mngr create my-task``).
+    """
+
+    _config_key = "mngr"
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         # Click's default behavior for groups with no_args_is_help=True raises
@@ -320,7 +327,6 @@ BUILTIN_COMMANDS: list[click.Command] = [
     logs,
     connect,
     message,
-    pair,
     provision,
     pull,
     push,
@@ -351,6 +357,7 @@ cli.add_command(provision, name="prov")
 cli.add_command(limit, name="lim")
 cli.add_command(rename, name="mv")
 cli.add_command(snapshot, name="snap")
+cli.add_command(stop, name="s")
 
 # Add clone as a standalone command (not in BUILTIN_COMMANDS since it uses
 # UNPROCESSED args and delegates to create, which already has plugin options applied)

@@ -245,7 +245,7 @@ def test_try_reuse_existing_agent_found_and_started(
     temp_work_dir: Path,
 ) -> None:
     """Returns (agent, host) when agent is found and started."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     # Create a real agent on the local host with a harmless command
     agent_options = CreateAgentOptions(
@@ -294,7 +294,7 @@ def test_try_reuse_existing_agent_not_found_on_host(
     temp_mngr_ctx: MngrContext,
 ) -> None:
     """Returns None when agent reference exists but agent not found on online host."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     # Build references pointing to this host, but with a nonexistent agent ID
     host_ref = HostReference(
@@ -367,7 +367,7 @@ def test_resolve_target_host_with_host_reference(
     host_ref = HostReference(
         provider_name=ProviderInstanceName("local"),
         host_id=local_provider.host_id,
-        host_name=HostName("local"),
+        host_name=HostName("localhost"),
     )
 
     result = _resolve_target_host(
@@ -391,7 +391,7 @@ def test_parse_project_name_returns_explicit_project(
     temp_work_dir: Path,
 ) -> None:
     """When --project is specified, return it directly without validation."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=temp_work_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().project, "explicit-project"),
@@ -415,7 +415,7 @@ def test_parse_project_name_raises_on_mismatch_with_new_host_and_source_agent(
     different_project_dir = tmp_path / "totally-different-project"
     different_project_dir.mkdir()
 
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=different_project_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().source_agent, "some-agent"),
@@ -436,7 +436,7 @@ def test_parse_project_name_raises_on_mismatch_with_new_host_and_source_host(
     different_project_dir = tmp_path / "another-different-project"
     different_project_dir.mkdir()
 
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=different_project_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().source_host, "some-host"),
@@ -457,7 +457,7 @@ def test_parse_project_name_no_error_without_new_host(
     different_project_dir = tmp_path / "yet-another-project"
     different_project_dir.mkdir()
 
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=different_project_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().source_agent, "some-agent"),
@@ -479,7 +479,7 @@ def test_parse_project_name_no_error_without_external_source(
     some_dir = tmp_path / "some-project"
     some_dir.mkdir()
 
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=some_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().new_host, "docker"),
@@ -534,7 +534,7 @@ def test_parse_agent_opts_includes_labels(
     temp_work_dir: Path,
 ) -> None:
     """--label KEY=VALUE options should be parsed into label_options.labels."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=temp_work_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().label, ("project=mngr", "env=prod")),
@@ -558,7 +558,7 @@ def test_parse_agent_opts_label_invalid_format_raises(
     temp_work_dir: Path,
 ) -> None:
     """--label without = should raise UserInputError."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=temp_work_dir)
     opts = default_create_cli_opts.model_copy_update(
         to_update(default_create_cli_opts.field_ref().label, ("invalid-no-equals",)),
@@ -581,7 +581,7 @@ def test_parse_agent_opts_empty_labels_by_default(
     temp_work_dir: Path,
 ) -> None:
     """Without --label, label_options.labels should be empty."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
     source_location = HostLocation(host=local_host, path=temp_work_dir)
 
     result = _parse_agent_opts(

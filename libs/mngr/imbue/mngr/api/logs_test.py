@@ -194,7 +194,7 @@ def test_resolve_logs_target_finds_host(
 ) -> None:
     """Verify resolve_logs_target falls back to host when no agent matches."""
     per_host_dir = local_provider.host_dir
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
 
     # Create an agent so the host appears in load_all_agents_grouped_by_host
     _create_agent_data_json(per_host_dir, "unrelated-agent-47291", "sleep 47291")
@@ -375,7 +375,7 @@ def logs_host_target(
     """
     logs_dir = tmp_path / "host_logs"
     logs_dir.mkdir()
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
     assert isinstance(host, OnlineHostInterface)
     target = LogsTarget(
         volume=None,
@@ -416,7 +416,7 @@ def test_list_log_files_via_host_returns_empty_for_nonexistent_dir(
     local_provider,
 ) -> None:
     """Verify list_log_files via host returns empty list when logs dir does not exist."""
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
     target = LogsTarget(
         volume=None,
         online_host=host,
@@ -604,7 +604,7 @@ def test_build_ssh_base_args_raises_when_no_known_hosts(
     local_provider,
 ) -> None:
     """Verify build_ssh_base_args raises MngrError when no known_hosts file is configured."""
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
     assert isinstance(host, OnlineHostInterface)
 
     # Local hosts have no ssh_known_hosts_file configured, so this should raise
