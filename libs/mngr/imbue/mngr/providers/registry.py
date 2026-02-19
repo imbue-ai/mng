@@ -16,6 +16,9 @@ from imbue.mngr.providers.base_provider import BaseProviderInstance
 backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
 # Cache for registered config classes (may include configs for backends not currently loaded)
 config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
+# Tracks whether backends have been explicitly loaded (prevents re-loading in tests
+# where the fixture controls which backends are available).
+_backends_loaded: dict[str, bool] = {"value": False}
 
 # Maps backend names to their module paths for on-demand loading
 BACKEND_MODULES: dict[str, str] = {
@@ -47,6 +50,9 @@ def register_config_classes() -> None:
 
 def _load_single_backend(pm: pluggy.PluginManager, name: str) -> None:
     """Load a single backend module and register it via the plugin manager."""
+    key = ProviderBackendName(name)
+    if key in backend_registry:
+        return
     module_path = BACKEND_MODULES.get(name)
     if module_path is None:
         return
@@ -71,6 +77,25 @@ def load_all_backends(pm: pluggy.PluginManager) -> None:
     register_config_classes()
     for name in BACKEND_MODULES:
         _load_single_backend(pm, name)
+    _backends_loaded["value"] = True
+
+
+def load_non_disabled_backends(pm: pluggy.PluginManager, disabled_plugins: frozenset[str]) -> None:
+    """Load all backend implementations except those in disabled_plugins.
+
+    Called during command setup after config is loaded, so we know which
+    plugins are disabled. Skipping disabled backends avoids their import cost
+    (e.g., Modal adds ~150ms).
+
+    No-op if backends have already been explicitly loaded (e.g., by a test
+    fixture via load_local_backend_only).
+    """
+    if _backends_loaded["value"]:
+        return
+    _backends_loaded["value"] = True
+    for name in BACKEND_MODULES:
+        if name not in disabled_plugins:
+            _load_single_backend(pm, name)
 
 
 def load_local_backend_only(pm: pluggy.PluginManager) -> None:
@@ -83,6 +108,7 @@ def load_local_backend_only(pm: pluggy.PluginManager) -> None:
     register_config_classes()
     _load_single_backend(pm, "local")
     _load_single_backend(pm, "ssh")
+    _backends_loaded["value"] = True
 
 
 def reset_backend_registry() -> None:
@@ -92,6 +118,7 @@ def reset_backend_registry() -> None:
     """
     backend_registry.clear()
     config_registry.clear()
+    _backends_loaded["value"] = False
 
 
 def get_backend(name: str | ProviderBackendName, pm: pluggy.PluginManager) -> type[ProviderBackendInterface]:

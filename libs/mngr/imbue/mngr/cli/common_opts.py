@@ -30,6 +30,7 @@ from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
+from imbue.mngr.providers.registry import load_non_disabled_backends
 from imbue.mngr.providers.registry import register_config_classes
 from imbue.mngr.utils.logging import setup_logging
 
@@ -174,7 +175,6 @@ def setup_command_context(
     pm = ctx.obj
 
     # Register config classes (lightweight) and agents eagerly.
-    # Backend implementations are loaded on-demand when get_backend() is called.
     register_config_classes()
     load_agents_from_plugins(pm)
 
@@ -192,6 +192,11 @@ def setup_command_context(
         initial_opts.disable_plugin,
         is_interactive=is_interactive,
     )
+
+    # Load backend implementations that aren't disabled. This must happen after
+    # load_config so we know which plugins are disabled. Backends already loaded
+    # (e.g., by the test fixture) are skipped.
+    load_non_disabled_backends(pm, mngr_ctx.config.disabled_plugins)
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mngr_ctx.config, command_name)
