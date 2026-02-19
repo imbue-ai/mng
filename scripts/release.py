@@ -22,9 +22,8 @@ from typing import cast
 
 import semver
 import tomlkit
-
-from scripts.publishable_packages import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
-from scripts.publishable_packages import REPO_ROOT
+from utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
+from utils import REPO_ROOT
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 

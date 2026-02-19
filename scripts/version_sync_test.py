@@ -1,6 +1,6 @@
 import tomllib
 
-from scripts.publishable_packages import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
+from scripts.utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 
 
 def test_all_package_versions_match() -> None:
