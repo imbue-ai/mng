@@ -33,7 +33,7 @@ pytestmark = pytest.mark.skipif(not _is_claude_installed(), reason="Claude Code 
 
 
 @pytest.fixture
-def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
+def claude_test_env(temp_git_repo: Path, setup_test_mngr_env: None) -> dict[str, str]:
     """Create a Claude trust config and env vars for subprocess tests.
 
     Trusts the temp_git_repo so that mngr's extend_claude_trust_to_worktree
@@ -42,6 +42,12 @@ def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
     Also adds .claude/settings.local.json to .gitignore so that mngr's
     readiness hooks (written to that file) don't appear as unstaged changes
     in worktrees.
+
+    Depends on setup_test_mngr_env to ensure os.environ has the correct
+    TMUX_TMPDIR, HOME, MNGR_PREFIX, etc. before we copy it. Without this
+    dependency, pytest may run this fixture before the autouse fixture,
+    causing os.environ.copy() to capture stale values (e.g. TMUX pointing
+    to the real server instead of the isolated test server).
     """
     gitignore = temp_git_repo / ".gitignore"
     gitignore.write_text(".claude/settings.local.json\n")
