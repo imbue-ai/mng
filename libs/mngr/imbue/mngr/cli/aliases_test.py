@@ -1,6 +1,7 @@
-"""Tests for CLI command aliases."""
+"""Tests for CLI command aliases and top-level group behavior."""
 
 import click
+from click.testing import CliRunner
 
 from imbue.mngr.main import cli
 
@@ -86,3 +87,34 @@ def test_shell_complete_returns_all_commands_for_empty_prefix() -> None:
     assert "ls" not in names
     assert "rm" not in names
     assert "msg" not in names
+
+
+def test_no_args_writes_help_to_stdout_not_stderr(cli_runner: CliRunner) -> None:
+    """Invoking mngr with no arguments should print help to stdout and exit 0.
+
+    Click's default behavior for groups is to raise NoArgsIsHelpError which writes
+    help to stderr and exits with code 2. Our AliasAwareGroup overrides this to
+    write to stdout and exit cleanly, matching the behavior of --help.
+    """
+    result = cli_runner.invoke(cli, [])
+    assert result.exit_code == 0
+    assert "Usage:" in result.output
+    assert "Commands:" in result.output
+
+
+def test_no_args_output_matches_help_flag(cli_runner: CliRunner) -> None:
+    """Invoking mngr with no args should produce the same output as --help."""
+    no_args_result = cli_runner.invoke(cli, [])
+    help_result = cli_runner.invoke(cli, ["--help"])
+    assert no_args_result.output == help_result.output
+    assert no_args_result.exit_code == help_result.exit_code
+
+
+def test_subgroup_no_args_writes_to_stdout(cli_runner: CliRunner) -> None:
+    """Subgroups (snapshot, plugin, config) should write help to stdout when invoked with no subcommand."""
+    for subcommand in ["snapshot", "plugin", "config"]:
+        result = cli_runner.invoke(cli, [subcommand])
+        assert result.exit_code == 0, f"{subcommand} exited with {result.exit_code}"
+        # Some subgroups use git-style help (NAME section) while others use Click's default (Usage:)
+        has_help = "Usage:" in result.output or "NAME" in result.output
+        assert has_help, f"{subcommand} did not write help to stdout"

@@ -1,4 +1,5 @@
 import bdb
+import sys
 from typing import Any
 
 import click
@@ -91,6 +92,17 @@ def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
 
 class AliasAwareGroup(click.Group):
     """Custom click.Group that shows aliases inline with commands in --help."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # Click's default behavior for groups with no_args_is_help=True raises
+        # NoArgsIsHelpError, which writes help to stderr and exits with code 2.
+        # Override to write help to stdout and exit cleanly (like --help).
+        if not args and self.no_args_is_help and not ctx.resilient_parsing:
+            sys.stdout.write(ctx.get_help())
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            ctx.exit(0)
+        return super().parse_args(ctx, args)
 
     def invoke(self, ctx: click.Context) -> Any:
         try:

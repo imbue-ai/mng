@@ -16,6 +16,7 @@ from imbue.mngr.cli.common_opts import setup_command_context
 from imbue.mngr.cli.help_formatter import CommandHelpMetadata
 from imbue.mngr.cli.help_formatter import add_pager_help_option
 from imbue.mngr.cli.help_formatter import register_help_metadata
+from imbue.mngr.cli.help_formatter import show_help_with_pager
 from imbue.mngr.cli.output_helpers import AbortError
 from imbue.mngr.cli.output_helpers import emit_event
 from imbue.mngr.cli.output_helpers import emit_final_json
@@ -372,7 +373,7 @@ def snapshot(ctx: click.Context, **kwargs: Any) -> None:
       mngr snapshot destroy my-agent --all-snapshots --force
     """
     if ctx.invoked_subcommand is None:
-        logger.info(ctx.get_help())
+        show_help_with_pager(ctx, ctx.command, None)
 
 
 # =============================================================================
