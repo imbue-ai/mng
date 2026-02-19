@@ -1446,13 +1446,7 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        # Host name is optional here -- if not provided, resolve_target_host will
-        # use the provider's default_host_name or auto-generate one.
-        parsed_host_name: HostName | None
-        if opts.host_name:
-            parsed_host_name = HostName(opts.host_name)
-        else:
-            parsed_host_name = None
+        parsed_host_name = HostName(opts.host_name) if opts.host_name else None
 
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
