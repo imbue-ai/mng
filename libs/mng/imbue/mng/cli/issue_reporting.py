@@ -17,7 +17,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.errors import BaseMngError
 
-GITHUB_REPO: Final[str] = "imbue-ai/mngr"
+GITHUB_REPO: Final[str] = "imbue-ai/mng"
 GITHUB_BASE_URL: Final[str] = f"https://github.com/{GITHUB_REPO}"
 ISSUE_TITLE_PREFIX: Final[str] = "[NotImplemented]"
 UNEXPECTED_ERROR_TITLE_PREFIX: Final[str] = "[Bug]"

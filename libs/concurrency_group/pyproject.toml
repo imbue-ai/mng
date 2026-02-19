@@ -22,8 +22,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/imbue-ai/mngr"
-Repository = "https://github.com/imbue-ai/mngr"
+Homepage = "https://github.com/imbue-ai/mng"
+Repository = "https://github.com/imbue-ai/mng"
 
 [build-system]
 requires = ["hatchling"]
