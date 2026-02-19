@@ -60,10 +60,13 @@ class CommandHelpMetadata(FrozenModel):
 
     @property
     def full_description(self) -> str:
-        """One-line description + extended description, separated by a blank line."""
+        """One-line description (with period) + extended description, separated by a blank line."""
+        one_line = self.one_line_description
+        if not one_line.endswith("."):
+            one_line += "."
         if self.description:
-            return self.one_line_description + "\n\n" + self.description
-        return self.one_line_description
+            return one_line + "\n\n" + self.description
+        return one_line
 
     def register(self) -> None:
         """Register this metadata in the global help registry, keyed by self.key."""

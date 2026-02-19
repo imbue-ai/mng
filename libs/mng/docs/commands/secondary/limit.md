@@ -9,7 +9,7 @@
 mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]
 ```
 
-Configure limits for agents and hosts [experimental]
+Configure limits for agents and hosts [experimental].
 
 Agents effectively have permissions that are equivalent to the *union* of all
 permissions on the same host. Changing permissions for agents requires them

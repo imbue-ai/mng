@@ -15,7 +15,7 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
     [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
-Create and run an agent
+Create and run an agent.
 
 This command sets up an agent's working directory, optionally provisions a
 new host (or uses an existing one), runs the specified agent process, and

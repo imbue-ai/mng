@@ -9,7 +9,7 @@
 mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
 ```
 
-Start stopped agent(s)
+Start stopped agent(s).
 
 For remote hosts, this restores from the most recent snapshot and starts
 the container/instance. For local agents, this starts the agent's tmux

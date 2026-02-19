@@ -9,7 +9,7 @@
 mng ask [--execute] QUERY...
 ```
 
-Chat with mng for help [experimental]
+Chat with mng for help [experimental].
 
 If no query is provided, shows general help about available commands
 and common workflows.

@@ -9,7 +9,7 @@
 mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
 ```
 
-Stop running agent(s)
+Stop running agent(s).
 
 For remote hosts, this stops the agent's tmux session. The host remains
 running unless idle detection stops it automatically.

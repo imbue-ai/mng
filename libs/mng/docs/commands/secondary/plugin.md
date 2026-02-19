@@ -9,7 +9,7 @@
 mng [plugin|plug] <subcommand> [OPTIONS]
 ```
 
-Manage available and active plugins [experimental]
+Manage available and active plugins [experimental].
 
 Install, remove, view, enable, and disable plugins registered with mng.
 Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.
@@ -43,7 +43,7 @@ mng plugin [OPTIONS] COMMAND [ARGS]...
 
 ## mng plugin list
 
-List discovered plugins [experimental]
+List discovered plugins [experimental].
 
 Shows all plugins registered with mng, including built-in plugins
 and any externally installed plugins.
@@ -118,7 +118,7 @@ $ mng plugin list --format '{name}\t{enabled}'
 
 ## mng plugin add
 
-Install a plugin package [experimental]
+Install a plugin package [experimental].
 
 Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
 package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
@@ -185,7 +185,7 @@ $ mng plugin add --git https://github.com/user/mng-plugin.git
 
 ## mng plugin remove
 
-Uninstall a plugin package [experimental]
+Uninstall a plugin package [experimental].
 
 Provide exactly one of NAME (positional) or --path. For local paths,
 the package name is read from pyproject.toml.
@@ -238,7 +238,7 @@ $ mng plugin remove --path ./my-plugin
 
 ## mng plugin enable
 
-Enable a plugin [experimental]
+Enable a plugin [experimental].
 
 Sets plugins.<name>.enabled = true in the configuration file at the
 specified scope.
@@ -291,7 +291,7 @@ $ mng plugin enable modal --scope user
 
 ## mng plugin disable
 
-Disable a plugin [experimental]
+Disable a plugin [experimental].
 
 Sets plugins.<name>.enabled = false in the configuration file at the
 specified scope.

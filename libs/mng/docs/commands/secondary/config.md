@@ -9,7 +9,7 @@
 mng [config|cfg] <subcommand> [OPTIONS]
 ```
 
-Manage mng configuration
+Manage mng configuration.
 
 View, edit, and modify mng configuration settings at the user, project, or
 local level. Much like a simpler version of `git config`, this command allows
@@ -55,7 +55,7 @@ mng config [OPTIONS] COMMAND [ARGS]...
 
 ## mng config list
 
-List all configuration values
+List all configuration values.
 
 Shows all configuration settings from the specified scope, or from the
 merged configuration if no scope is specified.
@@ -123,7 +123,7 @@ $ mng config list --format '{key}={value}'
 
 ## mng config get
 
-Get a configuration value
+Get a configuration value.
 
 Retrieves the value of a specific configuration key. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
@@ -185,7 +185,7 @@ $ mng config get logging.console_level --scope user
 
 ## mng config set
 
-Set a configuration value
+Set a configuration value.
 
 Sets a configuration value at the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
@@ -247,7 +247,7 @@ $ mng config set logging.console_level DEBUG --scope user
 
 ## mng config unset
 
-Remove a configuration value
+Remove a configuration value.
 
 Removes a configuration value from the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
@@ -300,7 +300,7 @@ $ mng config unset logging.console_level --scope user
 
 ## mng config edit
 
-Open configuration file in editor
+Open configuration file in editor.
 
 Opens the configuration file for the specified scope in your default
 editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
@@ -361,7 +361,7 @@ $ mng config edit --scope local
 
 ## mng config path
 
-Show configuration file paths
+Show configuration file paths.
 
 Shows the paths to configuration files. If --scope is specified, shows
 only that scope's path. Otherwise shows all paths and whether they exist.
