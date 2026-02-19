@@ -122,10 +122,10 @@ curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.
 
 **Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `git`, `tmux`, `jq`, `rsync`, `unison`):
 ```bash
-uv tool install mngr
+uv tool install mng
 
 # or run without installing
-uvx mngr
+uvx mng
 ```
 
 **Upgrade:**

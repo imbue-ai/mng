@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -14,7 +14,7 @@ members = [
     "flexmux",
     "imbue",
     "imbue-common",
-    "mngr",
+    "mng",
     "mngr-opencode",
     "sculptor-desktop",
     "sculptor-web",
@@ -522,7 +522,7 @@ dependencies = [
     { name = "concurrency-group" },
     { name = "imbue-common" },
     { name = "loguru" },
-    { name = "mngr" },
+    { name = "mng" },
     { name = "modal" },
     { name = "pydantic" },
     { name = "tomlkit" },
@@ -535,7 +535,7 @@ requires-dist = [
     { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "loguru" },
-    { name = "mngr", editable = "libs/mngr" },
+    { name = "mng", editable = "libs/mngr" },
     { name = "modal", specifier = ">=1.3.1" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
@@ -1704,7 +1704,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mngr"
+name = "mng"
 version = "0.1.0"
 source = { editable = "libs/mngr" }
 dependencies = [
@@ -1755,11 +1755,11 @@ name = "mngr-opencode"
 version = "0.1.0"
 source = { editable = "libs/mngr_opencode" }
 dependencies = [
-    { name = "mngr" },
+    { name = "mng" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
+requires-dist = [{ name = "mng", editable = "libs/mngr" }]
 
 [[package]]
 name = "modal"
@@ -2578,24 +2578,24 @@ name = "sculptor-desktop"
 version = "0.1.0"
 source = { editable = "apps/sculptor_desktop" }
 dependencies = [
-    { name = "mngr" },
+    { name = "mng" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
+requires-dist = [{ name = "mng", editable = "libs/mngr" }]
 
 [[package]]
 name = "sculptor-web"
 version = "0.1.0"
 source = { editable = "apps/sculptor_web" }
 dependencies = [
-    { name = "mngr" },
+    { name = "mng" },
     { name = "python-fasthtml" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "mngr", editable = "libs/mngr" },
+    { name = "mng", editable = "libs/mngr" },
     { name = "python-fasthtml", specifier = ">=0.10.0" },
 ]
 

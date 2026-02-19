@@ -200,7 +200,7 @@ fi
 # ── Install mngr ──────────────────────────────────────────────────────────────
 
 info "Installing mngr..."
-uv tool install mngr
+uv tool install mng
 
 if ! command -v mngr &>/dev/null; then
     warn "mngr was installed but is not on PATH."

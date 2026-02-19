@@ -1,5 +1,5 @@
 [project]
-name = "mngr"
+name = "mng"
 version = "0.1.0"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
@@ -43,6 +43,7 @@ Homepage = "https://github.com/imbue-ai/mngr"
 Repository = "https://github.com/imbue-ai/mngr"
 
 [project.scripts]
+mng = "imbue.mngr.main:cli"
 mngr = "imbue.mngr.main:cli"
 
 [build-system]
