@@ -3,7 +3,7 @@
 # mng installer
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/imbue-ai/mng/main/scripts/install.sh | bash
 #
 # This script:
 #   1. Checks for prerequisites (curl, ssh)

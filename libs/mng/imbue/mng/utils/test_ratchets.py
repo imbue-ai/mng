@@ -46,10 +46,13 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TODOS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TRAILING_COMMENTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TYPING_BUILTIN_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNDERSCORE_IMPORTS
+from imbue.imbue_common.ratchet_testing.common_ratchets import RegexRatchetRule
+from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule_all_files
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNITTEST_MOCK_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRUE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
+from imbue.imbue_common.ratchet_testing.core import _get_all_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
@@ -102,7 +105,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(11), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(10), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
@@ -378,4 +381,28 @@ def test_no_eager_modal_import() -> None:
         f"Heavyweight modules were eagerly imported when importing imbue.mng.main:\n"
         f"stdout: {result.stdout}\n"
         f"stderr: {result.stderr}"
+    )
+
+
+_PREVENT_OLD_MNGR_NAME = RegexRatchetRule(
+    rule_name="'mngr' occurrences",
+    rule_description="The old 'mngr' name should not be reintroduced.",
+    pattern_string=r"mngr",
+)
+
+
+def test_prevent_old_mngr_name_in_file_contents() -> None:
+    """Ensure the old 'mngr' name is not reintroduced in file contents."""
+    repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
+    chunks = check_ratchet_rule_all_files(_PREVENT_OLD_MNGR_NAME, repo_root, _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
+
+
+def test_prevent_old_mngr_name_in_file_paths() -> None:
+    """Ensure the old 'mngr' name is not reintroduced in file paths."""
+    repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
+    all_paths = _get_all_files_with_extension(repo_root, None)
+    mngr_paths = [p for p in all_paths if "mngr" in str(p.relative_to(repo_root))]
+    assert len(mngr_paths) <= snapshot(0), f"Found {len(mngr_paths)} file paths containing 'mngr':\n" + "\n".join(
+        f"  {p.relative_to(repo_root)}" for p in mngr_paths
     )

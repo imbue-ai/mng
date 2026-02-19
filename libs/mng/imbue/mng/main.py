@@ -38,6 +38,7 @@ from imbue.mng.cli.rename import rename
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
+from imbue.mng.config.loader import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
@@ -276,8 +277,6 @@ def create_plugin_manager() -> pluggy.PluginManager:
 
     This should only really be called once from the main command (or during testing).
     """
-    from imbue.mng.config.loader import read_disabled_plugins
-
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
 
