@@ -47,7 +47,10 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNDERSCOR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNITTEST_MOCK_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRUE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
+from imbue.imbue_common.ratchet_testing.common_ratchets import RegexRatchetRule
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
+from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule_with_glob
+from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
@@ -346,3 +349,26 @@ def test_prevent_bash_without_strict_mode() -> None:
 def test_prevent_importlib_import_module() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mng_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
+
+
+_PREVENT_OLD_MNGR_NAME = RegexRatchetRule(
+    rule_name="'mngr' occurrences",
+    rule_description="The old 'mngr' name should not be reintroduced. Remaining occurrences are GitHub URLs.",
+    pattern_string=r"mngr",
+)
+
+
+def test_prevent_old_mngr_name_in_file_contents() -> None:
+    """Ensure the old 'mngr' name is not reintroduced in file contents (remaining uses are GitHub URLs)."""
+    repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
+    chunks = check_ratchet_rule_with_glob(_PREVENT_OLD_MNGR_NAME, repo_root, "*", _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(19), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
+
+
+def test_prevent_old_mngr_name_in_file_paths() -> None:
+    """Ensure the old 'mngr' name is not reintroduced in file paths."""
+    repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
+    paths = _get_non_ignored_files(repo_root, "*mngr*")
+    assert len(paths) <= snapshot(0), f"Found {len(paths)} file paths containing 'mngr':\n" + "\n".join(
+        f"  {p}" for p in paths
+    )

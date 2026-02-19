@@ -8,6 +8,7 @@ from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
 from imbue.imbue_common.ratchet_testing.core import RegexPattern
 from imbue.imbue_common.ratchet_testing.core import check_regex_ratchet
 from imbue.imbue_common.ratchet_testing.core import format_ratchet_failure_message
+from imbue.imbue_common.ratchet_testing.core import get_ratchet_failures_for_glob
 
 
 class RatchetRuleInfo(FrozenModel):
@@ -33,9 +34,20 @@ def check_ratchet_rule(
     source_dir: Path,
     excluded_path_patterns: tuple[str, ...] = (),
 ) -> tuple[RatchetMatchChunk, ...]:
-    """Run a regex-based ratchet rule against a source directory."""
+    """Run a regex-based ratchet rule against Python files in a source directory."""
     pattern = RegexPattern(rule.pattern_string, multiline=rule.is_multiline)
     return check_regex_ratchet(source_dir, FileExtension(".py"), pattern, excluded_path_patterns)
+
+
+def check_ratchet_rule_with_glob(
+    rule: RegexRatchetRule,
+    source_dir: Path,
+    glob_pattern: str,
+    excluded_path_patterns: tuple[str, ...] = (),
+) -> tuple[RatchetMatchChunk, ...]:
+    """Run a regex-based ratchet rule against files matching a glob pattern."""
+    pattern = RegexPattern(rule.pattern_string, multiline=rule.is_multiline)
+    return get_ratchet_failures_for_glob(source_dir, glob_pattern, pattern, excluded_path_patterns)
 
 
 # --- Code safety ---
