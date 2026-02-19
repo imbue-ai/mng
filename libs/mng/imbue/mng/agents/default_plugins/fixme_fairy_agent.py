@@ -10,19 +10,14 @@ from imbue.mng.interfaces.agent import AgentInterface
 
 _SKILL_NAME: Final[str] = "fixme-fairy"
 
-_FIXME_FAIRY_SKILL_CONTENT: Final[str] = """\
+_FIXME_FAIRY_SKILL_CONTENT: Final[str] = """
 ---
 name: fixme-fairy
 description: >
-  Find and fix a random FIXME in the codebase. Use when asked to use your
-  primary skill.
+  Find and fix a random FIXME in the codebase. Use when asked to use your primary skill.
 ---
 
-Important: you are running in a remote sandbox and cannot communicate with \
-the user while you are working through this skill--do NOT ask the user any \
-questions or for any clarifications while working. Instead, do your best to \
-complete the task based on the information you have, and make reasonable \
-assumptions if needed.
+Important: you are running in a remote sandbox and cannot communicate with the user while you are working through this skill--do NOT ask the user any questions or for any clarifications while working. Instead, do your best to complete the task based on the information you have, and make reasonable assumptions if needed.
 
 # Fixme Fairy: Fix a Random FIXME
 
@@ -37,11 +32,9 @@ FIXMEs in this codebase follow this format:
 #  (optional additional context)
 ```
 
-where `description` is a short description of what needs to be fixed, and \
-`N` is the number of prior attempts made to fix it (if any).
+where `description` is a short description of what needs to be fixed, and `N` is the number of prior attempts made to fix it (if any).
 If there have been no prior attempts, the `[attempts=N]` part may be omitted.
-The priority is simply an integer, with 0 being the highest priority. \
-Priority may or may not be present.
+The priority is simply an integer, with 0 being the highest priority. Priority may or may not be present.
 If not present, assume priority=3.
 
 ## Step 1: Find a Random FIXME
@@ -49,44 +42,15 @@ If not present, assume priority=3.
 Run this bash command to select a random FIXME, prioritized by severity:
 
 ```bash
-( grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME0:' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME0[attempts=1]' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME1:' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME1[attempts=1]' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME2:' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME2[attempts=1]' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME3:' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
--P '# FIXME3[attempts=1]' -r . || \\
-  grep --exclude-dir=htmlcov --exclude-dir=.venv --exclude-dir=.git \
---exclude-dir=node_modules --exclude='random_fixme.sh' \
---exclude='*.md' -P '# FIXME:' -r . ) | shuf -n 1
+./scripts/random_fixme.sh .
 ```
 
-If no lines are returned, there are no remaining FIXMEs. In that case, \
-report that there are no FIXMEs left and skip the rest of this process.
+If no lines are returned, then there are no more remaining FIXMEs, so use your "think-of-something-to-fix" skill to come up with something else to fix instead.
 
 ## Step 2: Understand the FIXME
 
-1. Find that FIXME and read the surrounding context (the optional additional \
-context lines below the FIXME line may be important).
-2. Gather all the context for the library that contains the FIXME (read \
-CLAUDE.md, docs, style guides, README files, etc.).
+1. Find that FIXME and read the surrounding context (the optional additional context lines below the FIXME line may be important).
+2. Gather all the context for the library that contains the FIXME (read CLAUDE.md, docs, style guides, README files, etc.).
 3. Think carefully about how best to fix the FIXME.
 
 ## Step 3: Fix the FIXME
@@ -100,21 +64,14 @@ CLAUDE.md, docs, style guides, README files, etc.).
 If you successfully fixed the FIXME and all tests pass:
 1. Remove the FIXME comment (and its additional context lines).
 2. Commit your changes.
-3. Either update (if it exists) or create (if it does not exist) a PR \
-titled "fixme-fairy: <short description of the fix>".
+3. Create a PR titled "fixme-fairy: <short description of the fix>".
 
 If you were unable to fix the FIXME and get all tests passing:
 1. Revert any changes you made while attempting the fix.
-2. Update the FIXME to increment the attempts count by 1 (if there were no \
-prior attempts, add `[attempts=1]`, if there were some prior attempts, \
-increment the number by 1). The `[attempts=N]` part goes before the `:`, \
-like: `# FIXME[attempts=1]: (description)` or \
-`# FIXME0[attempts=2]: (description)`.
-3. Add a brief note to the optional additional context about why you were \
-unable to fix it.
+2. Update the FIXME to increment the attempts count by 1 (if there were no prior attempts, add `[attempts=1]`, if there were some prior attempts, increment the number by 1). The `[attempts=N]` part goes before the `:`, like: `# FIXME[attempts=1]: (description)` or `# FIXME0[attempts=2]: (description)`.
+3. Add a brief note to the optional additional context about why you were unable to fix it.
 4. Commit this updated FIXME (make sure nothing else is being changed).
-5. Either update (if it exists) or create (if it does not exist) a PR \
-titled "fixme-fairy: attempted <short description> (failed)".
+5. Create a PR titled "fixme-fairy: FAILED to fix <short description>".
 """
 
 
