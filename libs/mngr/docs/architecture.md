@@ -38,9 +38,6 @@ mngr is responsible for:
 - configuring/enabling/disabling [plugins](./concepts/plugins.md)
 - handling [permissions](./concepts/permissions.md) [future] for remote hosts
 
-Some CLI commands are provided by plugins rather than the core:
-- **pair** (from the `mngr-pair` plugin): Continuously sync files between your local machine and an agent
-
 ## Multi-user support
 
 `mngr` typically runs as a single user on a host (it stores its data at `~/.mngr/` by convention, for example).
