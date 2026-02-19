@@ -1212,7 +1212,7 @@ MAX_TODO_TITLE_LENGTH: Final[int] = 200
 
 Never mutate a constant
 
-Never mutate the `os.environ` of the current process
+Never mutate the `os.environ` of the current process (the sole exception is the `process_env` config, which is applied once at CLI startup)
 
 Avoid using raw primitive values inline in the code. Instead, use a constant for any hard-coded values (except for globally unique strings like environment key names--there's no need to make a special constant just for that string)
 
