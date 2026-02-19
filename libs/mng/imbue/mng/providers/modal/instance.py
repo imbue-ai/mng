@@ -1586,8 +1586,13 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
-        """Create a new Modal sandbox host."""
+        """Create a new Modal sandbox host.
+
+        If snapshot is provided, the host is created from the snapshot image
+        instead of building a new one.
+        """
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1608,9 +1613,16 @@ log "=== Shutdown script completed ==="
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         try:
-            # Build the Modal image
-            with log_span("Building Modal image..."):
-                modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+            if snapshot is not None:
+                # Use the snapshot image instead of building
+                with log_span("Loading Modal image from snapshot {}", str(snapshot)):
+                    modal_image: modal.Image = modal.Image.from_id(str(snapshot))  # ty: ignore[invalid-assignment]
+            else:
+                # Build the Modal image
+                with log_span("Building Modal image..."):
+                    modal_image = self._build_modal_image(
+                        base_image, dockerfile_path, context_dir_path, config.secrets
+                    )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
             with log_span("Getting Modal app", app_name=self.app_name):

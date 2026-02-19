@@ -206,6 +206,7 @@ def resolve_target_host(
                 start_args=target_host.build.start_args,
                 lifecycle=target_host.lifecycle,
                 known_hosts=target_host.environment.known_hosts,
+                snapshot=target_host.build.snapshot,
             )
 
         # Write host environment variables to the host env file (if creating a new host)
