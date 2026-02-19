@@ -67,6 +67,27 @@ def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
     return _help_metadata_registry.get(command_name)
 
 
+def _resolve_help_metadata(ctx: click.Context) -> CommandHelpMetadata | None:
+    """Get help metadata for a command from its click context.
+
+    Tries a parent-qualified key first (e.g., "snapshot.create" for subcommands)
+    to avoid collisions between subcommands with the same name in different groups
+    (such as "snapshot list" vs "config list"). Falls back to the bare command name
+    for top-level commands.
+    """
+    command_name = ctx.info_name
+    if command_name is None:
+        return None
+    # Try parent-qualified key first (for subcommands)
+    if ctx.parent is not None and ctx.parent.info_name is not None:
+        qualified = f"{ctx.parent.info_name}.{command_name}"
+        metadata = _help_metadata_registry.get(qualified)
+        if metadata is not None:
+            return metadata
+    # Fall back to bare command name (for top-level commands)
+    return _help_metadata_registry.get(command_name)
+
+
 def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:
     """Return a copy of the full help metadata registry."""
     return dict(_help_metadata_registry)
@@ -357,15 +378,14 @@ class GitStyleHelpMixin:
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format help using git-style formatting if metadata is available."""
-        command_name = ctx.info_name
-        if command_name is None:
+        if ctx.info_name is None:
             # Fall back to standard formatting - cast self to click.Command for type checker
             parent_format_help = getattr(super(), "format_help", None)
             if parent_format_help is not None:
                 parent_format_help(ctx, formatter)
             return
 
-        metadata = get_help_metadata(command_name)
+        metadata = _resolve_help_metadata(ctx)
         # Cast self to click.Command since this mixin is only used with Command subclasses
         command = cast(click.Command, self)
         help_text = format_git_style_help(ctx, command, metadata)
@@ -383,8 +403,7 @@ def show_help_with_pager(
 
     This is the main entry point for displaying help with pager support.
     """
-    command_name = ctx.info_name
-    metadata = get_help_metadata(command_name) if command_name else None
+    metadata = _resolve_help_metadata(ctx)
 
     help_text = format_git_style_help(ctx, command, metadata)
     run_pager(help_text, config)

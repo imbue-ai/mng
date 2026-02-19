@@ -106,6 +106,7 @@ mng plugin list [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `--active` | boolean | Show only currently enabled plugins | `False` |
 | `--fields` | text | Comma-separated list of fields to display (name, version, description, enabled) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng plugin add
 
@@ -154,6 +155,7 @@ mng plugin add [OPTIONS] [NAME]
 | ---- | ---- | ----------- | ------- |
 | `--path` | text | Install from a local path (editable mode) | None |
 | `--git` | text | Install from a git URL | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng plugin remove
 
@@ -198,6 +200,7 @@ mng plugin remove [OPTIONS] [NAME]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--path` | text | Remove by local path (reads package name from pyproject.toml) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng plugin enable
 
@@ -244,6 +247,7 @@ mng plugin enable [OPTIONS] NAME
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng plugin disable
 
@@ -290,6 +294,7 @@ mng plugin disable [OPTIONS] NAME
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also
 

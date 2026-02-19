@@ -109,6 +109,7 @@ mng config list [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config get
 
@@ -155,6 +156,7 @@ mng config get [OPTIONS] KEY
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config set
 
@@ -204,6 +206,7 @@ mng config set [OPTIONS] KEY VALUE
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config unset
 
@@ -248,6 +251,7 @@ mng config unset [OPTIONS] KEY
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config edit
 
@@ -296,6 +300,7 @@ mng config edit [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config path
 
@@ -340,6 +345,7 @@ mng config path [OPTIONS]
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also
 
