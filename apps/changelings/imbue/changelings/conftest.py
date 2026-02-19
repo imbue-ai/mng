@@ -18,11 +18,11 @@ def make_test_changeling(
     agent_type: str = "code-guardian",
     branch: str = "main",
     initial_message: str = DEFAULT_INITIAL_MESSAGE,
-    extra_mngr_args: str = "",
+    extra_mng_args: str = "",
     env_vars: dict[str, str] | None = None,
     secrets: tuple[str, ...] | None = None,
-    mngr_options: dict[str, str] | None = None,
-    mngr_profile: str | None = None,
+    mng_options: dict[str, str] | None = None,
+    mng_profile: str | None = None,
 ) -> ChangelingDefinition:
     """Create a ChangelingDefinition for testing."""
     kwargs: dict = {
@@ -30,12 +30,12 @@ def make_test_changeling(
         "agent_type": agent_type,
         "branch": branch,
         "initial_message": initial_message,
-        "extra_mngr_args": extra_mngr_args,
+        "extra_mng_args": extra_mng_args,
         "env_vars": env_vars or {},
-        "mngr_options": mngr_options or {},
+        "mng_options": mng_options or {},
     }
     if secrets is not None:
         kwargs["secrets"] = secrets
-    if mngr_profile is not None:
-        kwargs["mngr_profile"] = mngr_profile
+    if mng_profile is not None:
+        kwargs["mng_profile"] = mng_profile
     return ChangelingDefinition(**kwargs)

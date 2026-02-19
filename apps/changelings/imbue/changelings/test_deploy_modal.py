@@ -4,7 +4,7 @@
 # 1. Creates a Modal secret
 # 2. Deploys the cron runner as a Modal app
 # 3. Invokes the function via `modal run` to verify it works
-# 4. Polls `mngr list` to confirm an agent is created
+# 4. Polls `mng list` to confirm an agent is created
 # 5. Destroys the test agent
 #
 # It is marked as a release test and skipped by default because it requires
@@ -23,7 +23,7 @@ from imbue.changelings.deploy.deploy import deploy_changeling
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CronSchedule
-from imbue.mngr.conftest import ModalSubprocessTestEnv
+from imbue.mng.conftest import ModalSubprocessTestEnv
 
 
 @pytest.mark.release
@@ -38,7 +38,7 @@ def test_deploy_and_verify_changeling(
     1. A Modal secret is created for the changeling
     2. The cron runner is deployed as a Modal app
     3. The deployed function is invoked and an agent is created
-    4. The agent is detected via mngr list and destroyed
+    4. The agent is detected via mng list and destroyed
     """
     changeling = ChangelingDefinition(
         name=ChangelingName("code-guardian-deploy-test"),
