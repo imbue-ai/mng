@@ -1,13 +1,13 @@
 # Changelings: Technical Architecture
 
-## Relationship to mngr
+## Relationship to mng
 
-Changelings is a thin orchestration layer on top of mngr:
+Changelings is a thin orchestration layer on top of mng:
 
-- **mngr** handles: agent creation, process management, git operations, host lifecycle, idle detection
+- **mng** handles: agent creation, process management, git operations, host lifecycle, idle detection
 - **changelings** handles: scheduling, deployment to Modal, agent type configuration, config management
 
-Changelings does NOT duplicate any mngr functionality. It simply calls `mngr create` with the right arguments.
+Changelings does NOT duplicate any mng functionality. It simply calls `mng create` with the right arguments.
 
 ## File layout
 
@@ -28,7 +28,7 @@ apps/changelings/
       primitives.py                # Domain-specific types
       data_types.py                # Frozen models (ChangelingDefinition, etc.)
       config.py                    # Config read/write (TOML persistence)
-      mngr_commands.py             # Shared helpers for building mngr create commands
+      mng_commands.py             # Shared helpers for building mng create commands
       conftest.py                  # Shared test fixtures
       cli/
         __init__.py
@@ -59,7 +59,7 @@ apps/changelings/
 
 ### Phase 3: Local execution (done)
 
-- Implement `changeling run` (runs mngr create locally)
+- Implement `changeling run` (runs mng create locally)
 - Allow end-to-end testing of the agent flow without Modal
 
 ### Phase 4: Modal execution (done)
@@ -74,7 +74,7 @@ apps/changelings/
 ### Phase 6: Management commands
 
 - Implement `changeling list`
-- Implement `changeling status` (basically just calls `mngr list` for the configured profile and filters down to those agents that were created by `changelings`)
+- Implement `changeling status` (basically just calls `mng list` for the configured profile and filters down to those agents that were created by `changelings`)
 
 ### Phase 7: Polish
 

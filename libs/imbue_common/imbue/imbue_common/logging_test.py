@@ -6,7 +6,7 @@ from loguru import logger
 
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.logging import setup_logging
-from imbue.mngr.errors import BaseMngrError
+from imbue.mng.errors import BaseMngError
 
 
 def test_setup_logging_does_not_raise() -> None:
@@ -126,8 +126,8 @@ def test_log_span_logs_timing_even_on_exception() -> None:
     try:
         try:
             with log_span("risky operation"):
-                raise BaseMngrError("test error")
-        except BaseMngrError:
+                raise BaseMngError("test error")
+        except BaseMngError:
             pass
 
         assert len(captured_messages) == 2

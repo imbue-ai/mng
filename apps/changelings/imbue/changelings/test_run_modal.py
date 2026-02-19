@@ -11,12 +11,12 @@
 import pytest
 
 from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.mngr_commands import build_mngr_create_command
-from imbue.changelings.mngr_commands import get_agent_name_from_command
-from imbue.changelings.mngr_commands import write_secrets_env_file
+from imbue.changelings.mng_commands import build_mng_create_command
+from imbue.changelings.mng_commands import get_agent_name_from_command
+from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mngr.conftest import ModalSubprocessTestEnv
+from imbue.mng.conftest import ModalSubprocessTestEnv
 
 
 @pytest.mark.release
@@ -28,7 +28,7 @@ def test_run_code_guardian_changeling_on_modal(
     """Test creating and running a code-guardian changeling on Modal end-to-end.
 
     This test verifies that:
-    1. The mngr create command is constructed correctly for Modal
+    1. The mng create command is constructed correctly for Modal
     2. A Modal sandbox is created and provisioned
     3. The code-guardian agent type is resolved and provisioned
     4. The agent runs and completes (or at least starts successfully)
@@ -41,7 +41,7 @@ def test_run_code_guardian_changeling_on_modal(
     # Write secrets to a temp env file (same flow as _run_changeling_on_modal)
     env_file_path = write_secrets_env_file(changeling)
     # Build the command and extract agent name before try/finally so cleanup always has the name
-    cmd = build_mngr_create_command(changeling, is_modal=True, env_file_path=env_file_path)
+    cmd = build_mng_create_command(changeling, is_modal=True, env_file_path=env_file_path)
     agent_name = get_agent_name_from_command(cmd)
 
     try:
@@ -54,7 +54,7 @@ def test_run_code_guardian_changeling_on_modal(
             )
 
         assert result.returncode == 0, (
-            f"mngr create on Modal failed with code {result.returncode}.\n"
+            f"mng create on Modal failed with code {result.returncode}.\n"
             f"stdout: {result.stdout}\n"
             f"stderr: {result.stderr}"
         )
@@ -63,6 +63,6 @@ def test_run_code_guardian_changeling_on_modal(
         # Clean up the agent
         with ConcurrencyGroup(name="test-cleanup") as cg:
             cg.run_process_to_completion(
-                ["uv", "run", "mngr", "destroy", "--force", agent_name],
+                ["uv", "run", "mng", "destroy", "--force", agent_name],
                 is_checked_after=False,
             )

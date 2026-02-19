@@ -6,11 +6,11 @@
 # installs dependencies, and invokes the remote runner script.
 #
 # IMPORTANT: This file must NOT import anything from imbue.* packages.
-# All changeling/mngr logic runs inside the cloned repo via remote_runner.py.
+# All changeling/mng logic runs inside the cloned repo via remote_runner.py.
 #
 # There are two distinct repos involved:
 #
-#   1. The *imbue repo* -- the monorepo containing changeling/mngr tooling.
+#   1. The *imbue repo* -- the monorepo containing changeling/mng tooling.
 #      This is cloned on Modal at runtime so the tooling is available. This is
 #      a development convenience that will go away once changeling is published
 #      as a pip-installable package (at which point it will just be installed
@@ -94,7 +94,7 @@ if modal.is_local():
     (deploy_dir / "git_user_name").write_text(_GIT_USER_NAME)
     (deploy_dir / "git_user_email").write_text(_GIT_USER_EMAIL)
 
-    # User config files needed by mngr at runtime
+    # User config files needed by mng at runtime
     _user_home = Path.home()
     user_cfg_dir = _staging_dir / "user_config"
     user_cfg_dir.mkdir()
@@ -110,16 +110,16 @@ if modal.is_local():
         (user_cfg_dir / "claude_dir").mkdir()
         shutil.copy2(_claude_settings, user_cfg_dir / "claude_dir" / "settings.json")
 
-    # ~/.mngr/config.toml
-    _mngr_config = _user_home / ".mngr" / "config.toml"
-    if _mngr_config.exists():
-        (user_cfg_dir / "mngr").mkdir()
-        shutil.copy2(_mngr_config, user_cfg_dir / "mngr" / "config.toml")
+    # ~/.mng/config.toml
+    _mng_config = _user_home / ".mng" / "config.toml"
+    if _mng_config.exists():
+        (user_cfg_dir / "mng").mkdir()
+        shutil.copy2(_mng_config, user_cfg_dir / "mng" / "config.toml")
 
-    # ~/.mngr/profiles/
-    _mngr_profiles = _user_home / ".mngr" / "profiles"
-    if _mngr_profiles.is_dir():
-        shutil.copytree(_mngr_profiles, user_cfg_dir / "mngr" / "profiles", dirs_exist_ok=True)
+    # ~/.mng/profiles/
+    _mng_profiles = _user_home / ".mng" / "profiles"
+    if _mng_profiles.is_dir():
+        shutil.copytree(_mng_profiles, user_cfg_dir / "mng" / "profiles", dirs_exist_ok=True)
 else:
     _APP_NAME = Path("/staging/deployment/app_name").read_text().strip()
     _CONFIG_JSON = Path("/staging/deployment/config.json").read_text().strip()
@@ -240,14 +240,14 @@ def _install_user_config() -> None:
         (Path.home() / ".claude").mkdir(parents=True, exist_ok=True)
         shutil.copy2(claude_settings, Path.home() / ".claude" / "settings.json")
 
-    mngr_config = staged / "mngr" / "config.toml"
-    if mngr_config.exists():
-        (Path.home() / ".mngr").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(mngr_config, Path.home() / ".mngr" / "config.toml")
+    mng_config = staged / "mng" / "config.toml"
+    if mng_config.exists():
+        (Path.home() / ".mng").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(mng_config, Path.home() / ".mng" / "config.toml")
 
-    mngr_profiles = staged / "mngr" / "profiles"
-    if mngr_profiles.is_dir():
-        shutil.copytree(mngr_profiles, Path.home() / ".mngr" / "profiles", dirs_exist_ok=True)
+    mng_profiles = staged / "mng" / "profiles"
+    if mng_profiles.is_dir():
+        shutil.copytree(mng_profiles, Path.home() / ".mng" / "profiles", dirs_exist_ok=True)
 
 
 def _repo_name_from_url(url: str) -> str:
@@ -340,12 +340,12 @@ def run_changeling() -> None:
 
     This function executes on the cron schedule and:
     1. Checks if the changeling is enabled
-    2. Installs user config files (claude, mngr) to their expected locations
+    2. Installs user config files (claude, mng) to their expected locations
     3. Sets up GitHub authentication via gh CLI
     4. Clones/fetches the target repo onto the persistent volume
     5. Clones/fetches the imbue monorepo (tooling) on the volume and checks out the pinned commit
     6. Installs all dependencies via uv sync
-    7. Invokes remote_runner.py which handles the mngr create command
+    7. Invokes remote_runner.py which handles the mng create command
     """
     # Check if enabled without importing imbue
     config = json.loads(_CONFIG_JSON)
@@ -375,13 +375,13 @@ def run_changeling() -> None:
         _volume.commit()
         print(f"Target repo persisted to volume at {target_repo_path}")
 
-    # Clone or fetch the imbue monorepo (contains changeling/mngr tooling) at the pinned commit.
+    # Clone or fetch the imbue monorepo (contains changeling/mng tooling) at the pinned commit.
     # The imbue repo lives on the persistent volume so it is cached between runs.
     print(f"Fetching imbue repo from {_IMBUE_REPO_URL} at commit {_IMBUE_COMMIT_HASH}...")
     _clone_or_fetch_repo(_IMBUE_REPO_URL, _IMBUE_COMMIT_HASH, _IMBUE_REPO_DIR, is_branch=False)
     _volume.commit()
 
-    # Install all dependencies so changeling/mngr packages are available
+    # Install all dependencies so changeling/mng packages are available
     print("Installing dependencies via uv sync...")
     _run_and_stream(["uv", "sync", "--all-packages"], cwd=_IMBUE_REPO_DIR)
 
