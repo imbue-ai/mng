@@ -171,10 +171,8 @@ def load_config(
         disabled_plugins,
     )
 
-    # Block disabled plugins from the plugin manager so their hooks don't fire.
-    # Config-file-disabled plugins were already blocked in create_plugin_manager()
-    # via read_disabled_plugins(), but CLI-level --disable-plugin flags are only
-    # known now. set_blocked handles both cases (already blocked is a no-op).
+    # Block disabled plugins so their hooks don't fire. This covers
+    # CLI-level --disable-plugin flags that weren't known at startup.
     block_disabled_plugins(pm, config_dict["disabled_plugins"])
 
     # Include logging if not None
