@@ -196,54 +196,87 @@ _log_to_file "INFO" "Launched stop_hook_pr_and_ci.sh (pid=$PR_CI_PID)"
 REVIEWER_PID=$!
 _log_to_file "INFO" "Launched stop_hook_reviewer.sh (pid=$REVIEWER_PID)"
 
-# Wait for both children to finish. Claude Code waits for all descendant
-# processes before considering the hook complete, so there's no benefit to
-# exiting early -- we'd just leave orphans that block Claude Code anyway.
-# Instead, collect both results and emit all error messages at the end.
-_log_to_file "INFO" "Waiting for both children to finish..."
+# Kill a process and all its descendants (depth-first).
+_kill_tree() {
+    local pid="$1"
+    local child_pids
+    child_pids=$(pgrep -P "$pid" 2>/dev/null || true)
+    for cpid in $child_pids; do
+        _kill_tree "$cpid"
+    done
+    kill -9 "$pid" 2>/dev/null || true
+}
 
-wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
-_log_to_file "INFO" "PR/CI process (pid=$PR_CI_PID) exited with code $PR_CI_EXIT"
+# Poll until either process exits with code 2 (actionable failure) or both finish.
+# Exit code 2 means the agent needs to fix something, so we return immediately
+# to let it start working rather than waiting for the other hook.
+PR_CI_EXIT=""
+REVIEWER_EXIT=""
 
-wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
-_log_to_file "INFO" "Reviewer process (pid=$REVIEWER_PID) exited with code $REVIEWER_EXIT"
+_log_to_file "INFO" "Entering poll loop (waiting for children to finish)..."
 
-_log_to_file "INFO" "Both children finished: PR_CI_EXIT=$PR_CI_EXIT, REVIEWER_EXIT=$REVIEWER_EXIT"
-
-# Emit guidance based on what failed. Reviewer failures take priority over CI
-# failures since review issues are typically faster to fix.
-FINAL_EXIT=0
-
-if [[ $REVIEWER_EXIT -eq 2 ]]; then
-    log_error "Reviewer hook failed (exit code 2)"
-    log_error "Fix the issues flagged by the reviewer, then check back to see if CI passed."
-    log_error "Run 'cat .reviews/final_issue_json/*.json' to see the issues."
-    log_error "You MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
-    FINAL_EXIT=2
-elif [[ $REVIEWER_EXIT -ne 0 ]]; then
-    log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
-    FINAL_EXIT=$REVIEWER_EXIT
-fi
-
-if [[ $PR_CI_EXIT -eq 2 ]]; then
-    log_error "PR/CI hook failed (exit code 2)"
-    log_error "Use the gh tool to inspect the remote test results for this branch and see what failed."
-    log_error "You MUST identify the issue and fix it locally before trying again!"
-    log_error "NEVER just re-trigger the pipeline!"
-    log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
-    log_error "If it is impossible to fix the test, tell the user and say that you failed."
-    if [[ $FINAL_EXIT -eq 0 ]]; then
-        FINAL_EXIT=2
+while true; do
+    # Check PR/CI process
+    if [[ -z "$PR_CI_EXIT" ]] && ! kill -0 "$PR_CI_PID" 2>/dev/null; then
+        wait "$PR_CI_PID" && PR_CI_EXIT=0 || PR_CI_EXIT=$?
+        _log_to_file "INFO" "PR/CI process (pid=$PR_CI_PID) exited with code $PR_CI_EXIT"
+        if [[ $PR_CI_EXIT -eq 2 ]]; then
+            log_error "PR/CI hook failed (exit code 2)"
+            log_error "Reviewer hook is still running in the background -- go fix the tests first, then check the outputs from the reviewers."
+            log_error "Run 'cat .reviews/final_issue_json/*.json' to see those issues when you're ready (after fixing CI failures)."
+            log_error "And remember that you MUST fix any CRITICAL or MAJOR issues (with confidence >= 0.7) before trying again."
+            _log_to_file "INFO" "Killing reviewer tree (pid=$REVIEWER_PID) before exiting"
+            disown "$REVIEWER_PID" 2>/dev/null || true
+            _kill_tree "$REVIEWER_PID"
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (PR/CI failure)"
+            exit 2
+        elif [[ $PR_CI_EXIT -ne 0 ]]; then
+            log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
+        fi
     fi
-elif [[ $PR_CI_EXIT -ne 0 && $FINAL_EXIT -eq 0 ]]; then
-    log_error "PR/CI hook failed (exit code $PR_CI_EXIT)"
-    FINAL_EXIT=$PR_CI_EXIT
-fi
 
-if [[ $FINAL_EXIT -ne 0 ]]; then
-    _log_to_file "ERROR" "main_stop_hook exiting with code $FINAL_EXIT"
+    # Check reviewer process
+    if [[ -z "$REVIEWER_EXIT" ]] && ! kill -0 "$REVIEWER_PID" 2>/dev/null; then
+        wait "$REVIEWER_PID" && REVIEWER_EXIT=0 || REVIEWER_EXIT=$?
+        _log_to_file "INFO" "Reviewer process (pid=$REVIEWER_PID) exited with code $REVIEWER_EXIT"
+        if [[ $REVIEWER_EXIT -eq 2 ]]; then
+            log_error "Reviewer hook failed (exit code 2)"
+            log_error "PR/CI hook is still running in the background -- go fix the issues flagged by the reviewer first, then check back in to see if the tests passed in CI."
+            log_error "When checking CI, use the gh tool to inspect the remote test results for this branch and see what failed."
+            log_error "If any tests failed, remember that you MUST identify the issue and fix it locally before trying again!"
+            log_error "NEVER just re-trigger the pipeline!"
+            log_error "NEVER fix timeouts by increasing them! Instead, make things faster or increase parallelism."
+            log_error "If it is impossible to fix the test, tell the user and say that you failed."
+            log_error "Otherwise, once you have understood and fixed any issues, you can simply commit to try again."
+            _log_to_file "INFO" "Killing PR/CI tree (pid=$PR_CI_PID) before exiting"
+            disown "$PR_CI_PID" 2>/dev/null || true
+            _kill_tree "$PR_CI_PID"
+            _log_to_file "INFO" "main_stop_hook exiting with code 2 (reviewer failure)"
+            exit 2
+        elif [[ $REVIEWER_EXIT -ne 0 ]]; then
+            log_error "Reviewer hook failed (exit code $REVIEWER_EXIT)"
+        fi
+    fi
+
+    # Both finished
+    if [[ -n "$PR_CI_EXIT" && -n "$REVIEWER_EXIT" ]]; then
+        _log_to_file "INFO" "Both children finished: PR_CI_EXIT=$PR_CI_EXIT, REVIEWER_EXIT=$REVIEWER_EXIT"
+        break
+    fi
+
+    sleep 1
+done
+
+# If either had a non-2 failure, propagate it
+if [[ $PR_CI_EXIT -ne 0 ]]; then
+    _log_to_file "ERROR" "main_stop_hook exiting with PR/CI exit code $PR_CI_EXIT"
     notify_user || echo "No notify_user function defined, skipping."
-    exit $FINAL_EXIT
+    exit $PR_CI_EXIT
+fi
+if [[ $REVIEWER_EXIT -ne 0 ]]; then
+    _log_to_file "ERROR" "main_stop_hook exiting with reviewer exit code $REVIEWER_EXIT"
+    notify_user || echo "No notify_user function defined, skipping."
+    exit $REVIEWER_EXIT
 fi
 
 # Call local notification script if it exists
