@@ -590,6 +590,68 @@ def test_build_start_agent_shell_command_no_onboarding_hook_by_default(
     assert "client-attached" not in result
 
 
+def test_build_start_agent_shell_command_sets_explicit_window_size(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The new-session command must set explicit -x and -y dimensions.
+
+    Without explicit dimensions, detached tmux sessions created from a
+    subprocess without a TTY (e.g. via pyinfra's Popen with pipes) can
+    end up with a tiny pane (as narrow as 1 column). This breaks message
+    sending because TUI content wraps to 1 char per line and markers
+    cannot be found in capture-pane output.
+    """
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    assert "-x 200 -y 50" in result
+
+
+def test_start_agent_creates_tmux_session_with_reasonable_pane_size(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """The built start command must create a tmux pane at least 80 columns wide.
+
+    Regression test: without explicit -x/-y on tmux new-session -d, the
+    pane could be created with as few as 1 column when the session is
+    started from a subprocess without a TTY, causing message sending to
+    time out.
+    """
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    # Must match the session_name used by _build_command_with_defaults
+    session_name = f"mngr-{agent.name}"
+
+    # Build the command the same way start_agents does, then execute it
+    # directly through the host so the tmux session is created via pyinfra's
+    # Popen (with pipes, no TTY) -- the same code path as production.
+    combined_command = _build_command_with_defaults(agent, temp_host_dir)
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+    result = host.execute_command(combined_command, cwd=agent.work_dir)
+    assert result.success, f"Failed to start tmux session: {result.stderr}"
+
+    try:
+        result = host.execute_command(
+            f"tmux list-panes -t '{session_name}' -F '#{{pane_width}}x#{{pane_height}}'",
+        )
+        assert result.success, f"Failed to query pane size: {result.stderr}"
+        dimensions = result.stdout.strip()
+        width_str, height_str = dimensions.split("x")
+        width = int(width_str)
+        height = int(height_str)
+        assert width >= 80, f"Pane width {width} is too narrow (expected >= 80)"
+        assert height >= 24, f"Pane height {height} is too short (expected >= 24)"
+    finally:
+        host.execute_command(
+            f"tmux kill-session -t '{session_name}' 2>/dev/null",
+            timeout_seconds=5.0,
+        )
+
+
 # =========================================================================
 # Tests for onboarding helpers
 # =========================================================================
