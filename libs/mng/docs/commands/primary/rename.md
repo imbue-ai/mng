@@ -10,6 +10,16 @@ mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]
 ```
 
 
+Rename an agent or host.
+
+Updates the agent's name in its data.json and renames the tmux session
+if the agent is currently running. Git branch names are not renamed.
+
+If a previous rename was interrupted (e.g., the tmux session was renamed
+but data.json was not updated), re-running the command will attempt
+to complete it.
+
+
 **Usage:**
 
 ```text

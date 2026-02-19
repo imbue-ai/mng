@@ -16,6 +16,25 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
 ```
 
 
+Create a new agent and optionally connect to it.
+
+This command sets up an agent's working directory, optionally provisions a
+new host (or uses an existing one), runs the specified agent process, and
+connects to it by default.
+
+By default, agents run locally in a new git worktree (for git repositories)
+or a copy of the current directory. Use --in to create a new remote host,
+or --host to use an existing host.
+
+The agent type defaults to 'claude' if not specified. Any command in your
+PATH can also be used as an agent type. Arguments after -- are passed
+directly to the agent command.
+
+For local agents, mng creates a git worktree that shares objects with your
+original repository, allowing efficient branch management. For remote agents,
+the working directory is copied to the remote host.
+
+
 **Usage:**
 
 ```text

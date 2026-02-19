@@ -10,6 +10,15 @@ mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
 
+Send a message to one or more agents.
+
+Agent IDs can be specified as positional arguments for convenience. The
+message is sent to the agent's stdin.
+
+If no message is specified with --message, reads from stdin (if not a tty)
+or opens an editor (if interactive).
+
+
 **Usage:**
 
 ```text

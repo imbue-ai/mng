@@ -10,6 +10,22 @@ mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
 
+Create, list, and destroy snapshots of agent hosts.
+
+Snapshots capture the complete filesystem state of a host, allowing it to be
+restored later. Because the snapshot is at the host level, the state of all
+agents on the host is saved.
+
+Positional arguments to 'create' can be agent names/IDs or host names/IDs.
+Each identifier is automatically resolved: if it matches a known agent, that
+agent's host is used; otherwise it is treated as a host identifier.
+
+When no subcommand is given, defaults to 'create'. For example,
+``mng snapshot my-agent`` is equivalent to ``mng snapshot create my-agent``.
+
+Useful for checkpointing work, creating restore points, or managing disk space.
+
+
 **Usage:**
 
 ```text

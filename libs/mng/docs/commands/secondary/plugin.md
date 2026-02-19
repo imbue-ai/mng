@@ -10,6 +10,12 @@ mng [plugin|plug] <subcommand> [OPTIONS]
 ```
 
 
+Manage available and active plugins.
+
+Install, remove, view, enable, and disable plugins registered with mng.
+Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.
+
+
 **Usage:**
 
 ```text

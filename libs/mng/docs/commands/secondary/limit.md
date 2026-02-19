@@ -10,6 +10,23 @@ mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-ti
 ```
 
 
+Configure settings on existing agents and hosts: idle timeout,
+idle mode, activity sources, permissions, and start-on-boot.
+
+Agents effectively have permissions that are equivalent to the *union* of all
+permissions on the same host. Changing permissions for agents requires them
+to be restarted.
+
+Changes to some limits for hosts (e.g. CPU, RAM, disk space, network) are
+handled by the provider.
+
+When targeting agents, host-level settings (idle-timeout, idle-mode,
+activity-sources) are applied to each agent's underlying host.
+
+Agent-level settings (start-on-boot, grant, revoke) require agent targeting
+and cannot be used with --host alone.
+
+
 **Usage:**
 
 ```text

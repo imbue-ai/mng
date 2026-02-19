@@ -10,6 +10,18 @@ mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f
 ```
 
 
+Destroy one or more agents and clean up their resources.
+
+When the last agent on a host is destroyed, the host itself is also destroyed
+(including containers, volumes, snapshots, and any remote infrastructure).
+
+Use with caution! This operation is irreversible.
+
+By default, running agents cannot be destroyed. Use --force to stop and destroy
+running agents. The command will prompt for confirmation before destroying
+agents unless --force is specified.
+
+
 **Usage:**
 
 ```text

@@ -10,6 +10,20 @@ mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
 
+View log files from an agent or host.
+
+TARGET identifies an agent (by name or ID) or a host (by name or ID).
+The command first tries to match TARGET as an agent, then as a host.
+
+If LOG_FILE is not specified, lists all available log files.
+If LOG_FILE is specified, prints its contents.
+
+In follow mode (--follow), the command uses tail -f for real-time
+streaming when the host is online (locally or via SSH). When the host
+is offline, it falls back to polling the volume for new content.
+Press Ctrl+C to stop.
+
+
 **Usage:**
 
 ```text

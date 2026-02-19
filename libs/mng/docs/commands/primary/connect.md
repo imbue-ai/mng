@@ -10,6 +10,21 @@ mng [connect|conn] [OPTIONS] [AGENT]
 ```
 
 
+Connect to an existing agent via the terminal.
+
+Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+the agent's machine and attaching to the tmux session. Use `mng open` to
+open an agent's URLs in a web browser instead.
+
+If no agent is specified, shows an interactive selector to choose from
+available agents. The selector allows typeahead search to filter agents
+by name.
+
+The agent can be specified as a positional argument or via --agent:
+  mng connect my-agent
+  mng connect --agent my-agent
+
+
 **Usage:**
 
 ```text

@@ -10,6 +10,18 @@ mng [config|cfg] <subcommand> [OPTIONS]
 ```
 
 
+Manage mng configuration.
+
+View, edit, and modify mng configuration settings at the user, project, or
+local level. Much like a simpler version of `git config`, this command allows
+you to manage configuration settings at different scopes.
+
+Configuration is stored in TOML files:
+- User: ~/.mng/settings.toml
+- Project: .mng/settings.toml (in your git root)
+- Local: .mng/settings.local.toml (git-ignored, for local overrides)
+
+
 **Usage:**
 
 ```text

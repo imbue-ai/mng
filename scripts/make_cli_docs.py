@@ -268,6 +268,24 @@ def _infer_argument_description(arg: click.Argument) -> str:
     return f"The {name.replace('_', ' ')} (optional)"
 
 
+def _format_description_block(command_name: str) -> str:
+    """Format a description block from CommandHelpMetadata for markdown docs.
+
+    Returns the description text followed by a blank line, or empty string
+    if no metadata or description is available.
+    """
+    metadata = get_help_metadata(command_name)
+    if metadata is None or not metadata.description:
+        return ""
+
+    lines = ["\n"]
+    for paragraph in metadata.description.strip().split("\n\n"):
+        lines.append(paragraph.strip())
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def format_synopsis(command_name: str) -> str:
     """Format synopsis section from CommandHelpMetadata if available.
 
@@ -487,14 +505,20 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
 
-    # Insert synopsis after the title line (first line starting with #)
+    # Insert synopsis and description after the title line (first line starting with #)
     synopsis = format_synopsis(command_name)
-    if synopsis:
+    description_block = _format_description_block(command_name)
+    if synopsis or description_block:
         content_lines = content.split("\n")
-        # Find the title line and insert synopsis after it
+        # Find the title line and insert synopsis + description after it
         for i, line in enumerate(content_lines):
             if line.startswith("# "):
-                content_lines.insert(i + 1, synopsis)
+                insert_text = ""
+                if synopsis:
+                    insert_text += synopsis
+                if description_block:
+                    insert_text += description_block
+                content_lines.insert(i + 1, insert_text)
                 break
         content = "\n".join(content_lines)
 

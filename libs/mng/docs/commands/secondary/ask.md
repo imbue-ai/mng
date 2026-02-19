@@ -10,6 +10,16 @@ mng ask [--execute] QUERY...
 ```
 
 
+Chat directly with mng for help -- it can create the
+necessary CLI call for pretty much anything you want to do.
+
+If no query is provided, shows general help about available commands
+and common workflows.
+
+When --execute is specified, the generated CLI command is executed
+directly instead of being printed.
+
+
 **Usage:**
 
 ```text

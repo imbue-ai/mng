@@ -10,6 +10,22 @@ mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURAT
 ```
 
 
+Destroy or stop agents and hosts in order to free up resources.
+
+When running in a pty, defaults to providing an interactive interface for
+reviewing running agents and hosts and selecting which ones to destroy or stop.
+
+When running in a non-interactive setting (or if --yes is provided), will
+destroy all selected agents/hosts without prompting.
+
+Convenience filters like --older-than and --idle-for are translated into CEL
+expressions internally, so they can be combined with --include and --exclude
+for precise control.
+
+For automatic garbage collection of unused resources without interaction,
+see `mng gc`.
+
+
 **Usage:**
 
 ```text

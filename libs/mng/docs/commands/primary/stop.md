@@ -10,6 +10,15 @@ mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-
 ```
 
 
+Stop one or more running agents.
+
+For remote hosts, this stops the agent's tmux session. The host remains
+running unless idle detection stops it automatically.
+
+For local agents, this stops the agent's tmux session. The local host
+itself cannot be stopped (if you want that, shut down your computer).
+
+
 **Usage:**
 
 ```text

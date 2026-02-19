@@ -10,6 +10,18 @@ mng push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]
 ```
 
 
+Push files or git commits from local machine to an agent.
+
+Syncs files or git state from a local directory to an agent's working directory.
+Default behavior uses rsync for efficient incremental file transfer.
+Use --sync-mode=git to push git branches instead of syncing files.
+
+If no target is specified, shows an interactive selector to choose an agent.
+
+IMPORTANT: The source (host) workspace is never modified. Only the target
+(agent workspace) may be modified.
+
+
 **Usage:**
 
 ```text
