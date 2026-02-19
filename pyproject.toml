@@ -28,6 +28,7 @@ dev = [
     "pytest-profiling",
     "line-profiler",
     "import-linter>=2.0",
+    "semver>=3.0",
     "imbue-common[dev]",
     "mkdocs-click>=0.9.0",
 ]

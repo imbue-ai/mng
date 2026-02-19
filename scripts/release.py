@@ -18,6 +18,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import semver
+
 REPO_ROOT = Path(__file__).parent.parent
 
 PACKAGES = [
@@ -29,26 +31,6 @@ PACKAGES = [
 VERSION_RE = re.compile(r'^(version\s*=\s*")([^"]+)(")', re.MULTILINE)
 
 BUMP_KINDS = ("major", "minor", "patch")
-
-
-def parse_semver(version: str) -> tuple[int, int, int]:
-    """Parse a semver string into (major, minor, patch)."""
-    parts = version.split(".")
-    if len(parts) != 3 or not all(p.isdigit() for p in parts):
-        print(f"ERROR: '{version}' is not a valid semver (expected X.Y.Z)", file=sys.stderr)
-        sys.exit(1)
-    return int(parts[0]), int(parts[1]), int(parts[2])
-
-
-def increment_semver(version: str, kind: str) -> str:
-    """Increment a semver string by the given kind."""
-    major, minor, patch = parse_semver(version)
-    if kind == "major":
-        return f"{major + 1}.0.0"
-    elif kind == "minor":
-        return f"{major}.{minor + 1}.0"
-    else:
-        return f"{major}.{minor}.{patch + 1}"
 
 
 def get_current_version() -> str:
@@ -93,11 +75,12 @@ def main() -> None:
 
     current_version = get_current_version()
 
+    current = semver.Version.parse(current_version)
+
     if args.version in BUMP_KINDS:
-        new_version = increment_semver(current_version, args.version)
+        new_version = str(current.next_version(args.version))
     else:
-        new_version = args.version
-        parse_semver(new_version)  # validate format
+        new_version = str(semver.Version.parse(args.version))
 
     if new_version == current_version:
         print(f"ERROR: New version {new_version} is the same as the current version.", file=sys.stderr)
