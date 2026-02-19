@@ -1,19 +1,12 @@
 import tomllib
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).parent.parent
-
-PACKAGES = [
-    REPO_ROOT / "libs" / "mngr" / "pyproject.toml",
-    REPO_ROOT / "libs" / "imbue_common" / "pyproject.toml",
-    REPO_ROOT / "libs" / "concurrency_group" / "pyproject.toml",
-]
+from scripts.publishable_packages import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 
 
 def test_all_package_versions_match() -> None:
     """All publishable packages must have the same version string."""
     versions: dict[str, str] = {}
-    for path in PACKAGES:
+    for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         data = tomllib.loads(path.read_text())
         name = data["project"]["name"]
         version = data["project"]["version"]

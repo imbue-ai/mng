@@ -20,27 +20,22 @@ from pathlib import Path
 import semver
 import tomlkit
 
-REPO_ROOT = Path(__file__).parent.parent
-
-PACKAGES = [
-    REPO_ROOT / "libs" / "mngr" / "pyproject.toml",
-    REPO_ROOT / "libs" / "imbue_common" / "pyproject.toml",
-    REPO_ROOT / "libs" / "concurrency_group" / "pyproject.toml",
-]
+from scripts.publishable_packages import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
+from scripts.publishable_packages import REPO_ROOT
 
 BUMP_KINDS = ("major", "minor", "patch")
 
 
 def get_current_version() -> str:
     """Read the current version from the first package."""
-    doc = tomlkit.loads(PACKAGES[0].read_text())
+    doc = tomlkit.loads(PUBLISHABLE_PACKAGE_PYPROJECT_PATHS[0].read_text())
     return doc["project"]["version"]
 
 
 def bump_version(new_version: str) -> list[Path]:
     """Update the version in all package pyproject.toml files. Returns modified files."""
     modified = []
-    for path in PACKAGES:
+    for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         doc = tomlkit.loads(path.read_text())
         if doc["project"]["version"] != new_version:
             doc["project"]["version"] = new_version
@@ -80,7 +75,7 @@ def main() -> None:
     print(f"Current version: {current_version}")
     print(f"New version:     {new_version}")
     print(f"Files to update:")
-    for path in PACKAGES:
+    for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         print(f"  {path.relative_to(REPO_ROOT)}")
 
     if args.dry_run:
