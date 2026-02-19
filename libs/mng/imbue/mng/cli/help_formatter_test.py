@@ -9,7 +9,6 @@ from click_option_group import optgroup
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
 from imbue.mng.cli.create import create
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
-from imbue.mng.cli.help_formatter import _resolve_help_metadata
 from imbue.mng.cli.help_formatter import _run_pager_with_subprocess
 from imbue.mng.cli.help_formatter import _write_to_stdout
 from imbue.mng.cli.help_formatter import add_pager_help_option
@@ -20,7 +19,6 @@ from imbue.mng.cli.help_formatter import help_option_callback
 from imbue.mng.cli.help_formatter import is_interactive_terminal
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import run_pager
-from imbue.mng.cli.help_formatter import set_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.main import BUILTIN_COMMANDS
@@ -531,116 +529,3 @@ def test_commands_with_aliases_have_aliases_in_synopsis() -> None:
             f"Command '{cmd.name}' has aliases {metadata.aliases} but synopsis "
             f"doesn't contain '{expected_pattern}'. Synopsis: {metadata.synopsis}"
         )
-
-
-def test_set_help_metadata_stores_metadata_on_command() -> None:
-    """set_help_metadata stores metadata that _resolve_help_metadata can retrieve."""
-
-    @click.command()
-    def my_cmd() -> None:
-        pass
-
-    metadata = CommandHelpMetadata(
-        name="mng-my-cmd",
-        one_line_description="A test command",
-        synopsis="mng my-cmd [OPTIONS]",
-        description="Test command description.",
-    )
-
-    set_help_metadata(my_cmd, metadata)
-    ctx = click.Context(my_cmd, info_name="my-cmd")
-    resolved = _resolve_help_metadata(ctx)
-
-    assert resolved is metadata
-
-
-def test_resolve_help_metadata_falls_back_to_string_registry() -> None:
-    """_resolve_help_metadata uses the string registry when no attribute is set."""
-
-    @click.command()
-    def fallback_cmd_72834() -> None:
-        pass
-
-    metadata = CommandHelpMetadata(
-        name="mng-fallback-cmd-72834",
-        one_line_description="Fallback test",
-        synopsis="mng fallback-cmd-72834",
-        description="Verifies fallback to the string registry.",
-    )
-
-    register_help_metadata("fallback-cmd-72834", metadata)
-    ctx = click.Context(fallback_cmd_72834, info_name="fallback-cmd-72834")
-    resolved = _resolve_help_metadata(ctx)
-
-    assert resolved is metadata
-
-
-def test_resolve_help_metadata_returns_none_when_nothing_is_registered() -> None:
-    """_resolve_help_metadata returns None when no metadata exists anywhere."""
-
-    @click.command()
-    def unknown_cmd_91472() -> None:
-        pass
-
-    ctx = click.Context(unknown_cmd_91472, info_name="unknown-cmd-91472")
-    resolved = _resolve_help_metadata(ctx)
-
-    assert resolved is None
-
-
-def test_resolve_help_metadata_prefers_command_attribute_over_string_registry() -> None:
-    """When both sources have metadata, the command attribute wins."""
-
-    @click.command()
-    def list_cmd() -> None:
-        pass
-
-    # Register metadata in the string registry under "list" (simulates the
-    # top-level "mng list" command).
-    registry_metadata = CommandHelpMetadata(
-        name="mng-list",
-        one_line_description="Top-level list",
-        synopsis="mng list",
-        description="This is the top-level mng list command.",
-    )
-    register_help_metadata("list", registry_metadata)
-
-    # Attach different metadata directly on the command object (simulates
-    # a subcommand like "mng config list").
-    command_metadata = CommandHelpMetadata(
-        name="mng-config-list",
-        one_line_description="Config list subcommand",
-        synopsis="mng config list",
-        description="This is the config list subcommand.",
-    )
-    set_help_metadata(list_cmd, command_metadata)
-
-    ctx = click.Context(list_cmd, info_name="list")
-    resolved = _resolve_help_metadata(ctx)
-
-    assert resolved is command_metadata
-    assert resolved is not registry_metadata
-
-
-def test_set_help_metadata_integrates_with_format_git_style_help() -> None:
-    """set_help_metadata metadata is used by format_git_style_help via GitStyleHelpMixin."""
-
-    @click.command()
-    @click.option("--size", help="Snapshot size")
-    def subcmd(size: str | None) -> None:
-        pass
-
-    metadata = CommandHelpMetadata(
-        name="mng-snapshot-list",
-        one_line_description="List snapshots for agent hosts",
-        synopsis="mng snapshot list [OPTIONS]",
-        description="Shows snapshot details.",
-    )
-
-    set_help_metadata(subcmd, metadata)
-
-    ctx = click.Context(subcmd, info_name="list")
-    help_text = format_git_style_help(ctx, subcmd, _resolve_help_metadata(ctx))
-
-    assert "mng-snapshot-list" in help_text
-    assert "List snapshots for agent hosts" in help_text
