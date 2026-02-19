@@ -1080,7 +1080,7 @@ def test_read_disabled_plugins_multiple_plugins(
 # =============================================================================
 
 
-def testblock_disabled_plugins_blocks_names_in_plugin_manager() -> None:
+def test_block_disabled_plugins_blocks_names_in_plugin_manager() -> None:
     """block_disabled_plugins should call pm.set_blocked for each disabled name."""
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
@@ -1092,7 +1092,7 @@ def testblock_disabled_plugins_blocks_names_in_plugin_manager() -> None:
     assert not pm.is_blocked("local")
 
 
-def testblock_disabled_plugins_is_idempotent() -> None:
+def test_block_disabled_plugins_is_idempotent() -> None:
     """block_disabled_plugins should be safe to call multiple times."""
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
