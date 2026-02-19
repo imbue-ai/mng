@@ -8,7 +8,7 @@ are discovered (e.g., when running from the monorepo root).
 """
 
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
-from imbue.mngr.utils.logging import suppress_warnings
+from imbue.mng.utils.logging import suppress_warnings
 
 # Suppress some pointless warnings from other library's loggers
 suppress_warnings()

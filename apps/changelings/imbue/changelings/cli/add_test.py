@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from imbue.changelings.cli.add import _resolve_mngr_profile
+from imbue.changelings.cli.add import _resolve_mng_profile
 from imbue.changelings.cli.add import add
 from imbue.changelings.config import get_changeling
 from imbue.changelings.config import load_config
@@ -147,7 +147,7 @@ def test_add_with_env_vars_stores_them(cli_runner: CliRunner) -> None:
     assert changeling.env_vars == {"DEBUG": "true", "LOG_LEVEL": "debug"}
 
 
-def test_add_with_mngr_options_stores_them(cli_runner: CliRunner) -> None:
+def test_add_with_mng_options_stores_them(cli_runner: CliRunner) -> None:
     """Custom -o/--option options should be stored in the config."""
     cli_runner.invoke(
         add,
@@ -155,18 +155,18 @@ def test_add_with_mngr_options_stores_them(cli_runner: CliRunner) -> None:
     )
 
     changeling = get_changeling(ChangelingName("my-fairy"))
-    assert changeling.mngr_options == {"gpu": "a10g", "timeout": "600"}
+    assert changeling.mng_options == {"gpu": "a10g", "timeout": "600"}
 
 
-def test_add_with_extra_mngr_args_stores_them(cli_runner: CliRunner) -> None:
-    """Custom --extra-mngr-args should be stored in the config."""
+def test_add_with_extra_mng_args_stores_them(cli_runner: CliRunner) -> None:
+    """Custom --extra-mng-args should be stored in the config."""
     cli_runner.invoke(
         add,
-        ["my-fairy", "--disabled", "--extra-mngr-args", "--verbose --timeout 300"],
+        ["my-fairy", "--disabled", "--extra-mng-args", "--verbose --timeout 300"],
     )
 
     changeling = get_changeling(ChangelingName("my-fairy"))
-    assert changeling.extra_mngr_args == "--verbose --timeout 300"
+    assert changeling.extra_mng_args == "--verbose --timeout 300"
 
 
 def test_add_update_creates_new_changeling(cli_runner: CliRunner) -> None:
@@ -189,37 +189,37 @@ def test_add_update_overwrites_existing_changeling(cli_runner: CliRunner) -> Non
     assert changeling.branch == "updated"
 
 
-def test_add_with_mngr_profile_stores_it(cli_runner: CliRunner) -> None:
-    """A changeling with --mngr-profile should have it stored in the config."""
+def test_add_with_mng_profile_stores_it(cli_runner: CliRunner) -> None:
+    """A changeling with --mng-profile should have it stored in the config."""
     cli_runner.invoke(
         add,
-        ["my-fairy", "--disabled", "--mngr-profile", "abc123"],
+        ["my-fairy", "--disabled", "--mng-profile", "abc123"],
     )
 
     changeling = get_changeling(ChangelingName("my-fairy"))
-    assert changeling.mngr_profile == "abc123"
+    assert changeling.mng_profile == "abc123"
 
 
-# -- _resolve_mngr_profile tests --
+# -- _resolve_mng_profile tests --
 
 
-def test_resolve_mngr_profile_returns_explicit_profile() -> None:
+def test_resolve_mng_profile_returns_explicit_profile() -> None:
     """When an explicit profile is provided, it should be returned as-is."""
-    result = _resolve_mngr_profile("my-explicit-profile")
+    result = _resolve_mng_profile("my-explicit-profile")
     assert result == "my-explicit-profile"
 
 
-def test_resolve_mngr_profile_auto_selects_single_profile(tmp_path: Path) -> None:
+def test_resolve_mng_profile_auto_selects_single_profile(tmp_path: Path) -> None:
     """When exactly one profile exists, it should be auto-selected."""
-    profiles_dir = tmp_path / ".mngr" / "profiles"
+    profiles_dir = tmp_path / ".mng" / "profiles"
     (profiles_dir / "only-profile").mkdir(parents=True)
 
-    result = _resolve_mngr_profile(None)
+    result = _resolve_mng_profile(None)
 
     assert result == "only-profile"
 
 
-def test_resolve_mngr_profile_exits_when_no_profiles() -> None:
+def test_resolve_mng_profile_exits_when_no_profiles() -> None:
     """When no profiles exist, SystemExit should be raised."""
     with pytest.raises(SystemExit):
-        _resolve_mngr_profile(None)
+        _resolve_mng_profile(None)
