@@ -16,6 +16,7 @@ import argparse
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import semver
@@ -35,12 +36,8 @@ BUMP_KINDS = ("major", "minor", "patch")
 
 def get_current_version() -> str:
     """Read the current version from the first package."""
-    text = PACKAGES[0].read_text()
-    match = VERSION_RE.search(text)
-    if not match:
-        print(f"ERROR: Could not find version in {PACKAGES[0]}", file=sys.stderr)
-        sys.exit(1)
-    return match.group(2)
+    data = tomllib.loads(PACKAGES[0].read_text())
+    return data["project"]["version"]
 
 
 def bump_version(new_version: str) -> list[Path]:
