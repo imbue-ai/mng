@@ -4,6 +4,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
+from imbue.mngr.main import AliasAwareGroup
 from imbue.mngr.main import COMMAND_ALIASES
 from imbue.mngr.main import cli
 
@@ -75,25 +76,30 @@ def test_shell_complete_returns_all_commands_for_empty_prefix() -> None:
     assert "msg" not in names
 
 
-def test_no_args_writes_help_to_stdout_not_stderr(cli_runner: CliRunner) -> None:
-    """Invoking mngr with no arguments should print help to stdout and exit 0.
+def test_no_args_with_disabled_default_command_writes_help_to_stdout(cli_runner: CliRunner) -> None:
+    """When default_command is disabled, no-args help should go to stdout (not stderr).
 
-    Click's default behavior for groups is to raise NoArgsIsHelpError which writes
-    help to stderr and exits with code 2. Our AliasAwareGroup overrides this to
-    write to stdout and exit cleanly, matching the behavior of --help.
+    Click's default behavior for groups raises NoArgsIsHelpError which writes
+    help to stderr with exit code 2. AliasAwareGroup overrides this to write
+    to stdout and exit cleanly when no default command is configured.
     """
-    result = cli_runner.invoke(cli, [])
+
+    @click.command(cls=AliasAwareGroup)
+    def test_group() -> None:
+        """Test group."""
+
+    # AliasAwareGroup inherits _default_command = "create" from DefaultCommandGroup.
+    # Disable it to test the no-default-command path.
+    test_group._default_command = ""
+    test_group._config_key = None
+
+    @test_group.command()
+    def sub() -> None:
+        """A subcommand."""
+
+    result = cli_runner.invoke(test_group, [])
     assert result.exit_code == 0
     assert "Usage:" in result.output
-    assert "Commands:" in result.output
-
-
-def test_no_args_output_matches_help_flag(cli_runner: CliRunner) -> None:
-    """Invoking mngr with no args should produce the same output as --help."""
-    no_args_result = cli_runner.invoke(cli, [])
-    help_result = cli_runner.invoke(cli, ["--help"])
-    assert no_args_result.output == help_result.output
-    assert no_args_result.exit_code == help_result.exit_code
 
 
 def test_subgroup_no_args_writes_to_stdout(cli_runner: CliRunner) -> None:

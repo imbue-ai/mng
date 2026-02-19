@@ -101,10 +101,12 @@ class AliasAwareGroup(DefaultCommandGroup):
     _config_key = "mngr"
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        # Click's default behavior for groups with no_args_is_help=True raises
-        # NoArgsIsHelpError, which writes help to stderr and exits with code 2.
-        # Override to write help to stdout and exit cleanly (like --help).
-        if not args and self.no_args_is_help and not ctx.resilient_parsing:
+        # When no args are given and no default command is configured,
+        # Click raises NoArgsIsHelpError which writes help to stderr with
+        # exit code 2. Override to write help to stdout and exit cleanly.
+        # When a default command IS configured (the normal case),
+        # DefaultCommandGroup.parse_args handles it by forwarding to that command.
+        if not args and not self._default_command and self.no_args_is_help and not ctx.resilient_parsing:
             sys.stdout.write(ctx.get_help())
             sys.stdout.write("\n")
             sys.stdout.flush()
