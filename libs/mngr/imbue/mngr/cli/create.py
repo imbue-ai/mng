@@ -707,15 +707,11 @@ def _handle_create(
             return create_result, connection_opts, output_opts, opts, mngr_ctx
 
     # If ensure-clean is set, verify the source work_dir is clean.
-    # Skip the check when using worktree mode with an explicit --base-branch, since the
-    # worktree will be created from that branch and uncommitted changes in the current
-    # working tree are irrelevant.
-    is_worktree_from_other_branch = (
-        agent_opts.git is not None
-        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
-        and opts.base_branch is not None
-    )
-    if opts.ensure_clean and not is_worktree_from_other_branch:
+    # Skip the check when an explicit --base-branch is provided, since the agent
+    # will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant (regardless of copy mode).
+    is_from_explicit_base_branch = agent_opts.git is not None and opts.base_branch is not None
+    if opts.ensure_clean and not is_from_explicit_base_branch:
         _ensure_clean_work_dir(source_location)
 
     # figure out the target host (if we just have a reference)
