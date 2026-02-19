@@ -17,6 +17,8 @@ from imbue.mng.providers.base_provider import BaseProviderInstance
 backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
 # Cache for registered config classes (may include configs for backends not currently loaded)
 config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
+# Tracks whether config classes have been registered (prevents re-registration).
+_config_classes_registered: dict[str, bool] = {"value": False}
 # Tracks whether backends have been explicitly loaded (prevents re-loading in tests
 # where the fixture controls which backends are available).
 _backends_loaded: dict[str, bool] = {"value": False}
@@ -36,8 +38,9 @@ def register_config_classes() -> None:
     Config classes are lightweight pydantic models needed for config parsing.
     Backend implementations are loaded on-demand by get_backend().
     """
-    if config_registry:
+    if _config_classes_registered["value"]:
         return
+    _config_classes_registered["value"] = True
     from imbue.mng.providers.docker.config import DockerProviderConfig
     from imbue.mng.providers.local.config import LocalProviderConfig
     from imbue.mng.providers.modal.config import ModalProviderConfig
@@ -122,6 +125,7 @@ def reset_backend_registry() -> None:
     """
     backend_registry.clear()
     config_registry.clear()
+    _config_classes_registered["value"] = False
     _backends_loaded["value"] = False
 
 
