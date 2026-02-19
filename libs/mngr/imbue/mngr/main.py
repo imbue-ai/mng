@@ -169,7 +169,7 @@ class AliasAwareGroup(DefaultCommandGroup):
 
 
 @click.command(cls=AliasAwareGroup)
-@click.version_option(prog_name="mngr", message="%(prog)s %(version)s")
+@click.version_option(package_name="mng", prog_name="mngr", message="%(prog)s %(version)s")
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """

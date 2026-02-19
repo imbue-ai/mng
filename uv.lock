@@ -14,9 +14,9 @@ members = [
     "flexmux",
     "imbue",
     "imbue-common",
-    "mngr",
+    "mng",
+    "mng-pair",
     "mngr-opencode",
-    "mngr-pair",
     "sculptor-desktop",
     "sculptor-web",
 ]
@@ -523,7 +523,7 @@ dependencies = [
     { name = "concurrency-group" },
     { name = "imbue-common" },
     { name = "loguru" },
-    { name = "mngr" },
+    { name = "mng" },
     { name = "modal" },
     { name = "pydantic" },
     { name = "tomlkit" },
@@ -536,7 +536,7 @@ requires-dist = [
     { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "loguru" },
-    { name = "mngr", editable = "libs/mngr" },
+    { name = "mng", editable = "libs/mngr" },
     { name = "modal", specifier = ">=1.3.1" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
@@ -1494,6 +1494,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "imbue-common", extra = ["dev"] },
     { name = "import-linter" },
     { name = "line-profiler" },
     { name = "mkdocs-click" },
@@ -1515,6 +1516,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "imbue-common", extras = ["dev"], editable = "libs/imbue_common" },
     { name = "import-linter", specifier = ">=2.0" },
     { name = "line-profiler" },
     { name = "mkdocs-click", specifier = ">=0.9.0" },
@@ -1535,10 +1537,14 @@ dependencies = [
     { name = "click" },
     { name = "cowsay-python" },
     { name = "httpx" },
-    { name = "inline-snapshot" },
     { name = "loguru" },
     { name = "pydantic" },
     { name = "tenacity" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "inline-snapshot" },
 ]
 
 [package.metadata]
@@ -1546,11 +1552,12 @@ requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "cowsay-python", specifier = ">=1.0.2" },
     { name = "httpx", specifier = ">=0.27" },
-    { name = "inline-snapshot", specifier = ">=0.13" },
+    { name = "inline-snapshot", marker = "extra == 'dev'", specifier = ">=0.13" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "tenacity", specifier = ">=8.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "import-linter"
@@ -1792,7 +1799,7 @@ wheels = [
 ]
 
 [[package]]
-name = "mngr"
+name = "mng"
 version = "0.1.0"
 source = { editable = "libs/mngr" }
 dependencies = [
@@ -1843,30 +1850,30 @@ requires-dist = [
 ]
 
 [[package]]
-name = "mngr-opencode"
-version = "0.1.0"
-source = { editable = "libs/mngr_opencode" }
-dependencies = [
-    { name = "mngr" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
-
-[[package]]
-name = "mngr-pair"
+name = "mng-pair"
 version = "0.1.0"
 source = { editable = "libs/mngr_pair" }
 dependencies = [
     { name = "click-option-group" },
-    { name = "mngr" },
+    { name = "mng" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
-    { name = "mngr", editable = "libs/mngr" },
+    { name = "mng", editable = "libs/mngr" },
 ]
+
+[[package]]
+name = "mngr-opencode"
+version = "0.1.0"
+source = { editable = "libs/mngr_opencode" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mngr" }]
 
 [[package]]
 name = "modal"
@@ -2719,24 +2726,24 @@ name = "sculptor-desktop"
 version = "0.1.0"
 source = { editable = "apps/sculptor_desktop" }
 dependencies = [
-    { name = "mngr" },
+    { name = "mng" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mngr", editable = "libs/mngr" }]
+requires-dist = [{ name = "mng", editable = "libs/mngr" }]
 
 [[package]]
 name = "sculptor-web"
 version = "0.1.0"
 source = { editable = "apps/sculptor_web" }
 dependencies = [
-    { name = "mngr" },
+    { name = "mng" },
     { name = "python-fasthtml" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "mngr", editable = "libs/mngr" },
+    { name = "mng", editable = "libs/mngr" },
     { name = "python-fasthtml", specifier = ">=0.10.0" },
 ]
 

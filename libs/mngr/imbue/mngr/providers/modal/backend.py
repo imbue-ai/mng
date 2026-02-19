@@ -429,7 +429,7 @@ Supported build arguments for the modal provider:
             )
         except modal.exception.AuthError as e:
             raise MngrError(
-                "Modal is not authorized: run 'modal token set' to authenticate, or disable this provider with "
+                "Modal is not authorized: run 'uvx modal token set' to authenticate, or disable this provider with "
                 f"'mngr config set --scope local providers.{name}.is_enabled false'. (original error: {e})",
             ) from e
 

@@ -1,5 +1,4 @@
 import platform
-import shutil
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
@@ -18,12 +17,12 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mngr.api.pull import pull_git
 from imbue.mngr.api.push import push_git
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
 from imbue.mngr.primitives import SyncDirection
 from imbue.mngr.primitives import UncommittedChangesMode
+from imbue.mngr.utils.deps import SystemDependency
 from imbue.mngr.utils.git_utils import get_current_branch
 from imbue.mngr.utils.git_utils import get_head_commit
 from imbue.mngr.utils.git_utils import is_ancestor
@@ -162,17 +161,29 @@ class UnisonSyncer(MutableModel):
         return not self._running_process.is_finished()
 
 
-def check_unison_installed() -> bool:
-    """Check if unison (and unison-fsmonitor on macOS) are available in PATH.
+_UNISON = SystemDependency(
+    binary="unison",
+    purpose="pair mode",
+    macos_hint="brew install unison",
+    linux_hint="sudo apt-get install unison. On other systems, see: https://github.com/bcpierce00/unison",
+)
+_UNISON_FSMONITOR = SystemDependency(
+    binary="unison-fsmonitor",
+    purpose="pair mode (file watching on macOS)",
+    macos_hint="brew install autozimu/formulas/unison-fsmonitor",
+    linux_hint="Not required on Linux (inotify provides built-in filesystem monitoring)",
+)
+
+
+def require_unison() -> None:
+    """Require unison (and unison-fsmonitor on macOS).
 
     On Linux, only unison is required because inotify provides built-in filesystem
     monitoring. On macOS, unison-fsmonitor is also required for file watching.
     """
-    if shutil.which("unison") is None:
-        return False
+    _UNISON.require()
     if platform.system() == "Darwin":
-        return shutil.which("unison-fsmonitor") is not None
-    return True
+        _UNISON_FSMONITOR.require()
 
 
 def determine_git_sync_actions(
@@ -320,9 +331,7 @@ def pair_files(
     programmatically stop the sync. The sync is automatically stopped when
     the context manager exits.
     """
-    # Check unison is installed
-    if not check_unison_installed():
-        raise UnisonNotInstalledError()
+    require_unison()
 
     # Validate directories exist
     if not agent_path.is_dir():

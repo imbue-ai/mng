@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "OpenCode agent type plugin for mngr"
 requires-python = ">=3.11"
 dependencies = [
-    "mngr",
+    "mng",
 ]
 
 [project.entry-points.mngr]
@@ -18,7 +18,7 @@ build-backend = "hatchling.build"
 packages = ["imbue"]
 
 [tool.uv.sources]
-mngr = { workspace = true }
+mng = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."

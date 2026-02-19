@@ -349,15 +349,9 @@ class NestedTmuxError(MngrError):
         )
 
 
-class UnisonNotInstalledError(MngrError):
-    """Raised when unison is not installed but is required for pair mode."""
+class BinaryNotInstalledError(MngrError):
+    """Raised when a required system binary is not installed."""
 
-    user_help_text = (
-        "Install unison to use the pair command. "
-        "On macOS: brew install unison && brew install autozimu/formulas/unison-fsmonitor. "
-        "On Ubuntu/Debian: sudo apt-get install unison. "
-        "On other systems, see: https://www.cis.upenn.edu/~bcpierce/unison/"
-    )
-
-    def __init__(self) -> None:
-        super().__init__("unison is not installed or not found in PATH")
+    def __init__(self, binary: str, purpose: str, install_hint: str) -> None:
+        self.user_help_text = install_hint
+        super().__init__(f"{binary} is required for {purpose} but was not found on PATH")

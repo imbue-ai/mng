@@ -8,8 +8,8 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mngr.api.test_fixtures import FakeAgent
 from imbue.mngr.api.test_fixtures import FakeHost
 from imbue.mngr.api.test_fixtures import SyncTestContext
+from imbue.mngr.errors import BinaryNotInstalledError
 from imbue.mngr.errors import MngrError
-from imbue.mngr.errors import UnisonNotInstalledError
 from imbue.mngr.interfaces.agent import AgentInterface
 from imbue.mngr.interfaces.host import OnlineHostInterface
 from imbue.mngr.primitives import ConflictMode
@@ -115,11 +115,10 @@ def test_pair_files_raises_when_unison_not_installed_and_mocked(
     monkeypatch: pytest.MonkeyPatch,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Test that pair_files raises UnisonNotInstalledError when unison is not available."""
-    # Mock check_unison_installed to return False
-    monkeypatch.setattr("imbue.mngr_pair.api.check_unison_installed", lambda: False)
+    """Test that pair_files raises BinaryNotInstalledError when unison is not available."""
+    monkeypatch.setattr("shutil.which", lambda _binary: None)
 
-    with pytest.raises(UnisonNotInstalledError):
+    with pytest.raises(BinaryNotInstalledError):
         with pair_files(
             agent=pair_ctx.agent,
             host=pair_ctx.host,
@@ -142,8 +141,8 @@ def test_pair_files_raises_when_git_required_but_not_present(
     cg: ConcurrencyGroup,
 ) -> None:
     """Test that pair_files raises MngrError when git is required but directories are not repos."""
-    # Mock check_unison_installed to return True so we can test the git check
-    monkeypatch.setattr("imbue.mngr_pair.api.check_unison_installed", lambda: True)
+    # Make all system dependency checks (unison, etc.) pass so we reach the git check
+    monkeypatch.setattr("shutil.which", lambda binary: "/tmp/fake/path/" + binary)
 
     source_dir = tmp_path / "source"
     target_dir = tmp_path / "target"

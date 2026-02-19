@@ -8,19 +8,7 @@ from imbue.mngr.utils.testing import init_git_repo_with_config
 from imbue.mngr.utils.testing import run_git_command
 from imbue.mngr_pair.api import GitSyncAction
 from imbue.mngr_pair.api import UnisonSyncer
-from imbue.mngr_pair.api import check_unison_installed
 from imbue.mngr_pair.api import determine_git_sync_actions
-
-# =============================================================================
-# Test: check_unison_installed
-# =============================================================================
-
-
-def test_check_unison_installed_returns_bool() -> None:
-    """Test that check_unison_installed returns a boolean."""
-    result = check_unison_installed()
-    assert isinstance(result, bool)
-
 
 # =============================================================================
 # Test: UnisonSyncer

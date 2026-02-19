@@ -42,6 +42,9 @@ from imbue.mngr.primitives import SnapshotName
 from imbue.mngr.primitives import VolumeId
 from imbue.mngr.providers.base_provider import BaseProviderInstance
 from imbue.mngr.providers.local.volume import LocalVolume
+from imbue.mngr.utils.deps import GIT
+from imbue.mngr.utils.deps import JQ
+from imbue.mngr.utils.deps import TMUX
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOSTS_SUBDIR: Final[str] = "hosts"
@@ -185,6 +188,10 @@ class LocalProviderInstance(BaseProviderInstance):
         known_hosts parameters are ignored since the local machine uses its
         own configuration.
         """
+        TMUX.require()
+        GIT.require()
+        JQ.require()
+
         if str(name) != "localhost":
             raise UserInputError(f"Local provider only supports host name 'localhost', got '{name}'")
         with log_span("Creating local host (provider={})", self.name):
