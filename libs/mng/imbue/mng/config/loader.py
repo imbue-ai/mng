@@ -645,6 +645,11 @@ def _merge_command_defaults(
 # manager creation) so they intentionally avoid plugin hooks, full config
 # validation, and anything that needs a PluginManager.
 #
+# Note: logging is not yet configured when these run (setup_logging needs
+# OutputOptions and MngContext, which aren't available until after config
+# loading). Trace-level logs will only be visible with loguru's default
+# stderr sink if someone explicitly lowers the level.
+#
 # Each pre-reader provides a per-file extractor callback that
 # _read_config_layers_lightweight applies across the three config layers
 # (user, project, local) with correct precedence.
