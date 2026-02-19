@@ -43,7 +43,7 @@ The `--agent-cmd` flag implicitly uses the "generic" agent type, which simply ru
 
 See [`mngr create`](../commands/primary/create.md) for all available options.
 
-## Capbilities
+## Capabilities
 
 Any unix process can be an agent, which means that the only strict requirement is that the program run in a properly-named tmux session (e.g. "mngr-<agent_name>").
 
@@ -76,6 +76,7 @@ Assuming the agent's [host](./hosts.md) is in the "running" state, an agent can 
 
 - **stopped**: the agent folder exists (but there is no tmux session)
 - **running**: tmux session exists and the expected process exists in pane 0
+- **waiting**: the agent is waiting (e.g., for user input or an external event)
 - **replaced**: tmux session exists and a different process in pane 0
 - **done**: the tmux session exists and there is no process under the shell for that pane
 

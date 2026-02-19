@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Final
 from typing import Mapping
 from typing import Sequence
+from typing import assert_never
 
 import psutil
 from loguru import logger
@@ -23,6 +24,7 @@ from imbue.mngr.errors import LocalHostNotDestroyableError
 from imbue.mngr.errors import LocalHostNotStoppableError
 from imbue.mngr.errors import MngrError
 from imbue.mngr.errors import SnapshotsNotSupportedError
+from imbue.mngr.errors import UserInputError
 from imbue.mngr.hosts.host import Host
 from imbue.mngr.interfaces.data_types import CpuResources
 from imbue.mngr.interfaces.data_types import HostResources
@@ -179,10 +181,12 @@ class LocalProviderInstance(BaseProviderInstance):
         """Create (or return) the local host.
 
         For the local provider, this always returns the same host representing
-        the local computer. The name and image parameters are ignored since
-        the local host is always the same machine. The known_hosts parameter
-        is also ignored since the local machine uses its own known_hosts file.
+        the local computer. The name must be "localhost". The image and
+        known_hosts parameters are ignored since the local machine uses its
+        own configuration.
         """
+        if str(name) != "localhost":
+            raise UserInputError(f"Local provider only supports host name 'localhost', got '{name}'")
         with log_span("Creating local host (provider={})", self.name):
             host = self._create_host(name, tags)
 
@@ -214,7 +218,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this simply returns the local host since it
         is always running.
         """
-        local_host = self._create_host(HostName("local"))
+        local_host = self._create_host(HostName("localhost"))
 
         return local_host
 
@@ -247,13 +251,18 @@ class LocalProviderInstance(BaseProviderInstance):
         """
         host_id = self.host_id
 
-        if isinstance(host, HostId):
-            if host != host_id:
-                logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
-                raise HostNotFoundError(host)
-        # For HostName, we accept "local" or any name since there's only one host
+        match host:
+            case HostId():
+                if host != host_id:
+                    logger.trace("Failed to find host with id={} (local host id={})", host, host_id)
+                    raise HostNotFoundError(host)
+            case HostName():
+                if str(host) != "localhost":
+                    raise HostNotFoundError(host)
+            case _ as unreachable:
+                assert_never(unreachable)
 
-        return self._create_host(HostName("local"))
+        return self._create_host(HostName("localhost"))
 
     def list_hosts(
         self,
@@ -265,7 +274,7 @@ class LocalProviderInstance(BaseProviderInstance):
         For the local provider, this always returns a single-element list
         containing the local host.
         """
-        hosts = [self._create_host(HostName("local"))]
+        hosts = [self._create_host(HostName("localhost"))]
         logger.trace("Listed hosts for local provider {}", self.name)
         return hosts
 
@@ -425,7 +434,7 @@ class LocalProviderInstance(BaseProviderInstance):
         """Rename the local host.
 
         For the local provider, this is a no-op since the host name is always
-        effectively "local". Returns the host unchanged.
+        effectively "localhost". Returns the host unchanged.
         """
         return self._create_host(name)
 

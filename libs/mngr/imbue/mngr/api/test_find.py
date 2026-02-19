@@ -50,7 +50,7 @@ def test_ensure_host_started_returns_already_online_host(
     local_provider: LocalProviderInstance,
 ) -> None:
     """Test that ensure_host_started returns an already-online host without starting."""
-    host = local_provider.get_host(HostName("local"))
+    host = local_provider.get_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     online_host, was_started = ensure_host_started(host, is_start_desired=True, provider=local_provider)
@@ -72,7 +72,7 @@ def test_resolve_source_location_resolves_host_and_path(
     host_id = local_provider.host_id
     host_ref = HostReference(
         host_id=host_id,
-        host_name=HostName("local"),
+        host_name=HostName("localhost"),
         provider_name=ProviderInstanceName(LOCAL_PROVIDER_NAME),
     )
 

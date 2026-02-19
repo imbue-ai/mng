@@ -28,11 +28,22 @@ mngr create --disable-plugin modal ...
 
 ## Hooks
 
-Plugins register callbacks for various events, organized into a few different categories:
+Plugins implement hooks to extend mngr. There are two kinds: registration hooks (which plugins implement to add new capabilities) and lifecycle hooks (which mngr calls on your plugin at specific points during execution). See also [the API reference](./api.md) for a concise summary.
+
+### Registration hooks
+
+Plugins implement these to register new capabilities with mngr. They are called once at startup.
+
+| Hook                         | Description                                                                                                    |
+|------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `register_agent_type`        | Register a new agent type (e.g., `claude`, `codex`, `opencode`)                                                |
+| `register_provider_backend`  | Register a new provider backend (e.g., cloud platforms)                                                        |
+| `register_cli_commands`      | Define an entirely new CLI command                                                                             |
+| `register_cli_options`       | Add custom CLI options to any existing command's schema so that they appear in `--help`                        |
 
 ### Program lifecycle hooks
 
-Called at various points in the execution of any `mngr` command:
+mngr calls these at various points in the execution of any command:
 
 | Hook                       | Description                                                                                                                                             |
 |----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -140,6 +151,7 @@ And for the basic provider backends:
 - **local**: Local host backend
 - **docker**: Docker-based host backend
 - **modal**: Modal cloud host backend
+- **ssh**: SSH-based host backend (connects to pre-configured hosts) [experimental]
 
 Utility plugins [future] for additional features:
 

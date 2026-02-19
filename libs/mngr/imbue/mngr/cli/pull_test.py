@@ -170,7 +170,7 @@ def test_find_agent_by_name_or_id_raises_for_multiple_matches(
     temp_work_dir: Path,
 ) -> None:
     """Test that find_agent_by_name_or_id raises for multiple agents with same name."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     agent_name = AgentName("duplicate-pull-test-agent")
 
@@ -227,7 +227,7 @@ def _create_stopped_agent_with_references(
     command: CommandString,
 ) -> tuple[OnlineHostInterface, AgentReference, dict[HostReference, list[AgentReference]]]:
     """Create an agent, stop it, and return the host, agent ref, and agents_by_host mapping."""
-    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("local")))
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
