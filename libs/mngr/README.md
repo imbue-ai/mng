@@ -71,8 +71,8 @@ mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 mngr create agent-1 --in modal --host-name shared-host
 mngr create agent-2 --host shared-host
 
-# programmatically send messages to your agents
-mngr message agent-1 "Tell me a joke"
+# run commands directly on an agent's host
+mngr exec agent-1 "git log --oneline -5"
 
 # never lose any work: snapshot and fork the entire agent states
 mngr create doomed-agent --in modal
@@ -82,8 +82,9 @@ mngr create new-agent --snapshot $SNAPSHOT
 ```
 
 <!--
-# [future] programmatically see agent chat histories
-mngr transcript agent-1
+# programmatically send messages to your agents and see their chat histories
+mngr message agent-1 "Tell me a joke"
+mngr transcript agent-1   # [future]
 
 # [future] schedule agents to run periodically
 mngr schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
