@@ -262,3 +262,6 @@ test-results/junit.xml
 
 # Autofix working artifacts
 .autofix/
+
+demos
+recordings
