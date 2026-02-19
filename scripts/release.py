@@ -23,6 +23,8 @@ from typing import cast
 import semver
 import tomlkit
 
+# Must use absolute imports (scripts.utils, not utils) for the ty type checker,
+# which means this script must be invoked with python -m scripts.release.
 from scripts.utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 from scripts.utils import REPO_ROOT
 from scripts.utils import check_versions_in_sync
