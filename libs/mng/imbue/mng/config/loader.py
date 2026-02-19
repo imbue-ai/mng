@@ -10,6 +10,7 @@ from typing import TypeVar
 from uuid import uuid4
 
 import pluggy
+from loguru import logger
 from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -648,7 +649,7 @@ def _merge_command_defaults(
 # _read_config_layers_lightweight applies across the three config layers
 # (user, project, local) with correct precedence.
 
-T_PreReadTarget = TypeVar("T_PreReadTarget")
+T_PreReadTarget = TypeVar("T_PreReadTarget", dict[str, str], dict[str, bool])
 
 
 def _read_config_layers_lightweight(
@@ -706,7 +707,8 @@ def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> 
     """Extract `default_subcommand` entries from a TOML config file into `target`."""
     try:
         raw = _load_toml(path)
-    except (ConfigNotFoundError, ConfigParseError):
+    except ConfigParseError as e:
+        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
         return
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
@@ -737,7 +739,8 @@ def _merge_disabled_plugins_from_file(path: Path, target: dict[str, bool]) -> No
     """Extract plugin enabled/disabled state from a TOML config file into `target`."""
     try:
         raw = _load_toml(path)
-    except (ConfigNotFoundError, ConfigParseError):
+    except ConfigParseError as e:
+        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
         return
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
