@@ -2,7 +2,7 @@
 
 **installation:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imbue-ai/mng/main/scripts/install.sh | bash
 ```
 
 **mng is *very* simple to use:**
@@ -124,7 +124,7 @@ From the repo where you would like a Dockerfile created.
 
 **Quick install** (installs system dependencies + mng automatically):
 ```bash
-curl -fsSL https://raw.githubusercontent.com/imbue-ai/mngr/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/imbue-ai/mng/main/scripts/install.sh | bash
 ```
 
 **Manual install** (requires [uv](https://docs.astral.sh/uv/) and system deps: `git`, `tmux`, `jq`, `rsync`, `unison`):
@@ -142,7 +142,7 @@ uv tool upgrade mng
 
 **For development:**
 ```bash
-git clone git@github.com:imbue-ai/mngr.git && cd mngr && uv sync --all-packages && uv tool install -e libs/mng
+git clone git@github.com:imbue-ai/mng.git && cd mng && uv sync --all-packages && uv tool install -e libs/mng
 ```
 
 ## Shell Completion
