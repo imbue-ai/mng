@@ -38,7 +38,8 @@ from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import PluginName
 from imbue.mngr.primitives import ProviderBackendName
 from imbue.mngr.primitives import ProviderInstanceName
-from imbue.mngr.providers.registry import load_all_registries
+from imbue.mngr.providers.registry import load_all_backends
+from imbue.mngr.providers.registry import register_config_classes
 
 hookimpl = pluggy.HookimplMarker("mngr")
 
@@ -603,7 +604,8 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
     pm.register(TestPlugin())
-    load_all_registries(pm)
+    register_config_classes()
+    load_all_backends(pm)
 
     # Ensure no config files interfere
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -634,7 +636,8 @@ def test_on_load_config_hook_can_modify_config(
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
     pm.register(TestPlugin())
-    load_all_registries(pm)
+    register_config_classes()
+    load_all_backends(pm)
 
     # Ensure no config files interfere
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -666,7 +669,8 @@ def test_on_load_config_hook_can_add_new_fields(
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
     pm.register(TestPlugin())
-    load_all_registries(pm)
+    register_config_classes()
+    load_all_backends(pm)
 
     # Ensure no config files interfere
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -867,7 +871,8 @@ def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_tom
     """load_config should forward default_destroyed_host_persisted_seconds from TOML to the final config."""
     pm = pluggy.PluginManager("mngr")
     pm.add_hookspecs(hookspecs)
-    load_all_registries(pm)
+    register_config_classes()
+    load_all_backends(pm)
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("MNGR_PREFIX", raising=False)

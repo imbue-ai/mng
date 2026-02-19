@@ -20,6 +20,7 @@ from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
+from imbue.mngr.agents.agent_registry import load_agents_from_plugins
 from imbue.mngr.config.data_types import CreateTemplateName
 from imbue.mngr.config.data_types import MngrConfig
 from imbue.mngr.config.data_types import MngrContext
@@ -29,7 +30,7 @@ from imbue.mngr.errors import ParseSpecError
 from imbue.mngr.errors import UserInputError
 from imbue.mngr.primitives import LogLevel
 from imbue.mngr.primitives import OutputFormat
-from imbue.mngr.providers.registry import load_all_registries
+from imbue.mngr.providers.registry import register_config_classes
 from imbue.mngr.utils.logging import setup_logging
 
 # The set of built-in format names (case-insensitive). Any --format value not
@@ -172,9 +173,10 @@ def setup_command_context(
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
     pm = ctx.obj
 
-    # Load backend registries lazily -- deferred from plugin manager creation
-    # so that tab-completion (which never reaches command execution) stays fast.
-    load_all_registries(pm)
+    # Register config classes (lightweight) and agents eagerly.
+    # Backend implementations are loaded on-demand when get_backend() is called.
+    register_config_classes()
+    load_agents_from_plugins(pm)
 
     # Determine if we're running interactively (stdout is a TTY)
     try:

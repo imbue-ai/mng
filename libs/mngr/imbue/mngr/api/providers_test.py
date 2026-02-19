@@ -1,5 +1,6 @@
 """Unit tests for provider registry and configuration."""
 
+import pluggy
 import pytest
 
 from imbue.mngr.api.providers import get_all_provider_instances
@@ -22,16 +23,16 @@ def test_local_backend_is_registered() -> None:
     assert "local" in backends
 
 
-def test_get_local_backend() -> None:
+def test_get_local_backend(plugin_manager: pluggy.PluginManager) -> None:
     """Test getting the local backend."""
-    backend_class = get_backend("local")
+    backend_class = get_backend("local", plugin_manager)
     assert backend_class.get_name() == LOCAL_PROVIDER_NAME
 
 
-def test_get_unknown_backend_raises() -> None:
+def test_get_unknown_backend_raises(plugin_manager: pluggy.PluginManager) -> None:
     """Test that requesting an unknown backend raises an error."""
     with pytest.raises(UnknownBackendError) as exc_info:
-        get_backend("nonexistent")
+        get_backend("nonexistent", plugin_manager)
     assert "nonexistent" in str(exc_info.value)
 
 

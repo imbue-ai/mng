@@ -1,3 +1,5 @@
+import importlib
+
 import pluggy
 
 from imbue.imbue_common.pure import pure
@@ -14,34 +16,73 @@ from imbue.mngr.providers.base_provider import BaseProviderInstance
 backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
 # Cache for registered config classes (may include configs for backends not currently loaded)
 config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
-# Mutable container to track loading state, shared with registry_loader.py.
-registry_state: dict[str, bool] = {"backends_loaded": False}
+
+# Maps backend names to their module paths for on-demand loading
+BACKEND_MODULES: dict[str, str] = {
+    "local": "imbue.mngr.providers.local.backend",
+    "ssh": "imbue.mngr.providers.ssh.backend",
+    "docker": "imbue.mngr.providers.docker.backend",
+    "modal": "imbue.mngr.providers.modal.backend",
+}
 
 
-def load_all_registries(pm: pluggy.PluginManager) -> None:
-    """Load all registries from plugins.
+def register_config_classes() -> None:
+    """Register provider config classes without loading backend modules.
 
-    This is the main entry point for loading all pluggy-based registries.
-    Call this once during application startup, before using any registry lookups.
-
-    This is a thin facade that defers to registry_loader to avoid importing
-    heavyweight backend modules (Modal, Docker, etc.) at CLI startup time.
+    Config classes are lightweight pydantic models needed for config parsing.
+    Backend implementations are loaded on-demand by get_backend().
     """
-    from imbue.mngr.providers.registry_loader import load_all_registries as _load
+    if config_registry:
+        return
+    from imbue.mngr.providers.docker.config import DockerProviderConfig
+    from imbue.mngr.providers.local.config import LocalProviderConfig
+    from imbue.mngr.providers.modal.config import ModalProviderConfig
+    from imbue.mngr.providers.ssh.config import SSHProviderConfig
 
-    _load(pm)
+    config_registry[ProviderBackendName("docker")] = DockerProviderConfig
+    config_registry[ProviderBackendName("local")] = LocalProviderConfig
+    config_registry[ProviderBackendName("modal")] = ModalProviderConfig
+    config_registry[ProviderBackendName("ssh")] = SSHProviderConfig
+
+
+def _load_single_backend(pm: pluggy.PluginManager, name: str) -> None:
+    """Load a single backend module and register it via the plugin manager."""
+    module_path = BACKEND_MODULES.get(name)
+    if module_path is None:
+        return
+    module = importlib.import_module(module_path)
+    if not pm.is_registered(module):
+        pm.register(module, name=name)
+    # Call hook and register only newly-discovered backends
+    for registration in pm.hook.register_provider_backend():
+        if registration is not None:
+            backend_class, config_class = registration
+            backend_name = backend_class.get_name()
+            if backend_name not in backend_registry:
+                backend_registry[backend_name] = backend_class
+                config_registry[backend_name] = config_class
+
+
+def load_all_backends(pm: pluggy.PluginManager) -> None:
+    """Load all backend implementations.
+
+    Used by --help (to show provider args) and tests that need all backends.
+    """
+    register_config_classes()
+    for name in BACKEND_MODULES:
+        _load_single_backend(pm, name)
 
 
 def load_local_backend_only(pm: pluggy.PluginManager) -> None:
     """Load only the local and SSH provider backends.
 
     This is used by tests to avoid depending on external services.
-    Unlike load_backends_from_plugins, this only registers the local and SSH backends
+    Unlike load_all_backends, this only registers the local and SSH backends
     (not Modal or Docker which require external daemons/credentials).
     """
-    from imbue.mngr.providers.registry_loader import load_local_backend_only as _load
-
-    _load(pm)
+    register_config_classes()
+    _load_single_backend(pm, "local")
+    _load_single_backend(pm, "ssh")
 
 
 def reset_backend_registry() -> None:
@@ -51,17 +92,18 @@ def reset_backend_registry() -> None:
     """
     backend_registry.clear()
     config_registry.clear()
-    registry_state["backends_loaded"] = False
 
 
-def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterface]:
-    """Get a provider backend class by name.
+def get_backend(name: str | ProviderBackendName, pm: pluggy.PluginManager) -> type[ProviderBackendInterface]:
+    """Get a provider backend class by name, loading it on-demand if needed.
 
-    Backends are loaded from plugins via the plugin manager.
+    Backends are loaded from plugins via the plugin manager on first access.
     """
     key = ProviderBackendName(name) if isinstance(name, str) else name
     if key not in backend_registry:
-        available = sorted(str(k) for k in backend_registry.keys())
+        _load_single_backend(pm, str(key))
+    if key not in backend_registry:
+        available = sorted(str(k) for k in config_registry.keys())
         raise UnknownBackendError(
             f"Unknown provider backend: {key}. Registered backends: {', '.join(available) or '(none)'}"
         )
@@ -82,8 +124,23 @@ def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceCo
 
 
 def list_backends() -> list[str]:
-    """List all registered backend names."""
+    """List all loaded backend names.
+
+    Returns names from backend_registry (only backends whose implementations
+    have actually been loaded). Used by get_all_provider_instances to enumerate
+    backends that can be instantiated.
+    """
     return sorted(str(k) for k in backend_registry.keys())
+
+
+def list_known_backends() -> list[str]:
+    """List all known backend names (including those not yet loaded).
+
+    Returns names from config_registry, which is populated by
+    register_config_classes() and includes backends whose implementations
+    may not have been loaded yet. Used for tab completion and help text.
+    """
+    return sorted(str(k) for k in config_registry.keys())
 
 
 def build_provider_instance(
@@ -93,7 +150,7 @@ def build_provider_instance(
     mngr_ctx: MngrContext,
 ) -> BaseProviderInstance:
     """Build a provider instance using the registered backend."""
-    backend_class = get_backend(backend_name)
+    backend_class = get_backend(backend_name, mngr_ctx.pm)
     obj = backend_class.build_provider_instance(
         name=instance_name,
         config=config,

@@ -41,7 +41,8 @@ from imbue.mngr.cli.stop import stop
 from imbue.mngr.errors import BaseMngrError
 from imbue.mngr.plugins import hookspecs
 from imbue.mngr.providers.registry import get_all_provider_args_help_sections
-from imbue.mngr.providers.registry import load_all_registries
+from imbue.mngr.providers.registry import load_all_backends
+from imbue.mngr.providers.registry import register_config_classes
 
 # Module-level container for the plugin manager singleton, created lazily.
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
@@ -334,10 +335,11 @@ def _update_create_help_with_provider_args() -> None:
         return
     _create_help_state["loaded"] = True
 
-    # Ensure backends are loaded so get_all_provider_args_help_sections() has data.
+    # Ensure all backends are loaded so get_all_provider_args_help_sections() has data.
     # This is needed when --help fires before setup_command_context runs.
     pm = get_or_create_plugin_manager()
-    load_all_registries(pm)
+    register_config_classes()
+    load_all_backends(pm)
 
     provider_sections = get_all_provider_args_help_sections()
     for command_name in ("create", "c"):

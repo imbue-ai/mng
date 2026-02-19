@@ -1,9 +1,6 @@
 from collections.abc import Sequence
 from typing import Any
 
-import celpy
-from celpy.celparser import CELParseError
-from celpy.evaluation import CELEvalError
 from loguru import logger
 
 from imbue.imbue_common.pure import pure
@@ -19,6 +16,9 @@ def compile_cel_filters(
 
     Raises MngrError if any filter expression is invalid.
     """
+    import celpy
+    from celpy.celparser import CELParseError
+
     compiled_includes: list[Any] = []
     compiled_excludes: list[Any] = []
 
@@ -50,6 +50,8 @@ def _convert_to_cel_value(value: Any) -> Any:
     (contains, startsWith, endsWith) work correctly on string values, and nested
     dicts support dot notation access.
     """
+    import celpy
+
     return celpy.json_to_cel(value)
 
 
@@ -57,7 +59,6 @@ def apply_cel_filters_to_context(
     context: dict[str, Any],
     include_filters: Sequence[Any],
     exclude_filters: Sequence[Any],
-    # Used in warning messages to identify what is being filtered
     error_context_description: str,
 ) -> bool:
     """Apply CEL filters to a context dictionary.
@@ -68,6 +69,8 @@ def apply_cel_filters_to_context(
     Nested dictionaries in the context are automatically converted to CEL-compatible
     objects, enabling standard CEL dot notation (e.g., host.provider == "local").
     """
+    from celpy.evaluation import CELEvalError
+
     # Convert nested dicts to CEL-compatible objects for dot notation support
     cel_context = {k: _convert_to_cel_value(v) for k, v in context.items()}
 

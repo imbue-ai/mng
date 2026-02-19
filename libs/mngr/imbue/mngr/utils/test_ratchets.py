@@ -102,7 +102,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(4), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(10), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
@@ -347,33 +347,35 @@ def test_prevent_bash_without_strict_mode() -> None:
 
 def test_prevent_importlib_import_module() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mngr_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
 
 
 def test_no_eager_modal_import() -> None:
-    """Importing imbue.mngr.main must not eagerly load heavyweight backend modules.
+    """Importing imbue.mngr.main must not eagerly load heavyweight backend or celpy modules.
 
     This is a regression test for tab-completion performance: every TAB press
-    imports main.py, and loading Modal/Docker/SSH backends adds ~370ms.
-    Backends are now loaded lazily in setup_command_context() or on --help.
+    imports main.py, and loading Modal/Docker/SSH backends adds ~370ms, celpy ~45ms.
+    Backends are loaded on-demand by get_backend(), and celpy is lazy-imported
+    inside cel_utils.py functions.
     """
     result = subprocess.run(
         [
             sys.executable,
             "-c",
             "import sys; import imbue.mngr.main; "
-            "backends = ['imbue.mngr.providers.modal.backend', "
+            "heavyweight = ['imbue.mngr.providers.modal.backend', "
             "'imbue.mngr.providers.docker.backend', "
             "'imbue.mngr.providers.ssh.backend', "
-            "'imbue.mngr.providers.local.backend']; "
-            "loaded = [m for m in backends if m in sys.modules]; "
-            "assert not loaded, f'Eagerly loaded backends: {loaded}'",
+            "'imbue.mngr.providers.local.backend', "
+            "'celpy']; "
+            "loaded = [m for m in heavyweight if m in sys.modules]; "
+            "assert not loaded, f'Eagerly loaded modules: {loaded}'",
         ],
         capture_output=True,
         text=True,
     )
     assert result.returncode == 0, (
-        f"Backend modules were eagerly imported when importing imbue.mngr.main:\n"
+        f"Heavyweight modules were eagerly imported when importing imbue.mngr.main:\n"
         f"stdout: {result.stdout}\n"
         f"stderr: {result.stderr}"
     )
