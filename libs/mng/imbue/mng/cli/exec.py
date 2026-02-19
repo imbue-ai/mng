@@ -13,8 +13,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -96,31 +96,6 @@ class ExecCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def exec_command(ctx: click.Context, **kwargs: Any) -> None:
-    """Execute a shell command on one or more agents' hosts. [experimental]
-
-    Runs COMMAND on the host(s) where the specified agent(s) are running,
-    defaulting to each agent's work_dir. The command's stdout is printed to
-    stdout and stderr to stderr.
-
-    Supports custom format templates via --format. Available fields:
-    agent, stdout, stderr, success.
-
-    \b
-    Alias: x
-
-    \b
-    Examples:
-
-      mng exec my-agent "echo hello"
-
-      mng exec agent1 agent2 "echo hello"
-
-      mng exec --agent my-agent --agent another-agent "echo hello"
-
-      mng exec --all "echo hello"
-
-      mng exec --all "hostname" --format '{agent}\\t{stdout}'
-    """
     try:
         _exec_impl(ctx, **kwargs)
     except AbortError as e:
@@ -296,44 +271,45 @@ def _emit_json_output(result: MultiExecResult) -> None:
 
 
 # Register help metadata for git-style help formatting
-_EXEC_HELP_METADATA = CommandHelpMetadata(
-    name="mng-exec",
-    one_line_description="Execute a shell command on one or more agents' hosts [experimental]",
-    synopsis="mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]",
-    arguments_description=(
-        "- `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command\n"
-        "- `COMMAND`: Shell command to execute on the agent's host"
-    ),
-    description="""Execute a shell command on the host(s) where one or more agents run.
+register_help_metadata(
+    "exec",
+    build_help_metadata(
+        "exec",
+        one_line_description="Execute a shell command on one or more agents' hosts [experimental]",
+        synopsis="mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]",
+        arguments_description=(
+            "- `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command\n"
+            "- `COMMAND`: Shell command to execute on the agent's host"
+        ),
+        description="""Execute a shell command on the host(s) where one or more agents run.
 
 The command runs in each agent's work_dir by default. Use --cwd to override
 the working directory.
 
 The command's stdout is printed to stdout and stderr to stderr. The exit
 code is 0 if all commands succeeded, 1 if any failed.""",
-    aliases=("x",),
-    examples=(
-        ("Run a command on an agent", 'mng exec my-agent "echo hello"'),
-        ("Run on multiple agents", 'mng exec agent1 agent2 "echo hello"'),
-        ("Run on all agents", 'mng exec --all "echo hello"'),
-        ("Run with a custom working directory", 'mng exec my-agent "ls -la" --cwd /tmp'),
-        ("Run as a different user", 'mng exec my-agent "whoami" --user root'),
-        ("Run with a timeout", 'mng exec my-agent "sleep 100" --timeout 5'),
-    ),
-    see_also=(
-        ("connect", "Connect to an agent interactively"),
-        ("message", "Send a message to an agent"),
-        ("list", "List available agents"),
-    ),
-    additional_sections=(
-        (
-            "Related Documentation",
-            """- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
+        aliases=("x",),
+        examples=(
+            ("Run a command on an agent", 'mng exec my-agent "echo hello"'),
+            ("Run on multiple agents", 'mng exec agent1 agent2 "echo hello"'),
+            ("Run on all agents", 'mng exec --all "echo hello"'),
+            ("Run with a custom working directory", 'mng exec my-agent "ls -la" --cwd /tmp'),
+            ("Run as a different user", 'mng exec my-agent "whoami" --user root'),
+            ("Run with a timeout", 'mng exec my-agent "sleep 100" --timeout 5'),
+        ),
+        see_also=(
+            ("connect", "Connect to an agent interactively"),
+            ("message", "Send a message to an agent"),
+            ("list", "List available agents"),
+        ),
+        additional_sections=(
+            (
+                "Related Documentation",
+                """- [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
+            ),
         ),
     ),
 )
-
-register_help_metadata("exec", _EXEC_HELP_METADATA)
 
 # Add pager-enabled help option to the exec command
 add_pager_help_option(exec_command)

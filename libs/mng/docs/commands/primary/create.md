@@ -16,13 +16,6 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
 ```
 
 
-Create and run an agent.
-
-Sets up the agent's work_dir, optionally provisions a new host (or uses
-an existing one), runs the specified agent, and connects to it (by default).
-
-Alias: c
-
 **Usage:**
 
 ```text

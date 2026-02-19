@@ -13,8 +13,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import output_sync_files_result
@@ -114,26 +114,6 @@ class PushCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def push(ctx: click.Context, **kwargs) -> None:
-    """Push files or git commits from local machine to an agent. [experimental]
-
-    Syncs files or git state from a local directory to an agent's working directory.
-    Default behavior uses rsync for efficient incremental file transfer.
-    Use --sync-mode=git to push git branches instead of syncing files.
-
-    If no target is specified, shows an interactive selector to choose an agent.
-
-    IMPORTANT: The source (host) workspace is never modified. Only the target
-    (agent workspace) may be modified.
-
-    \b
-    Examples:
-      mng push my-agent
-      mng push my-agent ./local-dir
-      mng push my-agent:subdir ./local-src
-      mng push my-agent --source ./local-dir
-      mng push my-agent --sync-mode=git
-      mng push my-agent --sync-mode=git --mirror
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="push",
@@ -259,11 +239,13 @@ def push(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PUSH_HELP_METADATA = CommandHelpMetadata(
-    name="mng-push",
-    one_line_description="Push files or git commits from local machine to an agent [experimental]",
-    synopsis="mng push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]",
-    description="""Push files or git commits from local machine to an agent.
+register_help_metadata(
+    "push",
+    build_help_metadata(
+        "push",
+        one_line_description="Push files or git commits from local machine to an agent [experimental]",
+        synopsis="mng push [TARGET] [SOURCE] [--target-agent <AGENT>] [--dry-run] [--stop]",
+        description="""Push files or git commits from local machine to an agent.
 
 Syncs files or git state from a local directory to an agent's working directory.
 Default behavior uses rsync for efficient incremental file transfer.
@@ -273,22 +255,21 @@ If no target is specified, shows an interactive selector to choose an agent.
 
 IMPORTANT: The source (host) workspace is never modified. Only the target
 (agent workspace) may be modified.""",
-    examples=(
-        ("Push to agent from current directory", "mng push my-agent"),
-        ("Push from specific local directory", "mng push my-agent ./local-dir"),
-        ("Push to specific subdirectory", "mng push my-agent:subdir ./local-src"),
-        ("Preview what would be transferred", "mng push my-agent --dry-run"),
-        ("Push git commits", "mng push my-agent --sync-mode=git"),
-        ("Mirror all refs to agent", "mng push my-agent --sync-mode=git --mirror"),
-    ),
-    see_also=(
-        ("create", "Create a new agent"),
-        ("list", "List agents to find one to push to"),
-        ("pull", "Pull files or git commits from an agent"),
-        ("pair", "Continuously sync files between agent and local"),
+        examples=(
+            ("Push to agent from current directory", "mng push my-agent"),
+            ("Push from specific local directory", "mng push my-agent ./local-dir"),
+            ("Push to specific subdirectory", "mng push my-agent:subdir ./local-src"),
+            ("Preview what would be transferred", "mng push my-agent --dry-run"),
+            ("Push git commits", "mng push my-agent --sync-mode=git"),
+            ("Mirror all refs to agent", "mng push my-agent --sync-mode=git --mirror"),
+        ),
+        see_also=(
+            ("create", "Create a new agent"),
+            ("list", "List agents to find one to push to"),
+            ("pull", "Pull files or git commits from an agent"),
+            ("pair", "Continuously sync files between agent and local"),
+        ),
     ),
 )
-
-register_help_metadata("push", _PUSH_HELP_METADATA)
 
 add_pager_help_option(push)

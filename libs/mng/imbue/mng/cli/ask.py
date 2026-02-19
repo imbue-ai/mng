@@ -19,8 +19,8 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import get_all_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
@@ -372,19 +372,6 @@ class AskCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
-    """Chat with mng for help. [experimental]
-
-    Ask mng a question and it will generate the appropriate CLI command.
-    If no query is provided, shows general help.
-
-    Examples:
-
-      mng ask "how do I create an agent?"
-
-      mng ask start a container with claude code
-
-      mng ask --execute forward port 8080 to the public internet
-    """
     try:
         _ask_impl(ctx, **kwargs)
     except AbortError as e:
@@ -463,11 +450,13 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 
 
 # Register help metadata for git-style help formatting
-_ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
-    name="mng-ask",
-    one_line_description="Chat with mng for help [experimental]",
-    synopsis="mng ask [--execute] QUERY...",
-    description="""Chat directly with mng for help -- it can create the
+register_help_metadata(
+    "ask",
+    build_help_metadata(
+        "ask",
+        one_line_description="Chat with mng for help [experimental]",
+        synopsis="mng ask [--execute] QUERY...",
+        description="""Chat directly with mng for help -- it can create the
 necessary CLI call for pretty much anything you want to do.
 
 If no query is provided, shows general help about available commands
@@ -475,19 +464,18 @@ and common workflows.
 
 When --execute is specified, the generated CLI command is executed
 directly instead of being printed.""",
-    examples=(
-        ("Ask a question", 'mng ask "how do I create an agent?"'),
-        ("Ask without quotes", "mng ask start a container with claude code"),
-        ("Execute the generated command", "mng ask --execute forward port 8080 to the public internet"),
-    ),
-    see_also=(
-        ("create", "Create an agent"),
-        ("list", "List existing agents"),
-        ("connect", "Connect to an agent"),
+        examples=(
+            ("Ask a question", 'mng ask "how do I create an agent?"'),
+            ("Ask without quotes", "mng ask start a container with claude code"),
+            ("Execute the generated command", "mng ask --execute forward port 8080 to the public internet"),
+        ),
+        see_also=(
+            ("create", "Create an agent"),
+            ("list", "List existing agents"),
+            ("connect", "Connect to an agent"),
+        ),
     ),
 )
-
-register_help_metadata("ask", _ASK_HELP_METADATA)
 
 # Add pager-enabled help option to the ask command
 add_pager_help_option(ask)

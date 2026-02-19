@@ -19,8 +19,8 @@ from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -172,27 +172,6 @@ def _send_resume_message_if_configured(agent: AgentInterface, output_opts: Outpu
 @add_common_options
 @click.pass_context
 def start(ctx: click.Context, **kwargs: Any) -> None:
-    """Start stopped agent(s).
-
-    For remote hosts, this restores from the most recent snapshot and starts
-    the container/instance. For local agents, this starts the agent's tmux
-    session.
-
-    Supports custom format templates via --format. Available fields: name.
-
-    \b
-    Examples:
-
-      mng start my-agent
-
-      mng start agent1 agent2
-
-      mng start --agent my-agent --connect
-
-      mng start --all
-
-      mng start --all --format '{name}'
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="start",
@@ -311,11 +290,13 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-_START_HELP_METADATA = CommandHelpMetadata(
-    name="mng-start",
-    one_line_description="Start stopped agent(s)",
-    synopsis="mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]",
-    description="""Start one or more stopped agents.
+register_help_metadata(
+    "start",
+    build_help_metadata(
+        "start",
+        one_line_description="Start stopped agent(s)",
+        synopsis="mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]",
+        description="""Start one or more stopped agents.
 
 For remote hosts, this restores from the most recent snapshot and starts
 the container/instance. For local agents, this starts the agent's tmux
@@ -323,22 +304,21 @@ session.
 
 If multiple agents share a host, they will all be started together when
 the host starts.""",
-    aliases=(),
-    examples=(
-        ("Start an agent by name", "mng start my-agent"),
-        ("Start multiple agents", "mng start agent1 agent2"),
-        ("Start and connect", "mng start my-agent --connect"),
-        ("Start all stopped agents", "mng start --all"),
-        ("Preview what would be started", "mng start --all --dry-run"),
-    ),
-    see_also=(
-        ("stop", "Stop running agents"),
-        ("connect", "Connect to an agent"),
-        ("list", "List existing agents"),
+        aliases=(),
+        examples=(
+            ("Start an agent by name", "mng start my-agent"),
+            ("Start multiple agents", "mng start agent1 agent2"),
+            ("Start and connect", "mng start my-agent --connect"),
+            ("Start all stopped agents", "mng start --all"),
+            ("Preview what would be started", "mng start --all --dry-run"),
+        ),
+        see_also=(
+            ("stop", "Stop running agents"),
+            ("connect", "Connect to an agent"),
+            ("list", "List existing agents"),
+        ),
     ),
 )
-
-register_help_metadata("start", _START_HELP_METADATA)
 
 # Add pager-enabled help option to the start command
 add_pager_help_option(start)

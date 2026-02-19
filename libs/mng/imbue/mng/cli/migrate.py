@@ -3,8 +3,8 @@ from loguru import logger
 
 from imbue.mng.cli.clone import parse_source_and_invoke_create
 from imbue.mng.cli.destroy import destroy as destroy_cmd
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 
 
@@ -14,13 +14,6 @@ from imbue.mng.cli.help_formatter import register_help_metadata
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Move an agent to a different host by cloning it and destroying the original. [experimental]
-
-    \b
-    This is equivalent to running `mng clone` followed by `mng destroy --force`.
-    All create options are supported. The source agent is force-destroyed after
-    a successful clone (including running agents).
-    """
     source_agent = parse_source_and_invoke_create(ctx, args, command_name="migrate")
 
     # Destroy the source agent with --force
@@ -40,11 +33,13 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
         raise
 
 
-_MIGRATE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-migrate",
-    one_line_description="Move an agent to a different host [experimental]",
-    synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-    description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
+register_help_metadata(
+    "migrate",
+    build_help_metadata(
+        "migrate",
+        one_line_description="Move an agent to a different host [experimental]",
+        synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
+        description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
 
 This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to
@@ -55,17 +50,16 @@ The source agent is always force-destroyed after a successful clone. If the
 clone step fails, the source agent is left untouched. If the destroy step
 fails after a successful clone, the error is reported and the user can
 manually clean up.""",
-    examples=(
-        ("Migrate an agent to a Docker container", "mng migrate my-agent --in docker"),
-        ("Migrate with a new name", "mng migrate my-agent new-agent --in modal"),
-        ("Migrate and pass args to the agent", "mng migrate my-agent -- --model opus"),
-    ),
-    see_also=(
-        ("clone", "Clone an agent (without destroying the original)"),
-        ("create", "Create an agent (full option set)"),
-        ("destroy", "Destroy an agent"),
+        examples=(
+            ("Migrate an agent to a Docker container", "mng migrate my-agent --in docker"),
+            ("Migrate with a new name", "mng migrate my-agent new-agent --in modal"),
+            ("Migrate and pass args to the agent", "mng migrate my-agent -- --model opus"),
+        ),
+        see_also=(
+            ("clone", "Clone an agent (without destroying the original)"),
+            ("create", "Create an agent (full option set)"),
+            ("destroy", "Destroy an agent"),
+        ),
     ),
 )
-
-register_help_metadata("migrate", _MIGRATE_HELP_METADATA)
 add_pager_help_option(migrate)

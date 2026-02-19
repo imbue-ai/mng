@@ -147,7 +147,8 @@ class AliasAwareGroup(DefaultCommandGroup):
 
         rows: list[tuple[str, str]] = []
         for subcommand, cmd in commands:
-            help_text = cmd.get_short_help_str(limit=limit)
+            meta = get_help_metadata(subcommand)
+            help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
             aliases = COMMAND_ALIASES.get(subcommand, [])
             if aliases:

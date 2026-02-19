@@ -10,23 +10,6 @@ mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-ti
 ```
 
 
-Configure limits for agents and hosts. [experimental]
-
-Configures settings on existing agents and hosts: idle timeout, idle mode,
-activity sources, permissions, and start-on-boot.
-
-Alias: lim
-
-Examples:
-
-  mng limit my-agent --idle-timeout 5m
-
-  mng limit my-agent --grant network --grant internet
-
-  mng limit --all --idle-mode disabled
-
-  mng limit --host my-host --idle-timeout 1h
-
 **Usage:**
 
 ```text

@@ -10,38 +10,6 @@ mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-
 ```
 
 
-Re-run provisioning on an existing agent. [experimental]
-
-This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
-user commands, env vars) on an agent that has already been created. Useful for
-syncing config, auth, and installing additional packages. Most provisioning
-steps are specified via plugins, but custom steps can also be defined using the
-options below.
-
-The agent's existing environment variables are preserved. New env vars from
---env, --env-file, and --pass-env override existing ones with the same key.
-
-By default, if the agent is running, it is stopped before provisioning and
-restarted after. This ensures config and env var changes take effect. Use
---no-restart to skip the restart for non-disruptive changes like installing
-packages.
-
-Provisioning is done per agent, but changes are visible to other agents on the
-same host. Be careful to avoid conflicts when provisioning multiple agents on
-the same host.
-
-Alias: prov
-
-Examples:
-
-  mng provision my-agent
-
-  mng provision my-agent --user-command "pip install pandas" --no-restart
-
-  mng provision my-agent --env "NEW_VAR=value"
-
-  mng provision my-agent --upload-file ./config.json:/app/config.json
-
 **Usage:**
 
 ```text

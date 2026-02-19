@@ -10,23 +10,6 @@ mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURAT
 ```
 
 
-Destroy or stop agents and hosts to free up resources. [experimental]
-
-When running interactively, provides an interactive interface for reviewing
-and selecting agents. Use --yes to skip prompts.
-
-Examples:
-
-  mng cleanup
-
-  mng cleanup --dry-run --yes
-
-  mng cleanup --older-than 7d --yes
-
-  mng cleanup --stop --idle-for 1h --yes
-
-  mng cleanup --provider docker --yes
-
 **Usage:**
 
 ```text

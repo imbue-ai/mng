@@ -10,29 +10,6 @@ mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-
 ```
 
 
-Stop running agent(s).
-
-For remote hosts, this stops the agent's tmux session. The host remains
-running (use idle detection or explicit host stop for host shutdown).
-
-For local agents, this stops the agent's tmux session.
-
-Supports custom format templates via --format. Available fields: name.
-
-Alias: s
-
-Examples:
-
-  mng stop my-agent
-
-  mng stop agent1 agent2
-
-  mng stop --agent my-agent
-
-  mng stop --all
-
-  mng stop --all --format '{name}'
-
 **Usage:**
 
 ```text

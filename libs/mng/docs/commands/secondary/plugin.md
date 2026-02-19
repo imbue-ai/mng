@@ -10,18 +10,6 @@ mng [plugin|plug] <subcommand> [OPTIONS]
 ```
 
 
-Manage available and active plugins. [experimental]
-
-Install, remove, view, enable, and disable plugins registered with mng.
-
-Examples:
-
-  mng plugin list
-
-  mng plugin list --active
-
-  mng plugin list --fields name,enabled
-
 **Usage:**
 
 ```text
@@ -49,26 +37,6 @@ mng plugin [OPTIONS] COMMAND [ARGS]...
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng plugin list
-
-List discovered plugins. [experimental]
-
-Shows all plugins registered with mng, including built-in plugins
-and any externally installed plugins.
-
-Supports custom format templates via --format. Available fields:
-name, version, description, enabled.
-
-Examples:
-
-  mng plugin list
-
-  mng plugin list --active
-
-  mng plugin list --format json
-
-  mng plugin list --fields name,enabled
-
-  mng plugin list --format '{name}\t{enabled}'
 
 **Usage:**
 
@@ -105,20 +73,6 @@ mng plugin list [OPTIONS]
 
 ## mng plugin add
 
-Install a plugin package. [experimental]
-
-Provide exactly one of NAME (positional), --path, or --git.
-
-Examples:
-
-  mng plugin add mng-pair
-
-  mng plugin add mng-pair>=1.0
-
-  mng plugin add --path ./my-plugin
-
-  mng plugin add --git https://github.com/user/mng-plugin.git
-
 **Usage:**
 
 ```text
@@ -154,17 +108,6 @@ mng plugin add [OPTIONS] [NAME]
 
 ## mng plugin remove
 
-Uninstall a plugin package. [experimental]
-
-Provide exactly one of NAME (positional) or --path. For local paths,
-the package name is read from pyproject.toml.
-
-Examples:
-
-  mng plugin remove mng-pair
-
-  mng plugin remove --path ./my-plugin
-
 **Usage:**
 
 ```text
@@ -199,19 +142,6 @@ mng plugin remove [OPTIONS] [NAME]
 
 ## mng plugin enable
 
-Enable a plugin. [experimental]
-
-Sets plugins.<name>.enabled = true in the configuration file at the
-specified scope.
-
-Examples:
-
-  mng plugin enable modal
-
-  mng plugin enable modal --scope user
-
-  mng plugin enable modal --format json
-
 **Usage:**
 
 ```text
@@ -245,19 +175,6 @@ mng plugin enable [OPTIONS] NAME
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
 
 ## mng plugin disable
-
-Disable a plugin. [experimental]
-
-Sets plugins.<name>.enabled = false in the configuration file at the
-specified scope.
-
-Examples:
-
-  mng plugin disable modal
-
-  mng plugin disable modal --scope user
-
-  mng plugin disable modal --format json
 
 **Usage:**
 

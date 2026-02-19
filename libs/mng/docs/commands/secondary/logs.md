@@ -10,21 +10,6 @@ mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
 
-View log files from an agent or host. [experimental]
-
-TARGET is an agent name/ID or host name/ID. If a log file name is not
-specified, lists all available log files.
-
-When listing files, supports custom format templates via --format.
-Available fields: name, size.
-
-Examples:
-  mng logs my-agent
-  mng logs my-agent output.log
-  mng logs my-agent output.log --tail 50
-  mng logs my-agent output.log --follow
-  mng logs my-agent --format '{name}\t{size}'
-
 **Usage:**
 
 ```text

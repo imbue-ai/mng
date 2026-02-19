@@ -10,23 +10,6 @@ mng [config|cfg] <subcommand> [OPTIONS]
 ```
 
 
-Manage mng configuration.
-
-View, edit, and modify mng configuration settings at the user, project,
-or local scope.
-
-Examples:
-
-  mng config list
-
-  mng config get prefix
-
-  mng config set --scope project commands.create.connect false
-
-  mng config unset commands.create.connect
-
-  mng config edit --scope user
-
 **Usage:**
 
 ```text
@@ -60,24 +43,6 @@ mng config [OPTIONS] COMMAND [ARGS]...
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
 
 ## mng config list
-
-List all configuration values.
-
-Shows all configuration settings from the specified scope, or from the
-merged configuration if no scope is specified.
-
-Supports custom format templates via --format. Available fields:
-key, value.
-
-Examples:
-
-  mng config list
-
-  mng config list --scope user
-
-  mng config list --format json
-
-  mng config list --format '{key}={value}'
 
 **Usage:**
 
@@ -113,19 +78,6 @@ mng config list [OPTIONS]
 
 ## mng config get
 
-Get a configuration value.
-
-Retrieves the value of a specific configuration key. Use dot notation
-for nested keys (e.g., 'commands.create.connect').
-
-Examples:
-
-  mng config get prefix
-
-  mng config get commands.create.connect
-
-  mng config get logging.console_level --scope user
-
 **Usage:**
 
 ```text
@@ -159,22 +111,6 @@ mng config get [OPTIONS] KEY
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
 
 ## mng config set
-
-Set a configuration value.
-
-Sets a configuration value at the specified scope. Use dot notation
-for nested keys (e.g., 'commands.create.connect').
-
-Values are parsed as JSON if possible, otherwise as strings.
-Use 'true'/'false' for booleans, numbers for integers/floats.
-
-Examples:
-
-  mng config set prefix "my-"
-
-  mng config set commands.create.connect false
-
-  mng config set logging.console_level DEBUG --scope user
 
 **Usage:**
 
@@ -210,17 +146,6 @@ mng config set [OPTIONS] KEY VALUE
 
 ## mng config unset
 
-Remove a configuration value.
-
-Removes a configuration value from the specified scope. Use dot notation
-for nested keys (e.g., 'commands.create.connect').
-
-Examples:
-
-  mng config unset commands.create.connect
-
-  mng config unset logging.console_level --scope user
-
 **Usage:**
 
 ```text
@@ -255,21 +180,6 @@ mng config unset [OPTIONS] KEY
 
 ## mng config edit
 
-Open configuration file in editor.
-
-Opens the configuration file for the specified scope in your default
-editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
-
-If the config file doesn't exist, it will be created with an empty template.
-
-Examples:
-
-  mng config edit
-
-  mng config edit --scope user
-
-  mng config edit --scope local
-
 **Usage:**
 
 ```text
@@ -303,17 +213,6 @@ mng config edit [OPTIONS]
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | `project` |
 
 ## mng config path
-
-Show configuration file paths.
-
-Shows the paths to configuration files. If --scope is specified, shows
-only that scope's path. Otherwise shows all paths and whether they exist.
-
-Examples:
-
-  mng config path
-
-  mng config path --scope user
 
 **Usage:**
 

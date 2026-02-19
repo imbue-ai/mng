@@ -190,7 +190,7 @@ def test_create_command_has_help_metadata_registered() -> None:
     metadata = get_help_metadata("create")
 
     assert metadata is not None
-    assert metadata.name == "mng-create"
+    assert metadata.name == "mng create"
     assert "Create and run an agent" in metadata.one_line_description
 
 

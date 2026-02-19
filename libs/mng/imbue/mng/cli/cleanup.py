@@ -29,8 +29,8 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.connect import build_status_text
 from imbue.mng.cli.connect import filter_agents
 from imbue.mng.cli.connect import handle_search_key
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -145,23 +145,6 @@ class CleanupCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def cleanup(ctx: click.Context, **kwargs) -> None:
-    """Destroy or stop agents and hosts to free up resources. [experimental]
-
-    When running interactively, provides an interactive interface for reviewing
-    and selecting agents. Use --yes to skip prompts.
-
-    Examples:
-
-      mng cleanup
-
-      mng cleanup --dry-run --yes
-
-      mng cleanup --older-than 7d --yes
-
-      mng cleanup --stop --idle-for 1h --yes
-
-      mng cleanup --provider docker --yes
-    """
     try:
         _cleanup_impl(ctx, **kwargs)
     except AbortError as e:
@@ -675,12 +658,14 @@ def _emit_result(
 
 
 # Register help metadata for git-style help formatting
-_CLEANUP_HELP_METADATA = CommandHelpMetadata(
-    name="mng-cleanup",
-    one_line_description="Destroy or stop agents and hosts to free up resources [experimental]",
-    synopsis="mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
-    "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",
-    description="""Destroy or stop agents and hosts in order to free up resources.
+register_help_metadata(
+    "cleanup",
+    build_help_metadata(
+        "cleanup",
+        one_line_description="Destroy or stop agents and hosts to free up resources [experimental]",
+        synopsis="mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] "
+        "[--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]",
+        description="""Destroy or stop agents and hosts in order to free up resources.
 
 When running in a pty, defaults to providing an interactive interface for
 reviewing running agents and hosts and selecting which ones to destroy or stop.
@@ -694,24 +679,23 @@ for precise control.
 
 For automatic garbage collection of unused resources without interaction,
 see `mng gc`.""",
-    aliases=("clean",),
-    examples=(
-        ("Interactive cleanup (default)", "mng cleanup"),
-        ("Preview what would be destroyed", "mng cleanup --dry-run --yes"),
-        ("Destroy agents older than 7 days", "mng cleanup --older-than 7d --yes"),
-        ("Stop idle agents", "mng cleanup --stop --idle-for 1h --yes"),
-        ("Destroy Docker agents only", "mng cleanup --provider docker --yes"),
-        ("Destroy by agent type", "mng cleanup --agent-type codex --yes"),
-    ),
-    see_also=(
-        ("destroy", "Destroy specific agents by name"),
-        ("stop", "Stop specific agents by name"),
-        ("gc", "Garbage collect orphaned resources"),
-        ("list", "List agents with filtering"),
+        aliases=("clean",),
+        examples=(
+            ("Interactive cleanup (default)", "mng cleanup"),
+            ("Preview what would be destroyed", "mng cleanup --dry-run --yes"),
+            ("Destroy agents older than 7 days", "mng cleanup --older-than 7d --yes"),
+            ("Stop idle agents", "mng cleanup --stop --idle-for 1h --yes"),
+            ("Destroy Docker agents only", "mng cleanup --provider docker --yes"),
+            ("Destroy by agent type", "mng cleanup --agent-type codex --yes"),
+        ),
+        see_also=(
+            ("destroy", "Destroy specific agents by name"),
+            ("stop", "Stop specific agents by name"),
+            ("gc", "Garbage collect orphaned resources"),
+            ("list", "List agents with filtering"),
+        ),
     ),
 )
-
-register_help_metadata("cleanup", _CLEANUP_HELP_METADATA)
 
 # Add pager-enabled help option to the cleanup command
 add_pager_help_option(cleanup)

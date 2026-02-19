@@ -10,29 +10,6 @@ mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cw
 ```
 
 
-Execute a shell command on one or more agents' hosts. [experimental]
-
-Runs COMMAND on the host(s) where the specified agent(s) are running,
-defaulting to each agent's work_dir. The command's stdout is printed to
-stdout and stderr to stderr.
-
-Supports custom format templates via --format. Available fields:
-agent, stdout, stderr, success.
-
-Alias: x
-
-Examples:
-
-  mng exec my-agent "echo hello"
-
-  mng exec agent1 agent2 "echo hello"
-
-  mng exec --agent my-agent --agent another-agent "echo hello"
-
-  mng exec --all "echo hello"
-
-  mng exec --all "hostname" --format '{agent}\t{stdout}'
-
 **Usage:**
 
 ```text

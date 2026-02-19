@@ -14,8 +14,8 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.help_formatter import build_help_metadata
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
@@ -152,20 +152,6 @@ class GcCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def gc(ctx: click.Context, **kwargs) -> None:
-    """Garbage collect unused resources.
-
-    Automatically removes unused resources from providers and mng itself.
-
-    Examples:
-
-      mng gc --work-dirs --dry-run
-
-      mng gc --all-agent-resources
-
-      mng gc --machines --snapshots --provider docker
-
-      mng gc --logs --build-cache
-    """
     try:
         _gc_impl(ctx, **kwargs)
     except AbortError as e:
@@ -473,11 +459,13 @@ def _get_selected_providers(mng_ctx: MngContext, opts: GcCliOptions) -> list[Pro
 
 
 # Register help metadata for git-style help formatting
-_GC_HELP_METADATA = CommandHelpMetadata(
-    name="mng-gc",
-    one_line_description="Garbage collect unused resources",
-    synopsis="mng gc [OPTIONS]",
-    description="""Garbage collect unused resources.
+register_help_metadata(
+    "gc",
+    build_help_metadata(
+        "gc",
+        one_line_description="Garbage collect unused resources",
+        synopsis="mng gc [OPTIONS]",
+        description="""Garbage collect unused resources.
 
 Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.
@@ -485,17 +473,17 @@ and any resources that are associated with destroyed hosts and agents.
 `mng destroy` automatically cleans up resources when an agent is deleted.
 `mng gc` can be used to manually trigger garbage collection of unused
 resources at any time.""",
-    examples=(
-        ("Preview what would be cleaned (dry run)", "mng gc --work-dirs --dry-run"),
-        ("Clean all agent resources", "mng gc --all-agent-resources"),
-        ("Clean machines and snapshots for Docker", "mng gc --machines --snapshots --provider docker"),
-        ("Clean logs and build cache", "mng gc --logs --build-cache"),
-        ("Keep only the 5 most recent snapshots", 'mng gc --snapshots --exclude "recency_idx < 5"'),
-    ),
-    additional_sections=(
-        (
-            "CEL Filter Examples",
-            """CEL filters let you control which resources are cleaned.
+        examples=(
+            ("Preview what would be cleaned (dry run)", "mng gc --work-dirs --dry-run"),
+            ("Clean all agent resources", "mng gc --all-agent-resources"),
+            ("Clean machines and snapshots for Docker", "mng gc --machines --snapshots --provider docker"),
+            ("Clean logs and build cache", "mng gc --logs --build-cache"),
+            ("Keep only the 5 most recent snapshots", 'mng gc --snapshots --exclude "recency_idx < 5"'),
+        ),
+        additional_sections=(
+            (
+                "CEL Filter Examples",
+                """CEL filters let you control which resources are cleaned.
 
 **For snapshots, use `recency_idx` to filter by age:**
 - `recency_idx == 0` - the most recent snapshot
@@ -506,16 +494,15 @@ resources at any time.""",
 - `name.contains("test")` - resources with "test" in the name
 - `provider_name == "docker"` - Docker resources only
 """,
+            ),
+        ),
+        see_also=(
+            ("cleanup", "Interactive cleanup of agents and hosts"),
+            ("destroy", "Destroy agents (includes automatic GC)"),
+            ("list", "List agents to find unused resources"),
         ),
     ),
-    see_also=(
-        ("cleanup", "Interactive cleanup of agents and hosts"),
-        ("destroy", "Destroy agents (includes automatic GC)"),
-        ("list", "List agents to find unused resources"),
-    ),
 )
-
-register_help_metadata("gc", _GC_HELP_METADATA)
 
 # Add pager-enabled help option to the gc command
 add_pager_help_option(gc)

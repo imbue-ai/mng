@@ -10,14 +10,6 @@ mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
 
-Create, list, and destroy host snapshots. [experimental]
-
-Snapshots capture the complete state of an agent's host, allowing it
-to be restored later. Because the snapshot is at the host level, the
-state of all agents on the host is saved.
-
-Alias: snap
-
 **Usage:**
 
 ```text
@@ -45,23 +37,6 @@ mng snapshot [OPTIONS] COMMAND [ARGS]...
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng snapshot create
-
-Create a snapshot of agent host(s). [experimental]
-
-Positional arguments can be agent names/IDs or host names/IDs. Each
-identifier is automatically resolved: if it matches a known agent, that
-agent's host is snapshotted; otherwise it is treated as a host identifier.
-Multiple identifiers that resolve to the same host are deduplicated.
-
-Examples:
-
-  mng snapshot create my-agent
-
-  mng snapshot create my-agent --name before-refactor
-
-  mng snapshot create --all --dry-run
-
-  mng snapshot create agent1 agent2 --on-error continue
 
 **Usage:**
 
@@ -120,29 +95,6 @@ mng snapshot create [OPTIONS] [IDENTIFIERS]...
 
 ## mng snapshot list
 
-List snapshots for agent host(s). [experimental]
-
-Shows snapshot ID, name, creation time, size, and host for each snapshot.
-
-Positional arguments can be agent names/IDs or host names/IDs. Each
-identifier is automatically resolved: if it matches a known agent, that
-agent's host is used; otherwise it is treated as a host identifier.
-
-Supports custom format templates via --format. Available fields:
-id, name, created_at, size, size_bytes, host_id.
-
-Examples:
-
-  mng snapshot list my-agent
-
-  mng snapshot list --all
-
-  mng snapshot list my-agent --limit 5
-
-  mng snapshot list my-agent --format json
-
-  mng snapshot list my-agent --format '{name}\t{size}\t{host_id}'
-
 **Usage:**
 
 ```text
@@ -188,20 +140,6 @@ mng snapshot list [OPTIONS] [IDENTIFIERS]...
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng snapshot destroy
-
-Destroy snapshots for agent host(s). [experimental]
-
-Requires either --snapshot (to delete specific snapshots) or --all-snapshots
-(to delete all snapshots for the resolved hosts). A confirmation prompt is
-shown unless --force is specified.
-
-Examples:
-
-  mng snapshot destroy my-agent --snapshot snap-abc123 --force
-
-  mng snapshot destroy my-agent --all-snapshots --force
-
-  mng snapshot destroy my-agent --all-snapshots --dry-run
 
 **Usage:**
 

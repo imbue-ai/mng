@@ -10,20 +10,6 @@ mng gc [OPTIONS]
 ```
 
 
-Garbage collect unused resources.
-
-Automatically removes unused resources from providers and mng itself.
-
-Examples:
-
-  mng gc --work-dirs --dry-run
-
-  mng gc --all-agent-resources
-
-  mng gc --machines --snapshots --provider docker
-
-  mng gc --logs --build-cache
-
 **Usage:**
 
 ```text

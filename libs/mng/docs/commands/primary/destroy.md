@@ -10,28 +10,6 @@ mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f
 ```
 
 
-Destroy agent(s) and clean up resources.
-
-When the last agent on a host is destroyed, the host itself is also destroyed.
-
-Use with caution! This operation is irreversible.
-
-Supports custom format templates via --format. Available fields: name.
-
-Examples:
-
-  mng destroy my-agent
-
-  mng destroy agent1 agent2 agent3
-
-  mng destroy --agent my-agent --agent another-agent
-
-  mng destroy --session mng-my-agent
-
-  mng destroy --all --force
-
-  mng destroy --all --force --format '{name}'
-
 **Usage:**
 
 ```text
