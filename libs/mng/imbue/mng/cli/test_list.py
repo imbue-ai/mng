@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.create import create
@@ -1199,3 +1200,42 @@ def test_list_command_json_and_jsonl_flags_mutually_exclusive(
 
     assert result.exit_code != 0
     assert "mutually exclusive" in result.output
+
+
+def test_process_env_is_applied_before_commands(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    mng_test_root_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """process_env variables should be set in os.environ before pre_command_scripts run.
+
+    Writes a project config with [process_env] and a pre_command_script that
+    checks the variable is set. If process_env is applied correctly, the script
+    succeeds and the command exits 0.
+    """
+    monkeypatch.chdir(temp_git_repo)
+
+    # Write project config with process_env and a pre_command_script that verifies it
+    config_dir = temp_git_repo / f".{mng_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "settings.toml").write_text(
+        "[process_env]\n"
+        'MNG_TEST_PROCESS_ENV_INTEGRATION = "it_works"\n'
+        "\n"
+        "[pre_command_scripts]\n"
+        'list = [\'test "$MNG_TEST_PROCESS_ENV_INTEGRATION" = "it_works"\']\n'
+    )
+
+    # Ensure the var doesn't already exist
+    monkeypatch.delenv("MNG_TEST_PROCESS_ENV_INTEGRATION", raising=False)
+
+    result = cli_runner.invoke(
+        list_command,
+        [],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
