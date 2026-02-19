@@ -9,8 +9,6 @@
 mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
 ```
 
-
-
 Start one or more stopped agents.
 
 For remote hosts, this restores from the most recent snapshot and starts
@@ -20,13 +18,11 @@ session.
 If multiple agents share a host, they will all be started together when
 the host starts.
 
-
 **Usage:**
 
 ```text
 mng start [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)

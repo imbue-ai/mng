@@ -9,8 +9,6 @@
 mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]
 ```
 
-
-
 Rename an agent or host.
 
 Updates the agent's name in its data.json and renames the tmux session
@@ -22,13 +20,11 @@ to complete it.
 
 Alias: mv
 
-
 **Usage:**
 
 ```text
 mng rename [OPTIONS] CURRENT NEW-NAME
 ```
-
 ## Arguments
 
 - `CURRENT`: Current name or ID of the agent to rename

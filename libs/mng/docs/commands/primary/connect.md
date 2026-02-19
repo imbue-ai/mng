@@ -9,8 +9,6 @@
 mng [connect|conn] [OPTIONS] [AGENT]
 ```
 
-
-
 Connect to an existing agent via the terminal.
 
 Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
@@ -27,13 +25,11 @@ The agent can be specified as a positional argument or via --agent:
 
 Alias: conn
 
-
 **Usage:**
 
 ```text
 mng connect [OPTIONS] [AGENT]
 ```
-
 ## Arguments
 
 - `AGENT`: The agent (optional)

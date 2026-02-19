@@ -9,8 +9,6 @@
 mng [list|ls] [OPTIONS]
 ```
 
-
-
 List all agents managed by mng.
 
 Displays agents with their status, host information, and other metadata.
@@ -18,13 +16,11 @@ Supports filtering, sorting, and multiple output formats.
 
 Alias: ls
 
-
 **Usage:**
 
 ```text
 mng list [OPTIONS]
 ```
-
 **Options:**
 
 ## Filtering

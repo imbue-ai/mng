@@ -9,8 +9,6 @@
 mng [plugin|plug] <subcommand> [OPTIONS]
 ```
 
-
-
 Manage available and active plugins.
 
 Install, remove, view, enable, and disable plugins registered with mng.
@@ -18,13 +16,11 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
 
 Alias: plug
 
-
 **Usage:**
 
 ```text
 mng plugin [OPTIONS] COMMAND [ARGS]...
 ```
-
 **Options:**
 
 ## Common
@@ -47,8 +43,6 @@ mng plugin [OPTIONS] COMMAND [ARGS]...
 
 ## mng plugin list
 
-
-
 List discovered plugins.
 
 Shows all plugins registered with mng, including built-in plugins
@@ -57,13 +51,11 @@ and any externally installed plugins.
 Supports custom format templates via --format. Available fields:
 name, version, description, enabled.
 
-
 **Usage:**
 
 ```text
 mng plugin list [OPTIONS]
 ```
-
 **Options:**
 
 ## Common
@@ -126,21 +118,17 @@ $ mng plugin list --format '{name}\t{enabled}'
 
 ## mng plugin add
 
-
-
 Install a plugin package.
 
 Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
 package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
 from a local directory in editable mode. --git installs from a git URL.
 
-
 **Usage:**
 
 ```text
 mng plugin add [OPTIONS] [NAME]
 ```
-
 **Options:**
 
 ## Common
@@ -197,20 +185,16 @@ $ mng plugin add --git https://github.com/user/mng-plugin.git
 
 ## mng plugin remove
 
-
-
 Uninstall a plugin package.
 
 Provide exactly one of NAME (positional) or --path. For local paths,
 the package name is read from pyproject.toml.
-
 
 **Usage:**
 
 ```text
 mng plugin remove [OPTIONS] [NAME]
 ```
-
 **Options:**
 
 ## Common
@@ -254,20 +238,16 @@ $ mng plugin remove --path ./my-plugin
 
 ## mng plugin enable
 
-
-
 Enable a plugin.
 
 Sets plugins.<name>.enabled = true in the configuration file at the
 specified scope.
-
 
 **Usage:**
 
 ```text
 mng plugin enable [OPTIONS] NAME
 ```
-
 **Options:**
 
 ## Common
@@ -311,20 +291,16 @@ $ mng plugin enable modal --scope user
 
 ## mng plugin disable
 
-
-
 Disable a plugin.
 
 Sets plugins.<name>.enabled = false in the configuration file at the
 specified scope.
-
 
 **Usage:**
 
 ```text
 mng plugin disable [OPTIONS] NAME
 ```
-
 **Options:**
 
 ## Common

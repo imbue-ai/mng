@@ -9,8 +9,6 @@
 mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]
 ```
 
-
-
 Re-run provisioning on an existing agent.
 
 This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
@@ -33,13 +31,11 @@ the same host.
 
 Alias: prov
 
-
 **Usage:**
 
 ```text
 mng provision [OPTIONS] [AGENT]
 ```
-
 ## Arguments
 
 - `AGENT`: Agent name or ID to provision

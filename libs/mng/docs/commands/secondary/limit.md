@@ -9,8 +9,6 @@
 mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]
 ```
 
-
-
 Configure settings on existing agents and hosts: idle timeout,
 idle mode, activity sources, permissions, and start-on-boot.
 
@@ -29,13 +27,11 @@ and cannot be used with --host alone.
 
 Alias: lim
 
-
 **Usage:**
 
 ```text
 mng limit [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)

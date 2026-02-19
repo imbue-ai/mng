@@ -9,8 +9,6 @@
 mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]
 ```
 
-
-
 Continuously sync files between an agent and local directory.
 
 This command establishes a bidirectional file sync between an agent's working
@@ -21,13 +19,11 @@ state (branches and commits) before starting the continuous file sync.
 
 Press Ctrl+C to stop the sync.
 
-
 **Usage:**
 
 ```text
 mng pair [OPTIONS] SOURCE
 ```
-
 ## Arguments
 
 - `SOURCE`: The source (optional)

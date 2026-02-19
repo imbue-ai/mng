@@ -9,8 +9,6 @@
 mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
-
-
 View log files from an agent or host.
 
 TARGET identifies an agent (by name or ID) or a host (by name or ID).
@@ -24,13 +22,11 @@ streaming when the host is online (locally or via SSH). When the host
 is offline, it falls back to polling the volume for new content.
 Press Ctrl+C to stop.
 
-
 **Usage:**
 
 ```text
 mng logs [OPTIONS] TARGET [LOG_FILENAME]
 ```
-
 ## Arguments
 
 - `TARGET`: Agent or host name/ID whose logs to view

@@ -9,8 +9,6 @@
 mng [cleanup|clean] [--destroy|--stop] [--older-than DURATION] [--idle-for DURATION] [--provider PROVIDER] [--agent-type TYPE] [--tag TAG] [-f|--force|--yes] [--dry-run]
 ```
 
-
-
 Destroy or stop agents and hosts in order to free up resources.
 
 When running in a pty, defaults to providing an interactive interface for
@@ -28,13 +26,11 @@ see `mng gc`.
 
 Alias: clean
 
-
 **Usage:**
 
 ```text
 mng cleanup [OPTIONS]
 ```
-
 **Options:**
 
 ## General

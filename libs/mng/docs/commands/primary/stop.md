@@ -9,8 +9,6 @@
 mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]
 ```
 
-
-
 Stop one or more running agents.
 
 For remote hosts, this stops the agent's tmux session. The host remains
@@ -21,13 +19,11 @@ itself cannot be stopped (if you want that, shut down your computer).
 
 Alias: s
 
-
 **Usage:**
 
 ```text
 mng stop [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)

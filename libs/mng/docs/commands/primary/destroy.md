@@ -9,8 +9,6 @@
 mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
 ```
 
-
-
 Destroy one or more agents and clean up their resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed
@@ -24,13 +22,11 @@ agents unless --force is specified.
 
 Alias: rm
 
-
 **Usage:**
 
 ```text
 mng destroy [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)

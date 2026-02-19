@@ -9,8 +9,6 @@
 mng [exec|x] [AGENTS...] COMMAND [--agent <AGENT>] [--all] [--user <USER>] [--cwd <DIR>] [--timeout <SECONDS>] [--on-error <MODE>]
 ```
 
-
-
 Execute a shell command on the host(s) where one or more agents run.
 
 The command runs in each agent's work_dir by default. Use --cwd to override
@@ -21,13 +19,11 @@ code is 0 if all commands succeeded, 1 if any failed.
 
 Alias: x
 
-
 **Usage:**
 
 ```text
 mng exec [OPTIONS] [AGENTS]... COMMAND
 ```
-
 ## Arguments
 
 - `AGENTS`: Name(s) or ID(s) of the agent(s) whose host will run the command

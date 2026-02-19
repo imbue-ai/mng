@@ -15,8 +15,6 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
     [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
-
-
 Create a new agent and optionally connect to it.
 
 This command sets up an agent's working directory, optionally provisions a
@@ -37,13 +35,11 @@ the working directory is copied to the remote host.
 
 Alias: c
 
-
 **Usage:**
 
 ```text
 mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 ```
-
 ## Arguments
 
 - `NAME`: Name for the agent (auto-generated if not provided)

@@ -277,7 +277,7 @@ def _format_usage_line(command: click.Command, prog_name: str) -> str:
 def _format_usage_block(command: click.Command, prog_name: str) -> str:
     """Generate the **Usage:** markdown block for a command."""
     usage_line = _format_usage_line(command, prog_name)
-    return f"\n**Usage:**\n\n```text\n{usage_line}\n```\n"
+    return f"**Usage:**\n\n```text\n{usage_line}\n```"
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ def _format_usage_block(command: click.Command, prog_name: str) -> str:
 
 def _format_description_block(metadata: CommandHelpMetadata) -> str:
     """Format a description + alias block from metadata for markdown docs."""
-    lines = ["\n"]
+    lines: list[str] = []
     for paragraph in metadata.description.strip().split("\n\n"):
         lines.append(paragraph.strip())
         lines.append("")

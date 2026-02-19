@@ -9,8 +9,6 @@
 mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
-
-
 Send a message to one or more agents.
 
 Agent IDs can be specified as positional arguments for convenience. The
@@ -21,13 +19,11 @@ or opens an editor (if interactive).
 
 Alias: msg
 
-
 **Usage:**
 
 ```text
 mng message [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)

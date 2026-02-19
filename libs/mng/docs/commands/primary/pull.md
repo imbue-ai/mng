@@ -9,8 +9,6 @@
 mng pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]
 ```
 
-
-
 Pull files or git commits from an agent to local machine.
 
 Syncs files or git state from an agent's working directory to a local directory.
@@ -19,13 +17,11 @@ Use --sync-mode=git to merge git branches instead of syncing files.
 
 If no source is specified, shows an interactive selector to choose an agent.
 
-
 **Usage:**
 
 ```text
 mng pull [OPTIONS] SOURCE DESTINATION
 ```
-
 ## Arguments
 
 - `SOURCE`: The source (optional)

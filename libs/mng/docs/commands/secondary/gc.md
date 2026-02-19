@@ -9,8 +9,6 @@
 mng gc [OPTIONS]
 ```
 
-
-
 Garbage collect unused resources.
 
 Automatically removes containers, old snapshots, unused hosts, cached images,
@@ -20,13 +18,11 @@ and any resources that are associated with destroyed hosts and agents.
 `mng gc` can be used to manually trigger garbage collection of unused
 resources at any time.
 
-
 **Usage:**
 
 ```text
 mng gc [OPTIONS]
 ```
-
 **Options:**
 
 ## What to Clean - Agent Resources
