@@ -127,7 +127,7 @@ def main() -> None:
     run("git", "push", "origin", "main", tag)
 
     print(f"\nRelease {new_version} pushed. The publish workflow will run automatically.")
-    print("  https://github.com/imbue-ai/mngr/actions/workflows/publish.yml")
+    print("  https://github.com/imbue-ai/mng/actions/workflows/publish.yml")
 
 
 if __name__ == "__main__":

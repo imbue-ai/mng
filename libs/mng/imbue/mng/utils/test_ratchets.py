@@ -353,16 +353,16 @@ def test_prevent_importlib_import_module() -> None:
 
 _PREVENT_OLD_MNGR_NAME = RegexRatchetRule(
     rule_name="'mngr' occurrences",
-    rule_description="The old 'mngr' name should not be reintroduced. Remaining occurrences are because of the GitHub URL.",
+    rule_description="The old 'mngr' name should not be reintroduced.",
     pattern_string=r"mngr",
 )
 
 
 def test_prevent_old_mngr_name_in_file_contents() -> None:
-    """Ensure the old 'mngr' name is not reintroduced in file contents (remaining uses are because of the GitHub URL)."""
+    """Ensure the old 'mngr' name is not reintroduced in file contents."""
     repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
     chunks = check_ratchet_rule_all_files(_PREVENT_OLD_MNGR_NAME, repo_root, _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(21), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
 
 
 def test_prevent_old_mngr_name_in_file_paths() -> None:
