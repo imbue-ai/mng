@@ -69,7 +69,7 @@ mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 ```bash
 # start multiple agents on the same host to save money and share data
 mngr create agent-1 --in modal --host-name shared-host
-mngr create agent-2 --in modal --host shared-host
+mngr create agent-2 --host shared-host
 
 # programmatically send messages to your agents and see their chat histories
 mngr message agent-1 "Tell me a joke"
