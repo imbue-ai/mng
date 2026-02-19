@@ -1,18 +1,18 @@
 # Entry point for running a changeling inside the cloned imbue repo on Modal.
 #
 # This script is invoked by cron_runner.py after the imbue monorepo (containing
-# changeling/mngr tooling) has been cloned and dependencies installed via
+# changeling/mng tooling) has been cloned and dependencies installed via
 # `uv sync --all-packages`. It uses the full imbue stack to deserialize the
-# changeling config, write secrets, build the mngr create command, and execute it.
+# changeling config, write secrets, build the mng create command, and execute it.
 #
 # There are two repos involved:
 #
 #   1. The *imbue repo* (tooling) -- already cloned by cron_runner.py. Provides
-#      the changeling and mngr packages. This script runs from inside it.
+#      the changeling and mng packages. This script runs from inside it.
 #
 #   2. The *target repo* (user's project) -- what the changeling operates on.
-#      If a target_repo_path is provided (by cron_runner.py), mngr runs from
-#      that directory. If not provided, mngr runs from the imbue repo cwd
+#      If a target_repo_path is provided (by cron_runner.py), mng runs from
+#      that directory. If not provided, mng runs from the imbue repo cwd
 #      (development mode where imbue IS the target).
 #
 # Usage:
@@ -22,9 +22,9 @@ import sys
 from pathlib import Path
 
 from imbue.changelings.data_types import ChangelingDefinition
-from imbue.changelings.deploy.deploy import build_cron_mngr_command
+from imbue.changelings.deploy.deploy import build_cron_mng_command
 from imbue.changelings.errors import ChangelingRunError
-from imbue.changelings.mngr_commands import write_secrets_env_file
+from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
@@ -36,10 +36,10 @@ def _log_output(line: str, is_stdout: bool) -> None:
 
 
 def run(config_json: str, target_repo_path: str | None) -> None:
-    """Deserialize the changeling config and run the mngr create command.
+    """Deserialize the changeling config and run the mng create command.
 
     If target_repo_path is provided (already cloned by cron_runner.py onto
-    the persistent volume), mngr runs from that directory. Otherwise, mngr
+    the persistent volume), mng runs from that directory. Otherwise, mng
     runs from the current directory (the imbue repo clone -- development mode).
     """
     changeling = ChangelingDefinition.model_validate_json(config_json)
@@ -52,7 +52,7 @@ def run(config_json: str, target_repo_path: str | None) -> None:
 
     env_file_path = write_secrets_env_file(changeling)
     try:
-        cmd = build_cron_mngr_command(changeling, env_file_path)
+        cmd = build_cron_mng_command(changeling, env_file_path)
         with ConcurrencyGroup(name=f"cron-{changeling.name}") as cg:
             result = cg.run_process_to_completion(
                 cmd,

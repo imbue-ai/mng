@@ -47,7 +47,7 @@ def changeling_definition_options(f: Callable) -> Callable:
         click.option(
             "--agent-type",
             default=None,
-            help="The mngr agent type to use",
+            help="The mng agent type to use",
         ),
         click.option(
             "--secret",
@@ -62,16 +62,16 @@ def changeling_definition_options(f: Callable) -> Callable:
             help="Environment variable KEY=VALUE to set (repeatable)",
         ),
         click.option(
-            "--extra-mngr-args",
+            "--extra-mng-args",
             default=None,
-            help="Extra arguments to pass to mngr create (as a single string)",
+            help="Extra arguments to pass to mng create (as a single string)",
         ),
         click.option(
             "-o",
             "--option",
-            "mngr_options",
+            "mng_options",
             multiple=True,
-            help="Custom mngr option KEY=VALUE (repeatable)",
+            help="Custom mng option KEY=VALUE (repeatable)",
         ),
         click.option(
             "--enabled/--disabled",
@@ -79,9 +79,9 @@ def changeling_definition_options(f: Callable) -> Callable:
             help="Whether this changeling should be active",
         ),
         click.option(
-            "--mngr-profile",
+            "--mng-profile",
             default=None,
-            help="The mngr profile ID to use for Modal deployment (auto-detected if not set)",
+            help="The mng profile ID to use for Modal deployment (auto-detected if not set)",
         ),
     ]
     for decorator in reversed(decorators):
@@ -98,16 +98,16 @@ def build_definition_from_cli(
     agent_type: str | None,
     secrets: tuple[str, ...],
     env_vars: tuple[str, ...],
-    extra_mngr_args: str | None,
-    mngr_options: tuple[str, ...],
+    extra_mng_args: str | None,
+    mng_options: tuple[str, ...],
     enabled: bool | None,
-    mngr_profile: str | None,
+    mng_profile: str | None,
     # If provided, CLI args are merged onto this base definition
     base: ChangelingDefinition | None,
 ) -> ChangelingDefinition:
     """Build a ChangelingDefinition from CLI arguments, optionally merging onto a base."""
     parsed_env_vars = _parse_key_value_pairs(env_vars) if env_vars else None
-    parsed_mngr_options = _parse_key_value_pairs(mngr_options) if mngr_options else None
+    parsed_mng_options = _parse_key_value_pairs(mng_options) if mng_options else None
 
     if base is not None:
         # Merge CLI args onto base, keeping base values for anything not specified
@@ -120,10 +120,10 @@ def build_definition_from_cli(
             agent_type=agent_type if agent_type is not None else base.agent_type,
             secrets=secrets if secrets else base.secrets,
             env_vars=parsed_env_vars if parsed_env_vars is not None else base.env_vars,
-            extra_mngr_args=extra_mngr_args if extra_mngr_args is not None else base.extra_mngr_args,
-            mngr_options=parsed_mngr_options if parsed_mngr_options is not None else base.mngr_options,
+            extra_mng_args=extra_mng_args if extra_mng_args is not None else base.extra_mng_args,
+            mng_options=parsed_mng_options if parsed_mng_options is not None else base.mng_options,
             is_enabled=enabled if enabled is not None else base.is_enabled,
-            mngr_profile=mngr_profile if mngr_profile is not None else base.mngr_profile,
+            mng_profile=mng_profile if mng_profile is not None else base.mng_profile,
         )
 
     # Create from scratch, relying on model defaults for unspecified fields
@@ -142,12 +142,12 @@ def build_definition_from_cli(
         kwargs["secrets"] = secrets
     if parsed_env_vars:
         kwargs["env_vars"] = parsed_env_vars
-    if extra_mngr_args is not None:
-        kwargs["extra_mngr_args"] = extra_mngr_args
-    if parsed_mngr_options:
-        kwargs["mngr_options"] = parsed_mngr_options
+    if extra_mng_args is not None:
+        kwargs["extra_mng_args"] = extra_mng_args
+    if parsed_mng_options:
+        kwargs["mng_options"] = parsed_mng_options
     if enabled is not None:
         kwargs["is_enabled"] = enabled
-    if mngr_profile is not None:
-        kwargs["mngr_profile"] = mngr_profile
+    if mng_profile is not None:
+        kwargs["mng_profile"] = mng_profile
     return ChangelingDefinition(**kwargs)

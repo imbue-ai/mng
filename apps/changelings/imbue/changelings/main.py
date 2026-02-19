@@ -17,7 +17,7 @@ def cli() -> None:
     task -- fixing FIXMEs, improving tests, increasing coverage, writing reports,
     and more. Changelings are deployed as Modal Apps and run on a cron schedule.
 
-    Under the hood, each changeling invokes mngr to create and run an agent
+    Under the hood, each changeling invokes mng to create and run an agent
     with the appropriate configuration.
     """
 

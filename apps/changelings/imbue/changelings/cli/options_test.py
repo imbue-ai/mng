@@ -61,10 +61,10 @@ def test_build_definition_defaults_agent_type_to_name() -> None:
         agent_type=None,
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=None,
     )
 
@@ -82,10 +82,10 @@ def test_build_definition_uses_explicit_agent_type() -> None:
         agent_type="claude",
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=None,
     )
 
@@ -103,10 +103,10 @@ def test_build_definition_from_scratch_uses_model_defaults() -> None:
         agent_type=None,
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=None,
     )
 
@@ -117,8 +117,8 @@ def test_build_definition_from_scratch_uses_model_defaults() -> None:
     assert definition.initial_message == DEFAULT_INITIAL_MESSAGE
     assert definition.secrets == DEFAULT_SECRETS
     assert definition.env_vars == {}
-    assert definition.mngr_options == {}
-    assert definition.extra_mngr_args == ""
+    assert definition.mng_options == {}
+    assert definition.extra_mng_args == ""
     assert definition.is_enabled is True
 
 
@@ -133,10 +133,10 @@ def test_build_definition_from_scratch_with_all_fields() -> None:
         agent_type="custom-agent",
         secrets=("MY_KEY",),
         env_vars=("DEBUG=true",),
-        extra_mngr_args="--verbose",
-        mngr_options=("gpu=a10g",),
+        extra_mng_args="--verbose",
+        mng_options=("gpu=a10g",),
         enabled=False,
-        mngr_profile="test-profile-id",
+        mng_profile="test-profile-id",
         base=None,
     )
 
@@ -148,8 +148,8 @@ def test_build_definition_from_scratch_with_all_fields() -> None:
     assert definition.agent_type == "custom-agent"
     assert definition.secrets == ("MY_KEY",)
     assert definition.env_vars == {"DEBUG": "true"}
-    assert definition.extra_mngr_args == "--verbose"
-    assert definition.mngr_options == {"gpu": "a10g"}
+    assert definition.extra_mng_args == "--verbose"
+    assert definition.mng_options == {"gpu": "a10g"}
     assert definition.is_enabled is False
 
 
@@ -174,10 +174,10 @@ def test_build_definition_with_base_keeps_base_values_when_no_overrides() -> Non
         agent_type=None,
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=base,
     )
 
@@ -203,10 +203,10 @@ def test_build_definition_with_base_overrides_specified_fields() -> None:
         agent_type="claude",
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=base,
     )
 
@@ -229,19 +229,19 @@ def test_build_definition_with_base_overrides_secrets_when_specified() -> None:
         agent_type=None,
         secrets=("NEW_KEY", "OTHER_KEY"),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=(),
+        extra_mng_args=None,
+        mng_options=(),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=base,
     )
 
     assert definition.secrets == ("NEW_KEY", "OTHER_KEY")
 
 
-def test_build_definition_with_base_overrides_mngr_options_when_specified() -> None:
-    """Explicit -o/--option args should replace the base mngr_options."""
-    base = make_test_changeling(mngr_options={"old_key": "old_value"})
+def test_build_definition_with_base_overrides_mng_options_when_specified() -> None:
+    """Explicit -o/--option args should replace the base mng_options."""
+    base = make_test_changeling(mng_options={"old_key": "old_value"})
 
     definition = build_definition_from_cli(
         name="test-changeling",
@@ -252,11 +252,11 @@ def test_build_definition_with_base_overrides_mngr_options_when_specified() -> N
         agent_type=None,
         secrets=(),
         env_vars=(),
-        extra_mngr_args=None,
-        mngr_options=("new_key=new_value",),
+        extra_mng_args=None,
+        mng_options=("new_key=new_value",),
         enabled=None,
-        mngr_profile=None,
+        mng_profile=None,
         base=base,
     )
 
-    assert definition.mngr_options == {"new_key": "new_value"}
+    assert definition.mng_options == {"new_key": "new_value"}
