@@ -442,9 +442,10 @@ def test_resolve_format_flags_json_with_explicit_format_raises() -> None:
 
 def test_apply_process_env_sets_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     """_apply_process_env should set environment variables in os.environ."""
-    # Register keys with monkeypatch first so they're cleaned up after the test
-    monkeypatch.delenv("MNG_TEST_PROCESS_ENV_A", raising=False)
-    monkeypatch.delenv("MNG_TEST_PROCESS_ENV_B", raising=False)
+    # Use setenv to register cleanup: monkeypatch records the original state (absent)
+    # so it can restore it after the test, even though _apply_process_env bypasses monkeypatch.
+    monkeypatch.setenv("MNG_TEST_PROCESS_ENV_A", "")
+    monkeypatch.setenv("MNG_TEST_PROCESS_ENV_B", "")
 
     _apply_process_env({"MNG_TEST_PROCESS_ENV_A": "value_a", "MNG_TEST_PROCESS_ENV_B": "value_b"})
 
