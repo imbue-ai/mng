@@ -18,7 +18,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
@@ -184,17 +183,15 @@ def _emit_log_content(
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "logs",
-    CommandHelpMetadata(
-        key="logs",
-        one_line_description="View log files from an agent or host [experimental]",
-        synopsis="mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]",
-        arguments_description=(
-            "- `TARGET`: Agent or host name/ID whose logs to view\n"
-            "- `LOG_FILE`: Name of the log file to view (optional; lists files if omitted)"
-        ),
-        description="""View log files from an agent or host.
+CommandHelpMetadata(
+    key="logs",
+    one_line_description="View log files from an agent or host [experimental]",
+    synopsis="mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]",
+    arguments_description=(
+        "- `TARGET`: Agent or host name/ID whose logs to view\n"
+        "- `LOG_FILE`: Name of the log file to view (optional; lists files if omitted)"
+    ),
+    description="""View log files from an agent or host.
 
 TARGET identifies an agent (by name or ID) or a host (by name or ID).
 The command first tries to match TARGET as an agent, then as a host.
@@ -206,18 +203,17 @@ In follow mode (--follow), the command uses tail -f for real-time
 streaming when the host is online (locally or via SSH). When the host
 is offline, it falls back to polling the volume for new content.
 Press Ctrl+C to stop.""",
-        examples=(
-            ("List available log files for an agent", "mng logs my-agent"),
-            ("View a specific log file", "mng logs my-agent output.log"),
-            ("View the last 50 lines", "mng logs my-agent output.log --tail 50"),
-            ("Follow a log file", "mng logs my-agent output.log --follow"),
-        ),
-        see_also=(
-            ("list", "List available agents"),
-            ("exec", "Execute commands on an agent's host"),
-        ),
+    examples=(
+        ("List available log files for an agent", "mng logs my-agent"),
+        ("View a specific log file", "mng logs my-agent output.log"),
+        ("View the last 50 lines", "mng logs my-agent output.log --tail 50"),
+        ("Follow a log file", "mng logs my-agent output.log --follow"),
     ),
-)
+    see_also=(
+        ("list", "List available agents"),
+        ("exec", "Execute commands on an agent's host"),
+    ),
+).register()
 
 # Add pager-enabled help option to the logs command
 add_pager_help_option(logs)

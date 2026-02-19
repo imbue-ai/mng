@@ -58,14 +58,13 @@ class CommandHelpMetadata(FrozenModel):
         """Display name derived from key (e.g., key='snapshot.create' -> 'mng snapshot create')."""
         return "mng " + self.key.replace(".", " ")
 
+    def register(self) -> None:
+        """Register this metadata in the global help registry, keyed by self.key."""
+        _help_metadata_registry[self.key] = self
+
 
 # Registry of help metadata for commands that have been configured
 _help_metadata_registry: dict[str, CommandHelpMetadata] = {}
-
-
-def register_help_metadata(command_name: str, metadata: CommandHelpMetadata) -> None:
-    """Register help metadata for a command."""
-    _help_metadata_registry[command_name] = metadata
 
 
 def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:

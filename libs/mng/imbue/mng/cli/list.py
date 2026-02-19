@@ -24,7 +24,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import render_format_template
@@ -1000,31 +999,29 @@ def _render_format_template(template: str, agent: AgentInfo) -> str:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "list",
-    CommandHelpMetadata(
-        key="list",
-        one_line_description="List all agents managed by mng",
-        synopsis="mng [list|ls] [OPTIONS]",
-        description="""List all agents managed by mng.
+CommandHelpMetadata(
+    key="list",
+    one_line_description="List all agents managed by mng",
+    synopsis="mng [list|ls] [OPTIONS]",
+    description="""List all agents managed by mng.
 
 Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.""",
-        aliases=("ls",),
-        examples=(
-            ("List all agents", "mng list"),
-            ("List only running agents", "mng list --running"),
-            ("List agents on Docker hosts", "mng list --provider docker"),
-            ("List agents for a project", "mng list --project mng"),
-            ("List agents with a specific label", "mng list --label env=prod"),
-            ("List agents with a specific host tag", "mng list --tag env=prod"),
-            ("List agents as JSON", "mng list --format json"),
-            ("Filter with CEL expression", "mng list --include 'name.contains(\"prod\")'"),
-        ),
-        additional_sections=(
-            (
-                "CEL Filter Examples",
-                """CEL (Common Expression Language) filters allow powerful, expressive filtering of agents.
+    aliases=("ls",),
+    examples=(
+        ("List all agents", "mng list"),
+        ("List only running agents", "mng list --running"),
+        ("List agents on Docker hosts", "mng list --provider docker"),
+        ("List agents for a project", "mng list --project mng"),
+        ("List agents with a specific label", "mng list --label env=prod"),
+        ("List agents with a specific host tag", "mng list --tag env=prod"),
+        ("List agents as JSON", "mng list --format json"),
+        ("Filter with CEL expression", "mng list --include 'name.contains(\"prod\")'"),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL (Common Expression Language) filters allow powerful, expressive filtering of agents.
 All agent fields from the "Available Fields" section can be used in filter expressions.
 
 **Simple equality filters:**
@@ -1054,10 +1051,10 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `has(url)` - Agents that have a URL set
 - `has(host.ssh)` - Agents on remote hosts with SSH access
 """,
-            ),
-            (
-                "Available Fields",
-                """**Agent fields** (same syntax for `--fields` and CEL filters):
+        ),
+        (
+            "Available Fields",
+            """**Agent fields** (same syntax for `--fields` and CEL filters):
 - `name` - Agent name
 - `id` - Agent ID
 - `type` - Agent type (claude, codex, etc.)
@@ -1111,20 +1108,19 @@ All agent fields from the "Available Fields" section can be used in filter expre
 **Notes:**
 - You can use Python-style list slicing for list fields (e.g., `host.snapshots[0]` for the first snapshot, `host.snapshots[:3]` for the first 3)
 """,
-            ),
-            (
-                "Related Documentation",
-                """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents cannot be accessed
-- [Common Options](../generic/common.md) - Common CLI options for output format, logging, etc.""",
-            ),
         ),
-        see_also=(
-            ("create", "Create a new agent"),
-            ("connect", "Connect to an existing agent"),
-            ("destroy", "Destroy agents"),
+        (
+            "Related Documentation",
+            """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents cannot be accessed
+- [Common Options](../generic/common.md) - Common CLI options for output format, logging, etc.""",
         ),
     ),
-)
+    see_also=(
+        ("create", "Create a new agent"),
+        ("connect", "Connect to an existing agent"),
+        ("destroy", "Destroy agents"),
+    ),
+).register()
 
 # Add pager-enabled help option to the list command
 add_pager_help_option(list_command)

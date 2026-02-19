@@ -13,7 +13,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -263,38 +262,35 @@ def _emit_json_output(result: MessageResult) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "message",
-    CommandHelpMetadata(
-        key="message",
-        one_line_description="Send a message to one or more agents",
-        synopsis="mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]",
-        description="""Send a message to one or more agents.
+CommandHelpMetadata(
+    key="message",
+    one_line_description="Send a message to one or more agents",
+    synopsis="mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]",
+    description="""Send a message to one or more agents.
 
 Agent IDs can be specified as positional arguments for convenience. The
 message is sent to the agent's stdin.
 
 If no message is specified with --message, reads from stdin (if not a tty)
 or opens an editor (if interactive).""",
-        aliases=("msg",),
-        examples=(
-            ("Send a message to an agent", 'mng message my-agent --message "Hello"'),
-            ("Send to multiple agents", 'mng message agent1 agent2 --message "Hello to all"'),
-            ("Send to all agents", 'mng message --all --message "Hello everyone"'),
-            ("Pipe message from stdin", 'echo "Hello" | mng message my-agent'),
-        ),
-        see_also=(
-            ("connect", "Connect to an agent interactively"),
-            ("list", "List available agents"),
-        ),
-        additional_sections=(
-            (
-                "Related Documentation",
-                """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents fail to receive the message""",
-            ),
+    aliases=("msg",),
+    examples=(
+        ("Send a message to an agent", 'mng message my-agent --message "Hello"'),
+        ("Send to multiple agents", 'mng message agent1 agent2 --message "Hello to all"'),
+        ("Send to all agents", 'mng message --all --message "Hello everyone"'),
+        ("Pipe message from stdin", 'echo "Hello" | mng message my-agent'),
+    ),
+    see_also=(
+        ("connect", "Connect to an agent interactively"),
+        ("list", "List available agents"),
+    ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents fail to receive the message""",
         ),
     ),
-)
+).register()
 
 # Add pager-enabled help option to the message command
 add_pager_help_option(message)

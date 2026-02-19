@@ -15,7 +15,6 @@ from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.destroy import get_agent_name_from_session
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
@@ -233,34 +232,31 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "stop",
-    CommandHelpMetadata(
-        key="stop",
-        one_line_description="Stop running agent(s)",
-        synopsis="mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
-        description="""Stop one or more running agents.
+CommandHelpMetadata(
+    key="stop",
+    one_line_description="Stop running agent(s)",
+    synopsis="mng [stop|s] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [--dry-run] [--snapshot-mode <MODE>] [--graceful/--no-graceful]",
+    description="""Stop one or more running agents.
 
 For remote hosts, this stops the agent's tmux session. The host remains
 running unless idle detection stops it automatically.
 
 For local agents, this stops the agent's tmux session. The local host
 itself cannot be stopped (if you want that, shut down your computer).""",
-        aliases=("s",),
-        examples=(
-            ("Stop an agent by name", "mng stop my-agent"),
-            ("Stop multiple agents", "mng stop agent1 agent2"),
-            ("Stop all running agents", "mng stop --all"),
-            ("Stop by tmux session name", "mng stop --session mng-my-agent"),
-            ("Preview what would be stopped", "mng stop --all --dry-run"),
-        ),
-        see_also=(
-            ("start", "Start stopped agents"),
-            ("connect", "Connect to an agent"),
-            ("list", "List existing agents"),
-        ),
+    aliases=("s",),
+    examples=(
+        ("Stop an agent by name", "mng stop my-agent"),
+        ("Stop multiple agents", "mng stop agent1 agent2"),
+        ("Stop all running agents", "mng stop --all"),
+        ("Stop by tmux session name", "mng stop --session mng-my-agent"),
+        ("Preview what would be stopped", "mng stop --all --dry-run"),
     ),
-)
+    see_also=(
+        ("start", "Start stopped agents"),
+        ("connect", "Connect to an agent"),
+        ("list", "List existing agents"),
+    ),
+).register()
 
 # Add pager-enabled help option to the stop command
 add_pager_help_option(stop)

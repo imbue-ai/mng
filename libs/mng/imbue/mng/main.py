@@ -22,7 +22,6 @@ from imbue.mng.cli.destroy import destroy
 from imbue.mng.cli.exec import exec_command
 from imbue.mng.cli.gc import gc
 from imbue.mng.cli.help_formatter import get_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.issue_reporting import handle_not_implemented_error
 from imbue.mng.cli.issue_reporting import handle_unexpected_error
 from imbue.mng.cli.limit import limit
@@ -377,7 +376,7 @@ def _update_create_help_with_provider_args() -> None:
             existing_metadata.additional_sections + provider_sections,
         ),
     )
-    register_help_metadata("create", updated_metadata)
+    updated_metadata.register()
 
 
 _update_create_help_with_provider_args()

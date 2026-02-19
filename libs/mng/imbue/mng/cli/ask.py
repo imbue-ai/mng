@@ -22,7 +22,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import get_all_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_info
@@ -450,13 +449,11 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "ask",
-    CommandHelpMetadata(
-        key="ask",
-        one_line_description="Chat with mng for help [experimental]",
-        synopsis="mng ask [--execute] QUERY...",
-        description="""Chat directly with mng for help -- it can create the
+CommandHelpMetadata(
+    key="ask",
+    one_line_description="Chat with mng for help [experimental]",
+    synopsis="mng ask [--execute] QUERY...",
+    description="""Chat directly with mng for help -- it can create the
 necessary CLI call for pretty much anything you want to do.
 
 If no query is provided, shows general help about available commands
@@ -464,18 +461,17 @@ and common workflows.
 
 When --execute is specified, the generated CLI command is executed
 directly instead of being printed.""",
-        examples=(
-            ("Ask a question", 'mng ask "how do I create an agent?"'),
-            ("Ask without quotes", "mng ask start a container with claude code"),
-            ("Execute the generated command", "mng ask --execute forward port 8080 to the public internet"),
-        ),
-        see_also=(
-            ("create", "Create an agent"),
-            ("list", "List existing agents"),
-            ("connect", "Connect to an agent"),
-        ),
+    examples=(
+        ("Ask a question", 'mng ask "how do I create an agent?"'),
+        ("Ask without quotes", "mng ask start a container with claude code"),
+        ("Execute the generated command", "mng ask --execute forward port 8080 to the public internet"),
     ),
-)
+    see_also=(
+        ("create", "Create an agent"),
+        ("list", "List existing agents"),
+        ("connect", "Connect to an agent"),
+    ),
+).register()
 
 # Add pager-enabled help option to the ask command
 add_pager_help_option(ask)

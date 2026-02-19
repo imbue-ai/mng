@@ -13,7 +13,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import write_human_line
@@ -218,13 +217,11 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "pair",
-    CommandHelpMetadata(
-        key="pair",
-        one_line_description="Continuously sync files between an agent and local directory [experimental]",
-        synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
-        description="""Continuously sync files between an agent and local directory.
+CommandHelpMetadata(
+    key="pair",
+    one_line_description="Continuously sync files between an agent and local directory [experimental]",
+    synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
+    description="""Continuously sync files between an agent and local directory.
 
 This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
@@ -233,20 +230,19 @@ If git repositories exist on both sides, the command first synchronizes git
 state (branches and commits) before starting the continuous file sync.
 
 Press Ctrl+C to stop the sync.""",
-        examples=(
-            ("Pair with an agent", "mng pair my-agent"),
-            ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
-            ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
-            ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
-            ("Filter to specific host", "mng pair my-agent --source-host @local"),
-        ),
-        see_also=(
-            ("push", "Push files or git commits to an agent"),
-            ("pull", "Pull files or git commits from an agent"),
-            ("create", "Create a new agent"),
-            ("list", "List agents to find one to pair with"),
-        ),
+    examples=(
+        ("Pair with an agent", "mng pair my-agent"),
+        ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
+        ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
+        ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
+        ("Filter to specific host", "mng pair my-agent --source-host @local"),
     ),
-)
+    see_also=(
+        ("push", "Push files or git commits to an agent"),
+        ("pull", "Pull files or git commits from an agent"),
+        ("create", "Create a new agent"),
+        ("list", "List agents to find one to pair with"),
+    ),
+).register()
 
 add_pager_help_option(pair)

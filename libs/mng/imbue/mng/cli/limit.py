@@ -18,7 +18,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -581,14 +580,12 @@ def _apply_agent_changes(
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "limit",
-    CommandHelpMetadata(
-        key="limit",
-        one_line_description="Configure limits for agents and hosts [experimental]",
-        synopsis="mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
-        arguments_description="- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)",
-        description="""Configure settings on existing agents and hosts: idle timeout,
+CommandHelpMetadata(
+    key="limit",
+    one_line_description="Configure limits for agents and hosts [experimental]",
+    synopsis="mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
+    arguments_description="- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)",
+    description="""Configure settings on existing agents and hosts: idle timeout,
 idle mode, activity sources, permissions, and start-on-boot.
 
 Agents effectively have permissions that are equivalent to the *union* of all
@@ -603,26 +600,25 @@ activity-sources) are applied to each agent's underlying host.
 
 Agent-level settings (start-on-boot, grant, revoke) require agent targeting
 and cannot be used with --host alone.""",
-        aliases=("lim",),
-        examples=(
-            ("Set idle timeout for an agent's host", "mng limit my-agent --idle-timeout 5m"),
-            ("Grant permissions to an agent", "mng limit my-agent --grant network --grant internet"),
-            ("Disable idle detection for all agents", "mng limit --all --idle-mode disabled"),
-            ("Update host idle settings directly", "mng limit --host my-host --idle-timeout 1h"),
-            ("Preview changes without applying", "mng limit --all --idle-timeout 5m --dry-run"),
-        ),
-        see_also=(
-            ("create", "Create a new agent"),
-            ("list", "List existing agents"),
-            ("stop", "Stop running agents"),
-        ),
-        additional_sections=(
-            (
-                "Idle Modes",
-                "See [Idle Detection](../../concepts/idle_detection.md) for details on idle modes and activity sources.",
-            ),
+    aliases=("lim",),
+    examples=(
+        ("Set idle timeout for an agent's host", "mng limit my-agent --idle-timeout 5m"),
+        ("Grant permissions to an agent", "mng limit my-agent --grant network --grant internet"),
+        ("Disable idle detection for all agents", "mng limit --all --idle-mode disabled"),
+        ("Update host idle settings directly", "mng limit --host my-host --idle-timeout 1h"),
+        ("Preview changes without applying", "mng limit --all --idle-timeout 5m --dry-run"),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List existing agents"),
+        ("stop", "Stop running agents"),
+    ),
+    additional_sections=(
+        (
+            "Idle Modes",
+            "See [Idle Detection](../../concepts/idle_detection.md) for details on idle modes and activity sources.",
         ),
     ),
-)
+).register()
 
 add_pager_help_option(limit)

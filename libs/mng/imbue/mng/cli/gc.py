@@ -16,7 +16,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -459,13 +458,11 @@ def _get_selected_providers(mng_ctx: MngContext, opts: GcCliOptions) -> list[Pro
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "gc",
-    CommandHelpMetadata(
-        key="gc",
-        one_line_description="Garbage collect unused resources",
-        synopsis="mng gc [OPTIONS]",
-        description="""Garbage collect unused resources.
+CommandHelpMetadata(
+    key="gc",
+    one_line_description="Garbage collect unused resources",
+    synopsis="mng gc [OPTIONS]",
+    description="""Garbage collect unused resources.
 
 Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.
@@ -473,17 +470,17 @@ and any resources that are associated with destroyed hosts and agents.
 `mng destroy` automatically cleans up resources when an agent is deleted.
 `mng gc` can be used to manually trigger garbage collection of unused
 resources at any time.""",
-        examples=(
-            ("Preview what would be cleaned (dry run)", "mng gc --work-dirs --dry-run"),
-            ("Clean all agent resources", "mng gc --all-agent-resources"),
-            ("Clean machines and snapshots for Docker", "mng gc --machines --snapshots --provider docker"),
-            ("Clean logs and build cache", "mng gc --logs --build-cache"),
-            ("Keep only the 5 most recent snapshots", 'mng gc --snapshots --exclude "recency_idx < 5"'),
-        ),
-        additional_sections=(
-            (
-                "CEL Filter Examples",
-                """CEL filters let you control which resources are cleaned.
+    examples=(
+        ("Preview what would be cleaned (dry run)", "mng gc --work-dirs --dry-run"),
+        ("Clean all agent resources", "mng gc --all-agent-resources"),
+        ("Clean machines and snapshots for Docker", "mng gc --machines --snapshots --provider docker"),
+        ("Clean logs and build cache", "mng gc --logs --build-cache"),
+        ("Keep only the 5 most recent snapshots", 'mng gc --snapshots --exclude "recency_idx < 5"'),
+    ),
+    additional_sections=(
+        (
+            "CEL Filter Examples",
+            """CEL filters let you control which resources are cleaned.
 
 **For snapshots, use `recency_idx` to filter by age:**
 - `recency_idx == 0` - the most recent snapshot
@@ -494,15 +491,14 @@ resources at any time.""",
 - `name.contains("test")` - resources with "test" in the name
 - `provider_name == "docker"` - Docker resources only
 """,
-            ),
-        ),
-        see_also=(
-            ("cleanup", "Interactive cleanup of agents and hosts"),
-            ("destroy", "Destroy agents (includes automatic GC)"),
-            ("list", "List agents to find unused resources"),
         ),
     ),
-)
+    see_also=(
+        ("cleanup", "Interactive cleanup of agents and hosts"),
+        ("destroy", "Destroy agents (includes automatic GC)"),
+        ("list", "List agents to find unused resources"),
+    ),
+).register()
 
 # Add pager-enabled help option to the gc command
 add_pager_help_option(gc)

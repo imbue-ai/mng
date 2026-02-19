@@ -41,7 +41,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -1679,7 +1678,7 @@ the working directory is copied to the remote host.""",
     ),
 )
 
-register_help_metadata("create", _CREATE_HELP_METADATA)
+_CREATE_HELP_METADATA.register()
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

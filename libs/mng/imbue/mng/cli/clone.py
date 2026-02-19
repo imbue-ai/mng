@@ -7,7 +7,6 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.create import create as create_cmd
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 
 
 @pure
@@ -123,28 +122,25 @@ def _reject_source_agent_options(
             )
 
 
-register_help_metadata(
-    "clone",
-    CommandHelpMetadata(
-        key="clone",
-        one_line_description="Create a new agent by cloning an existing one [experimental]",
-        synopsis="mng clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-        description="""Create a new agent by cloning an existing one. [experimental]
+CommandHelpMetadata(
+    key="clone",
+    one_line_description="Create a new agent by cloning an existing one [experimental]",
+    synopsis="mng clone <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
+    description="""Create a new agent by cloning an existing one. [experimental]
 
 This is a convenience wrapper around `mng create --from-agent <source>`.
 The first argument is the source agent to clone from. An optional second
 positional argument sets the new agent's name. All remaining arguments are
 passed through to the create command.""",
-        examples=(
-            ("Clone an agent with auto-generated name", "mng clone my-agent"),
-            ("Clone with a specific name", "mng clone my-agent new-agent"),
-            ("Clone into a Docker container", "mng clone my-agent --in docker"),
-            ("Clone and pass args to the agent", "mng clone my-agent -- --model opus"),
-        ),
-        see_also=(
-            ("create", "Create an agent (full option set)"),
-            ("list", "List existing agents"),
-        ),
+    examples=(
+        ("Clone an agent with auto-generated name", "mng clone my-agent"),
+        ("Clone with a specific name", "mng clone my-agent new-agent"),
+        ("Clone into a Docker container", "mng clone my-agent --in docker"),
+        ("Clone and pass args to the agent", "mng clone my-agent -- --model opus"),
     ),
-)
+    see_also=(
+        ("create", "Create an agent (full option set)"),
+        ("list", "List existing agents"),
+    ),
+).register()
 add_pager_help_option(clone)

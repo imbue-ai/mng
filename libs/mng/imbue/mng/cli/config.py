@@ -20,7 +20,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -753,13 +752,11 @@ def _emit_all_paths(paths: list[dict[str, Any]], output_opts: OutputOptions) -> 
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "config",
-    CommandHelpMetadata(
-        key="config",
-        one_line_description="Manage mng configuration",
-        synopsis="mng [config|cfg] <subcommand> [OPTIONS]",
-        description="""Manage mng configuration.
+CommandHelpMetadata(
+    key="config",
+    one_line_description="Manage mng configuration",
+    synopsis="mng [config|cfg] <subcommand> [OPTIONS]",
+    description="""Manage mng configuration.
 
 View, edit, and modify mng configuration settings at the user, project, or
 local level. Much like a simpler version of `git config`, this command allows
@@ -769,166 +766,147 @@ Configuration is stored in TOML files:
 - User: ~/.mng/settings.toml
 - Project: .mng/settings.toml (in your git root)
 - Local: .mng/settings.local.toml (git-ignored, for local overrides)""",
-        aliases=("cfg",),
-        examples=(
-            ("List all configuration values", "mng config list"),
-            ("Get a specific value", "mng config get provider.docker.image"),
-            ("Set a value at user scope", "mng config set --user provider.docker.image my-image:latest"),
-            ("Edit config in your editor", "mng config edit"),
-            ("Show config file paths", "mng config path"),
-        ),
-        see_also=(("create", "Create a new agent with configuration"),),
+    aliases=("cfg",),
+    examples=(
+        ("List all configuration values", "mng config list"),
+        ("Get a specific value", "mng config get provider.docker.image"),
+        ("Set a value at user scope", "mng config set --user provider.docker.image my-image:latest"),
+        ("Edit config in your editor", "mng config edit"),
+        ("Show config file paths", "mng config path"),
     ),
-)
+    see_also=(("create", "Create a new agent with configuration"),),
+).register()
 
 add_pager_help_option(config)
 
 # -- Subcommand help metadata --
 
-register_help_metadata(
-    "config.list",
-    CommandHelpMetadata(
-        key="config.list",
-        one_line_description="List all configuration values",
-        synopsis="mng config list [OPTIONS]",
-        description="""List all configuration values.
+CommandHelpMetadata(
+    key="config.list",
+    one_line_description="List all configuration values",
+    synopsis="mng config list [OPTIONS]",
+    description="""List all configuration values.
 
 Shows all configuration settings from the specified scope, or from the
 merged configuration if no scope is specified.
 
 Supports custom format templates via --format. Available fields:
 key, value.""",
-        examples=(
-            ("List merged configuration", "mng config list"),
-            ("List user-scope configuration", "mng config list --scope user"),
-            ("Output as JSON", "mng config list --format json"),
-            ("Custom format template", "mng config list --format '{key}={value}'"),
-        ),
-        see_also=(
-            ("config get", "Get a specific configuration value"),
-            ("config set", "Set a configuration value"),
-        ),
+    examples=(
+        ("List merged configuration", "mng config list"),
+        ("List user-scope configuration", "mng config list --scope user"),
+        ("Output as JSON", "mng config list --format json"),
+        ("Custom format template", "mng config list --format '{key}={value}'"),
     ),
-)
+    see_also=(
+        ("config get", "Get a specific configuration value"),
+        ("config set", "Set a configuration value"),
+    ),
+).register()
 add_pager_help_option(config_list)
 
-register_help_metadata(
-    "config.get",
-    CommandHelpMetadata(
-        key="config.get",
-        one_line_description="Get a configuration value",
-        synopsis="mng config get KEY [OPTIONS]",
-        description="""Get a configuration value.
+CommandHelpMetadata(
+    key="config.get",
+    one_line_description="Get a configuration value",
+    synopsis="mng config get KEY [OPTIONS]",
+    description="""Get a configuration value.
 
 Retrieves the value of a specific configuration key. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
 
 By default reads from the merged configuration. Use --scope to read
 from a specific scope.""",
-        examples=(
-            ("Get a top-level key", "mng config get prefix"),
-            ("Get a nested key", "mng config get commands.create.connect"),
-            ("Get from a specific scope", "mng config get logging.console_level --scope user"),
-        ),
-        see_also=(
-            ("config set", "Set a configuration value"),
-            ("config list", "List all configuration values"),
-        ),
+    examples=(
+        ("Get a top-level key", "mng config get prefix"),
+        ("Get a nested key", "mng config get commands.create.connect"),
+        ("Get from a specific scope", "mng config get logging.console_level --scope user"),
     ),
-)
+    see_also=(
+        ("config set", "Set a configuration value"),
+        ("config list", "List all configuration values"),
+    ),
+).register()
 add_pager_help_option(config_get)
 
-register_help_metadata(
-    "config.set",
-    CommandHelpMetadata(
-        key="config.set",
-        one_line_description="Set a configuration value",
-        synopsis="mng config set KEY VALUE [OPTIONS]",
-        description="""Set a configuration value.
+CommandHelpMetadata(
+    key="config.set",
+    one_line_description="Set a configuration value",
+    synopsis="mng config set KEY VALUE [OPTIONS]",
+    description="""Set a configuration value.
 
 Sets a configuration value at the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').
 
 Values are parsed as JSON if possible, otherwise as strings.
 Use 'true'/'false' for booleans, numbers for integers/floats.""",
-        examples=(
-            ("Set a string value", 'mng config set prefix "my-"'),
-            ("Set a boolean value", "mng config set commands.create.connect false"),
-            ("Set at user scope", "mng config set logging.console_level DEBUG --scope user"),
-        ),
-        see_also=(
-            ("config get", "Get a configuration value"),
-            ("config unset", "Remove a configuration value"),
-        ),
+    examples=(
+        ("Set a string value", 'mng config set prefix "my-"'),
+        ("Set a boolean value", "mng config set commands.create.connect false"),
+        ("Set at user scope", "mng config set logging.console_level DEBUG --scope user"),
     ),
-)
+    see_also=(
+        ("config get", "Get a configuration value"),
+        ("config unset", "Remove a configuration value"),
+    ),
+).register()
 add_pager_help_option(config_set)
 
-register_help_metadata(
-    "config.unset",
-    CommandHelpMetadata(
-        key="config.unset",
-        one_line_description="Remove a configuration value",
-        synopsis="mng config unset KEY [OPTIONS]",
-        description="""Remove a configuration value.
+CommandHelpMetadata(
+    key="config.unset",
+    one_line_description="Remove a configuration value",
+    synopsis="mng config unset KEY [OPTIONS]",
+    description="""Remove a configuration value.
 
 Removes a configuration value from the specified scope. Use dot notation
 for nested keys (e.g., 'commands.create.connect').""",
-        examples=(
-            ("Remove a key from project scope", "mng config unset commands.create.connect"),
-            ("Remove a key from user scope", "mng config unset logging.console_level --scope user"),
-        ),
-        see_also=(
-            ("config set", "Set a configuration value"),
-            ("config get", "Get a configuration value"),
-        ),
+    examples=(
+        ("Remove a key from project scope", "mng config unset commands.create.connect"),
+        ("Remove a key from user scope", "mng config unset logging.console_level --scope user"),
     ),
-)
+    see_also=(
+        ("config set", "Set a configuration value"),
+        ("config get", "Get a configuration value"),
+    ),
+).register()
 add_pager_help_option(config_unset)
 
-register_help_metadata(
-    "config.edit",
-    CommandHelpMetadata(
-        key="config.edit",
-        one_line_description="Open configuration file in editor",
-        synopsis="mng config edit [OPTIONS]",
-        description="""Open configuration file in editor.
+CommandHelpMetadata(
+    key="config.edit",
+    one_line_description="Open configuration file in editor",
+    synopsis="mng config edit [OPTIONS]",
+    description="""Open configuration file in editor.
 
 Opens the configuration file for the specified scope in your default
 editor (from $EDITOR or $VISUAL environment variable, or 'vi' as fallback).
 
 If the config file doesn't exist, it will be created with an empty template.""",
-        examples=(
-            ("Edit project config (default)", "mng config edit"),
-            ("Edit user config", "mng config edit --scope user"),
-            ("Edit local config", "mng config edit --scope local"),
-        ),
-        see_also=(
-            ("config path", "Show configuration file paths"),
-            ("config set", "Set a configuration value"),
-        ),
+    examples=(
+        ("Edit project config (default)", "mng config edit"),
+        ("Edit user config", "mng config edit --scope user"),
+        ("Edit local config", "mng config edit --scope local"),
     ),
-)
+    see_also=(
+        ("config path", "Show configuration file paths"),
+        ("config set", "Set a configuration value"),
+    ),
+).register()
 add_pager_help_option(config_edit)
 
-register_help_metadata(
-    "config.path",
-    CommandHelpMetadata(
-        key="config.path",
-        one_line_description="Show configuration file paths",
-        synopsis="mng config path [OPTIONS]",
-        description="""Show configuration file paths.
+CommandHelpMetadata(
+    key="config.path",
+    one_line_description="Show configuration file paths",
+    synopsis="mng config path [OPTIONS]",
+    description="""Show configuration file paths.
 
 Shows the paths to configuration files. If --scope is specified, shows
 only that scope's path. Otherwise shows all paths and whether they exist.""",
-        examples=(
-            ("Show all config file paths", "mng config path"),
-            ("Show user config path", "mng config path --scope user"),
-        ),
-        see_also=(
-            ("config edit", "Open configuration file in editor"),
-            ("config list", "List all configuration values"),
-        ),
+    examples=(
+        ("Show all config file paths", "mng config path"),
+        ("Show user config path", "mng config path --scope user"),
     ),
-)
+    see_also=(
+        ("config edit", "Open configuration file in editor"),
+        ("config list", "List all configuration values"),
+    ),
+).register()
 add_pager_help_option(config_path)

@@ -18,7 +18,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
@@ -501,13 +500,11 @@ def _run_post_destroy_gc(mng_ctx: MngContext, output_opts: OutputOptions) -> Non
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "destroy",
-    CommandHelpMetadata(
-        key="destroy",
-        one_line_description="Destroy agent(s) and clean up resources",
-        synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
-        description="""Destroy one or more agents and clean up their resources.
+CommandHelpMetadata(
+    key="destroy",
+    one_line_description="Destroy agent(s) and clean up resources",
+    synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
+    description="""Destroy one or more agents and clean up their resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed
 (including containers, volumes, snapshots, and any remote infrastructure).
@@ -517,27 +514,26 @@ Use with caution! This operation is irreversible.
 By default, running agents cannot be destroyed. Use --force to stop and destroy
 running agents. The command will prompt for confirmation before destroying
 agents unless --force is specified.""",
-        aliases=("rm",),
-        examples=(
-            ("Destroy an agent by name", "mng destroy my-agent"),
-            ("Destroy multiple agents", "mng destroy agent1 agent2 agent3"),
-            ("Destroy all agents", "mng destroy --all --force"),
-            ("Preview what would be destroyed", "mng destroy my-agent --dry-run"),
-        ),
-        see_also=(
-            ("create", "Create a new agent"),
-            ("list", "List existing agents"),
-            ("gc", "Garbage collect orphaned resources"),
-        ),
-        additional_sections=(
-            (
-                "Related Documentation",
-                """- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
+    aliases=("rm",),
+    examples=(
+        ("Destroy an agent by name", "mng destroy my-agent"),
+        ("Destroy multiple agents", "mng destroy agent1 agent2 agent3"),
+        ("Destroy all agents", "mng destroy --all --force"),
+        ("Preview what would be destroyed", "mng destroy my-agent --dry-run"),
+    ),
+    see_also=(
+        ("create", "Create a new agent"),
+        ("list", "List existing agents"),
+        ("gc", "Garbage collect orphaned resources"),
+    ),
+    additional_sections=(
+        (
+            "Related Documentation",
+            """- [Resource Cleanup Options](../generic/resource_cleanup.md) - Control which associated resources are destroyed
 - [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
-            ),
         ),
     ),
-)
+).register()
 
 # Add pager-enabled help option to the destroy command
 add_pager_help_option(destroy)

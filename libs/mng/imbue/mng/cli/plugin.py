@@ -29,7 +29,6 @@ from imbue.mng.cli.config import save_config_file
 from imbue.mng.cli.config import set_nested_value
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -705,152 +704,134 @@ def _emit_plugin_toggle_result(
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "plugin",
-    CommandHelpMetadata(
-        key="plugin",
-        one_line_description="Manage available and active plugins [experimental]",
-        synopsis="mng [plugin|plug] <subcommand> [OPTIONS]",
-        description="""Manage available and active plugins.
+CommandHelpMetadata(
+    key="plugin",
+    one_line_description="Manage available and active plugins [experimental]",
+    synopsis="mng [plugin|plug] <subcommand> [OPTIONS]",
+    description="""Manage available and active plugins.
 
 Install, remove, view, enable, and disable plugins registered with mng.
 Plugins provide agent types, provider backends, CLI commands, and lifecycle hooks.""",
-        aliases=("plug",),
-        examples=(
-            ("List all plugins", "mng plugin list"),
-            ("List only active plugins", "mng plugin list --active"),
-            ("List plugins as JSON", "mng plugin list --format json"),
-            ("Show specific fields", "mng plugin list --fields name,enabled"),
-            ("Install a plugin from PyPI", "mng plugin add mng-pair"),
-            ("Install a local plugin", "mng plugin add --path ./my-plugin"),
-            ("Install a plugin from git", "mng plugin add --git https://github.com/user/mng-plugin.git"),
-            ("Remove a plugin", "mng plugin remove mng-pair"),
-            ("Enable a plugin", "mng plugin enable modal"),
-            ("Disable a plugin", "mng plugin disable modal --scope user"),
-        ),
-        see_also=(("config", "Manage mng configuration"),),
+    aliases=("plug",),
+    examples=(
+        ("List all plugins", "mng plugin list"),
+        ("List only active plugins", "mng plugin list --active"),
+        ("List plugins as JSON", "mng plugin list --format json"),
+        ("Show specific fields", "mng plugin list --fields name,enabled"),
+        ("Install a plugin from PyPI", "mng plugin add mng-pair"),
+        ("Install a local plugin", "mng plugin add --path ./my-plugin"),
+        ("Install a plugin from git", "mng plugin add --git https://github.com/user/mng-plugin.git"),
+        ("Remove a plugin", "mng plugin remove mng-pair"),
+        ("Enable a plugin", "mng plugin enable modal"),
+        ("Disable a plugin", "mng plugin disable modal --scope user"),
     ),
-)
+    see_also=(("config", "Manage mng configuration"),),
+).register()
 
 add_pager_help_option(plugin)
 
 # -- Subcommand help metadata --
 
-register_help_metadata(
-    "plugin.list",
-    CommandHelpMetadata(
-        key="plugin.list",
-        one_line_description="List discovered plugins [experimental]",
-        synopsis="mng plugin list [OPTIONS]",
-        description="""List discovered plugins.
+CommandHelpMetadata(
+    key="plugin.list",
+    one_line_description="List discovered plugins [experimental]",
+    synopsis="mng plugin list [OPTIONS]",
+    description="""List discovered plugins.
 
 Shows all plugins registered with mng, including built-in plugins
 and any externally installed plugins.
 
 Supports custom format templates via --format. Available fields:
 name, version, description, enabled.""",
-        examples=(
-            ("List all plugins", "mng plugin list"),
-            ("List only active plugins", "mng plugin list --active"),
-            ("Output as JSON", "mng plugin list --format json"),
-            ("Show specific fields", "mng plugin list --fields name,enabled"),
-            ("Custom format template", "mng plugin list --format '{name}\\t{enabled}'"),
-        ),
-        see_also=(
-            ("plugin add", "Install a plugin package"),
-            ("plugin enable", "Enable a plugin"),
-        ),
+    examples=(
+        ("List all plugins", "mng plugin list"),
+        ("List only active plugins", "mng plugin list --active"),
+        ("Output as JSON", "mng plugin list --format json"),
+        ("Show specific fields", "mng plugin list --fields name,enabled"),
+        ("Custom format template", "mng plugin list --format '{name}\\t{enabled}'"),
     ),
-)
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin enable", "Enable a plugin"),
+    ),
+).register()
 add_pager_help_option(plugin_list)
 
-register_help_metadata(
-    "plugin.add",
-    CommandHelpMetadata(
-        key="plugin.add",
-        one_line_description="Install a plugin package [experimental]",
-        synopsis="mng plugin add [NAME] [OPTIONS]",
-        description="""Install a plugin package.
+CommandHelpMetadata(
+    key="plugin.add",
+    one_line_description="Install a plugin package [experimental]",
+    synopsis="mng plugin add [NAME] [OPTIONS]",
+    description="""Install a plugin package.
 
 Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
 package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
 from a local directory in editable mode. --git installs from a git URL.""",
-        examples=(
-            ("Install from PyPI", "mng plugin add mng-pair"),
-            ("Install with version constraint", "mng plugin add mng-pair>=1.0"),
-            ("Install from a local path", "mng plugin add --path ./my-plugin"),
-            ("Install from a git URL", "mng plugin add --git https://github.com/user/mng-plugin.git"),
-        ),
-        see_also=(
-            ("plugin remove", "Uninstall a plugin package"),
-            ("plugin list", "List discovered plugins"),
-        ),
+    examples=(
+        ("Install from PyPI", "mng plugin add mng-pair"),
+        ("Install with version constraint", "mng plugin add mng-pair>=1.0"),
+        ("Install from a local path", "mng plugin add --path ./my-plugin"),
+        ("Install from a git URL", "mng plugin add --git https://github.com/user/mng-plugin.git"),
     ),
-)
+    see_also=(
+        ("plugin remove", "Uninstall a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
 add_pager_help_option(plugin_add)
 
-register_help_metadata(
-    "plugin.remove",
-    CommandHelpMetadata(
-        key="plugin.remove",
-        one_line_description="Uninstall a plugin package [experimental]",
-        synopsis="mng plugin remove [NAME] [OPTIONS]",
-        description="""Uninstall a plugin package.
+CommandHelpMetadata(
+    key="plugin.remove",
+    one_line_description="Uninstall a plugin package [experimental]",
+    synopsis="mng plugin remove [NAME] [OPTIONS]",
+    description="""Uninstall a plugin package.
 
 Provide exactly one of NAME (positional) or --path. For local paths,
 the package name is read from pyproject.toml.""",
-        examples=(
-            ("Remove by name", "mng plugin remove mng-pair"),
-            ("Remove by local path", "mng plugin remove --path ./my-plugin"),
-        ),
-        see_also=(
-            ("plugin add", "Install a plugin package"),
-            ("plugin list", "List discovered plugins"),
-        ),
+    examples=(
+        ("Remove by name", "mng plugin remove mng-pair"),
+        ("Remove by local path", "mng plugin remove --path ./my-plugin"),
     ),
-)
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
 add_pager_help_option(plugin_remove)
 
-register_help_metadata(
-    "plugin.enable",
-    CommandHelpMetadata(
-        key="plugin.enable",
-        one_line_description="Enable a plugin [experimental]",
-        synopsis="mng plugin enable NAME [OPTIONS]",
-        description="""Enable a plugin.
+CommandHelpMetadata(
+    key="plugin.enable",
+    one_line_description="Enable a plugin [experimental]",
+    synopsis="mng plugin enable NAME [OPTIONS]",
+    description="""Enable a plugin.
 
 Sets plugins.<name>.enabled = true in the configuration file at the
 specified scope.""",
-        examples=(
-            ("Enable at project scope (default)", "mng plugin enable modal"),
-            ("Enable at user scope", "mng plugin enable modal --scope user"),
-        ),
-        see_also=(
-            ("plugin disable", "Disable a plugin"),
-            ("plugin list", "List discovered plugins"),
-        ),
+    examples=(
+        ("Enable at project scope (default)", "mng plugin enable modal"),
+        ("Enable at user scope", "mng plugin enable modal --scope user"),
     ),
-)
+    see_also=(
+        ("plugin disable", "Disable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
 add_pager_help_option(plugin_enable)
 
-register_help_metadata(
-    "plugin.disable",
-    CommandHelpMetadata(
-        key="plugin.disable",
-        one_line_description="Disable a plugin [experimental]",
-        synopsis="mng plugin disable NAME [OPTIONS]",
-        description="""Disable a plugin.
+CommandHelpMetadata(
+    key="plugin.disable",
+    one_line_description="Disable a plugin [experimental]",
+    synopsis="mng plugin disable NAME [OPTIONS]",
+    description="""Disable a plugin.
 
 Sets plugins.<name>.enabled = false in the configuration file at the
 specified scope.""",
-        examples=(
-            ("Disable at project scope (default)", "mng plugin disable modal"),
-            ("Disable at user scope", "mng plugin disable modal --scope user"),
-        ),
-        see_also=(
-            ("plugin enable", "Enable a plugin"),
-            ("plugin list", "List discovered plugins"),
-        ),
+    examples=(
+        ("Disable at project scope (default)", "mng plugin disable modal"),
+        ("Disable at user scope", "mng plugin disable modal --scope user"),
     ),
-)
+    see_also=(
+        ("plugin enable", "Enable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+).register()
 add_pager_help_option(plugin_disable)

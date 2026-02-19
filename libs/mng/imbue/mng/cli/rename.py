@@ -13,7 +13,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -141,14 +140,12 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "rename",
-    CommandHelpMetadata(
-        key="rename",
-        one_line_description="Rename an agent or host [experimental]",
-        synopsis="mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
-        arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
-        description="""Rename an agent or host.
+CommandHelpMetadata(
+    key="rename",
+    one_line_description="Rename an agent or host [experimental]",
+    synopsis="mng [rename|mv] <CURRENT> <NEW-NAME> [--dry-run] [--host]",
+    arguments_description="- `CURRENT`: Current name or ID of the agent to rename\n- `NEW-NAME`: New name for the agent",
+    description="""Rename an agent or host.
 
 Updates the agent's name in its data.json and renames the tmux session
 if the agent is currently running. Git branch names are not renamed.
@@ -156,19 +153,18 @@ if the agent is currently running. Git branch names are not renamed.
 If a previous rename was interrupted (e.g., the tmux session was renamed
 but data.json was not updated), re-running the command will attempt
 to complete it.""",
-        aliases=("mv",),
-        examples=(
-            ("Rename an agent", "mng rename my-agent new-name"),
-            ("Preview what would be renamed", "mng rename my-agent new-name --dry-run"),
-            ("Use the alias", "mng mv my-agent new-name"),
-        ),
-        see_also=(
-            ("list", "List existing agents"),
-            ("create", "Create a new agent"),
-            ("destroy", "Destroy an agent"),
-        ),
+    aliases=("mv",),
+    examples=(
+        ("Rename an agent", "mng rename my-agent new-name"),
+        ("Preview what would be renamed", "mng rename my-agent new-name --dry-run"),
+        ("Use the alias", "mng mv my-agent new-name"),
     ),
-)
+    see_also=(
+        ("list", "List existing agents"),
+        ("create", "Create a new agent"),
+        ("destroy", "Destroy an agent"),
+    ),
+).register()
 
 # Add pager-enabled help option to the rename command
 add_pager_help_option(rename)

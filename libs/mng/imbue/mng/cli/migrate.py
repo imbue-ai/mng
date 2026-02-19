@@ -5,7 +5,6 @@ from imbue.mng.cli.clone import parse_source_and_invoke_create
 from imbue.mng.cli.destroy import destroy as destroy_cmd
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 
 
 @click.command(
@@ -33,13 +32,11 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
         raise
 
 
-register_help_metadata(
-    "migrate",
-    CommandHelpMetadata(
-        key="migrate",
-        one_line_description="Move an agent to a different host [experimental]",
-        synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-        description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
+CommandHelpMetadata(
+    key="migrate",
+    one_line_description="Move an agent to a different host [experimental]",
+    synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
+    description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
 
 This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to
@@ -50,16 +47,15 @@ The source agent is always force-destroyed after a successful clone. If the
 clone step fails, the source agent is left untouched. If the destroy step
 fails after a successful clone, the error is reported and the user can
 manually clean up.""",
-        examples=(
-            ("Migrate an agent to a Docker container", "mng migrate my-agent --in docker"),
-            ("Migrate with a new name", "mng migrate my-agent new-agent --in modal"),
-            ("Migrate and pass args to the agent", "mng migrate my-agent -- --model opus"),
-        ),
-        see_also=(
-            ("clone", "Clone an agent (without destroying the original)"),
-            ("create", "Create an agent (full option set)"),
-            ("destroy", "Destroy an agent"),
-        ),
+    examples=(
+        ("Migrate an agent to a Docker container", "mng migrate my-agent --in docker"),
+        ("Migrate with a new name", "mng migrate my-agent new-agent --in modal"),
+        ("Migrate and pass args to the agent", "mng migrate my-agent -- --model opus"),
     ),
-)
+    see_also=(
+        ("clone", "Clone an agent (without destroying the original)"),
+        ("create", "Create an agent (full option set)"),
+        ("destroy", "Destroy an agent"),
+    ),
+).register()
 add_pager_help_option(migrate)

@@ -31,7 +31,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -474,13 +473,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "connect",
-    CommandHelpMetadata(
-        key="connect",
-        one_line_description="Connect to an existing agent via the terminal",
-        synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
-        description="""Connect to an existing agent via the terminal.
+CommandHelpMetadata(
+    key="connect",
+    one_line_description="Connect to an existing agent via the terminal",
+    synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
+    description="""Connect to an existing agent via the terminal.
 
 Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mng open` to
@@ -493,18 +490,17 @@ by name.
 The agent can be specified as a positional argument or via --agent:
   mng connect my-agent
   mng connect --agent my-agent""",
-        aliases=("conn",),
-        examples=(
-            ("Connect to an agent by name", "mng connect my-agent"),
-            ("Connect without auto-starting if stopped", "mng connect my-agent --no-start"),
-            ("Show interactive agent selector", "mng connect"),
-        ),
-        see_also=(
-            ("create", "Create and connect to a new agent"),
-            ("list", "List available agents"),
-        ),
+    aliases=("conn",),
+    examples=(
+        ("Connect to an agent by name", "mng connect my-agent"),
+        ("Connect without auto-starting if stopped", "mng connect my-agent --no-start"),
+        ("Show interactive agent selector", "mng connect"),
     ),
-)
+    see_also=(
+        ("create", "Create and connect to a new agent"),
+        ("list", "List available agents"),
+    ),
+).register()
 
 # Add pager-enabled help option to the connect command
 add_pager_help_option(connect)

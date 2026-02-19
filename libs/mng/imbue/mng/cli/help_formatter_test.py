@@ -16,7 +16,6 @@ from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.cli.help_formatter import get_pager_command
 from imbue.mng.cli.help_formatter import help_option_callback
 from imbue.mng.cli.help_formatter import is_interactive_terminal
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import run_pager
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.config.data_types import MngConfig
@@ -64,8 +63,8 @@ def test_register_and_get_help_metadata() -> None:
         examples=(("Run a basic test", "mng test"),),
     )
 
-    register_help_metadata("test", metadata)
-    retrieved = get_help_metadata("test")
+    metadata.register()
+    retrieved = get_help_metadata("test-cmd")
 
     assert retrieved is not None
     assert retrieved.key == "test-cmd"
@@ -567,7 +566,7 @@ def test_all_subcommands_have_git_style_help() -> None:
             )
             assert "NAME" in result.output, (
                 f"mng {cmd.name} {subcmd_name} --help does not show git-style help. "
-                f"Add CommandHelpMetadata + register_help_metadata + add_pager_help_option. "
+                f"Add CommandHelpMetadata(...).register() + add_pager_help_option. "
                 f"Help tests must invoke through the root cli group (not the subgroup directly) "
                 f"for key resolution to work."
             )

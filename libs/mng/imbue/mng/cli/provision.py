@@ -14,7 +14,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.config.data_types import OutputOptions
@@ -232,13 +231,11 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-register_help_metadata(
-    "provision",
-    CommandHelpMetadata(
-        key="provision",
-        one_line_description="Re-run provisioning on an existing agent [experimental]",
-        synopsis="mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
-        description="""Re-run provisioning on an existing agent.
+CommandHelpMetadata(
+    key="provision",
+    one_line_description="Re-run provisioning on an existing agent [experimental]",
+    synopsis="mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
+    description="""Re-run provisioning on an existing agent.
 
 This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for
@@ -257,24 +254,23 @@ packages.
 Provisioning is done per agent, but changes are visible to other agents on the
 same host. Be careful to avoid conflicts when provisioning multiple agents on
 the same host.""",
-        aliases=("prov",),
-        arguments_description="- `AGENT`: Agent name or ID to provision",
-        examples=(
-            ("Re-provision an agent", "mng provision my-agent"),
-            (
-                "Install a package without restarting",
-                "mng provision my-agent --user-command 'pip install pandas' --no-restart",
-            ),
-            ("Upload a config file", "mng provision my-agent --upload-file ./config.json:/app/config.json"),
-            ("Set an environment variable", "mng provision my-agent --env 'API_KEY=secret'"),
-            ("Run a root command", "mng provision my-agent --sudo-command 'apt-get install -y ffmpeg'"),
+    aliases=("prov",),
+    arguments_description="- `AGENT`: Agent name or ID to provision",
+    examples=(
+        ("Re-provision an agent", "mng provision my-agent"),
+        (
+            "Install a package without restarting",
+            "mng provision my-agent --user-command 'pip install pandas' --no-restart",
         ),
-        see_also=(
-            ("create", "Create and run an agent"),
-            ("connect", "Connect to an agent"),
-            ("list", "List existing agents"),
-        ),
+        ("Upload a config file", "mng provision my-agent --upload-file ./config.json:/app/config.json"),
+        ("Set an environment variable", "mng provision my-agent --env 'API_KEY=secret'"),
+        ("Run a root command", "mng provision my-agent --sudo-command 'apt-get install -y ffmpeg'"),
     ),
-)
+    see_also=(
+        ("create", "Create and run an agent"),
+        ("connect", "Connect to an agent"),
+        ("list", "List existing agents"),
+    ),
+).register()
 
 add_pager_help_option(provision)
