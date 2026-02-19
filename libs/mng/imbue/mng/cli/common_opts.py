@@ -143,11 +143,6 @@ def add_common_options(command: TDecorated) -> TDecorated:
     return command
 
 
-def _apply_process_env(process_env: dict[str, str]) -> None:
-    """Set environment variables from the process_env config."""
-    os.environ.update(process_env)
-
-
 def setup_command_context(
     ctx: click.Context,
     command_name: str,
@@ -192,7 +187,7 @@ def setup_command_context(
     )
 
     # Apply process environment variables from config
-    _apply_process_env(mng_ctx.config.process_env)
+    os.environ.update(mng_ctx.config.process_env)
 
     # Apply config defaults to parameters that came from defaults (not user-specified)
     updated_params = apply_config_defaults(ctx, mng_ctx.config, command_name)
