@@ -15,8 +15,8 @@ members = [
     "imbue",
     "imbue-common",
     "mng",
-    "mng-pair",
     "mng-opencode",
+    "mng-pair",
     "sculptor-desktop",
     "sculptor-web",
 ]
@@ -669,7 +669,7 @@ wheels = [
 
 [[package]]
 name = "concurrency-group"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "libs/concurrency_group" }
 dependencies = [
     { name = "imbue-common" },
@@ -1535,7 +1535,7 @@ dev = [
 
 [[package]]
 name = "imbue-common"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "libs/imbue_common" }
 dependencies = [
     { name = "click" },
@@ -1804,7 +1804,7 @@ wheels = [
 
 [[package]]
 name = "mng"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "libs/mng" }
 dependencies = [
     { name = "cel-python" },
@@ -1854,6 +1854,17 @@ requires-dist = [
 ]
 
 [[package]]
+name = "mng-opencode"
+version = "0.1.0"
+source = { editable = "libs/mng_opencode" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
+
+[[package]]
 name = "mng-pair"
 version = "0.1.0"
 source = { editable = "libs/mng_pair" }
@@ -1867,17 +1878,6 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
-
-[[package]]
-name = "mng-opencode"
-version = "0.1.0"
-source = { editable = "libs/mng_opencode" }
-dependencies = [
-    { name = "mng" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "modal"
