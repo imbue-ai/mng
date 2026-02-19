@@ -68,7 +68,7 @@ mngr create --in modal -b cidr-allowlist=203.0.113.0/24
 
 ```bash
 # start multiple agents on the same host to save money and share data
-mngr create agent-1 --in modal --host shared-host
+mngr create agent-1 --in modal --host-name shared-host
 mngr create agent-2 --in modal --host shared-host
 
 # programmatically send messages to your agents and see their chat histories
@@ -205,12 +205,12 @@ You can interact with `mngr` either via:
 
 `mngr` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
-- **[agents](./docs/concepts/agents.md)** are simply [processes](TK-process) that run in [tmux](TK-tmux) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
+- **[agents](./docs/concepts/agents.md)** are simply [processes](https://en.wikipedia.org/wiki/Unix_process) that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
 - [agents](./docs/concepts/agents.md) usually expose URLs so you can access them from the web
 - [agents](./docs/concepts/agents.md) run on **[hosts](./docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
 - multiple [agents](./docs/concepts/agents.md) can share a single [host](./docs/concepts/hosts.md).
 - [hosts](./docs/concepts/hosts.md) come from **[providers](./docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
-- [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md)) for more details.
+- [hosts](./docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](./docs/concepts/agents.md) are "idle". See [idle detection](./docs/concepts/idle_detection.md) for more details.
 - [hosts](./docs/concepts/hosts.md) automatically "stop" when all of their [agents](./docs/concepts/agents.md) are "stopped"
 - `mngr` is absurdly extensible--there are existing **[plugins](./docs/concepts/plugins.md)** for almost everything, and `mngr` can even dynamically generate new plugins [future]
 
@@ -228,7 +228,7 @@ See [`architecture.md`](./docs/architecture.md) for an in-depth overview of the 
 ## Security
 
 **Best practices:**
-1. Use providers with good isolation (like Docker or Modal) when working with agents, especialy those that are untrusted.
+1. Use providers with good isolation (like Docker or Modal) when working with agents, especially those that are untrusted.
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 

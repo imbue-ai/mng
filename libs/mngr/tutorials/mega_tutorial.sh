@@ -64,7 +64,7 @@ mngr create my-task --agent-command python --idle-mode run --idle-timeout 60 -- 
 mngr create my-task --add-command server="npm run dev" --add-command logs="tail -f app.log"
 # that command automatically starts two tmux windows named "server" and "logs" that run those commands (in addition to the main window that runs the agent)
 
-## SENDING SENDING MESSAGES ON LAUNCH
+## SENDING MESSAGES ON LAUNCH
 
 # you can send an initial message (so you don't have to wait around, eg, while a Modal container starts)
 mngr create my-task --in modal --no-connect --message "Speed up one of my tests and make a PR on github"
@@ -210,11 +210,11 @@ mngr create my-task --in modal --pass-host-env MY_VAR
 ## TEMPLATES, ALIASES, AND SHORTCUTS
 
 # you can use templates to quickly apply a set of preconfigured options:
-echo "[create_templates.my_modal_template]" >> .mngr/config.local.toml
-echo "in: modal" >> .mngr/config.local.toml
-echo 'build_args = "cpu=4' >> .mngr/config.local.toml
+echo '[create_templates.my_modal_template]' >> .mngr/settings.local.toml
+echo 'new_host = "modal"' >> .mngr/settings.local.toml
+echo 'build_args = "cpu=4"' >> .mngr/settings.local.toml
 mngr create my-task --template my_modal_template
-# templates are defined in your config (see the CONFIGURATION section for more) and can be stacked: -template modal --template codex
+# templates are defined in your config (see the CONFIGURATION section for more) and can be stacked: --template modal --template codex
 # templates take exactly the same parameters as the create command
 # -t is short for --template. Many commands have a short form (see the "--help")
 

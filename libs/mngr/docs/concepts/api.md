@@ -23,6 +23,6 @@ mngr calls these on your plugin at specific points during command execution. Imp
 | `override_command_options`   | Override or modify command options after CLI parsing and config defaults, but before the command options object is created |
 | `on_before_create`           | Inspect and modify create arguments before any work is done                                                    |
 | `on_agent_created`           | React after an agent has been created                                                                          |
-| `on_agent_destroyed`         | React before an agent is destroyed [future]                                                                    |
-| `on_host_created`            | React after a host has been created [future]                                                                   |
-| `on_host_destroyed`          | React before a host is destroyed [future]                                                                      |
+| `on_agent_destroyed`         | React before an agent is destroyed [experimental]                                                              |
+| `on_host_created`            | React after a host has been created [experimental]                                                             |
+| `on_host_destroyed`          | React before a host is destroyed [experimental]                                                                |

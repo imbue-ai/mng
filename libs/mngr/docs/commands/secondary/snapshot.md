@@ -128,6 +128,10 @@ List snapshots for agent host(s). [experimental]
 
 Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
+Positional arguments can be agent names/IDs or host names/IDs. Each
+identifier is automatically resolved: if it matches a known agent, that
+agent's host is used; otherwise it is treated as a host identifier.
+
 Supports custom format templates via --format. Available fields:
 id, name, created_at, size, size_bytes, host_id.
 
@@ -146,7 +150,7 @@ Examples:
 **Usage:**
 
 ```text
-mngr snapshot list [OPTIONS] [AGENTS]...
+mngr snapshot list [OPTIONS] [IDENTIFIERS]...
 ```
 
 **Options:**
@@ -156,6 +160,7 @@ mngr snapshot list [OPTIONS] [AGENTS]...
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--agent` | text | Agent name or ID to list snapshots for (can be specified multiple times) | None |
+| `--host` | text | Host ID or name to list snapshots for directly (can be specified multiple times) | None |
 | `-a`, `--all`, `--all-agents` | boolean | List snapshots for all running agents | `False` |
 
 ## Filtering
