@@ -14,6 +14,7 @@ from imbue.mng.cli.common_opts import TCommand
 from imbue.mng.cli.common_opts import create_group_title_option
 from imbue.mng.cli.common_opts import find_last_option_index_in_group
 from imbue.mng.cli.common_opts import find_option_group
+from imbue.mng.cli.completion import read_cached_commands
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
@@ -159,7 +160,13 @@ class AliasAwareGroup(DefaultCommandGroup):
                 formatter.write_dl(rows)
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        completions = super().shell_complete(ctx, incomplete)
+        cached_commands = read_cached_commands()
+        if cached_commands is not None:
+            completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
+            # Include option completions (--help, --version) from the base Command class
+            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+        else:
+            completions = super().shell_complete(ctx, incomplete)
         completed_names = {item.value for item in completions}
         return [
             item

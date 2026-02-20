@@ -2,6 +2,7 @@ from typing import Any
 from typing import assert_never
 
 import click
+from click.shell_completion import CompletionItem
 from click_option_group import optgroup
 from loguru import logger
 
@@ -13,6 +14,7 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.completion import read_cached_subcommands
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
@@ -377,6 +379,14 @@ class _SnapshotGroup(DefaultCommandGroup):
     """
 
     _config_key = "snapshot"
+
+    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
+        cached = read_cached_subcommands("snapshot")
+        if cached is not None:
+            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
+            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+            return completions
+        return super().shell_complete(ctx, incomplete)
 
 
 @click.group(name="snapshot", cls=_SnapshotGroup)
