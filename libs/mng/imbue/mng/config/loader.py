@@ -705,8 +705,8 @@ def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract `default_subcommand` entries from a TOML config file."""
     try:
         raw = _load_toml(path)
-    except ConfigParseError as e:
-        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
+    except (ConfigNotFoundError, ConfigParseError) as e:
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
         return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
@@ -740,8 +740,8 @@ def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
     try:
         raw = _load_toml(path)
-    except ConfigParseError as e:
-        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
+    except (ConfigNotFoundError, ConfigParseError) as e:
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
         return {}
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
