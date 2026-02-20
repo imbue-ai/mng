@@ -1,12 +1,10 @@
 import os
 import tomllib
-from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Sequence
-from typing import TypeVar
 from uuid import uuid4
 
 import pluggy
@@ -658,34 +656,26 @@ def _merge_command_defaults(
 # loading). Trace-level logs will only be visible with loguru's default
 # stderr sink if someone explicitly lowers the level.
 #
-# Each pre-reader provides a per-file extractor callback that
-# _read_config_layers_lightweight applies across the three config layers
-# (user, project, local) with correct precedence.
+# _resolve_config_file_paths returns the existing config file paths in
+# precedence order (user, project, local). Each pre-reader calls its own
+# per-file loader and merges the results via dict comprehension, so later
+# layers naturally override earlier ones.
 
-T_PreReadTarget = TypeVar("T_PreReadTarget", dict[str, str], dict[str, bool])
 
-
-def _read_config_layers_lightweight(
-    merge_from_file: Callable[[Path, T_PreReadTarget], None],
-    target: T_PreReadTarget,
-) -> None:
-    """Apply a per-file extractor across all config layers with correct precedence.
-
-    Reads user config, project config, and local config in order (lowest
-    to highest priority). The merge_from_file callback is responsible for
-    extracting relevant values from each TOML file and merging them into
-    target.
-    """
+def _resolve_config_file_paths() -> list[Path]:
+    """Return existing config file paths in precedence order (lowest to highest)."""
     root_name = os.environ.get("MNG_ROOT_NAME", "mng")
     env_host_dir = os.environ.get("MNG_HOST_DIR")
     base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
     base_dir = base_dir.expanduser()
 
+    paths: list[Path] = []
+
     # User config
     profile_dir = _find_profile_dir_lightweight(base_dir)
     if profile_dir is not None:
         user_config_path = _get_user_config_path(profile_dir)
-        merge_from_file(user_config_path, target)
+        paths.append(user_config_path)
 
     # Project + local config need the project root
     cg = ConcurrencyGroup(name="config-pre-reader")
@@ -694,10 +684,12 @@ def _read_config_layers_lightweight(
         local_config_path = _find_local_config(None, root_name, cg)
 
     if project_config_path is not None:
-        merge_from_file(project_config_path, target)
+        paths.append(project_config_path)
 
     if local_config_path is not None:
-        merge_from_file(local_config_path, target)
+        paths.append(local_config_path)
+
+    return paths
 
 
 # --- Default subcommand pre-reader ---
@@ -710,27 +702,30 @@ def read_default_command(command_name: str) -> str:
     group, falls back to `"create"`.  An empty string means "disabled"
     (the caller should show help instead of defaulting).
     """
-    merged: dict[str, str] = {}
-    _read_config_layers_lightweight(_merge_default_subcommands_from_file, merged)
+    merged = dict(
+        item for path in _resolve_config_file_paths() for item in _load_default_subcommands_from_file(path).items()
+    )
     return merged.get(command_name, "create")
 
 
-def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> None:
-    """Extract `default_subcommand` entries from a TOML config file into `target`."""
+def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
+    """Extract `default_subcommand` entries from a TOML config file."""
     try:
         raw = _load_toml(path)
     except (ConfigNotFoundError, ConfigParseError) as e:
-        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
-        return
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
+        return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
-        return
+        return {}
+    result: dict[str, str] = {}
     for cmd_name, cmd_section in raw_commands.items():
         if not isinstance(cmd_section, dict):
             continue
         value = cmd_section.get("default_subcommand")
         if value is not None:
-            target[cmd_name] = str(value)
+            result[cmd_name] = str(value)
+    return result
 
 
 # --- Disabled plugins pre-reader ---
@@ -742,27 +737,30 @@ def read_disabled_plugins() -> frozenset[str]:
     Reads user, project, and local config files for `[plugins.<name>]`
     sections with `enabled = false`.  Later layers override earlier ones.
     """
-    merged: dict[str, bool] = {}
-    _read_config_layers_lightweight(_merge_disabled_plugins_from_file, merged)
+    merged = dict(
+        item for path in _resolve_config_file_paths() for item in _load_disabled_plugins_from_file(path).items()
+    )
     return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
 
 
-def _merge_disabled_plugins_from_file(path: Path, target: dict[str, bool]) -> None:
-    """Extract plugin enabled/disabled state from a TOML config file into `target`."""
+def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
+    """Extract plugin enabled/disabled state from a TOML config file."""
     try:
         raw = _load_toml(path)
     except (ConfigNotFoundError, ConfigParseError) as e:
-        logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
-        return
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
+        return {}
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
-        return
+        return {}
+    result: dict[str, bool] = {}
     for plugin_name, plugin_section in raw_plugins.items():
         if not isinstance(plugin_section, dict):
             continue
         enabled_value = plugin_section.get("enabled")
         if enabled_value is not None:
-            target[plugin_name] = bool(enabled_value)
+            result[plugin_name] = bool(enabled_value)
+    return result
 
 
 def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:
