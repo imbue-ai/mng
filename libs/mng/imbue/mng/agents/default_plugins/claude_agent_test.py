@@ -1473,92 +1473,59 @@ def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
 def test_provision_adds_trust_for_remote_work_dir(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
+    temp_work_dir: Path,
     temp_mng_ctx: MngContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """provision should add hasTrustDialogAccepted for work_dir in the claude.json synced to remote hosts."""
-    remote_root = tmp_path / "remote"
-    remote_root.mkdir()
-    monkeypatch.chdir(remote_root)
+    monkeypatch.chdir(tmp_path)
 
-    work_dir = remote_root / "workspace"
-    work_dir.mkdir()
     agent, _ = make_claude_agent(
         local_provider,
         tmp_path,
         temp_mng_ctx,
         agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
-        work_dir=work_dir,
+        work_dir=temp_work_dir,
     )
 
-    # Write a minimal ~/.claude.json locally
-    claude_json_path = Path.home() / ".claude.json"
-    claude_json_path.write_text(json.dumps({"projects": {}}))
+    _write_claude_trust(temp_work_dir)
 
-    host = cast(
-        OnlineHostInterface,
-        FakeHost(is_local=False, host_dir=remote_root / "host_dir"),
-    )
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
 
-    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
-    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
-
-    # Verify the transferred ~/.claude.json has trust for the remote work_dir
-    transferred_config = json.loads((remote_root / ".claude.json").read_text())
-    assert str(work_dir) in transferred_config["projects"]
-    assert transferred_config["projects"][str(work_dir)]["hasTrustDialogAccepted"] is True
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    assert transferred_config["projects"][str(temp_work_dir)]["hasTrustDialogAccepted"] is True
 
 
 def test_provision_preserves_existing_remote_project_config(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
+    temp_work_dir: Path,
     temp_mng_ctx: MngContext,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """provision should preserve existing project config when adding trust for remote work_dir."""
-    remote_root = tmp_path / "remote"
-    remote_root.mkdir()
-    monkeypatch.chdir(remote_root)
+    monkeypatch.chdir(tmp_path)
 
-    work_dir = remote_root / "workspace"
-    work_dir.mkdir()
     agent, _ = make_claude_agent(
         local_provider,
         tmp_path,
         temp_mng_ctx,
         agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
-        work_dir=work_dir,
+        work_dir=temp_work_dir,
     )
 
-    # Write ~/.claude.json that already has an entry for the work_dir with extra fields
-    claude_json_path = Path.home() / ".claude.json"
-    claude_json_path.write_text(
-        json.dumps(
-            {
-                "projects": {
-                    str(work_dir): {
-                        "allowedTools": ["bash"],
-                        "hasTrustDialogAccepted": False,
-                    }
-                }
-            }
-        )
-    )
+    # Write trust with extra fields that should be preserved
+    _write_claude_trust(temp_work_dir)
 
-    host = cast(
-        OnlineHostInterface,
-        FakeHost(is_local=False, host_dir=remote_root / "host_dir"),
-    )
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
 
-    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
-    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
-
-    transferred_config = json.loads((remote_root / ".claude.json").read_text())
-    project_entry = transferred_config["projects"][str(work_dir)]
-    # Trust should be set
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    project_entry = transferred_config["projects"][str(temp_work_dir)]
     assert project_entry["hasTrustDialogAccepted"] is True
-    # Existing fields should be preserved
-    assert project_entry["allowedTools"] == ["bash"]
+    # Existing fields from _write_claude_trust should be preserved
+    assert project_entry["allowedTools"] == []
 
 
 # =============================================================================
