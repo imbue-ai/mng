@@ -2,7 +2,8 @@
 
 Bumps the version in all pyproject.toml files, commits, tags, and pushes
 directly to main. The publish.yml workflow triggers automatically on the
-v* tag push.
+v* tag push. After pushing, monitors the publish workflow and offers to
+retry on failure.
 
 Usage:
     uv run python scripts/release.py patch      # 0.1.0 -> 0.1.1
@@ -10,11 +11,14 @@ Usage:
     uv run python scripts/release.py major      # 0.1.0 -> 1.0.0
     uv run python scripts/release.py 0.2.0      # explicit version
     uv run python scripts/release.py patch --dry-run  # preview without changes
+    uv run python scripts/release.py --retry    # monitor/retry the publish for the current version
 """
 
 import argparse
+import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -27,6 +31,11 @@ from utils import REPO_ROOT
 from utils import check_versions_in_sync
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
+PUBLISH_WORKFLOW: Final[str] = "publish.yml"
+ACTIONS_URL: Final[str] = "https://github.com/imbue-ai/mng/actions/workflows/publish.yml"
+POLL_INTERVAL_SECONDS: Final[int] = 10
+MAX_WAIT_FOR_RUN_SECONDS: Final[int] = 300
+SLOW_START_WARNING_SECONDS: Final[int] = 60
 
 
 def run(*args: str) -> str:
@@ -53,14 +62,129 @@ def bump_version(new_version: str) -> list[Path]:
     return modified
 
 
+def gh_is_available() -> bool:
+    """Check whether the gh CLI is installed and authenticated."""
+    try:
+        run("gh", "auth", "status")
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
+def find_publish_run_id(tag: str) -> str:
+    """Find the workflow run ID for the publish workflow triggered by a tag push.
+
+    Polls until the run appears (there may be a brief delay after pushing).
+    """
+    print("\nWaiting for publish workflow to start...")
+    warned_slow = False
+    elapsed = 0
+    while elapsed < MAX_WAIT_FOR_RUN_SECONDS:
+        result = run(
+            "gh",
+            "run",
+            "list",
+            "-w",
+            PUBLISH_WORKFLOW,
+            "-b",
+            tag,
+            "--json",
+            "databaseId,status",
+            "-L",
+            "1",
+        )
+        if result:
+            runs = json.loads(result)
+            if runs:
+                found_run_id = str(runs[0]["databaseId"])
+                print(f"Publish workflow started (run {found_run_id})")
+                return found_run_id
+        time.sleep(2)
+        elapsed += 2
+        if not warned_slow and elapsed >= SLOW_START_WARNING_SECONDS:
+            print("This is taking longer than expected, still waiting...")
+            warned_slow = True
+
+    print("ERROR: Could not find publish workflow run.", file=sys.stderr)
+    print(f"Check manually: {ACTIONS_URL}", file=sys.stderr)
+    sys.exit(1)
+
+
+def wait_for_run_completion(run_id: str) -> str:
+    """Poll until the workflow run completes. Returns the conclusion (e.g. 'success', 'failure')."""
+    print("Waiting for workflow to complete...")
+    while True:
+        result = run("gh", "run", "view", run_id, "--json", "status,conclusion")
+        data = json.loads(result)
+        if data["status"] == "completed":
+            return data["conclusion"]
+        time.sleep(POLL_INTERVAL_SECONDS)
+
+
+def print_run_failure(run_id: str) -> None:
+    """Print the failure logs for a workflow run."""
+    print("\n--- Workflow failure logs ---\n")
+    try:
+        logs = run("gh", "run", "view", run_id, "--log-failed")
+        print(logs)
+    except subprocess.CalledProcessError:
+        print("(Could not retrieve failure logs)")
+    print(f"\nFull details: https://github.com/imbue-ai/mng/actions/runs/{run_id}")
+
+
+def monitor_publish_workflow(tag: str) -> None:
+    """Monitor the publish workflow and offer retries on failure.
+
+    Finds the workflow run for the given tag, waits for it to complete,
+    and if it fails, shows the error logs and prompts the user to retry.
+    """
+    run_id = find_publish_run_id(tag)
+
+    while True:
+        conclusion = wait_for_run_completion(run_id)
+
+        if conclusion == "success":
+            print("\nPublish workflow succeeded!")
+            return
+
+        print_run_failure(run_id)
+
+        retry = input("\nRetry the publish workflow? [y/N] ")
+        if retry.lower() != "y":
+            print("Aborted. You can retry manually from the GitHub Actions page.")
+            sys.exit(1)
+
+        print("\nRetrying...")
+        run("gh", "run", "rerun", run_id, "--failed")
+        # Give GitHub a moment to restart the run
+        time.sleep(5)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Bump version and publish to PyPI.")
     parser.add_argument(
         "version",
+        nargs="?",
         help="Bump kind (major, minor, patch) or explicit version (e.g. 0.2.0)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes")
+    parser.add_argument(
+        "--retry",
+        action="store_true",
+        help="Monitor/retry the publish workflow for the current version (no version bump)",
+    )
     args = parser.parse_args()
+
+    # --retry mode: just monitor the existing publish workflow
+    if args.retry:
+        current_version = get_current_version()
+        tag = f"v{current_version}"
+        print(f"Monitoring publish workflow for {tag}...")
+        monitor_publish_workflow(tag)
+        return
+
+    if args.version is None:
+        parser.error("version is required (unless using --retry)")
 
     current_version = get_current_version()
 
@@ -126,8 +250,14 @@ def main() -> None:
     run("git", "tag", tag)
     run("git", "push", "origin", "main", tag)
 
-    print(f"\nRelease {new_version} pushed. The publish workflow will run automatically.")
-    print("  https://github.com/imbue-ai/mng/actions/workflows/publish.yml")
+    print(f"\nRelease {new_version} pushed.")
+
+    # Monitor the publish workflow if gh is available
+    if gh_is_available():
+        monitor_publish_workflow(tag)
+    else:
+        print("Install the gh CLI to monitor the publish workflow automatically.")
+        print(f"  {ACTIONS_URL}")
 
 
 if __name__ == "__main__":
