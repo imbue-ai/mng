@@ -29,22 +29,29 @@ mng --help
 
 **mng is fast:**
 ```bash
-> time mng local-hello  --message "Just say hello" --no-connect --in local
-# (time results)
+> time mng local-hello  --message "Just say hello" --no-connect
+Agent creation started in background (PID: 709262)
+Agent name: local-hello
 
-> time mng remote-hello --message "Just say hello" --no-connect --in modal
-# (time results)
+real    0m1.472s
+user    0m1.181s
+sys     0m0.227s
 
 > time mng list
-# (time results)
+NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS                                                                                                                                                             
+local-hello    RUNNING     @local      local       RUNNING     project=mng                                                                                                                                                        
+
+real    0m1.773s
+user    0m0.955s
+sys     0m0.166s
 ```
 
 **mng itself is free, *and* the cheapest way to run remote agents (they shut down when idle):**
 
 ```bash
 mng create --in modal --no-connect --message "just say 'hello'" --idle-timeout 60 -- --model sonnet
-# costs $0.001 for inference
-# costs $0.0001 for compute because it shuts down 60 seconds after the agent completes
+# costs $0.0387443 for inference (using sonnet)
+# costs $0.0013188 for compute because it shuts down 60 seconds after the agent completes
 ```
 
 **mng takes security and privacy seriously:**
@@ -179,13 +186,13 @@ mng <command> [options]
 ### For managing agents:
 
 - **[`create`](docs/commands/primary/create.md)**: (default) Create and run an agent in a host
-- [`list`](docs/commands/primary/list.md): List active agents
+- [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`connect`](docs/commands/primary/connect.md): Attach to an agent
 <!-- - [`open`](docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
+- [`list`](docs/commands/primary/list.md): List active agents
 - [`stop`](docs/commands/primary/stop.md): Stop an agent
 - [`start`](docs/commands/primary/start.md): Start a stopped agent
 - [`snapshot`](docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
-- [`destroy`](docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
 - [`exec`](docs/commands/primary/exec.md): Execute a shell command on an agent's host
 - [`rename`](docs/commands/primary/rename.md): Rename an agent
 - [`clone`](docs/commands/aliases/clone.md): Create a copy of an existing agent
