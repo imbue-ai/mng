@@ -384,13 +384,13 @@ def test_single_line_message_uses_echo(
         )
 
 
-def test_no_await_ready_creates_agent_in_background(
+def test_no_await_ready_creates_agent_synchronously(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --no-await-ready creates agent in background and exits immediately."""
+    """Test that --no-await-ready creates agent synchronously without waiting for readiness."""
     agent_name = f"test-no-await-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
@@ -414,31 +414,8 @@ def test_no_await_ready_creates_agent_in_background(
         )
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
-        assert "Agent creation started in background" in result.output
-        assert agent_name in result.output
-
-        # Use a longer timeout than the default 5s because --no-await-ready forks a
-        # child process that runs api_create() asynchronously. On loaded CI systems
-        # the forked process may need more time to set up the tmux session.
-        background_timeout = 15.0
-
-        wait_for(
-            lambda: tmux_session_exists(session_name),
-            timeout=background_timeout,
-            error_message=f"Expected tmux session {session_name} to exist",
-        )
-
-        # Wait for the command to actually start running in the session.
-        # The background thread may still be sending keys after the session is created.
-        def command_is_running() -> bool:
-            pane_content = capture_tmux_pane_contents(session_name)
-            return "sleep" in pane_content
-
-        wait_for(
-            command_is_running,
-            timeout=background_timeout,
-            error_message="Expected sleep command to be running",
-        )
+        assert "Done." in result.output
+        assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
 
 def test_add_command_with_named_window(
@@ -758,14 +735,15 @@ def test_edit_message_with_initial_content(
         )
 
 
-def test_edit_message_incompatible_with_background_creation(
+def test_message_incompatible_with_no_await_ready(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --edit-message cannot be used with background creation."""
-    agent_name = f"test-edit-bg-{int(time.time())}"
+    """Test that --message/--edit-message cannot be used with --no-await-ready."""
+    agent_name = f"test-msg-no-await-{int(time.time())}"
 
+    # --message with --no-await-ready should fail
     result = cli_runner.invoke(
         create,
         [
@@ -773,7 +751,8 @@ def test_edit_message_incompatible_with_background_creation(
             agent_name,
             "--agent-cmd",
             "sleep 123456",
-            "--edit-message",
+            "--message",
+            "hello",
             "--source",
             str(temp_work_dir),
             "--no-connect",
@@ -785,7 +764,7 @@ def test_edit_message_incompatible_with_background_creation(
     )
 
     assert result.exit_code != 0
-    assert "--edit-message cannot be used with background creation" in result.output
+    assert "Cannot send a message without awaiting agent readiness" in result.output
 
 
 def test_edit_message_empty_content_does_not_send(

@@ -48,7 +48,6 @@ from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
-from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
@@ -91,7 +90,6 @@ from imbue.mng.utils.git_utils import derive_project_name_from_path
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.logging import LoggingSuppressor
-from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
 from imbue.mng.utils.name_generator import generate_host_name
 from imbue.mng.utils.polling import wait_for
@@ -305,7 +303,7 @@ class CreateCliOptions(CommonCliOptions):
     "--await-ready/--no-await-ready",
     "await_ready",
     default=None,
-    help="Wait until agent is ready before returning [default: no-await-ready if --no-connect]",
+    help="Wait until agent is ready before returning [default: await-ready if --connect or --message/--edit-message; otherwise no-await-ready]",
 )
 @optgroup.option(
     "--await-agent-stopped/--no-await-agent-stopped",
@@ -572,25 +570,6 @@ def _handle_create(
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
 
-    # Early validation: --edit-message cannot be used with background creation
-    # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
-    # We check this BEFORE creating the editor session to avoid starting an editor subprocess
-    # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
-    if opts.edit_message:
-        # Compute should_await_ready the same way it's computed later
-        early_should_await_ready = opts.await_ready
-        if early_should_await_ready is None:
-            if opts.await_agent_stopped:
-                early_should_await_ready = True
-            else:
-                early_should_await_ready = opts.connect
-        # Check if this would be background creation
-        if not opts.connect and not early_should_await_ready:
-            raise UserInputError(
-                "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
-                "Use --await-ready to wait for agent creation."
-            )
-
     # Read message from file if --message-file is provided (used as initial content for editor if --edit-message)
     initial_message_content: str | None
     if opts.message_file is not None:
@@ -765,30 +744,25 @@ def _handle_create(
             is_work_dir_created = True
 
     # Determine whether to wait for agent to be ready
-    # Default: --no-await-ready when --no-connect, --await-ready when --connect
-    # Note: --await-agent-stopped implies --await-ready (we need the agent to be ready first)
+    # Default: await-ready when --connect, when --await-agent-stopped, or when sending a message;
+    # otherwise no-await-ready (e.g. plain --no-connect without a message).
+    has_message = initial_message is not None or editor_session is not None
     should_await_ready = opts.await_ready
     if should_await_ready is None:
-        if opts.await_agent_stopped:
+        if opts.await_agent_stopped or has_message:
             should_await_ready = True
         else:
             should_await_ready = opts.connect
 
-    # If --no-connect and --no-await-ready, run api_create in background
-    # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
-    # starting an editor subprocess that would need to be cleaned up
-    if not opts.connect and not should_await_ready:
-        _create_agent_in_background(
-            source_location,
-            resolved_target_host,
-            agent_opts,
-            mng_ctx,
-            is_work_dir_created,
-            output_opts,
+    # Validate: explicit --no-await-ready is incompatible with sending a message,
+    # since we can't guarantee the agent is ready to receive it
+    if not should_await_ready and has_message:
+        raise UserInputError(
+            "Cannot send a message without awaiting agent readiness. "
+            "Remove --message/--message-file/--edit-message, or use --await-ready."
         )
-        return
 
-    # Call the API create function (synchronously)
+    # Call the API create function
     # Wrap in try/finally to ensure editor cleanup on failure
     try:
         create_result = api_create(
@@ -797,6 +771,7 @@ def _handle_create(
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
+            await_ready=should_await_ready,
         )
 
         # If --edit-message was used, wait for editor and send the message
@@ -891,56 +866,6 @@ def _handle_editor_message(
         # (e.g., if the callback wasn't called for some reason)
         if LoggingSuppressor.is_suppressed():
             LoggingSuppressor.disable_and_replay(clear_screen=True)
-
-
-def _create_agent_in_background(
-    source_location: HostLocation,
-    target_host: OnlineHostInterface | NewHostOptions,
-    agent_options: CreateAgentOptions,
-    mng_ctx: MngContext,
-    is_work_dir_created: bool,
-    output_opts: OutputOptions,
-) -> None:
-    """Create an agent in a background process that continues after parent exits.
-
-    This function forks the current process. The parent exits immediately while
-    the child process continues to run api_create() in the background.
-    """
-    pid = os.fork()
-
-    if pid > 0:
-        # Parent process: output message and exit immediately
-        logger.info("Agent creation started in background (PID: {})", pid)
-        logger.info("Agent name: {}", agent_options.name)
-        return
-
-    # Child process: detach from parent and continue
-    try:
-        # Create a new session to detach from parent's terminal
-        os.setsid()
-
-        # Remove console handlers from loguru to prevent "I/O operation on closed file"
-        # errors when the parent's terminal closes. File logging continues to work.
-        remove_console_handlers()
-
-        # Call the API create function
-        create_result = api_create(
-            source_location=source_location,
-            target_host=target_host,
-            agent_options=agent_options,
-            mng_ctx=mng_ctx,
-            create_work_dir=not is_work_dir_created,
-        )
-
-        # Output result
-        _output_result(create_result, output_opts)
-
-        # Exit the child process
-        os._exit(0)
-    except MngError as e:
-        # Log the error and exit with non-zero status
-        logger.error("Failed to create agent in background: {}", e)
-        os._exit(1)
 
 
 def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, mng_ctx: MngContext) -> str:
