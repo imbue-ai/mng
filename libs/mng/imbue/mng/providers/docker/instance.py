@@ -723,6 +723,15 @@ kill -TERM 1
         base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
+        if not image and not build_args and not self.config.default_image:
+            logger.warning(
+                "No image or Dockerfile specified -- using bare default image '{}'. "
+                "This image does not include tools needed by mng (ssh, tmux, etc.) "
+                "and they will be installed at runtime. Consider specifying a Dockerfile "
+                "with -b --file=<path> or an image with --image.",
+                DEFAULT_IMAGE,
+            )
+
         try:
             # Build image if build_args provided, otherwise pull base image
             if build_args:
