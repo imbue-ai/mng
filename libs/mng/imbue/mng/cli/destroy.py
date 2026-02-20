@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from pathlib import Path
 from typing import assert_never
 
 import click
@@ -6,6 +7,8 @@ from click_option_group import optgroup
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.api.data_types import GcResourceTypes
 from imbue.mng.api.gc import gc as api_gc
@@ -36,6 +39,7 @@ from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.git_utils import find_source_repo_of_worktree
 
 
 class _OfflineHostToDestroy(FrozenModel):
@@ -111,6 +115,7 @@ class DestroyCliOptions(CommonCliOptions):
     destroy_all: bool
     dry_run: bool
     gc: bool
+    remove_branch: bool
     sessions: tuple[str, ...]
     # Planned features (not yet implemented)
     include: tuple[str, ...]
@@ -173,6 +178,12 @@ class DestroyCliOptions(CommonCliOptions):
     "--gc/--no-gc",
     default=True,
     help="Run garbage collection after destroying agents to clean up orphaned resources (default: enabled)",
+)
+@optgroup.option(
+    "-b",
+    "--remove-branch",
+    is_flag=True,
+    help="Delete the git branch that was created for the agent's work directory",
 )
 @add_common_options
 @click.pass_context
@@ -280,6 +291,8 @@ def destroy(ctx: click.Context, **kwargs) -> None:
 
     # Destroy agents on online hosts
     destroyed_agents: list[AgentName] = []
+    # Collect branch info before destroy (destroy removes the worktree)
+    branch_to_remove: tuple[str, Path] | None = None
     for agent, host in targets.online_agents:
         try:
             if agent.is_running() and not opts.force:
@@ -288,6 +301,13 @@ def destroy(ctx: click.Context, **kwargs) -> None:
                     output_opts,
                 )
                 continue
+
+            if opts.remove_branch:
+                branch_name = agent.get_branch_name()
+                if branch_name is not None:
+                    source_repo_path = find_source_repo_of_worktree(agent.work_dir)
+                    if source_repo_path is not None:
+                        branch_to_remove = (branch_name, source_repo_path)
 
             mng_ctx.pm.hook.on_before_agent_destroy(agent=agent, host=host)
             host.destroy_agent(agent)
@@ -314,6 +334,12 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     # Run garbage collection if enabled
     if opts.gc and not opts.dry_run and destroyed_agents:
         _run_post_destroy_gc(mng_ctx=mng_ctx, output_opts=output_opts)
+
+    # Delete branch after GC (GC removes the worktree, which must happen
+    # before the branch can be deleted)
+    if branch_to_remove is not None:
+        branch_name, source_repo_path = branch_to_remove
+        _remove_agent_branch(branch_name, source_repo_path, mng_ctx.concurrency_group, opts.gc, output_opts)
 
     # Output final result
     _output_result(destroyed_agents, output_opts)
@@ -480,6 +506,41 @@ def _output_result(destroyed_agents: Sequence[AgentName], output_opts: OutputOpt
             assert_never(unreachable)
 
 
+def _remove_agent_branch(
+    branch_name: str,
+    source_repo_path: Path,
+    cg: ConcurrencyGroup,
+    gc_was_enabled: bool,
+    output_opts: OutputOptions,
+) -> None:
+    """Delete the git branch that was created for an agent.
+
+    Called after destroy_agent + GC. GC is expected to have already removed
+    the worktree (both directory and git registry), so git should allow the
+    branch deletion.
+
+    Failures are logged as warnings but do not fail the destroy operation.
+    """
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "-C", str(source_repo_path), "branch", "-D", branch_name],
+            is_checked_after=False,
+        )
+        if result.returncode == 0:
+            _output(f"Deleted branch: {branch_name}", output_opts)
+        else:
+            if not gc_was_enabled:
+                logger.warning(
+                    "Failed to delete branch {} (--no-gc was used; the worktree may not have been cleaned up): {}",
+                    branch_name,
+                    result.stderr.strip(),
+                )
+            else:
+                logger.warning("Failed to delete branch {}: {}", branch_name, result.stderr.strip())
+    except ProcessError as e:
+        logger.warning("Failed to delete branch {}: {}", branch_name, e)
+
+
 def _run_post_destroy_gc(mng_ctx: MngContext, output_opts: OutputOptions) -> None:
     """Run garbage collection after destroying agents.
 
@@ -526,7 +587,7 @@ def _run_post_destroy_gc(mng_ctx: MngContext, output_opts: OutputOptions) -> Non
 _DESTROY_HELP_METADATA = CommandHelpMetadata(
     name="mng-destroy",
     one_line_description="Destroy agent(s) and clean up resources",
-    synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
+    synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run] [-b|--remove-branch]",
     description="""Destroy one or more agents and clean up their resources.
 
 When the last agent on a host is destroyed, the host itself is also destroyed

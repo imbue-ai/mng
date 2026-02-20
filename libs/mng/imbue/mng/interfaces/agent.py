@@ -100,6 +100,11 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_branch_name(self) -> str | None:
+        """Return the git branch name created for this agent, or None if not applicable."""
+        ...
+
+    @abstractmethod
     def get_is_start_on_boot(self) -> bool:
         """Return whether this agent should start automatically on host boot."""
         ...

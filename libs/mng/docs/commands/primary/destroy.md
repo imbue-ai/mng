@@ -6,7 +6,7 @@
 **Synopsis:**
 
 ```text
-mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]
+mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run] [-b|--remove-branch]
 ```
 
 
@@ -62,6 +62,7 @@ mng destroy [OPTIONS] [AGENTS]...
 | `-f`, `--force` | boolean | Skip confirmation prompts and force destroy running agents | `False` |
 | `--dry-run` | boolean | Show what would be destroyed without actually destroying | `False` |
 | `--gc`, `--no-gc` | boolean | Run garbage collection after destroying agents to clean up orphaned resources (default: enabled) | `True` |
+| `-b`, `--remove-branch` | boolean | Delete the git branch that was created for the agent's work directory | `False` |
 
 ## Common
 

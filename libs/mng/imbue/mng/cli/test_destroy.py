@@ -501,3 +501,155 @@ def test_get_agent_name_from_session_various_inputs(session_name: str, prefix: s
     """Test get_agent_name_from_session with various valid inputs."""
     result = get_agent_name_from_session(session_name, prefix)
     assert result == expected_agent
+
+
+# =============================================================================
+# Tests for --remove-branch
+# =============================================================================
+
+
+def _git_branch_exists(repo_path: Path, branch_name: str) -> bool:
+    """Check if a git branch exists in the repo."""
+    result = subprocess.run(
+        ["git", "-C", str(repo_path), "branch", "--list", branch_name],
+        capture_output=True,
+        text=True,
+    )
+    return branch_name in result.stdout
+
+
+def test_destroy_remove_branch_deletes_branch(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --remove-branch deletes the git branch after destroying a worktree agent."""
+    agent_name = f"test-rm-branch-{int(time.time())}"
+    session_name = f"{mng_test_prefix}{agent_name}"
+    branch_name = f"mng/{agent_name}-local"
+
+    with tmux_session_cleanup(session_name):
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 135790",
+                "--source",
+                str(temp_git_repo),
+                "--no-connect",
+                "--await-ready",
+                "--worktree",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+        assert _git_branch_exists(temp_git_repo, branch_name), f"Expected branch {branch_name} to exist after create"
+
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [agent_name, "--force", "--remove-branch"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
+        assert "Destroyed agent:" in destroy_result.output
+        assert f"Deleted branch: {branch_name}" in destroy_result.output
+        assert not _git_branch_exists(temp_git_repo, branch_name), (
+            f"Expected branch {branch_name} to be deleted after destroy --remove-branch"
+        )
+
+
+def test_destroy_without_remove_branch_leaves_branch(
+    cli_runner: CliRunner,
+    temp_git_repo: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that destroy without --remove-branch leaves the git branch intact."""
+    agent_name = f"test-keep-branch-{int(time.time())}"
+    session_name = f"{mng_test_prefix}{agent_name}"
+    branch_name = f"mng/{agent_name}-local"
+
+    with tmux_session_cleanup(session_name):
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 246801",
+                "--source",
+                str(temp_git_repo),
+                "--no-connect",
+                "--await-ready",
+                "--worktree",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+        assert _git_branch_exists(temp_git_repo, branch_name)
+
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [agent_name, "--force"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
+        # Branch should still exist
+        assert _git_branch_exists(temp_git_repo, branch_name), (
+            f"Expected branch {branch_name} to still exist after destroy without --remove-branch"
+        )
+
+
+def test_destroy_remove_branch_graceful_when_no_branch(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --remove-branch is a no-op when agent has no branch_name."""
+    agent_name = f"test-no-branch-{int(time.time())}"
+    session_name = f"{mng_test_prefix}{agent_name}"
+
+    with tmux_session_cleanup(session_name):
+        create_result = cli_runner.invoke(
+            create,
+            [
+                "--name",
+                agent_name,
+                "--agent-cmd",
+                "sleep 357912",
+                "--source",
+                str(temp_work_dir),
+                "--no-connect",
+                "--await-ready",
+                "--no-copy-work-dir",
+                "--no-ensure-clean",
+            ],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert create_result.exit_code == 0, f"Create failed: {create_result.output}"
+
+        destroy_result = cli_runner.invoke(
+            destroy,
+            [agent_name, "--force", "--remove-branch"],
+            obj=plugin_manager,
+            catch_exceptions=False,
+        )
+
+        assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
+        assert "Destroyed agent:" in destroy_result.output
