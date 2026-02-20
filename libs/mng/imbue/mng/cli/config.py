@@ -11,7 +11,6 @@ from typing import cast
 
 import click
 import tomlkit
-from click.shell_completion import CompletionItem
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -19,7 +18,7 @@ from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import read_cached_subcommands
+from imbue.mng.cli.completion import CachedSubcommandCompletionMixin
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
@@ -196,16 +195,10 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
     return result
 
 
-class _ConfigGroup(click.Group):
+class _ConfigGroup(CachedSubcommandCompletionMixin, click.Group):
     """Config group that reads subcommand completions from the static cache."""
 
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached = read_cached_subcommands("config")
-        if cached is not None:
-            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-            return completions
-        return super().shell_complete(ctx, incomplete)
+    _completion_cache_key = "config"
 
 
 @click.group(name="config", cls=_ConfigGroup, invoke_without_command=True)

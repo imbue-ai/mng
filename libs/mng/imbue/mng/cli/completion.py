@@ -170,3 +170,21 @@ def read_cached_subcommands(command_name: str) -> list[str] | None:
         return None
     result = [name for name in subcommands if isinstance(name, str) and name]
     return sorted(result) if result else None
+
+
+class CachedSubcommandCompletionMixin:
+    """Mixin for click.Group subclasses that reads subcommand completions from the static cache.
+
+    Subclasses must set `_completion_cache_key` to the command name used as
+    the lookup key in cli_completions.json.
+    """
+
+    _completion_cache_key: str
+
+    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
+        cached = read_cached_subcommands(self._completion_cache_key)
+        if cached is not None:
+            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
+            completions.extend(click.Command.shell_complete(self, ctx, incomplete))  # type: ignore[arg-type]
+            return completions
+        return super().shell_complete(ctx, incomplete)  # type: ignore[misc]

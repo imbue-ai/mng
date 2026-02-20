@@ -9,7 +9,6 @@ from typing import Final
 from typing import assert_never
 
 import click
-from click.shell_completion import CompletionItem
 from loguru import logger
 from packaging.requirements import InvalidRequirement
 from packaging.requirements import Requirement
@@ -23,7 +22,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import read_cached_subcommands
+from imbue.mng.cli.completion import CachedSubcommandCompletionMixin
 from imbue.mng.cli.config import ConfigScope
 from imbue.mng.cli.config import get_config_path
 from imbue.mng.cli.config import load_config_file_tomlkit
@@ -338,16 +337,10 @@ def _emit_plugin_remove_result(
             assert_never(unreachable)
 
 
-class _PluginGroup(click.Group):
+class _PluginGroup(CachedSubcommandCompletionMixin, click.Group):
     """Plugin group that reads subcommand completions from the static cache."""
 
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached = read_cached_subcommands("plugin")
-        if cached is not None:
-            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-            return completions
-        return super().shell_complete(ctx, incomplete)
+    _completion_cache_key = "plugin"
 
 
 @click.group(name="plugin", cls=_PluginGroup, invoke_without_command=True)
