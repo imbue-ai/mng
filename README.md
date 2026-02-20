@@ -125,7 +125,7 @@ From the repo where you would like a Dockerfile created.
 
 `mng` makes it easy to create and use any AI agent (ex: Claude Code, Codex), whether you want to run locally or remotely.
 
-`mng` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](https://github.com/imbue-ai/mng/blob/main/docs/concepts/plugins.md) to enable the latest AI coding workflows.
+`mng` is built on open-source tools and standards (SSH, git, tmux, docker, etc.), and is extensible via [plugins](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/plugins.md) to enable the latest AI coding workflows.
 
 ## Installation
 
@@ -185,39 +185,39 @@ mng <command> [options]
 
 ### For managing agents:
 
-- **[`create`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/create.md)**: (default) Create and run an agent in a host
-- [`destroy`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
-- [`connect`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/connect.md): Attach to an agent
-<!-- - [`open`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
-- [`list`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/list.md): List active agents
-- [`stop`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/stop.md): Stop an agent
-- [`start`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/start.md): Start a stopped agent
-- [`snapshot`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
-- [`exec`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/exec.md): Execute a shell command on an agent's host
-- [`rename`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/rename.md): Rename an agent
-- [`clone`](https://github.com/imbue-ai/mng/blob/main/docs/commands/aliases/clone.md): Create a copy of an existing agent
-- [`migrate`](https://github.com/imbue-ai/mng/blob/main/docs/commands/aliases/migrate.md): Move an agent to a different host
-- [`limit`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/limit.md): Configure limits for agents and hosts
+- **[`create`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/create.md)**: (default) Create and run an agent in a host
+- [`destroy`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/destroy.md): Stop an agent (and clean up any associated resources)
+- [`connect`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/connect.md): Attach to an agent
+<!-- - [`open`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/open.md) [future]: Open a URL from an agent in your browser -->
+- [`list`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/list.md): List active agents
+- [`stop`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/stop.md): Stop an agent
+- [`start`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/start.md): Start a stopped agent
+- [`snapshot`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/snapshot.md) [experimental]: Create a snapshot of a host's state
+- [`exec`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/exec.md): Execute a shell command on an agent's host
+- [`rename`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/rename.md): Rename an agent
+- [`clone`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/aliases/clone.md): Create a copy of an existing agent
+- [`migrate`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/aliases/migrate.md): Move an agent to a different host
+- [`limit`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/limit.md): Configure limits for agents and hosts
 
 ### For moving data in and out:
 
-- [`pull`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/pull.md): Pull data from agent
-- [`push`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/push.md): Push data to agent
-- [`pair`](https://github.com/imbue-ai/mng/blob/main/docs/commands/primary/pair.md): Continually sync data with an agent
-- [`message`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/message.md): Send a message to an agent
-- [`provision`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
+- [`pull`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/pull.md): Pull data from agent
+- [`push`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/push.md): Push data to agent
+- [`pair`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/primary/pair.md): Continually sync data with an agent
+- [`message`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/message.md): Send a message to an agent
+- [`provision`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/provision.md): Re-run provisioning on an agent (useful for syncing config and auth)
 
 ### For maintenance:
 
-- [`cleanup`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
-- [`logs`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/logs.md): View agent and host logs
-- [`gc`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/gc.md): Garbage collect unused resources
+- [`cleanup`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/cleanup.md): Clean up stopped agents and unused resources
+- [`logs`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/logs.md): View agent and host logs
+- [`gc`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/gc.md): Garbage collect unused resources
 
 ### For managing mng itself:
 
-- [`ask`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/ask.md): Chat with mng for help
-- [`plugin`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/plugin.md) [experimental]: Manage mng plugins
-- [`config`](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/config.md): View and edit mng configuration
+- [`ask`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/ask.md): Chat with mng for help
+- [`plugin`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/plugin.md) [experimental]: Manage mng plugins
+- [`config`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/config.md): View and edit mng configuration
 
 ## How it works
 
@@ -226,15 +226,15 @@ You can interact with `mng` via the terminal (run `mng --help` to learn more).
 
 `mng` uses robust open source tools like SSH, git, and tmux to run and manage your agents:
 
-- **[agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
-<!-- - [agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mng open] -->
-- [agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md) run on **[hosts](https://github.com/imbue-ai/mng/blob/main/docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
-- multiple [agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md) can share a single [host](https://github.com/imbue-ai/mng/blob/main/docs/concepts/hosts.md).
-- [hosts](https://github.com/imbue-ai/mng/blob/main/docs/concepts/hosts.md) come from **[providers](https://github.com/imbue-ai/mng/blob/main/docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
-- [hosts](https://github.com/imbue-ai/mng/blob/main/docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md) are "idle". See [idle detection](https://github.com/imbue-ai/mng/blob/main/docs/concepts/idle_detection.md) for more details.
-- [hosts](https://github.com/imbue-ai/mng/blob/main/docs/concepts/hosts.md) automatically "stop" when all of their [agents](https://github.com/imbue-ai/mng/blob/main/docs/concepts/agents.md) are "stopped"
-- `mng` is extensible via **[plugins](https://github.com/imbue-ai/mng/blob/main/docs/concepts/plugins.md)**--you can add new agent types, provider backends, CLI commands, and lifecycle hooks
-<!-- - `mng` is absurdly extensible--there are existing **[plugins](https://github.com/imbue-ai/mng/blob/main/docs/concepts/plugins.md)** for almost everything, and `mng` can even [dynamically generate new plugins](https://github.com/imbue-ai/mng/blob/main/docs/commands/secondary/plugin.md#mng-plugin-generate) [future] -->
+- **[agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md)** are simply processes that run in [tmux](https://github.com/tmux/tmux/wiki) sessions, each with their own `work_dir` (working folder) and configuration (ex: secrets, environment variables, etc)
+<!-- - [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) usually expose URLs so you can access them from the web [future: mng open] -->
+- [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) run on **[hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md)**--either locally (by default), or special environments like [Modal](https://modal.com) [Sandboxes](https://modal.com/docs/guide/sandboxes) (`--in modal`) or [Docker](https://www.docker.com) [containers](https://docs.docker.com/get-started/docker-concepts/the-basics/what-is-a-container/) (`--in docker`).  Use `--host <name>` to target an existing host.
+- multiple [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) can share a single [host](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md).
+- [hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md) come from **[providers](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/providers.md)** (ex: Modal, AWS, docker, etc)
+- [hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md) help save money by automatically "pausing" when all of their [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) are "idle". See [idle detection](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/idle_detection.md) for more details.
+- [hosts](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/hosts.md) automatically "stop" when all of their [agents](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/agents.md) are "stopped"
+- `mng` is extensible via **[plugins](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/plugins.md)**--you can add new agent types, provider backends, CLI commands, and lifecycle hooks
+<!-- - `mng` is absurdly extensible--there are existing **[plugins](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/concepts/plugins.md)** for almost everything, and `mng` can even [dynamically generate new plugins](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/commands/secondary/plugin.md#mng-plugin-generate) [future] -->
 
 ### Architecture
 
@@ -243,9 +243,9 @@ You can interact with `mng` via the terminal (run `mng --help` to learn more).
 - any process running in window 0 of a `mng-` prefixed tmux sessions is considered an agent
 - agents store their status and logs in a standard location (default: `$MNG_HOST_DIR/agents/<agent_id>/`)
 - all hosts are accessed via SSH--if you can SSH into it, it can be a host
-- ...[and more](https://github.com/imbue-ai/mng/blob/main/docs/conventions.md)
+- ...[and more](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/conventions.md)
 
-See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/docs/architecture.md) for an in-depth overview of the `mng` architecture and design principles.
+See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/architecture.md) for an in-depth overview of the `mng` architecture and design principles.
 
 ## Security
 
@@ -254,7 +254,7 @@ See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/docs/architect
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`./docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/docs/security_model.md) for more details on our security model.
+See [`./docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details on our security model.
 
 <!--
 ## Learning more
