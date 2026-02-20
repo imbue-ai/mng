@@ -676,10 +676,10 @@ def _resolve_config_file_paths() -> list[Path]:
         project_config_path = _find_project_config(None, root_name, cg)
         local_config_path = _find_local_config(None, root_name, cg)
 
-    if project_config_path is not None and project_config_path.exists():
+    if project_config_path is not None:
         paths.append(project_config_path)
 
-    if local_config_path is not None and local_config_path.exists():
+    if local_config_path is not None:
         paths.append(local_config_path)
 
     return paths
