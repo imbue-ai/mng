@@ -9,6 +9,7 @@ and writes them to libs/mng/docs/commands/. It preserves option
 groups defined via click_option_group in the generated markdown.
 """
 
+import json
 from pathlib import Path
 
 import click
@@ -16,6 +17,7 @@ from click_option_group import GroupedOption
 from mkdocs_click._docs import make_command_docs
 
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mng.cli.completion import CLI_COMPLETIONS_FILENAME
 from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.main import BUILTIN_COMMANDS
 from imbue.mng.main import PLUGIN_COMMANDS
@@ -594,10 +596,6 @@ def generate_cli_completions() -> None:
     The file is written to imbue/mng/resources/cli_completions.json and is
     analogous to the auto-generated markdown docs in libs/mng/docs/commands/.
     """
-    import json
-
-    from imbue.mng.cli.completion import CLI_COMPLETIONS_FILENAME
-
     # Collect all top-level command names (including aliases)
     all_command_names = sorted(cli.commands.keys())
 
