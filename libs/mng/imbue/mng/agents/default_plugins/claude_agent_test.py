@@ -1465,6 +1465,117 @@ def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
 
 
 # =============================================================================
+# Remote Trust Tests
+# =============================================================================
+
+
+def _make_mock_remote_host(tmp_path: Path) -> tuple[OnlineHostInterface, dict[str, str]]:
+    """Create a mock non-local host that captures written text files.
+
+    Returns (host, written_files) where written_files maps path strings to content.
+    """
+    written_files: dict[str, str] = {}
+    host_dir = tmp_path / "mock_host_dir"
+    host_dir.mkdir(exist_ok=True)
+
+    def mock_write_text_file(path: Path, content: str) -> None:
+        written_files[str(path)] = content
+
+    def mock_read_text_file(path: Path) -> str:
+        raise FileNotFoundError(path)
+
+    def mock_write_file(path: Path, content: bytes, mode: str | None = None) -> None:
+        pass
+
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            is_local=False,
+            host_dir=host_dir,
+            execute_command=lambda *args, **kwargs: SimpleNamespace(success=False, stdout="", stderr=""),
+            write_text_file=mock_write_text_file,
+            read_text_file=mock_read_text_file,
+            write_file=mock_write_file,
+        ),
+    )
+    return host, written_files
+
+
+def test_provision_adds_trust_for_remote_work_dir(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """provision should add hasTrustDialogAccepted for work_dir in the claude.json synced to remote hosts."""
+    work_dir = Path("/remote/workspace/project")
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=work_dir,
+    )
+
+    # Write a minimal ~/.claude.json locally
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(json.dumps({"projects": {}}))
+
+    non_local_host, written_files = _make_mock_remote_host(tmp_path)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+    agent.provision(host=non_local_host, options=options, mng_ctx=temp_mng_ctx)
+
+    # Verify the transferred ~/.claude.json has trust for the remote work_dir
+    assert ".claude.json" in written_files
+    transferred_config = json.loads(written_files[".claude.json"])
+    assert str(work_dir) in transferred_config["projects"]
+    assert transferred_config["projects"][str(work_dir)]["hasTrustDialogAccepted"] is True
+
+
+def test_provision_preserves_existing_remote_project_config(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """provision should preserve existing project config when adding trust for remote work_dir."""
+    work_dir = Path("/remote/workspace/project")
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=work_dir,
+    )
+
+    # Write ~/.claude.json that already has an entry for the work_dir with extra fields
+    claude_json_path = Path.home() / ".claude.json"
+    claude_json_path.write_text(
+        json.dumps(
+            {
+                "projects": {
+                    str(work_dir): {
+                        "allowedTools": ["bash"],
+                        "hasTrustDialogAccepted": False,
+                    }
+                }
+            }
+        )
+    )
+
+    non_local_host, written_files = _make_mock_remote_host(tmp_path)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+    agent.provision(host=non_local_host, options=options, mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads(written_files[".claude.json"])
+    project_entry = transferred_config["projects"][str(work_dir)]
+    # Trust should be set
+    assert project_entry["hasTrustDialogAccepted"] is True
+    # Existing fields should be preserved
+    assert project_entry["allowedTools"] == ["bash"]
+
+
+# =============================================================================
 # macOS Keychain Credential Tests
 # =============================================================================
 
