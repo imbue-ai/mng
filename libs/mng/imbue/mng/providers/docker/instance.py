@@ -1373,8 +1373,8 @@ kill -TERM 1
                 if dir_name.startswith("host-"):
                     try:
                         host_id = HostId(dir_name)
-                    except ValueError as e:
-                        logger.trace("Skipped non-HostId directory {}: {}", dir_name, e)
+                    except ValueError:
+                        pass
                 volumes.append(
                     VolumeInfo(
                         volume_id=self._volume_id_for_dir(dir_name),
