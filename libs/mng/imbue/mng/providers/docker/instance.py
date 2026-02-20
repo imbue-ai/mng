@@ -1369,12 +1369,11 @@ kill -TERM 1
         for entry in entries:
             if entry.file_type == VolumeFileType.DIRECTORY:
                 dir_name = entry.path.rsplit("/", 1)[-1]
-                host_id: HostId | None = None
-                if dir_name.startswith("host-"):
-                    try:
-                        host_id = HostId(dir_name)
-                    except ValueError:
-                        pass
+                # Directories are created by _ensure_host_volume_dir with a
+                # validated HostId, so the constructor call here should always
+                # succeed. If the format is wrong, it's corrupted state and we
+                # let the InvalidRandomIdError propagate.
+                host_id = HostId(dir_name) if dir_name.startswith("host-") else None
                 volumes.append(
                     VolumeInfo(
                         volume_id=self._volume_id_for_dir(dir_name),
