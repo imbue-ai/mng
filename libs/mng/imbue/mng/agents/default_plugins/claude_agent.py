@@ -32,7 +32,6 @@ from imbue.mng.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mng.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import AgentStartError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.hosts.common import is_macos
@@ -45,7 +44,7 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.git_utils import find_git_common_dir
-from imbue.mng.utils.polling import poll_until_counted
+from imbue.mng.utils.polling import wait_for
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
@@ -118,7 +117,10 @@ def _prompt_user_for_trust(source_path: Path) -> bool:
         "so that Claude Code can start without showing a trust dialog.\n",
         source_path,
     )
-    return click.confirm("Would you like to update ~/.claude.json to trust this directory?", default=False)
+    return click.confirm(
+        "Would you like to update ~/.claude.json to trust this directory?",
+        default=False,
+    )
 
 
 def _prompt_user_for_effort_callout_dismissal() -> bool:
@@ -266,7 +268,10 @@ class ClaudeAgent(BaseAgent):
         return "Claude Code"
 
     def wait_for_ready_signal(
-        self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
+        self,
+        is_creating: bool,
+        start_action: Callable[[], None],
+        timeout: float | None = None,
     ) -> None:
         """Wait for the agent to become ready, executing start_action then polling.
 
@@ -287,18 +292,11 @@ class ClaudeAgent(BaseAgent):
                 super().wait_for_ready_signal(is_creating, start_action, timeout)
 
             # Poll for the session_started file (created by SessionStart hook)
-            success, poll_count, poll_elapsed = poll_until_counted(
+            wait_for(
                 lambda: self._check_file_exists(session_started_path),
                 timeout=timeout,
                 poll_interval=0.05,
-            )
-
-            if success:
-                return
-
-            raise AgentStartError(
-                str(self.name),
-                f"Agent did not signal readiness within {timeout}s. "
+                error_message=f"Agent did not signal readiness within {timeout}s. "
                 "This may indicate a trust dialog appeared or Claude Code failed to start.",
             )
 
@@ -432,7 +430,11 @@ class ClaudeAgent(BaseAgent):
             for file_path in claude_dir.rglob("*.local.*"):
                 relative_path = file_path.relative_to(self.work_dir)
                 transfers.append(
-                    FileTransferSpec(local_path=file_path, agent_path=RelativePath(relative_path), is_required=True)
+                    FileTransferSpec(
+                        local_path=file_path,
+                        agent_path=RelativePath(relative_path),
+                        is_required=True,
+                    )
                 )
 
         # Transfer override folder contents
@@ -634,7 +636,10 @@ class ClaudeAgent(BaseAgent):
                     #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
                     #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
                     #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
-                    host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
+                    host.write_text_file(
+                        Path(".claude.json"),
+                        json.dumps(claude_json_data, indent=2) + "\n",
+                    )
                 else:
                     logger.debug("Skipped ~/.claude.json (file does not exist)")
 
