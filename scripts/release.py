@@ -18,7 +18,6 @@ import argparse
 import json
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -29,6 +28,8 @@ import tomlkit
 from utils import PUBLISHABLE_PACKAGE_PYPROJECT_PATHS
 from utils import REPO_ROOT
 from utils import check_versions_in_sync
+
+from imbue.mng.utils.polling import poll_for_value
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
 PUBLISH_WORKFLOW: Final[str] = "publish.yml"
@@ -71,54 +72,78 @@ def gh_is_available() -> bool:
         return False
 
 
+def _try_find_run_id(tag: str) -> str | None:
+    """Check if a publish workflow run exists for the given tag. Returns run ID or None."""
+    result = run(
+        "gh",
+        "run",
+        "list",
+        "-w",
+        PUBLISH_WORKFLOW,
+        "-b",
+        tag,
+        "--json",
+        "databaseId,status",
+        "-L",
+        "1",
+    )
+    if result:
+        runs = json.loads(result)
+        if runs:
+            return str(runs[0]["databaseId"])
+    return None
+
+
+def _get_workflow_attempt_number(run_id: str) -> int:
+    """Get the current attempt number for a workflow run."""
+    result = run("gh", "run", "view", run_id, "--json", "attempt")
+    return json.loads(result)["attempt"]
+
+
+def _try_get_conclusion(run_id: str, after_workflow_attempt: int) -> str | None:
+    """Check if a workflow run has completed after a given attempt.
+
+    Returns the conclusion if the run is completed with attempt > after_workflow_attempt.
+    Pass after_workflow_attempt=0 to match any attempt.
+    """
+    result = run("gh", "run", "view", run_id, "--json", "status,conclusion,attempt")
+    data = json.loads(result)
+    if data["status"] == "completed" and data["attempt"] > after_workflow_attempt:
+        return data["conclusion"]
+    return None
+
+
 def find_publish_run_id(tag: str) -> str:
     """Find the workflow run ID for the publish workflow triggered by a tag push.
 
     Polls until the run appears (there may be a brief delay after pushing).
     """
-    print("\nWaiting for publish workflow to start...")
-    warned_slow = False
-    elapsed = 0
-    while elapsed < MAX_WAIT_FOR_RUN_SECONDS:
-        result = run(
-            "gh",
-            "run",
-            "list",
-            "-w",
-            PUBLISH_WORKFLOW,
-            "-b",
-            tag,
-            "--json",
-            "databaseId,status",
-            "-L",
-            "1",
-        )
-        if result:
-            runs = json.loads(result)
-            if runs:
-                found_run_id = str(runs[0]["databaseId"])
-                print(f"Publish workflow started (run {found_run_id})")
-                return found_run_id
-        time.sleep(2)
-        elapsed += 2
-        if not warned_slow and elapsed >= SLOW_START_WARNING_SECONDS:
-            print("This is taking longer than expected, still waiting...")
-            warned_slow = True
+    # Try for 60s, then warn and keep waiting
+    run_id, _, _ = poll_for_value(lambda: _try_find_run_id(tag), timeout=SLOW_START_WARNING_SECONDS, poll_interval=2)
+    if run_id is None:
+        print("This is taking longer than expected, still waiting...")
+        remaining_seconds = MAX_WAIT_FOR_RUN_SECONDS - SLOW_START_WARNING_SECONDS
+        run_id, _, _ = poll_for_value(lambda: _try_find_run_id(tag), timeout=remaining_seconds, poll_interval=2)
+
+    if run_id is not None:
+        print(f"Tracking publish workflow (run {run_id})")
+        return run_id
 
     print("ERROR: Could not find publish workflow run.", file=sys.stderr)
     print(f"Check manually: {ACTIONS_URL}", file=sys.stderr)
     sys.exit(1)
 
 
-def wait_for_run_completion(run_id: str) -> str:
+def wait_for_run_completion(run_id: str, after_workflow_attempt: int) -> str:
     """Poll until the workflow run completes. Returns the conclusion (e.g. 'success', 'failure')."""
-    print("Waiting for workflow to complete...")
-    while True:
-        result = run("gh", "run", "view", run_id, "--json", "status,conclusion")
-        data = json.loads(result)
-        if data["status"] == "completed":
-            return data["conclusion"]
-        time.sleep(POLL_INTERVAL_SECONDS)
+    conclusion, _, _ = poll_for_value(
+        lambda: _try_get_conclusion(run_id, after_workflow_attempt), timeout=1800, poll_interval=POLL_INTERVAL_SECONDS
+    )
+    if conclusion is not None:
+        return conclusion
+    print("ERROR: Workflow did not complete within 30 minutes.", file=sys.stderr)
+    print(f"Check manually: https://github.com/imbue-ai/mng/actions/runs/{run_id}", file=sys.stderr)
+    sys.exit(1)
 
 
 def print_run_failure(run_id: str) -> None:
@@ -139,12 +164,13 @@ def monitor_publish_workflow(tag: str) -> None:
     and if it fails, shows the error logs and prompts the user to retry.
     """
     run_id = find_publish_run_id(tag)
+    after_workflow_attempt = 0
 
     while True:
-        conclusion = wait_for_run_completion(run_id)
+        conclusion = wait_for_run_completion(run_id, after_workflow_attempt)
 
         if conclusion == "success":
-            print("\nPublish workflow succeeded!")
+            print("Publish workflow succeeded!")
             return
 
         print_run_failure(run_id)
@@ -154,10 +180,9 @@ def monitor_publish_workflow(tag: str) -> None:
             print("Aborted. You can retry manually from the GitHub Actions page.")
             sys.exit(1)
 
+        after_workflow_attempt = _get_workflow_attempt_number(run_id)
         print("\nRetrying...")
         run("gh", "run", "rerun", run_id, "--failed")
-        # Give GitHub a moment to restart the run
-        time.sleep(5)
 
 
 def main() -> None:
