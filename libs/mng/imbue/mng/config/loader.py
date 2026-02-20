@@ -546,6 +546,14 @@ def _parse_config(raw: dict[str, Any]) -> MngConfig:
     return MngConfig.model_construct(**kwargs)
 
 
+def validate_raw_config(raw: dict[str, Any]) -> None:
+    """Validate a raw config dict against the config schema.
+
+    Raises ConfigParseError if the config contains unknown fields or structural errors.
+    """
+    _parse_config(dict(raw))
+
+
 # =============================================================================
 # Environment Variable Overrides for Commands
 # =============================================================================
