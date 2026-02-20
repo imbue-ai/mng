@@ -9,6 +9,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 from typing import Final
+from typing import Literal
 
 from pydantic import Field
 from pydantic import GetCoreSchemaHandler
@@ -452,6 +453,7 @@ class AgentInfo(FrozenModel):
     This combines certified and reported data from the agent with host information.
     """
 
+    resource_type: Literal["agent"] = "agent"
     id: AgentId = Field(description="Agent ID")
     name: AgentName = Field(description="Agent name")
     type: str = Field(description="Agent type (claude, codex, etc.)")

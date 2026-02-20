@@ -622,9 +622,6 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """
     result = agent.model_dump(mode="json")
 
-    # Add computed fields
-    result["resource_type"] = "agent"
-
     # Add age from create_time
     if result.get("create_time"):
         if isinstance(result["create_time"], str):
