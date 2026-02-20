@@ -27,7 +27,7 @@ from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
-from imbue.mng.config.loader import validate_raw_config
+from imbue.mng.config.loader import parse_config
 from imbue.mng.errors import ConfigKeyNotFoundError
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
@@ -159,17 +159,6 @@ def _unset_nested_value(doc: tomlkit.TOMLDocument, key_path: str) -> bool:
         del current[keys[-1]]
         return True
     return False
-
-
-def _validate_config_document(doc: tomlkit.TOMLDocument) -> None:
-    """Validate a tomlkit document against the config schema.
-
-    Converts the document to a plain dict and runs it through the config
-    parser to catch unknown fields or structural errors before the file is saved.
-
-    Raises ConfigParseError if validation fails.
-    """
-    validate_raw_config(doc.unwrap())
 
 
 def _parse_value(value_str: str) -> Any:
@@ -484,7 +473,7 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
     set_nested_value(doc, key, parsed_value)
 
     # Validate the resulting config before saving
-    _validate_config_document(doc)
+    parse_config(dict(doc.unwrap()))
 
     # Save the config
     save_config_file(config_path, doc)

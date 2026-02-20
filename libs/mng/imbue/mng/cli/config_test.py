@@ -10,12 +10,10 @@ from imbue.mng.cli.config import _format_value_for_display
 from imbue.mng.cli.config import _get_nested_value
 from imbue.mng.cli.config import _parse_value
 from imbue.mng.cli.config import _unset_nested_value
-from imbue.mng.cli.config import _validate_config_document
 from imbue.mng.cli.config import load_config_file_tomlkit
 from imbue.mng.cli.config import save_config_file
 from imbue.mng.cli.config import set_nested_value
 from imbue.mng.errors import ConfigKeyNotFoundError
-from imbue.mng.errors import ConfigParseError
 
 
 def test_parse_value_parses_true_as_boolean() -> None:
@@ -227,30 +225,3 @@ def test_save_config_file_preserves_formatting(tmp_path: Path) -> None:
     content = config_path.read_text()
     assert "# This is a comment" in content
     assert 'prefix = "test-"' in content
-
-
-def test_validate_config_document_accepts_valid_config() -> None:
-    doc = tomlkit.document()
-    doc["prefix"] = "my-"
-    _validate_config_document(doc)
-
-
-def test_validate_config_document_accepts_valid_nested_config() -> None:
-    doc = tomlkit.document()
-    set_nested_value(doc, "commands.create.connect", False)
-    _validate_config_document(doc)
-
-
-def test_validate_config_document_rejects_unknown_top_level_field() -> None:
-    doc = tomlkit.document()
-    set_nested_value(doc, "provider.default", "docker")
-    with pytest.raises(ConfigParseError, match="Unknown configuration fields.*provider"):
-        _validate_config_document(doc)
-
-
-def test_validate_config_document_rejects_unknown_field_with_valid_fields() -> None:
-    doc = tomlkit.document()
-    doc["prefix"] = "my-"
-    set_nested_value(doc, "nonexistent_section.key", "value")
-    with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_section"):
-        _validate_config_document(doc)
