@@ -712,7 +712,7 @@ def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> 
     """Extract `default_subcommand` entries from a TOML config file into `target`."""
     try:
         raw = _load_toml(path)
-    except ConfigParseError as e:
+    except (ConfigNotFoundError, ConfigParseError) as e:
         logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
         return
     raw_commands = raw.get("commands")
@@ -744,7 +744,7 @@ def _merge_disabled_plugins_from_file(path: Path, target: dict[str, bool]) -> No
     """Extract plugin enabled/disabled state from a TOML config file into `target`."""
     try:
         raw = _load_toml(path)
-    except ConfigParseError as e:
+    except (ConfigNotFoundError, ConfigParseError) as e:
         logger.trace("Skipped malformed config file during pre-read: {} ({})", path, e)
         return
     raw_plugins = raw.get("plugins")
