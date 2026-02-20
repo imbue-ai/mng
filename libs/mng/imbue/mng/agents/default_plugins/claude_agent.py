@@ -626,11 +626,7 @@ class ClaudeAgent(BaseAgent):
                     # Add trust for the remote work_dir so Claude doesn't show the
                     # trust dialog (which would intercept tmux send-keys input):
                     projects = claude_json_data.setdefault("projects", {})
-                    work_dir_str = str(self.work_dir)
-                    if work_dir_str not in projects:
-                        projects[work_dir_str] = {"hasTrustDialogAccepted": True}
-                    else:
-                        projects[work_dir_str]["hasTrustDialogAccepted"] = True
+                    projects.setdefault(str(self.work_dir), {})["hasTrustDialogAccepted"] = True
                     # If the local file lacks primaryApiKey, try the macOS keychain
                     if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
                         keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
