@@ -677,8 +677,7 @@ def _read_config_layers_lightweight(
     profile_dir = _find_profile_dir_lightweight(base_dir)
     if profile_dir is not None:
         user_config_path = _get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            merge_from_file(user_config_path, target)
+        merge_from_file(user_config_path, target)
 
     # Project + local config need the project root
     cg = ConcurrencyGroup(name="config-pre-reader")
@@ -686,10 +685,10 @@ def _read_config_layers_lightweight(
         project_config_path = _find_project_config(None, root_name, cg)
         local_config_path = _find_local_config(None, root_name, cg)
 
-    if project_config_path is not None and project_config_path.exists():
+    if project_config_path is not None:
         merge_from_file(project_config_path, target)
 
-    if local_config_path is not None and local_config_path.exists():
+    if local_config_path is not None:
         merge_from_file(local_config_path, target)
 
 
