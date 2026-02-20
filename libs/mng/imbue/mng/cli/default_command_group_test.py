@@ -3,6 +3,7 @@ from pathlib import Path
 import click
 import pluggy
 import pytest
+from click.shell_completion import CompletionItem
 from click.testing import CliRunner
 
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
@@ -220,3 +221,39 @@ def test_no_config_key_uses_default_command_attribute() -> None:
     result = runner.invoke(group, [])
     assert result.exit_code == 0
     assert record["command"] == "create"
+
+
+# =============================================================================
+# Tab completion tests
+# =============================================================================
+
+
+def test_tab_completion_lists_subcommands() -> None:
+    """Tab completing after the group name should list subcommands, not default to create."""
+    record: dict[str, str | None] = {}
+    group = _make_test_group(record)
+    completions = _get_completions(group, [], "")
+    assert {"create", "list"} == {c.value for c in completions}
+
+
+def test_tab_completion_filters_by_prefix() -> None:
+    """Tab completing with a partial subcommand name should filter matches."""
+    record: dict[str, str | None] = {}
+    group = _make_test_group(record)
+    completions = _get_completions(group, [], "cr")
+    assert {c.value for c in completions} == {"create"}
+
+
+def test_tab_completion_after_subcommand_does_not_list_subcommands() -> None:
+    """Tab completing after a resolved subcommand should not list sibling subcommands."""
+    record: dict[str, str | None] = {}
+    group = _make_test_group(record)
+    completions = _get_completions(group, ["create"], "")
+    # Should not contain sibling subcommands
+    assert "list" not in {c.value for c in completions}
+
+
+def _get_completions(group: click.Group, args: list[str], incomplete: str) -> list[CompletionItem]:
+    from click.shell_completion import ShellComplete
+
+    return ShellComplete(group, {}, "test", "_TEST_COMPLETE").get_completions(args, incomplete)
