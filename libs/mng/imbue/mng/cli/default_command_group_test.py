@@ -231,22 +231,19 @@ def test_no_config_key_uses_default_command_attribute() -> None:
 
 def test_tab_completion_lists_subcommands() -> None:
     """Tab completing after the group name should list subcommands, not default to create."""
-    group = _make_test_group({})
-    completions = _get_completions(group, [], "")
+    completions = _get_completions(_make_test_group({}), [], "")
     assert {"create", "list"} == {c.value for c in completions}
 
 
 def test_tab_completion_filters_by_prefix() -> None:
     """Tab completing with a partial subcommand name should filter matches."""
-    group = _make_test_group({})
-    completions = _get_completions(group, [], "cr")
+    completions = _get_completions(_make_test_group({}), [], "cr")
     assert {c.value for c in completions} == {"create"}
 
 
 def test_tab_completion_after_subcommand_does_not_list_subcommands() -> None:
     """Tab completing after a resolved subcommand should not list sibling subcommands."""
-    group = _make_test_group({})
-    completions = _get_completions(group, ["create"], "")
+    completions = _get_completions(_make_test_group({}), ["create"], "")
     # Should not contain sibling subcommands
     assert "list" not in {c.value for c in completions}
 
