@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import uuid
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -86,6 +87,9 @@ LABEL_TAGS: Final[str] = f"{LABEL_PREFIX}tags"
 # Path where the state volume is mounted inside host containers (when host volume is enabled).
 # The host_dir (e.g. /mng) is symlinked to <this>/<host_id> so all data persists on the volume.
 HOST_VOLUME_MOUNT_PATH: Final[str] = STATE_VOLUME_MOUNT_PATH
+
+# Namespace for generating deterministic VolumeIds from directory names.
+_DOCKER_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f2a5b3-3e6d-4901-bcde-234567890def")
 
 # SSH constants
 CONTAINER_SSH_PORT: Final[int] = 22
@@ -1344,6 +1348,16 @@ kill -TERM 1
     # Volume Methods
     # =========================================================================
 
+    @staticmethod
+    def _volume_id_for_dir(dir_name: str) -> VolumeId:
+        """Create a deterministic VolumeId from a volume directory name.
+
+        Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
+        from any directory name.
+        """
+        derived = uuid.uuid5(_DOCKER_VOLUME_ID_NAMESPACE, dir_name)
+        return VolumeId(f"vol-{derived.hex}")
+
     def list_volumes(self) -> list[VolumeInfo]:
         """List logical volumes stored on the state volume."""
         try:
@@ -1354,19 +1368,36 @@ kill -TERM 1
         volumes: list[VolumeInfo] = []
         for entry in entries:
             if entry.file_type == VolumeFileType.DIRECTORY:
-                vol_name = entry.path.rsplit("/", 1)[-1]
+                dir_name = entry.path.rsplit("/", 1)[-1]
+                host_id: HostId | None = None
+                if dir_name.startswith("host-"):
+                    try:
+                        host_id = HostId(dir_name)
+                    except ValueError:
+                        pass
                 volumes.append(
                     VolumeInfo(
-                        volume_id=VolumeId(vol_name),
-                        name=vol_name,
+                        volume_id=self._volume_id_for_dir(dir_name),
+                        name=dir_name,
                         size_bytes=0,
+                        host_id=host_id,
                     )
                 )
         return volumes
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a logical volume from the state volume."""
-        self._state_volume.remove_directory(f"volumes/{volume_id}")
+        try:
+            entries = self._state_volume.listdir("volumes")
+        except (FileNotFoundError, OSError) as e:
+            raise MngError(f"Volume {volume_id} not found") from e
+        for entry in entries:
+            if entry.file_type == VolumeFileType.DIRECTORY:
+                dir_name = entry.path.rsplit("/", 1)[-1]
+                if self._volume_id_for_dir(dir_name) == volume_id:
+                    self._state_volume.remove_directory(f"volumes/{dir_name}")
+                    return
+        raise MngError(f"Volume {volume_id} not found")
 
     def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the host volume for a given host.
