@@ -4,6 +4,7 @@ import click
 import pluggy
 import pytest
 from click.shell_completion import CompletionItem
+from click.shell_completion import ShellComplete
 from click.testing import CliRunner
 
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
@@ -254,6 +255,4 @@ def test_tab_completion_after_subcommand_does_not_list_subcommands() -> None:
 
 
 def _get_completions(group: click.Group, args: list[str], incomplete: str) -> list[CompletionItem]:
-    from click.shell_completion import ShellComplete
-
     return ShellComplete(group, {}, "test", "_TEST_COMPLETE").get_completions(args, incomplete)
