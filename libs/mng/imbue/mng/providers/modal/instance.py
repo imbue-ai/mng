@@ -942,12 +942,6 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            logger.warning(
-                "No image or Dockerfile specified -- using bare default image (debian slim). "
-                "This image does not include tools needed by mng (ssh, tmux, etc.) "
-                "and they will be installed at runtime. Consider specifying a Dockerfile "
-                "with -b --dockerfile=<path> or an image with -b --image=<image>.",
-            )
             image = modal.Image.debian_slim()
 
         return image
@@ -1612,6 +1606,14 @@ log "=== Shutdown script completed ==="
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
+
+        if not base_image and not dockerfile_path:
+            logger.warning(
+                "No image or Dockerfile specified -- using bare default image (debian slim). "
+                "This image does not include tools needed by mng (ssh, tmux, etc.) "
+                "and they will be installed at runtime. Consider specifying a Dockerfile "
+                "with -b --dockerfile=<path> or an image with -b --image=<image>.",
+            )
 
         try:
             # Build the Modal image
