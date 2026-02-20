@@ -495,7 +495,7 @@ def test_parse_create_templates_multiple_templates() -> None:
 # =============================================================================
 
 
-def testparse_config_parses_full_config() -> None:
+def test_parse_config_parses_full_config() -> None:
     """parse_config should parse a full config dict."""
     raw = {
         "prefix": "test-",
@@ -518,7 +518,7 @@ def testparse_config_parses_full_config() -> None:
     assert result.logging is not None
 
 
-def testparse_config_handles_minimal_config() -> None:
+def test_parse_config_handles_minimal_config() -> None:
     """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
     result = parse_config(raw)
@@ -530,7 +530,7 @@ def testparse_config_handles_minimal_config() -> None:
     assert result.logging is None
 
 
-def testparse_config_handles_empty_config() -> None:
+def test_parse_config_handles_empty_config() -> None:
     """parse_config should handle empty config dict."""
     result = parse_config({})
     assert result.prefix is None
@@ -542,14 +542,14 @@ def testparse_config_handles_empty_config() -> None:
     assert result.logging is None
 
 
-def testparse_config_raises_on_unknown_top_level_field() -> None:
+def test_parse_config_raises_on_unknown_top_level_field() -> None:
     """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
         parse_config(raw)
 
 
-def testparse_config_raises_on_unknown_nested_field() -> None:
+def test_parse_config_raises_on_unknown_nested_field() -> None:
     """parse_config should raise ConfigParseError for unknown fields in nested config sections."""
     raw = {
         "logging": {"file_level": "DEBUG", "bad_field": True},
@@ -558,14 +558,14 @@ def testparse_config_raises_on_unknown_nested_field() -> None:
         parse_config(raw)
 
 
-def testparse_config_parses_default_destroyed_host_persisted_seconds() -> None:
+def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
     result = parse_config(raw)
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
-def testparse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
+def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
     result = parse_config({})
     assert result.default_destroyed_host_persisted_seconds is None
