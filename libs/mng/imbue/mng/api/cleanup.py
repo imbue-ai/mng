@@ -212,8 +212,6 @@ def _run_post_cleanup_gc(
                 mng_ctx=mng_ctx,
                 providers=providers,
                 resource_types=resource_types,
-                include_filters=(),
-                exclude_filters=(),
                 dry_run=False,
                 error_behavior=ErrorBehavior.CONTINUE,
             )

@@ -50,13 +50,6 @@ mng gc [OPTIONS]
 | `--build-cache` | boolean | Remove build cache entries | `False` |
 | `--machine-cache` | boolean | Remove machine cache entries (per-provider) [future] | `False` |
 
-## Filtering
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
-| `--include` | text | Only clean resources matching CEL filter (repeatable) | None |
-| `--exclude` | text | Exclude resources matching CEL filter (repeatable) | None |
-
 ## Scope
 
 | Name | Type | Description | Default |
@@ -95,20 +88,6 @@ mng gc [OPTIONS]
 | ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
-## CEL Filter Examples
-
-CEL filters let you control which resources are cleaned.
-
-**For snapshots, use `recency_idx` to filter by age:**
-- `recency_idx == 0` - the most recent snapshot
-- `recency_idx < 5` - the 5 most recent snapshots
-- To keep only the 5 most recent: `--exclude "recency_idx < 5"`
-
-**Filter by resource properties:**
-- `name.contains("test")` - resources with "test" in the name
-- `provider_name == "docker"` - Docker resources only
-
-
 ## See Also
 
 - [mng cleanup](./cleanup.md) - Interactive cleanup of agents and hosts
@@ -139,10 +118,4 @@ $ mng gc --machines --snapshots --provider docker
 
 ```bash
 $ mng gc --logs --build-cache
-```
-
-**Keep only the 5 most recent snapshots**
-
-```bash
-$ mng gc --snapshots --exclude "recency_idx < 5"
 ```
