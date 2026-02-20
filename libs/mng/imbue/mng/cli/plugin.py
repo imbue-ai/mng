@@ -337,7 +337,7 @@ def _emit_plugin_remove_result(
             assert_never(unreachable)
 
 
-class _PluginGroup(CachedSubcommandCompletionMixin, click.Group):
+class _PluginGroup(CachedSubcommandCompletionMixin):
     """Plugin group that reads subcommand completions from the static cache."""
 
     _completion_cache_key = "plugin"

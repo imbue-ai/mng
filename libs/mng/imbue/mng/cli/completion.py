@@ -172,7 +172,7 @@ def read_cached_subcommands(command_name: str) -> list[str] | None:
     return sorted(result) if result else None
 
 
-class CachedSubcommandCompletionMixin:
+class CachedSubcommandCompletionMixin(click.Group):
     """Mixin for click.Group subclasses that reads subcommand completions from the static cache.
 
     Subclasses must set `_completion_cache_key` to the command name used as
@@ -185,6 +185,6 @@ class CachedSubcommandCompletionMixin:
         cached = read_cached_subcommands(self._completion_cache_key)
         if cached is not None:
             completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))  # type: ignore[arg-type]
+            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
             return completions
-        return super().shell_complete(ctx, incomplete)  # type: ignore[misc]
+        return super().shell_complete(ctx, incomplete)
