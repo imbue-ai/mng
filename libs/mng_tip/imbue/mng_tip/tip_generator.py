@@ -6,12 +6,12 @@ the result to next_tip.txt. Designed to be run as a detached subprocess via
 """
 
 import json
-import subprocess
-import tempfile
 from datetime import datetime
 from datetime import timezone
 from typing import Final
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.utils.claude import query_claude
 from imbue.mng_tip.invocation_logger import get_tip_data_dir
 from imbue.mng_tip.invocation_logger import read_recent_invocations
 
@@ -50,7 +50,7 @@ Here are features you might suggest:
 Respond with ONLY the tip text. No quotes, no prefix, no markdown.\
 """
 
-_PROCESS_TIMEOUT_SECONDS: Final[int] = 60
+_PROCESS_TIMEOUT_SECONDS: Final[float] = 60.0
 
 
 def _read_previous_suggestions(max_lines: int = 20) -> list[str]:
@@ -115,36 +115,13 @@ def generate_tip() -> str | None:
 
     prompt = "\n\n".join(prompt_parts)
 
-    # Call claude CLI (non-streaming, plain text output)
-    with tempfile.TemporaryDirectory(prefix="mng-tip-") as tmp_dir:
-        try:
-            result = subprocess.run(
-                [
-                    "claude",
-                    "--print",
-                    "--system-prompt",
-                    _SYSTEM_PROMPT,
-                    "--no-session-persistence",
-                    "--tools",
-                    "",
-                    prompt,
-                ],
-                capture_output=True,
-                text=True,
-                cwd=tmp_dir,
-                timeout=_PROCESS_TIMEOUT_SECONDS,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return None
-
-        if result.returncode != 0:
-            return None
-
-        tip_text = result.stdout.strip()
-        if not tip_text:
-            return None
-
-        return tip_text
+    with ConcurrencyGroup(name="mng-tip-generator") as cg:
+        return query_claude(
+            prompt=prompt,
+            system_prompt=_SYSTEM_PROMPT,
+            cg=cg,
+            timeout=_PROCESS_TIMEOUT_SECONDS,
+        )
 
 
 def main() -> None:

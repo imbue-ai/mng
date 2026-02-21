@@ -1,5 +1,4 @@
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -14,61 +13,39 @@ class TestGenerateTip:
     def test_returns_none_with_no_invocations(self, temp_host_dir: Path) -> None:
         assert generate_tip() is None
 
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_returns_tip_on_success(self, mock_run: Any, temp_host_dir: Path) -> None:
+    @patch("imbue.mng_tip.tip_generator.query_claude")
+    def test_returns_tip_on_success(self, mock_query: Any, temp_host_dir: Path) -> None:
         log_invocation("list", {})
         log_invocation("create", {})
 
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="Try `mng pair` for continuous file sync\n",
-            stderr="",
-        )
+        mock_query.return_value = "Try `mng pair` for continuous file sync"
 
         result = generate_tip()
         assert result == "Try `mng pair` for continuous file sync"
 
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_returns_none_on_claude_failure(self, mock_run: Any, temp_host_dir: Path) -> None:
+    @patch("imbue.mng_tip.tip_generator.query_claude")
+    def test_returns_none_on_claude_failure(self, mock_query: Any, temp_host_dir: Path) -> None:
         log_invocation("list", {})
 
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=1,
-            stdout="",
-            stderr="error",
-        )
+        mock_query.return_value = None
 
         assert generate_tip() is None
 
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_returns_none_on_empty_response(self, mock_run: Any, temp_host_dir: Path) -> None:
+    @patch("imbue.mng_tip.tip_generator.query_claude")
+    def test_passes_prompt_and_system_prompt(self, mock_query: Any, temp_host_dir: Path) -> None:
         log_invocation("list", {})
 
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="  \n  ",
-            stderr="",
-        )
+        mock_query.return_value = "a tip"
 
-        assert generate_tip() is None
+        generate_tip()
 
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_returns_none_on_file_not_found(self, mock_run: Any, temp_host_dir: Path) -> None:
-        log_invocation("list", {})
-        mock_run.side_effect = FileNotFoundError("claude not found")
-        assert generate_tip() is None
+        mock_query.assert_called_once()
+        call_kwargs = mock_query.call_args
+        assert "prompt" in call_kwargs.kwargs
+        assert "list" in call_kwargs.kwargs["prompt"]
 
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_returns_none_on_timeout(self, mock_run: Any, temp_host_dir: Path) -> None:
-        log_invocation("list", {})
-        mock_run.side_effect = subprocess.TimeoutExpired("claude", 60)
-        assert generate_tip() is None
-
-    @patch("imbue.mng_tip.tip_generator.subprocess.run")
-    def test_includes_previous_suggestions_in_prompt(self, mock_run: Any, temp_host_dir: Path) -> None:
+    @patch("imbue.mng_tip.tip_generator.query_claude")
+    def test_includes_previous_suggestions_in_prompt(self, mock_query: Any, temp_host_dir: Path) -> None:
         log_invocation("list", {})
 
         # Write a previous suggestion
@@ -78,19 +55,13 @@ class TestGenerateTip:
         with open(tip_dir / "suggestions.jsonl", "w") as f:
             f.write(json.dumps(entry) + "\n")
 
-        mock_run.return_value = subprocess.CompletedProcess(
-            args=[],
-            returncode=0,
-            stdout="Try mng snapshot",
-            stderr="",
-        )
+        mock_query.return_value = "Try mng snapshot"
 
         generate_tip()
 
         # Verify the prompt includes the previous suggestion
-        call_args = mock_run.call_args
-        prompt = call_args[0][0][-1] if call_args[0] else call_args[1].get("args", [])[-1]
-        assert "Use mng pair" in prompt
+        call_kwargs = mock_query.call_args
+        assert "Use mng pair" in call_kwargs.kwargs["prompt"]
 
 
 class TestMain:
