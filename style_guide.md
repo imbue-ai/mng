@@ -1040,6 +1040,39 @@ There will often be multiple different implementation classes for a single inter
 
 Implementation classes should be contained within their own named module off of the root of the package (ex: if the package is `foobar` and the interface being implemented is `DatabaseInterface`, then the implementations should go in `foobar.database`)
 
+## Framework base classes
+
+Sometimes we need to subclass third-party framework classes (e.g. `click.Group`, `django.views.View`). These don't fit into the frozen/interface/implementation taxonomy above -- they are extension points dictated by the framework, not domain concepts. This is fine; the three-class rule applies to our own domain code.
+
+When multiple framework subclasses need to share behavior, use a concrete base class in the framework's inheritance hierarchy, not a mixin. Mixins add indirection and make the class hierarchy harder to follow. A straightforward base class is almost always clearer.
+
+```python
+# Good: concrete base class
+class CachedCompletionGroup(click.Group):
+    """Base class for groups that read completions from a static cache."""
+
+    _completion_cache_key: str
+
+    def shell_complete(self, ctx, incomplete):
+        ...
+
+
+class _ConfigGroup(CachedCompletionGroup):
+    _completion_cache_key = "config"
+
+
+# Bad: mixin that could just be a base class
+class CachedCompletionMixin:
+    _completion_cache_key: str
+
+    def shell_complete(self, ctx, incomplete):
+        ...
+
+
+class _ConfigGroup(CachedCompletionMixin, click.Group):
+    _completion_cache_key = "config"
+```
+
 # Functions and methods
 
 All functions and methods should have a single, clear purpose. Because of this, the names of functions and methods should be very precise and self-documenting. It is acceptable for the names to become fairly long. It should be very obvious what a function or method does just from reading its name
