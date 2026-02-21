@@ -629,6 +629,11 @@ class ClaudeAgent(BaseAgent):
                         if keychain_api_key is not None:
                             logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
                             claude_json_data["primaryApiKey"] = keychain_api_key
+                    # FIXME: this particular write must be atomic!
+                    #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
+                    #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
+                    #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
+                    #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
                     host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
                 else:
                     logger.debug("Skipped ~/.claude.json (file does not exist)")
