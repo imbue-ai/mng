@@ -660,11 +660,12 @@ class _StreamingHumanRenderer(MutableModel):
             self.output.write(row_line + "\n")
             self._count += 1
 
-            # Re-write warnings below the new agent row
-            for warning_text in self._warning_texts:
-                self.output.write(warning_text)
-
             if self.is_tty:
+                # Re-write warnings below the new agent row (only in TTY mode
+                # where they were erased by cursor-up + erase-to-end above)
+                for warning_text in self._warning_texts:
+                    self.output.write(warning_text)
+
                 # Write updated status line
                 status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
                 self.output.write(status)
