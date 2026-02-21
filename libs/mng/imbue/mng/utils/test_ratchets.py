@@ -68,6 +68,10 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 # Exclude this test file from ratchet scans to prevent self-referential matches
 _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
+# Test infrastructure files (fixtures.py, conftest.py, testing.py) contain test code
+# and should be excluded from ratchets alongside test files.
+_TEST_AND_FIXTURE_PATTERNS: tuple[str, ...] = TEST_FILE_PATTERNS + ("fixtures.py",)
+
 # Group all ratchet tests onto a single xdist worker to benefit from LRU caching
 pytestmark = pytest.mark.xdist_group(name="ratchets")
 
@@ -308,7 +312,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     """
     # Docker provider uses subprocess for docker build/run CLI pass-through.
     # connect.py uses os.execvp/os.execvpe for process replacement (not child spawning).
-    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), TEST_FILE_PATTERNS)
+    chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), _TEST_AND_FIXTURE_PATTERNS)
     assert len(chunks) <= snapshot(47), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
