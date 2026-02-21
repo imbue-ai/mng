@@ -32,6 +32,7 @@ from imbue.mng.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mng.agents.default_plugins.claude_config import remove_claude_trust_for_path
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import AgentStartError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.hosts.common import is_macos
@@ -278,7 +279,7 @@ class ClaudeAgent(BaseAgent):
         Polls for the 'session_started' file that the SessionStart hook creates.
         This indicates Claude Code has started and is ready for input.
 
-        Raises TimeoutError if the agent doesn't signal readiness within the timeout.
+        Raises AgentStartError if the agent doesn't signal readiness within the timeout.
         """
         if timeout is None:
             timeout = _READY_SIGNAL_TIMEOUT_SECONDS
@@ -292,13 +293,19 @@ class ClaudeAgent(BaseAgent):
                 super().wait_for_ready_signal(is_creating, start_action, timeout)
 
             # Poll for the session_started file (created by SessionStart hook)
-            wait_for(
-                lambda: self._check_file_exists(session_started_path),
-                timeout=timeout,
-                poll_interval=0.05,
-                error_message=f"Agent did not signal readiness within {timeout}s. "
-                "This may indicate a trust dialog appeared or Claude Code failed to start.",
-            )
+            try:
+                wait_for(
+                    lambda: self._check_file_exists(session_started_path),
+                    timeout=timeout,
+                    poll_interval=0.05,
+                    error_message=f"Agent did not signal readiness within {timeout}s. "
+                    "This may indicate a trust dialog appeared or Claude Code failed to start.",
+                )
+            except TimeoutError as e:
+                raise AgentStartError(
+                    str(self.name),
+                    str(e),
+                ) from e
 
     def _build_background_tasks_command(self, session_name: str) -> str:
         """Build a shell command that starts the background tasks script.
