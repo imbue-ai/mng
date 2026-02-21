@@ -278,7 +278,7 @@ class ClaudeAgent(BaseAgent):
         Polls for the 'session_started' file that the SessionStart hook creates.
         This indicates Claude Code has started and is ready for input.
 
-        Raises AgentStartError if the agent doesn't signal readiness within the timeout.
+        Raises TimeoutError if the agent doesn't signal readiness within the timeout.
         """
         if timeout is None:
             timeout = _READY_SIGNAL_TIMEOUT_SECONDS
