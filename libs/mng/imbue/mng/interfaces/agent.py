@@ -152,7 +152,7 @@ class AgentInterface(MutableModel, ABC):
         detection (e.g., polling for a marker file). Default just runs start_action
         without waiting for readiness confirmation.
 
-        Implementations that override this should raise AgentStartError if the agent
+        Implementations that override this should raise TimeoutError if the agent
         doesn't signal readiness within the timeout.
         """
         start_action()
