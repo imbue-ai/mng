@@ -4,7 +4,7 @@ version = "0.1.2"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
 license = "MIT"
-readme = "README.md"
+readme = "../../README.md"
 authors = [
     {name = "Imbue"},
     {name = "Josh Albrecht"},

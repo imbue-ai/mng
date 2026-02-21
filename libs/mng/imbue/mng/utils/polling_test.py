@@ -4,8 +4,48 @@ import time
 
 import pytest
 
+from imbue.mng.utils.polling import poll_for_value
 from imbue.mng.utils.polling import poll_until
 from imbue.mng.utils.polling import wait_for
+
+
+def test_poll_for_value_returns_value_immediately_when_producer_returns_non_none() -> None:
+    value, poll_count, elapsed = poll_for_value(lambda: "found", timeout=1.0)
+
+    assert value == "found"
+    assert poll_count == 1
+    assert elapsed < 0.5
+
+
+def test_poll_for_value_returns_none_on_timeout() -> None:
+    value, poll_count, elapsed = poll_for_value(lambda: None, timeout=0.2, poll_interval=0.05)
+
+    assert value is None
+    assert poll_count >= 2
+    assert elapsed >= 0.2
+
+
+def test_poll_for_value_polls_until_value_available() -> None:
+    call_count = 0
+
+    def producer() -> str | None:
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 3:
+            return "ready"
+        return None
+
+    value, poll_count, elapsed = poll_for_value(producer, timeout=2.0, poll_interval=0.05)
+
+    assert value == "ready"
+    assert poll_count == 3
+
+
+def test_poll_for_value_returns_non_string_types() -> None:
+    value, poll_count, _ = poll_for_value(lambda: 42, timeout=1.0)
+
+    assert value == 42
+    assert poll_count == 1
 
 
 def test_poll_until_returns_true_when_condition_met() -> None:
