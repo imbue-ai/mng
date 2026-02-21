@@ -22,7 +22,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import CachedSubcommandCompletionMixin
+from imbue.mng.cli.completion import CachedCompletionGroup
 from imbue.mng.cli.config import ConfigScope
 from imbue.mng.cli.config import get_config_path
 from imbue.mng.cli.config import load_config_file_tomlkit
@@ -337,7 +337,7 @@ def _emit_plugin_remove_result(
             assert_never(unreachable)
 
 
-class _PluginGroup(CachedSubcommandCompletionMixin):
+class _PluginGroup(CachedCompletionGroup):
     """Plugin group that reads subcommand completions from the static cache."""
 
     _completion_cache_key = "plugin"

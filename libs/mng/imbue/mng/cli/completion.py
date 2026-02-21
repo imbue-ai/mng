@@ -172,8 +172,8 @@ def read_cached_subcommands(command_name: str) -> list[str] | None:
     return sorted(result) if result else None
 
 
-class CachedSubcommandCompletionMixin(click.Group):
-    """Mixin for click.Group subclasses that reads subcommand completions from the static cache.
+class CachedCompletionGroup(click.Group):
+    """Base class for click.Group subclasses that reads subcommand completions from the static cache.
 
     Subclasses must set `_completion_cache_key` to the command name used as
     the lookup key in cli_completions.json.
