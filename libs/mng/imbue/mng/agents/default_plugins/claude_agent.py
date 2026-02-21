@@ -298,13 +298,13 @@ class ClaudeAgent(BaseAgent):
                     lambda: self._check_file_exists(session_started_path),
                     timeout=timeout,
                     poll_interval=0.05,
-                    error_message=f"Agent did not signal readiness within {timeout}s. "
-                    "This may indicate a trust dialog appeared or Claude Code failed to start.",
+                    error_message="session_started file not created in time",
                 )
             except TimeoutError as e:
                 raise AgentStartError(
                     str(self.name),
-                    str(e),
+                    f"Agent did not signal readiness within {timeout}s. "
+                    "This may indicate a trust dialog appeared or Claude Code failed to start.",
                 ) from e
 
     def _build_background_tasks_command(self, session_name: str) -> str:
