@@ -212,7 +212,7 @@ def main() -> None:
         return
 
     if args.version is None:
-        parser.error("version is required (unless using --watch or --retry)")
+        parser.error("version is required: patch, minor, major, or an explicit version (e.g. 0.2.0)")
 
     current_version = get_current_version()
 
