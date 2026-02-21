@@ -36,6 +36,10 @@ from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.terminal import ANSI_DIM_GRAY
+from imbue.mng.utils.terminal import ANSI_ERASE_LINE
+from imbue.mng.utils.terminal import ANSI_RESET
+from imbue.mng.utils.terminal import StderrInterceptor
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -466,7 +470,7 @@ def _list_streaming_human(
     # than being interspersed with agent rows.
     original_stderr = sys.stderr
     if renderer.is_tty:
-        sys.stderr = _StderrInterceptor(renderer=renderer, original_stderr=original_stderr)
+        sys.stderr = StderrInterceptor(callback=renderer.emit_warning, original_stderr=original_stderr)
 
     try:
         renderer.start()
@@ -572,9 +576,6 @@ _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
-_ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
-_ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
-_ANSI_RESET: Final[str] = "\x1b[0m"
 
 
 class _StreamingHumanRenderer(MutableModel):
@@ -609,7 +610,7 @@ class _StreamingHumanRenderer(MutableModel):
         self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
-            status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
+            status = f"{ANSI_DIM_GRAY}Searching...{ANSI_RESET}"
             self.output.write(status)
             self.output.flush()
 
@@ -618,7 +619,7 @@ class _StreamingHumanRenderer(MutableModel):
         with self._lock:
             if self.is_tty:
                 # Erase the status line so the warning appears cleanly
-                self.output.write(_ANSI_ERASE_LINE)
+                self.output.write(ANSI_ERASE_LINE)
 
             self.output.write(text)
             self._warning_texts.append(text)
@@ -627,7 +628,7 @@ class _StreamingHumanRenderer(MutableModel):
             if self.is_tty:
                 # Re-write the status line below the warning
                 count_text = f" ({self._count} found)" if self._count > 0 else ""
-                status = f"{_ANSI_DIM_GRAY}Searching...{count_text}{_ANSI_RESET}"
+                status = f"{ANSI_DIM_GRAY}Searching...{count_text}{ANSI_RESET}"
                 self.output.write(status)
 
             self.output.flush()
@@ -640,7 +641,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             if self.is_tty:
                 # Erase the current status line
-                self.output.write(_ANSI_ERASE_LINE)
+                self.output.write(ANSI_ERASE_LINE)
 
                 # If there are warnings below the agent rows, move cursor up
                 # past them and erase to end of screen. The warnings will be
@@ -667,7 +668,7 @@ class _StreamingHumanRenderer(MutableModel):
                     self.output.write(warning_text)
 
                 # Write updated status line
-                status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
+                status = f"{ANSI_DIM_GRAY}Searching... ({self._count} found){ANSI_RESET}"
                 self.output.write(status)
 
             self.output.flush()
@@ -677,54 +678,12 @@ class _StreamingHumanRenderer(MutableModel):
         with self._lock:
             if self.is_tty:
                 # Erase the final status line (warnings remain visible at the bottom)
-                self.output.write(_ANSI_ERASE_LINE)
+                self.output.write(ANSI_ERASE_LINE)
                 self.output.flush()
 
             if self._count == 0:
                 write_human_line("No agents found")
 
-
-class _StderrInterceptor(MutableModel):
-    """Routes stderr writes through the streaming renderer during list output.
-
-    Installed only in TTY mode to prevent loguru warnings from interleaving with
-    the ANSI-managed streaming table. Warnings are written to stdout (via the
-    renderer) so they can be coordinated with the status line and kept pinned
-    at the bottom of the table.
-    """
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    renderer: _StreamingHumanRenderer
-    original_stderr: Any
-
-    def write(self, s: str) -> int:
-        if s:
-            try:
-                self.renderer.emit_warning(s)
-            except OSError:
-                # Fall back to direct stderr if emission fails (e.g. broken pipe
-                # on stdout). Avoids recursive writes through the interceptor.
-                self.original_stderr.write(s)
-                self.original_stderr.flush()
-        return len(s)
-
-    def flush(self) -> None:
-        pass
-
-    def isatty(self) -> bool:
-        return self.original_stderr.isatty()
-
-    def fileno(self) -> int:
-        return self.original_stderr.fileno()
-
-    @property
-    def encoding(self) -> str:
-        return getattr(self.original_stderr, "encoding", "utf-8")
-
-    @property
-    def errors(self) -> str:
-        return getattr(self.original_stderr, "errors", "strict")
 
 
 @pure
