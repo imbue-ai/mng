@@ -1520,6 +1520,19 @@ def list_todos(
 
 Always use `pytest` for testing
 
+## Test infrastructure file conventions
+
+Each package that has tests may contain these test infrastructure files:
+
+| File | Purpose | Discovery |
+|------|---------|-----------|
+| `conftest.py` | Autouse fixtures, pytest hooks, `pytest_plugins` declaration | Auto-discovered by pytest |
+| `fixtures.py` | Non-autouse pytest fixtures for this module | Registered via `pytest_plugins` in conftest.py |
+| `testing.py` | Non-fixture test utilities (factory functions, helpers, context managers) | Explicitly imported by tests |
+| `mock_*_test.py` | Mock implementations of interfaces | Explicitly imported by tests |
+
+Non-autouse fixtures belong in `fixtures.py`, not in `conftest.py`. The top-level `conftest.py` for each project (e.g. `libs/mng/conftest.py`) should declare `pytest_plugins = ["package.path.fixtures", ...]` to register all fixture modules. Note: pytest only allows `pytest_plugins` in top-level conftest files. This makes fixtures discoverable: agents can `glob("**/fixtures.py")` to find all fixture files.
+
 ## High quality tests
 
 Always write tests carefully to avoid race conditions and flaky tests. This means:

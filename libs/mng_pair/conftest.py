@@ -13,3 +13,8 @@ from imbue.mng.utils.logging import suppress_warnings
 
 suppress_warnings()
 register_conftest_hooks(globals())
+
+# Register shared fixture modules from mng.
+# This must be in a top-level conftest.py (pytest disallows pytest_plugins in
+# non-top-level conftest files).
+pytest_plugins = ["imbue.mng.fixtures"]

@@ -16,7 +16,7 @@ import modal
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.conftest import register_modal_test_volume
+from imbue.mng.fixtures import register_modal_test_volume
 from imbue.mng.primitives import HostState
 from imbue.mng.providers.modal.constants import MODAL_TEST_APP_PREFIX
 from imbue.mng.providers.modal.routes.deployment import deploy_function

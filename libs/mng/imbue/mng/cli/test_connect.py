@@ -13,7 +13,6 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.cli.connect import AgentSelectorState
 from imbue.mng.cli.connect import ConnectCliOptions
 from imbue.mng.cli.connect import SelectorInputHandler
@@ -27,6 +26,7 @@ from imbue.mng.cli.connect import filter_agents
 from imbue.mng.cli.connect import handle_search_key
 from imbue.mng.cli.connect import select_agent_interactively
 from imbue.mng.cli.create import create
+from imbue.mng.cli.fixtures import make_test_agent_info
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.main import cli
 from imbue.mng.primitives import AgentLifecycleState

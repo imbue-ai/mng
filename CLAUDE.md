@@ -66,6 +66,32 @@ Only after doing all of the above should you begin writing code.
 - Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
 
+## Test fixture discovery
+
+Before writing new test fixtures or helper functions, review the existing test infrastructure.
+All projects follow a consistent naming convention for test infrastructure files:
+
+| File pattern | Purpose |
+|---|---|
+| `conftest.py` | Autouse fixtures and pytest hooks (auto-discovered by pytest) |
+| `fixtures.py` | Non-autouse pytest fixtures (registered via pytest_plugins in conftest.py) |
+| `testing.py` | Non-fixture test utilities: factory functions, helpers, context managers |
+| `mock_*_test.py` | Concrete mock implementations of interfaces |
+
+To find all available fixtures and test utilities:
+- `glob("**/fixtures.py")` -- all pytest fixture files
+- `glob("**/testing.py")` -- all test utility modules
+- `glob("**/mock_*_test.py")` -- all mock implementations
+
+Key fixture files for the mng project:
+- `libs/mng/imbue/mng/fixtures.py` -- core fixtures (temp_host_dir, temp_mng_ctx, local_provider, temp_git_repo, modal session fixtures, etc.)
+- `libs/mng/imbue/mng/cli/fixtures.py` -- CLI test fixtures (default_create_cli_opts, default_connect_cli_opts)
+- `libs/mng/imbue/mng/providers/modal/fixtures.py` -- Modal acceptance test fixtures (real_modal_provider, etc.)
+- `libs/mng/imbue/mng/api/fixtures.py` -- API test doubles (FakeAgent, FakeHost, SyncTestContext)
+- `libs/mng/imbue/mng/utils/testing.py` -- test utilities (init_git_repo, cleanup_tmux_session, make_local_provider, SSH helpers, Modal cleanup, etc.)
+- `libs/mng/imbue/mng/providers/docker/testing.py` -- Docker provider test utilities
+- `libs/mng/imbue/mng/providers/mock_provider_test.py` -- MockProviderInstance for OfflineHost tests
+
 # Manual verification and testing
 
 Before declaring any feature complete, manually verify it: exercise the feature exactly as a real user would, with real inputs, and critically evaluate whether it *actually does the right thing*. Do not confuse "no errors" with "correct behavior" -- a command that exits 0 but produces wrong output is not working.

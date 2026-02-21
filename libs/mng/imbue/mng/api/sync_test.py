@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.api.fixtures import FakeHost
 from imbue.mng.api.sync import GitSyncError
 from imbue.mng.api.sync import LocalGitContext
 from imbue.mng.api.sync import NotAGitRepositoryError
@@ -13,7 +14,6 @@ from imbue.mng.api.sync import RemoteGitContext
 from imbue.mng.api.sync import SyncFilesResult
 from imbue.mng.api.sync import SyncGitResult
 from imbue.mng.api.sync import UncommittedChangesError
-from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import SyncMode
