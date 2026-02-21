@@ -2,16 +2,16 @@
 
 Bumps the version in all pyproject.toml files, commits, tags, and pushes
 directly to main. The publish.yml workflow triggers automatically on the
-v* tag push. After pushing, monitors the publish workflow and offers to
-retry on failure.
+v* tag push. After pushing, monitors the publish workflow.
 
 Usage:
-    uv run python scripts/release.py patch      # 0.1.0 -> 0.1.1
-    uv run python scripts/release.py minor      # 0.1.0 -> 0.2.0
-    uv run python scripts/release.py major      # 0.1.0 -> 1.0.0
-    uv run python scripts/release.py 0.2.0      # explicit version
-    uv run python scripts/release.py patch --dry-run  # preview without changes
-    uv run python scripts/release.py --retry    # monitor/retry the publish for the current version
+    uv run scripts/release.py patch      # 0.1.0 -> 0.1.1
+    uv run scripts/release.py minor      # 0.1.0 -> 0.2.0
+    uv run scripts/release.py major      # 0.1.0 -> 1.0.0
+    uv run scripts/release.py 0.2.0      # explicit version
+    uv run scripts/release.py patch --dry-run  # preview without changes
+    uv run scripts/release.py --watch    # watch the publish workflow for the current version
+    uv run scripts/release.py --retry    # rerun failed jobs and watch
 """
 
 import argparse
@@ -94,12 +94,6 @@ def _try_find_run_id(tag: str) -> str | None:
     return None
 
 
-def _get_workflow_attempt_number(run_id: str) -> int:
-    """Get the current attempt number for a workflow run."""
-    result = run("gh", "run", "view", run_id, "--json", "attempt")
-    return json.loads(result)["attempt"]
-
-
 def _try_get_conclusion(run_id: str, after_workflow_attempt: int) -> str | None:
     """Check if a workflow run has completed after a given attempt.
 
@@ -157,32 +151,28 @@ def print_run_failure(run_id: str) -> None:
     print(f"\nFull details: https://github.com/imbue-ai/mng/actions/runs/{run_id}")
 
 
-def monitor_publish_workflow(tag: str) -> None:
-    """Monitor the publish workflow and offer retries on failure.
+def _get_workflow_attempt_number(run_id: str) -> int:
+    """Get the current attempt number for a workflow run."""
+    result = run("gh", "run", "view", run_id, "--json", "attempt")
+    return json.loads(result)["attempt"]
 
-    Finds the workflow run for the given tag, waits for it to complete,
-    and if it fails, shows the error logs and prompts the user to retry.
+
+def watch_publish_workflow(run_id: str, after_workflow_attempt: int = 0) -> None:
+    """Watch a publish workflow run until it completes.
+
+    On failure, prints the error logs and the commands to watch/retry.
     """
-    run_id = find_publish_run_id(tag)
-    after_workflow_attempt = 0
+    conclusion = wait_for_run_completion(run_id, after_workflow_attempt)
 
-    while True:
-        conclusion = wait_for_run_completion(run_id, after_workflow_attempt)
+    if conclusion == "success":
+        print("Publish workflow succeeded!")
+        return
 
-        if conclusion == "success":
-            print("Publish workflow succeeded!")
-            return
-
-        print_run_failure(run_id)
-
-        retry = input("\nRetry the publish workflow? [y/N] ")
-        if retry.lower() != "y":
-            print("Aborted. You can retry manually from the GitHub Actions page.")
-            sys.exit(1)
-
-        after_workflow_attempt = _get_workflow_attempt_number(run_id)
-        print("\nRetrying...")
-        run("gh", "run", "rerun", run_id, "--failed")
+    print_run_failure(run_id)
+    print()
+    print("To retry failed jobs and watch:")
+    print("  uv run scripts/release.py --retry")
+    sys.exit(1)
 
 
 def main() -> None:
@@ -194,22 +184,35 @@ def main() -> None:
     )
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes")
     parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Watch the publish workflow for the current version (no version bump)",
+    )
+    parser.add_argument(
         "--retry",
         action="store_true",
-        help="Monitor/retry the publish workflow for the current version (no version bump)",
+        help="Rerun failed publish jobs for the current version, then watch",
     )
     args = parser.parse_args()
 
-    # --retry mode: just monitor the existing publish workflow
-    if args.retry:
+    # --watch / --retry mode
+    if args.watch or args.retry:
         current_version = get_current_version()
         tag = f"v{current_version}"
-        print(f"Monitoring publish workflow for {tag}...")
-        monitor_publish_workflow(tag)
+        run_id = find_publish_run_id(tag)
+
+        after_attempt = 0
+        if args.retry:
+            after_attempt = _get_workflow_attempt_number(run_id)
+            print(f"Rerunning failed jobs for {tag}...")
+            run("gh", "run", "rerun", run_id, "--failed")
+
+        print(f"Watching publish workflow for {tag}...")
+        watch_publish_workflow(run_id, after_workflow_attempt=after_attempt)
         return
 
     if args.version is None:
-        parser.error("version is required (unless using --retry)")
+        parser.error("version is required: patch, minor, major, or an explicit version (e.g. 0.2.0)")
 
     current_version = get_current_version()
 
@@ -226,6 +229,7 @@ def main() -> None:
 
     print(f"Current version: {current_version}")
     print(f"New version:     {new_version}")
+    print()
     print("Files to update:")
     for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
         print(f"  {path.relative_to(REPO_ROOT)}")
@@ -261,10 +265,8 @@ def main() -> None:
 
     # Bump versions
     modified = bump_version(new_version)
-    print(f"\nUpdated {len(modified)} file(s)")
-
-    # Regenerate lock
-    print("\nRegenerating uv.lock...")
+    print(f"\nUpdated {len(modified)} file(s).")
+    print("Regenerating uv.lock...")
     run("uv", "lock")
 
     # Commit, tag, push
@@ -275,14 +277,16 @@ def main() -> None:
     run("git", "tag", tag)
     run("git", "push", "origin", "main", tag)
 
-    print(f"\nRelease {new_version} pushed.")
+    print(f"\nRelease {new_version} pushed. Publish workflow: {ACTIONS_URL}")
 
-    # Monitor the publish workflow if gh is available
+    # Watch the publish workflow if gh is available
     if gh_is_available():
-        monitor_publish_workflow(tag)
+        run_id = find_publish_run_id(tag)
+        watch_publish_workflow(run_id)
     else:
-        print("Install the gh CLI to monitor the publish workflow automatically.")
-        print(f"  {ACTIONS_URL}")
+        print()
+        print("To watch the publish (requires gh CLI):")
+        print("  uv run scripts/release.py --watch")
 
 
 if __name__ == "__main__":
