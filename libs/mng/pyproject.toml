@@ -1,6 +1,6 @@
 [project]
 name = "mng"
-version = "0.1.3"
+version = "0.1.4"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
 license = "MIT"
