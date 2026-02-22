@@ -1,18 +1,18 @@
-Mngr runs your agents in tmux sessions.
-If you already use tmux to run `mngr` itself,
-by default, `mngr` won't be able to drop you into the agents' tmux sessions,
+Mng runs your agents in tmux sessions.
+If you already use tmux to run `mng` itself,
+by default, `mng` won't be able to drop you into the agents' tmux sessions,
 because `tmux` refuses to run inside `tmux` by default.
 
 There are two approaches to solve this:
 
-- If you prefer to keep the agents' tmux sessions outside the session where you run `mngr`,
+- If you prefer to keep the agents' tmux sessions outside the session where you run `mng`,
   you can use an alternative `connect-command` to the `create` and `start` subcommands,
   which can, for example, open a new terminal tab and connect to the agent session from there.
 
   In particular, if you use iTerms2, there's a builtin plugin to do that for you -
-  run `mngr plugin list` to see it.
+  run `mng plugin list` to see it.
 
-- You can tell `mngr` to allow nested tmux -
+- You can tell `mng` to allow nested tmux -
   it should have printed a command to do so.
 
 When using nested tmux,
@@ -24,8 +24,8 @@ There are several approaches:
 
   This means you can use all your prefixed keybindings simply by pressing an extra `Ctrl-B` every time.
 
-- You can also configure an alternative keybinding for tmux sessions created by `mngr`,
-  by editing `~/.mngr/tmux.conf`.
+- You can also configure an alternative keybinding for tmux sessions created by `mng`,
+  by editing `~/.mng/tmux.conf`.
 
 - A slightly more advanced approach is to have a key that swaps the outer tmux's key table,
   effectively making it switch between which layer of tmux you want to operate on.
@@ -37,7 +37,7 @@ There are several approaches:
     set key-table off \;\
     set status-style "fg=colour245,bg=colour238" \;\
     refresh-client -S
-  
+
   bind -T off F12 \
     set -u prefix \;\
     set -u key-table \;\
