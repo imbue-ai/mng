@@ -30,15 +30,94 @@ def test_schedule_add_raises_not_implemented(
     assert "schedule add is not implemented yet" in str(result.exception)
 
 
-def test_schedule_add_missing_required_options(
+def test_schedule_add_with_no_options_raises_not_implemented(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add fails with usage error when required options are missing."""
+    """Test that schedule add with no options reaches the handler (all options are optional at click level)."""
     result = cli_runner.invoke(
         schedule,
         ["add"],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
-    assert "Missing" in result.output or "required" in result.output.lower() or "Error" in result.output
+    assert result.exception is not None
+    assert isinstance(result.exception, NotImplementedError)
+    assert "schedule add is not implemented yet" in str(result.exception)
+
+
+def test_schedule_update_raises_not_implemented(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that schedule update raises NotImplementedError with shared options."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "update",
+            "--name",
+            "my-trigger",
+            "--disabled",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert result.exception is not None
+    assert isinstance(result.exception, NotImplementedError)
+    assert "schedule update is not implemented yet" in str(result.exception)
+
+
+def test_schedule_add_and_update_share_options(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that add and update accept the same trigger options."""
+    shared_args = [
+        "--name",
+        "test-trigger",
+        "--command",
+        "create",
+        "--schedule",
+        "0 3 * * *",
+        "--provider",
+        "modal",
+        "--no-verify",
+    ]
+
+    add_result = cli_runner.invoke(
+        schedule,
+        ["add", *shared_args],
+        obj=plugin_manager,
+    )
+    assert isinstance(add_result.exception, NotImplementedError)
+
+    update_result = cli_runner.invoke(
+        schedule,
+        ["update", *shared_args],
+        obj=plugin_manager,
+    )
+    assert isinstance(update_result.exception, NotImplementedError)
+
+
+def test_schedule_add_with_full_verify(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that schedule add accepts --full-verify."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "local",
+            "--full-verify",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, NotImplementedError)
+    assert "schedule add is not implemented yet" in str(result.exception)
