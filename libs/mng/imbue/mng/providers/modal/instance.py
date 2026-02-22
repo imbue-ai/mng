@@ -440,7 +440,7 @@ class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
     This record contains all information needed to connect to and restore a host.
-    It is stored at /<host_id>.json on the volume.
+    It is stored at /hosts/<host_id>.json on the volume.
 
     For failed hosts (those that failed during creation), only certified_host_data
     is required. The SSH fields and config will be None since the host never started.
@@ -634,7 +634,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
-        return f"/{host_id}.json"
+        return f"/hosts/{host_id}.json"
 
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the state volume."""
@@ -711,7 +711,7 @@ class ModalProviderInstance(BaseProviderInstance):
         volume = self._get_state_volume()
 
         # delete all agent records for this host
-        host_dir = f"/{host_id}"
+        host_dir = f"/hosts/{host_id}"
         try:
             volume.remove_file(host_dir, recursive=True)
         except (NotFoundError, FileNotFoundError):
@@ -767,7 +767,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """List all host records stored on the state volume.
 
         Returns a list of all HostRecord objects found on the volume.
-        Host records are stored at /<host_id>.json.
+        Host records are stored at /hosts/<host_id>.json.
         """
         host_records, _agent_record_by_host_id = self._list_all_host_and_agent_records(cg, is_including_agents=False)
         return host_records
@@ -786,13 +786,19 @@ class ModalProviderInstance(BaseProviderInstance):
             with ConcurrencyGroupExecutor(
                 parent_cg=cg, name="modal_list_all_host_records", max_workers=32
             ) as executor:
-                # List files at the root of the volume
-                for entry in volume.listdir("/"):
+                # List files in the /hosts/ directory on the volume
+                try:
+                    entries = volume.listdir("/hosts/")
+                except (NotFoundError, FileNotFoundError):
+                    entries = []
+
+                for entry in entries:
                     filename = entry.path
-                    # Host records are stored as <host_id>.json
+                    # Host records are stored as hosts/<host_id>.json
                     if filename.endswith(".json"):
-                        # Remove .json suffix (and any leading / if present)
-                        host_id_str = filename.lstrip("/")[:-5]
+                        # Extract host_id from path like "hosts/host-abc.json"
+                        basename = filename.rsplit("/", 1)[-1]
+                        host_id_str = basename.removesuffix(".json")
                         host_id = HostId(host_id_str)
                         futures.append(executor.submit(self._read_host_record, host_id))
                         if is_including_agents:
@@ -809,14 +815,14 @@ class ModalProviderInstance(BaseProviderInstance):
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
-        Agent records are stored at /{host_id}/{agent_id}.json on the state volume.
+        Agent records are stored at /hosts/{host_id}/{agent_id}.json on the state volume.
         These are persisted when a host shuts down so that mng list can
         show agents on stopped hosts.
         """
         volume = self._get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
-        host_dir = f"/{host_id}"
+        host_dir = f"/hosts/{host_id}"
         try:
             entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
@@ -849,7 +855,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """Persist agent data to the state volume.
 
         Called when an agent is created or its data.json is updated. Writes
-        the agent data to /{host_id}/{agent_id}.json on the state volume.
+        the agent data to /hosts/{host_id}/{agent_id}.json on the state volume.
         """
         agent_id = agent_data.get("id")
         if not agent_id:
@@ -857,7 +863,7 @@ class ModalProviderInstance(BaseProviderInstance):
             return
 
         volume = self._get_state_volume()
-        host_dir = f"/{host_id}"
+        host_dir = f"/hosts/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
         # Serialize the agent data to JSON
@@ -870,10 +876,10 @@ class ModalProviderInstance(BaseProviderInstance):
         """Remove persisted agent data from the state volume.
 
         Called when an agent is destroyed. Removes the agent data file from
-        /{host_id}/{agent_id}.json on the state volume.
+        /hosts/{host_id}/{agent_id}.json on the state volume.
         """
         volume = self._get_state_volume()
-        agent_path = f"/{host_id}/{agent_id}.json"
+        agent_path = f"/hosts/{host_id}/{agent_id}.json"
 
         try:
             volume.remove_file(agent_path)

@@ -368,7 +368,7 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
 
     assert host_records == []
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_records_returns_records_from_volume(
@@ -380,7 +380,7 @@ def test_list_all_host_records_returns_records_from_volume(
 
     # Mock volume.listdir to return a file entry
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -398,11 +398,11 @@ def test_list_all_host_records_skips_non_json_files(
     """_list_all_host_records should skip non-.json files."""
     # Mock volume.listdir to return both .json and non-.json files
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_txt = MagicMock()
-    mock_entry_txt.path = "/readme.txt"
+    mock_entry_txt.path = "hosts/readme.txt"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/subdir"
+    mock_entry_dir.path = "hosts/subdir"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_txt, mock_entry_dir]
@@ -1250,7 +1250,7 @@ def test_persist_agent_data_writes_to_volume(
     modal_provider.persist_agent_data(host_id, agent_data)
 
     # Verify the file was written to the correct path
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     assert expected_path in uploaded_files
 
     # Verify the content is valid JSON with expected fields
@@ -1291,7 +1291,7 @@ def test_remove_persisted_agent_data_removes_file(
 
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1309,7 +1309,7 @@ def test_remove_persisted_agent_data_handles_file_not_found(
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
     # Verify the method was called
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1454,7 +1454,7 @@ def test_list_all_host_and_agent_records_returns_empty_when_volume_empty(
 
     assert host_records == []
     assert agent_data == {}
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
@@ -1467,7 +1467,7 @@ def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
     agent_data_list = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1491,9 +1491,9 @@ def test_list_all_host_and_agent_records_skips_non_json_files(
 ) -> None:
     """_list_all_host_and_agent_records only processes .json files."""
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/some-directory"
+    mock_entry_dir.path = "hosts/some-directory"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_dir]
@@ -1515,7 +1515,7 @@ def test_list_all_host_and_agent_records_without_agents(
     host_record = _make_host_record(host_id)
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1539,7 +1539,7 @@ def test_list_all_host_and_agent_records_skips_none_host_records(
     host_id = HostId.generate()
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
