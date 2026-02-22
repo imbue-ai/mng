@@ -6,39 +6,43 @@ from click.testing import CliRunner
 from imbue.mng_schedule.cli import schedule
 
 
-def test_schedule_add_raises_not_implemented(
+def test_schedule_add_requires_command_option(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add raises NotImplementedError (not a different error)."""
+    """Test that schedule add requires --command."""
     result = cli_runner.invoke(
         schedule,
-        [
-            "add",
-            "--command",
-            "create",
-            "--schedule",
-            "0 2 * * *",
-            "--provider",
-            "local",
-        ],
+        ["add", "--schedule", "0 2 * * *", "--provider", "local"],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
-    assert result.exception is not None
-    assert isinstance(result.exception, NotImplementedError)
-    assert "schedule add is not implemented yet" in str(result.exception)
+    assert "--command" in result.output
 
 
-def test_schedule_add_missing_required_options(
+def test_schedule_add_requires_schedule_option(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add fails with usage error when required options are missing."""
+    """Test that schedule add requires --schedule."""
     result = cli_runner.invoke(
         schedule,
-        ["add"],
+        ["add", "--command", "create", "--provider", "local"],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
-    assert "Missing" in result.output or "required" in result.output.lower() or "Error" in result.output
+    assert "--schedule" in result.output
+
+
+def test_schedule_add_requires_provider_option(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that schedule add requires --provider."""
+    result = cli_runner.invoke(
+        schedule,
+        ["add", "--command", "create", "--schedule", "0 2 * * *"],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert "--provider" in result.output
