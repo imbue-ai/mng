@@ -3,6 +3,7 @@ import shutil
 import string
 import sys
 from collections.abc import Sequence
+from contextlib import nullcontext
 from enum import Enum
 from threading import Lock
 from typing import Any
@@ -36,6 +37,10 @@ from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.terminal import ANSI_DIM_GRAY
+from imbue.mng.utils.terminal import ANSI_ERASE_LINE
+from imbue.mng.utils.terminal import ANSI_RESET
+from imbue.mng.utils.terminal import StderrInterceptor
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -460,19 +465,25 @@ def _list_streaming_human(
 ) -> None:
     """Streaming human output path: display agents as each provider completes."""
     renderer = _StreamingHumanRenderer(fields=fields, is_tty=sys.stdout.isatty(), output=sys.stdout, limit=limit)
-    renderer.start()
-    try:
-        result = api_list_agents(
-            mng_ctx=mng_ctx,
-            include_filters=include_filters,
-            exclude_filters=exclude_filters,
-            provider_names=provider_names,
-            error_behavior=error_behavior,
-            on_agent=renderer,
-            is_streaming=True,
-        )
-    finally:
-        renderer.finish()
+
+    # In TTY mode, intercept stderr so warnings (from loguru etc.) are routed
+    # through the renderer and kept pinned at the bottom of the table, rather
+    # than being interspersed with agent rows.
+    interceptor = StderrInterceptor(callback=renderer.emit_warning, original_stderr=sys.stderr)
+    with interceptor if renderer.is_tty else nullcontext():
+        renderer.start()
+        try:
+            result = api_list_agents(
+                mng_ctx=mng_ctx,
+                include_filters=include_filters,
+                exclude_filters=exclude_filters,
+                provider_names=provider_names,
+                error_behavior=error_behavior,
+                on_agent=renderer,
+                is_streaming=True,
+            )
+        finally:
+            renderer.finish()
 
     if result.errors:
         for error in result.errors:
@@ -561,9 +572,6 @@ _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 # ANSI escape sequences for terminal control
-_ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
-_ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
-_ANSI_RESET: Final[str] = "\x1b[0m"
 
 
 class _StreamingHumanRenderer(MutableModel):
@@ -572,6 +580,10 @@ class _StreamingHumanRenderer(MutableModel):
     Writes table rows to stdout as agents arrive from the API. Uses an ANSI status
     line ("Searching...") that gets replaced by data rows on TTY outputs. On non-TTY
     outputs (piped), skips status lines and ANSI codes entirely.
+
+    Warnings emitted during streaming (via emit_warning) are kept pinned at the
+    bottom of the table output, above the status line. When new agent rows arrive,
+    the warnings are moved down so they always remain at the bottom.
 
     When limit is set, stops displaying agents after the limit is reached. Results
     are non-deterministic since streaming does not sort.
@@ -585,6 +597,8 @@ class _StreamingHumanRenderer(MutableModel):
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
     _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
+    _warning_texts: list[str] = PrivateAttr(default_factory=list)
+    _warning_line_count: int = PrivateAttr(default=0)
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
@@ -592,8 +606,27 @@ class _StreamingHumanRenderer(MutableModel):
         self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
-            status = f"{_ANSI_DIM_GRAY}Searching...{_ANSI_RESET}"
+            status = f"{ANSI_DIM_GRAY}Searching...{ANSI_RESET}"
             self.output.write(status)
+            self.output.flush()
+
+    def emit_warning(self, text: str) -> None:
+        """Write a warning, keeping it pinned below agent rows and above the status line."""
+        with self._lock:
+            if self.is_tty:
+                # Erase the status line so the warning appears cleanly
+                self.output.write(ANSI_ERASE_LINE)
+
+            self.output.write(text)
+            self._warning_texts.append(text)
+            self._warning_line_count += text.count("\n")
+
+            if self.is_tty:
+                # Re-write the status line below the warning
+                count_text = f" ({self._count} found)" if self._count > 0 else ""
+                status = f"{ANSI_DIM_GRAY}Searching...{count_text}{ANSI_RESET}"
+                self.output.write(status)
+
             self.output.flush()
 
     def __call__(self, agent: AgentInfo) -> None:
@@ -604,7 +637,14 @@ class _StreamingHumanRenderer(MutableModel):
 
             if self.is_tty:
                 # Erase the current status line
-                self.output.write(_ANSI_ERASE_LINE)
+                self.output.write(ANSI_ERASE_LINE)
+
+                # If there are warnings below the agent rows, move cursor up
+                # past them and erase to end of screen. The warnings will be
+                # re-written after the new agent row so they stay at the bottom.
+                if self._warning_line_count > 0:
+                    self.output.write(f"\x1b[{self._warning_line_count}A")
+                    self.output.write("\x1b[J")
 
             # Write header on first agent
             if not self._is_header_written:
@@ -618,8 +658,13 @@ class _StreamingHumanRenderer(MutableModel):
             self._count += 1
 
             if self.is_tty:
+                # Re-write warnings below the new agent row (only in TTY mode
+                # where they were erased by cursor-up + erase-to-end above)
+                for warning_text in self._warning_texts:
+                    self.output.write(warning_text)
+
                 # Write updated status line
-                status = f"{_ANSI_DIM_GRAY}Searching... ({self._count} found){_ANSI_RESET}"
+                status = f"{ANSI_DIM_GRAY}Searching... ({self._count} found){ANSI_RESET}"
                 self.output.write(status)
 
             self.output.flush()
@@ -628,12 +673,13 @@ class _StreamingHumanRenderer(MutableModel):
         """Clean up the status line after all providers have completed."""
         with self._lock:
             if self.is_tty:
-                # Erase the final status line
-                self.output.write(_ANSI_ERASE_LINE)
+                # Erase the final status line (warnings remain visible at the bottom)
+                self.output.write(ANSI_ERASE_LINE)
                 self.output.flush()
 
             if self._count == 0:
                 write_human_line("No agents found")
+
 
 
 @pure

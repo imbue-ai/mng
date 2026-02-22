@@ -759,6 +759,95 @@ def test_streaming_renderer_tty_erases_status_on_finish() -> None:
     assert output.endswith("\r\x1b[K")
 
 
+def test_streaming_renderer_emit_warning_tty() -> None:
+    """TTY streaming should show warnings below agent rows, above the status line."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning("WARNING: something bad\n")
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "WARNING: something bad" in output
+    # Warning should appear after the agent row
+    agent_pos = output.rfind("agent-1")
+    warning_pos = output.rfind("WARNING: something bad")
+    assert warning_pos > agent_pos
+
+
+def test_streaming_renderer_warning_stays_below_new_agents() -> None:
+    """Warnings should stay at the bottom when new agents arrive after the warning."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning("WARNING: bad thing\n")
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # In the final output, the warning should be re-written after agent-2.
+    # Find the last occurrence of each to verify final ordering.
+    last_agent2 = output.rfind("agent-2")
+    last_warning = output.rfind("WARNING: bad thing")
+    assert last_warning > last_agent2
+
+
+def test_streaming_renderer_emit_warning_non_tty() -> None:
+    """Non-TTY streaming should write warnings inline without ANSI codes."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=False, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning("WARNING: something\n")
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "\x1b" not in output
+    assert "WARNING: something" in output
+
+
+def test_streaming_renderer_warning_before_any_agents() -> None:
+    """Warning before any agents should still appear in the output."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer.emit_warning("WARNING: early warning\n")
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "WARNING: early warning" in output
+    assert "agent-1" in output
+    # Warning should be re-written after agent-1 (pinned to bottom)
+    last_agent = output.rfind("agent-1")
+    last_warning = output.rfind("WARNING: early warning")
+    assert last_warning > last_agent
+
+
+def test_streaming_renderer_multiple_warnings_stay_at_bottom() -> None:
+    """Multiple warnings should all stay pinned at the bottom."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning("WARNING: first\n")
+    renderer.emit_warning("WARNING: second\n")
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # Both warnings should appear after agent-2 in the final output
+    last_agent2 = output.rfind("agent-2")
+    last_first_warning = output.rfind("WARNING: first")
+    last_second_warning = output.rfind("WARNING: second")
+    assert last_first_warning > last_agent2
+    assert last_second_warning > last_agent2
+    # Warnings should be in order
+    assert last_second_warning > last_first_warning
+
+
 # =============================================================================
 # Tests for _should_use_streaming_mode
 # =============================================================================

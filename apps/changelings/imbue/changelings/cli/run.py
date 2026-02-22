@@ -13,7 +13,7 @@ from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.errors import ChangelingNotFoundError
 from imbue.changelings.errors import ChangelingRunError
 from imbue.changelings.mng_commands import build_mng_create_command
-from imbue.changelings.mng_commands import write_secrets_env_file
+from imbue.changelings.mng_commands import secrets_env_file
 from imbue.changelings.primitives import ChangelingName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
@@ -123,9 +123,6 @@ def _run_changeling_locally(changeling: ChangelingDefinition) -> None:
 def _run_changeling_on_modal(changeling: ChangelingDefinition) -> None:
     """Run a changeling on Modal, writing secrets to a temporary env file."""
     logger.info("Running changeling '{}' on Modal", changeling.name)
-    env_file_path = write_secrets_env_file(changeling)
-    try:
+    with secrets_env_file(changeling) as env_file_path:
         cmd = build_mng_create_command(changeling, is_modal=True, env_file_path=env_file_path)
         _execute_mng_command(changeling, cmd)
-    finally:
-        env_file_path.unlink(missing_ok=True)

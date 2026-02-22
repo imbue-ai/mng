@@ -4,6 +4,8 @@
 import os
 import shlex
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -104,10 +106,11 @@ def write_secrets_env_file(changeling: ChangelingDefinition) -> Path:
     """Write configured secrets from the local environment to a temporary env file.
 
     The caller is responsible for deleting the file when done.
+    Prefer using secrets_env_file() context manager which handles cleanup automatically.
     """
     fd, path_str = tempfile.mkstemp(prefix="changeling-env-", suffix=".env")
     env_file_path = Path(path_str)
-    try:
+    with os.fdopen(fd, "wb") as f:
         lines: list[str] = []
         for secret_name in changeling.secrets:
             value = os.environ.get(secret_name, "")
@@ -115,9 +118,17 @@ def write_secrets_env_file(changeling: ChangelingDefinition) -> Path:
                 lines.append(f"{secret_name}={value}\n")
             else:
                 logger.warning("Secret '{}' not found in environment, skipping", secret_name)
-        os.write(fd, "".join(lines).encode())
-    finally:
-        os.close(fd)
+        f.write("".join(lines).encode())
     # Restrict permissions to owner-only
     env_file_path.chmod(0o600)
     return env_file_path
+
+
+@contextmanager
+def secrets_env_file(changeling: ChangelingDefinition) -> Iterator[Path]:
+    """Create a temporary env file with secrets, cleaned up on exit."""
+    path = write_secrets_env_file(changeling)
+    try:
+        yield path
+    finally:
+        path.unlink(missing_ok=True)

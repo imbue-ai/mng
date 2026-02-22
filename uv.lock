@@ -17,6 +17,7 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
+    "mng-tip",
     "sculptor-web",
 ]
 
@@ -1877,6 +1878,17 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
+
+[[package]]
+name = "mng-tip"
+version = "0.1.0"
+source = { editable = "libs/mng_tip" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "modal"

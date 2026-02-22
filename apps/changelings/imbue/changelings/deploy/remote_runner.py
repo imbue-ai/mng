@@ -24,7 +24,7 @@ from pathlib import Path
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.deploy.deploy import build_cron_mng_command
 from imbue.changelings.errors import ChangelingRunError
-from imbue.changelings.mng_commands import write_secrets_env_file
+from imbue.changelings.mng_commands import secrets_env_file
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 
@@ -50,8 +50,7 @@ def run(config_json: str, target_repo_path: str | None) -> None:
 
     target_cwd = Path(target_repo_path) if target_repo_path is not None else None
 
-    env_file_path = write_secrets_env_file(changeling)
-    try:
+    with secrets_env_file(changeling) as env_file_path:
         cmd = build_cron_mng_command(changeling, env_file_path)
         with ConcurrencyGroup(name=f"cron-{changeling.name}") as cg:
             result = cg.run_process_to_completion(
@@ -66,8 +65,6 @@ def run(config_json: str, target_repo_path: str | None) -> None:
             raise ChangelingRunError(
                 f"Changeling '{changeling.name}' failed with exit code {result.returncode}:\n{output}"
             )
-    finally:
-        env_file_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
