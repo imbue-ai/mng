@@ -34,6 +34,7 @@ class VerifyMode(UpperCaseStrEnum):
 class ScheduleUpdateCliOptions(CommonCliOptions):
     """Shared options for the schedule add and update subcommands."""
 
+    positional_name: str | None
     name: str | None
     command: str | None
     args: str | None
@@ -86,6 +87,9 @@ def _add_trigger_options(command: Any) -> Any:
     validate at runtime.
     """
     # Applied in reverse order (bottom-up per click convention)
+
+    # Optional positional argument for the name (alternative to --name)
+    command = click.argument("positional_name", default=None, required=False)(command)
 
     # Behavior group
     command = optgroup.option(
@@ -200,6 +204,9 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
     """
+    # Resolve name from positional argument or --name option (positional wins)
+    if ctx.params.get("positional_name") and ctx.params.get("name"):
+        raise click.UsageError("Cannot specify both a positional NAME and --name.")
     # New schedules default to enabled. The shared options use None so that
     # update can distinguish "not specified" from "explicitly set".
     if ctx.params.get("enabled") is None:
@@ -258,6 +265,9 @@ def schedule_update(ctx: click.Context, **kwargs: Any) -> None:
 
     Alias for 'add --update'. Accepts the same options as the add command.
     """
+    # Resolve name from positional argument or --name option (positional wins)
+    if ctx.params.get("positional_name") and ctx.params.get("name"):
+        raise click.UsageError("Cannot specify both a positional NAME and --name.")
     ctx.params["update"] = True
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,
@@ -348,7 +358,7 @@ up autonomous agents that run on a recurring schedule.""",
         ("Add a nightly scheduled agent", "mng schedule add --command create --schedule '0 2 * * *' --provider modal"),
         ("List all schedules", "mng schedule list"),
         ("Remove a trigger", "mng schedule remove my-trigger"),
-        ("Disable a trigger", "mng schedule update --name my-trigger --disabled"),
+        ("Disable a trigger", "mng schedule update my-trigger --disabled"),
         ("Test a trigger immediately", "mng schedule run my-trigger"),
     ),
     see_also=(
