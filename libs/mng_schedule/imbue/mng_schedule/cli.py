@@ -266,8 +266,8 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
-    # Resolve git ref to full SHA
-    resolved_hash = resolve_git_ref(opts.git_image_hash) if opts.git_image_hash else ""
+    # Resolve git ref to full SHA (git_image_hash is guaranteed non-None by validation above)
+    resolved_hash = resolve_git_ref(opts.git_image_hash)
 
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,

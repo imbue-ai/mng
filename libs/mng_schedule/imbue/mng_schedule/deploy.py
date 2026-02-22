@@ -1,6 +1,7 @@
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -167,13 +168,19 @@ def build_deploy_env(
     trigger_json: str,
     cron_schedule: str,
     cron_timezone: str,
+    build_context_dir: str,
+    staging_dir: str,
+    dockerfile: str,
 ) -> dict[str, str]:
-    """Build the environment variables needed for deploying the cron runner."""
+    """Build the complete set of environment variables needed for deploying the cron runner."""
     return {
         "SCHEDULE_APP_NAME": app_name,
         "SCHEDULE_TRIGGER_JSON": trigger_json,
         "SCHEDULE_CRON": cron_schedule,
         "SCHEDULE_CRON_TIMEZONE": cron_timezone,
+        "SCHEDULE_BUILD_CONTEXT_DIR": build_context_dir,
+        "SCHEDULE_STAGING_DIR": staging_dir,
+        "SCHEDULE_DOCKERFILE": dockerfile,
     }
 
 
@@ -190,8 +197,6 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition) -> str:
 
     Raises ScheduleDeployError if any step fails.
     """
-    import tempfile
-
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
@@ -221,18 +226,15 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition) -> str:
         (staging_dir / "trigger.json").write_text(trigger_json)
 
         # Build deploy env vars
+        dockerfile_path = repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
         deploy_env_vars = build_deploy_env(
             app_name=app_name,
             trigger_json=trigger_json,
             cron_schedule=trigger.schedule_cron,
             cron_timezone=cron_timezone,
-        )
-
-        # Also tell the cron_runner where the build context and staging are
-        deploy_env_vars["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
-        deploy_env_vars["SCHEDULE_STAGING_DIR"] = str(staging_dir)
-        deploy_env_vars["SCHEDULE_DOCKERFILE"] = str(
-            repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
+            build_context_dir=str(build_dir),
+            staging_dir=str(staging_dir),
+            dockerfile=str(dockerfile_path),
         )
 
         env = {**os.environ, **deploy_env_vars}

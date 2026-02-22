@@ -181,9 +181,10 @@ def run_scheduled_trigger() -> None:
     if args_str:
         cmd.extend(shlex.split(args_str))
 
-    # Add secrets env file if it exists
+    # Add secrets env file if it exists and the command supports it.
+    # --host-env-file is only valid for create (and start) commands.
     secrets_env = Path("/staging/secrets/.env")
-    if secrets_env.exists():
+    if secrets_env.exists() and command in ("create", "start"):
         cmd.extend(["--host-env-file", str(secrets_env)])
 
     print(f"Running: {' '.join(cmd)}")
