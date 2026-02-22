@@ -371,6 +371,19 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
+def test_list_all_host_records_returns_empty_when_hosts_dir_missing(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return empty list when /hosts/ directory does not exist."""
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.side_effect = modal.exception.NotFoundError("Not found")
+
+    host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
+
+    assert host_records == []
+    mock_volume.listdir.assert_called_once_with("/hosts/")
+
+
 def test_list_all_host_records_returns_records_from_volume(
     modal_provider: ModalProviderInstance,
 ) -> None:
