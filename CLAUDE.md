@@ -74,7 +74,7 @@ All projects follow a consistent naming convention for test infrastructure files
 | File pattern | Purpose |
 |---|---|
 | `conftest.py` | Autouse fixtures and pytest hooks (auto-discovered by pytest) |
-| `fixtures.py` | Non-autouse pytest fixtures (registered via pytest_plugins in conftest.py) |
+| `fixtures.py` | Non-autouse pytest fixtures (re-exported from conftest.py so pytest discovers them) |
 | `testing.py` | Non-fixture test utilities: factory functions, helpers, context managers |
 | `mock_*_test.py` | Concrete mock implementations of interfaces |
 

@@ -14,7 +14,6 @@ from imbue.mng.utils.logging import suppress_warnings
 suppress_warnings()
 register_conftest_hooks(globals())
 
-# Register the root fixtures module so pytest discovers fixtures defined there.
-# Only root-level (globally-scoped) fixtures go here. Subdirectory fixtures are
-# re-exported from their local conftest.py to preserve directory scoping.
+# register root-level fixtures so pytest knows about them globally.
+# subdirectory-specific fixtures are re-exported from their local conftest.py instead.
 pytest_plugins = ["imbue.mng.fixtures"]
