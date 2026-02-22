@@ -1,8 +1,10 @@
+from enum import auto
 from typing import Any
 
 import click
 from click_option_group import optgroup
 
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
@@ -12,26 +14,40 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
 
 # =============================================================================
+# Enums
+# =============================================================================
+
+
+class VerifyMode(UpperCaseStrEnum):
+    """Controls post-deploy verification behavior."""
+
+    VERIFY = auto()
+    FULL_VERIFY = auto()
+    NO_VERIFY = auto()
+
+
+# =============================================================================
 # CLI Options
 # =============================================================================
 
 
 class ScheduleUpdateCliOptions(CommonCliOptions):
-    """Options for the schedule update subcommand."""
+    """Shared options for the schedule add and update subcommands."""
 
-    name: str
+    name: str | None
     command: str | None
     args: str | None
     schedule_cron: str | None
     provider: str | None
     enabled: bool | None
+    verify: bool
+    full_verify: bool
 
 
 class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
-    """
-    Options for the schedule add subcommand.
+    """Options for the schedule add subcommand.
 
-    These are exactly the same as update--the only difference is whether we error if the name already exists.
+    Identical to update, plus an --update flag to allow upserting.
     """
 
     update: bool
@@ -58,6 +74,79 @@ class ScheduleRunCliOptions(CommonCliOptions):
 
 
 # =============================================================================
+# Shared option decorator
+# =============================================================================
+
+
+def _add_trigger_options(command: Any) -> Any:
+    """Add trigger definition options shared by add and update commands.
+
+    All options are optional at the click level. Commands that require specific
+    options (e.g. add requires --command, --schedule, --provider) should
+    validate at runtime.
+    """
+    # Applied in reverse order (bottom-up per click convention)
+
+    # Behavior group
+    command = optgroup.option(
+        "--full-verify",
+        is_flag=True,
+        help="After deploying, invoke the trigger and let the launched agent run to completion.",
+    )(command)
+    command = optgroup.option(
+        "--verify/--no-verify",
+        "verify",
+        default=True,
+        show_default=True,
+        help="After deploying, invoke the trigger to check that it works. The agent is destroyed once it starts successfully.",
+    )(command)
+    command = optgroup.option(
+        "--enabled/--disabled",
+        "enabled",
+        default=None,
+        help="Whether the schedule is enabled.",
+    )(command)
+    command = optgroup.group("Behavior")(command)
+
+    # Execution group
+    command = optgroup.option(
+        "--provider",
+        default=None,
+        help="Provider in which to schedule the call (e.g. 'local', 'modal').",
+    )(command)
+    command = optgroup.group("Execution")(command)
+
+    # Trigger Definition group
+    command = optgroup.option(
+        "--schedule",
+        "schedule_cron",
+        default=None,
+        help="Cron schedule expression defining when the command runs (e.g. '0 2 * * *').",
+    )(command)
+    command = optgroup.option(
+        "--args",
+        "args",
+        default=None,
+        help="Arguments to pass to the mng command (as a string).",
+    )(command)
+    command = optgroup.option(
+        "--command",
+        "command",
+        type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
+        default=None,
+        help="Which mng command to run when triggered.",
+    )(command)
+    command = optgroup.option(
+        "--name",
+        default=None,
+        help="Name for this scheduled trigger. If not specified, a random name is generated.",
+    )(command)
+    command = optgroup.group("Trigger Definition")(command)
+
+    return command
+
+
+# =============================================================================
 # CLI Group
 # =============================================================================
 
@@ -79,7 +168,7 @@ def schedule(ctx: click.Context, **kwargs: Any) -> None:
 
     \b
     Examples:
-      mng schedule add my-trigger --command create --args '--message "Create a PR that just says hello" --in modal' --schedule "0 2 * * *" --provider modal
+      mng schedule add --command create --args '--message "do work" --in modal' --schedule "0 2 * * *" --provider modal
       mng schedule list
       mng schedule remove my-trigger
       mng schedule run my-trigger
@@ -92,49 +181,12 @@ def schedule(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @schedule.command(name="add")
-@optgroup.group("Trigger Definition")
-@optgroup.option(
-    "--name",
-    default=None,
-    help="Name for this scheduled trigger. If not specified, a random name is generated.",
-)
-@optgroup.option(
-    "--command",
-    "command",
-    required=True,
-    type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
-    help="Which mng command to run when triggered.",
-)
-@optgroup.option(
-    "--args",
-    "args",
-    default=None,
-    help="Arguments to pass to the mng command (as a string).",
-)
-@optgroup.option(
-    "--schedule",
-    "schedule_cron",
-    required=True,
-    help="Cron schedule expression defining when the command runs (e.g. '0 2 * * *').",
-)
-@optgroup.group("Execution")
-@optgroup.option(
-    "--provider",
-    required=True,
-    help="Provider in which to schedule the call (e.g. 'local', 'modal').",
-)
-@optgroup.group("Behavior")
+@_add_trigger_options
+@optgroup.group("Add-specific")
 @optgroup.option(
     "--update",
     is_flag=True,
     help="If a schedule with the same name already exists, update it instead of failing.",
-)
-@optgroup.option(
-    "--enabled/--disabled",
-    "enabled",
-    default=True,
-    show_default=True,
-    help="Whether the schedule is enabled. Use --disabled to create without activating.",
 )
 @add_common_options
 @click.pass_context
@@ -148,6 +200,10 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
     """
+    # New schedules default to enabled. The shared options use None so that
+    # update can distinguish "not specified" from "explicitly set".
+    if ctx.params.get("enabled") is None:
+        ctx.params["enabled"] = True
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_add",
@@ -194,51 +250,19 @@ def schedule_remove(ctx: click.Context, **kwargs: Any) -> None:
 
 
 @schedule.command(name="update")
-@click.argument("name", required=True)
-@optgroup.group("Trigger Definition")
-@optgroup.option(
-    "--command",
-    "command",
-    type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
-    default=None,
-    help="Which mng command to run when triggered.",
-)
-@optgroup.option(
-    "--args",
-    "args",
-    default=None,
-    help="Arguments to pass to the mng command (as a string).",
-)
-@optgroup.option(
-    "--schedule",
-    "schedule_cron",
-    default=None,
-    help="Cron schedule expression defining when the command runs.",
-)
-@optgroup.group("Execution")
-@optgroup.option(
-    "--provider",
-    default=None,
-    help="Provider in which to schedule the call.",
-)
-@optgroup.group("Behavior")
-@optgroup.option(
-    "--enabled/--disabled",
-    "enabled",
-    default=None,
-    help="Whether the schedule is enabled.",
-)
+@_add_trigger_options
 @add_common_options
 @click.pass_context
 def schedule_update(ctx: click.Context, **kwargs: Any) -> None:
     """Update an existing scheduled trigger.
 
-    The args are exactly the same as the add command.
+    Alias for 'add --update'. Accepts the same options as the add command.
     """
+    ctx.params["update"] = True
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_update",
-        command_class=ScheduleUpdateCliOptions,
+        command_class=ScheduleAddCliOptions,
     )
     raise NotImplementedError("schedule update is not implemented yet")
 
@@ -324,7 +348,7 @@ up autonomous agents that run on a recurring schedule.""",
         ("Add a nightly scheduled agent", "mng schedule add --command create --schedule '0 2 * * *' --provider modal"),
         ("List all schedules", "mng schedule list"),
         ("Remove a trigger", "mng schedule remove my-trigger"),
-        ("Disable a trigger", "mng schedule update my-trigger --disabled"),
+        ("Disable a trigger", "mng schedule update --name my-trigger --disabled"),
         ("Test a trigger immediately", "mng schedule run my-trigger"),
     ),
     see_also=(
