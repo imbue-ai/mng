@@ -1,8 +1,10 @@
 from enum import auto
 from typing import Any
+from uuid import uuid4
 
 import click
 from click_option_group import optgroup
+from loguru import logger
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.cli.common_opts import CommonCliOptions
@@ -12,6 +14,10 @@ from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
+from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.deploy import ScheduleDeployError
+from imbue.mng_schedule.deploy import deploy_schedule
+from imbue.mng_schedule.deploy import resolve_git_ref
 
 # =============================================================================
 # Enums
@@ -43,6 +49,7 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     enabled: bool | None
     verify: bool
     full_verify: bool
+    git_image_hash: str | None
 
 
 class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
@@ -121,6 +128,15 @@ def _add_trigger_options(command: Any) -> Any:
         help="Provider in which to schedule the call (e.g. 'local', 'modal').",
     )(command)
     command = optgroup.group("Execution")(command)
+
+    # Code Packaging group
+    command = optgroup.option(
+        "--git-image-hash",
+        "git_image_hash",
+        default=None,
+        help="Git commit hash (or ref like HEAD) to package project code from. Required for modal provider.",
+    )(command)
+    command = optgroup.group("Code Packaging")(command)
 
     # Trigger Definition group
     command = optgroup.option(
@@ -225,12 +241,51 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # update can distinguish "not specified" from "explicitly set".
     if ctx.params.get("enabled") is None:
         ctx.params["enabled"] = True
-    _mng_ctx, _output_opts, _opts = setup_command_context(
+    _mng_ctx, _output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_add",
         command_class=ScheduleAddCliOptions,
     )
-    raise NotImplementedError("schedule add is not implemented yet")
+
+    # Validate required options for add
+    if opts.command is None:
+        raise click.UsageError("--command is required for schedule add")
+    if opts.schedule_cron is None:
+        raise click.UsageError("--schedule is required for schedule add")
+    if opts.provider is None:
+        raise click.UsageError("--provider is required for schedule add")
+    if opts.provider != "modal":
+        raise click.UsageError(
+            f"Provider '{opts.provider}' is not yet supported for schedule add. Currently only 'modal' is supported."
+        )
+    if opts.git_image_hash is None:
+        raise click.UsageError(
+            "--git-image-hash is required when provider is 'modal'. Use HEAD to package the current commit."
+        )
+
+    # Generate name if not provided
+    trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
+
+    # Resolve git ref to full SHA
+    resolved_hash = resolve_git_ref(opts.git_image_hash) if opts.git_image_hash else ""
+
+    trigger = ScheduleTriggerDefinition(
+        name=trigger_name,
+        command=opts.command,
+        args=opts.args or "",
+        schedule_cron=opts.schedule_cron,
+        provider=opts.provider,
+        is_enabled=opts.enabled if opts.enabled is not None else True,
+        git_image_hash=resolved_hash,
+    )
+
+    try:
+        app_name = deploy_schedule(trigger)
+    except ScheduleDeployError as e:
+        raise click.ClickException(str(e)) from e
+
+    logger.info("Schedule '{}' deployed as Modal app '{}'", trigger_name, app_name)
+    click.echo(f"Deployed schedule '{trigger_name}' as Modal app '{app_name}'")
 
 
 # =============================================================================
