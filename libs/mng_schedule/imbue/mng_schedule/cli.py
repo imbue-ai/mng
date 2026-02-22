@@ -66,7 +66,6 @@ class _ScheduleGroup(DefaultCommandGroup):
     """Schedule group that defaults to 'list' when no subcommand is given."""
 
     _default_command = "list"
-    _config_key = "schedule"
 
 
 @click.group(name="schedule", cls=_ScheduleGroup)

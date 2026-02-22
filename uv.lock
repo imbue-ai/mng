@@ -1885,14 +1885,12 @@ version = "0.1.0"
 source = { editable = "libs/mng_schedule" }
 dependencies = [
     { name = "click-option-group" },
-    { name = "imbue-common" },
     { name = "mng" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
-    { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "mng", editable = "libs/mng" },
 ]
 
