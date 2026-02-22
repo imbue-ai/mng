@@ -100,6 +100,7 @@ def test_schedule_update_cli_options_has_all_fields() -> None:
     annotations = ScheduleUpdateCliOptions.__annotations__
     assert "name" in annotations
     assert "command" in annotations
+    assert "args" in annotations
     assert "schedule_cron" in annotations
     assert "provider" in annotations
     assert "enabled" in annotations
