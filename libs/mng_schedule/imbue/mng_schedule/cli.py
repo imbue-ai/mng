@@ -48,9 +48,11 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
 class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
     """Options for the schedule add subcommand.
 
-    Identical to update, plus an --update flag to allow upserting.
+    These are exactly the same as update--the only difference is whether we error if the name already exists.
+    Name is optional here (unlike update) because a random name can be generated.
     """
 
+    name: str | None
     update: bool
 
 
