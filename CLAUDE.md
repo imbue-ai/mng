@@ -68,7 +68,7 @@ Only after doing all of the above should you begin writing code.
 
 ## Test fixture discovery
 
-Before writing new test fixtures or helper functions, review the existing test infrastructure.
+Before writing new tests, check the relevant fixtures.py for useful fixtures to avoid reimplementing things.
 All projects follow a consistent naming convention for test infrastructure files:
 
 | File pattern | Purpose |
@@ -85,7 +85,8 @@ To find all available fixtures and test utilities:
 
 Key fixture files for the mng project:
 - `libs/mng/imbue/mng/fixtures.py` -- core fixtures (temp_host_dir, temp_mng_ctx, local_provider, temp_git_repo, modal session fixtures, etc.)
-- `libs/mng/imbue/mng/cli/fixtures.py` -- CLI test fixtures (default_create_cli_opts, default_connect_cli_opts)
+- `libs/mng/imbue/mng/cli/fixtures.py` -- CLI test fixtures (cli_runner, default_create_cli_opts, default_connect_cli_opts, project_config_dir, temp_git_repo_cwd, isolated_mng_venv)
+- `libs/mng/imbue/mng/agents/fixtures.py` -- agent test fixtures (interactive_mng_ctx)
 - `libs/mng/imbue/mng/providers/modal/fixtures.py` -- Modal acceptance test fixtures (real_modal_provider, etc.)
 - `libs/mng/imbue/mng/api/fixtures.py` -- API test doubles (FakeAgent, FakeHost, SyncTestContext)
 - `libs/mng/imbue/mng/utils/testing.py` -- test utilities (init_git_repo, cleanup_tmux_session, make_local_provider, SSH helpers, Modal cleanup, etc.)

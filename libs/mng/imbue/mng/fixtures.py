@@ -4,7 +4,6 @@ from uuid import uuid4
 
 import pluggy
 import pytest
-from click.testing import CliRunner
 from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -160,31 +159,6 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
 
 
 @pytest.fixture
-def project_config_dir(temp_git_repo: Path, mng_test_root_name: str) -> Path:
-    """Return the project config directory inside the test git repo, creating it.
-
-    The directory is named `.{mng_test_root_name}` (e.g., `.mng-test-abc123`).
-    Tests can write `settings.toml` or `settings.local.toml` into this directory
-    to configure project-level settings for a test.
-    """
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir
-
-
-@pytest.fixture
-def temp_git_repo_cwd(temp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Create a temporary git repository and chdir into it.
-
-    Combines temp_git_repo with monkeypatch.chdir so tests that need a git
-    repo as the working directory (e.g. for project-scope config discovery)
-    don't need to request both fixtures separately.
-    """
-    monkeypatch.chdir(temp_git_repo)
-    return temp_git_repo
-
-
-@pytest.fixture
 def temp_work_dir(tmp_path: Path) -> Path:
     """Create a temporary work_dir directory for agents."""
     work_dir = tmp_path / "work_dir"
@@ -250,19 +224,6 @@ def temp_mng_ctx(
 
 
 @pytest.fixture
-def interactive_mng_ctx(
-    temp_config: MngConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
-) -> Generator[MngContext, None, None]:
-    """Create an interactive MngContext with a temporary host directory.
-
-    Use this fixture when testing code paths that require is_interactive=True.
-    """
-    cg = ConcurrencyGroup(name="test-interactive")
-    with cg:
-        yield make_mng_ctx(temp_config, plugin_manager, temp_profile_dir, is_interactive=True, concurrency_group=cg)
-
-
-@pytest.fixture
 def local_provider(temp_host_dir: Path, temp_mng_ctx: MngContext) -> LocalProviderInstance:
     """Create a LocalProviderInstance with a temporary host directory."""
     return LocalProviderInstance(
@@ -280,46 +241,6 @@ def per_host_dir(temp_host_dir: Path) -> Path:
     activity/, etc. This is the same as temp_host_dir (e.g. ~/.mng/).
     """
     return temp_host_dir
-
-
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Create a Click CLI runner for testing CLI commands."""
-    return CliRunner()
-
-
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_WORKSPACE_PACKAGES = (
-    _REPO_ROOT / "libs" / "imbue_common",
-    _REPO_ROOT / "libs" / "concurrency_group",
-    _REPO_ROOT / "libs" / "mng",
-)
-
-
-@pytest.fixture
-def isolated_mng_venv(tmp_path: Path) -> Path:
-    """Create a temporary venv with mng installed for subprocess-based tests.
-
-    Returns the venv directory. Use `venv / "bin" / "mng"` to run mng
-    commands, or `venv / "bin" / "python"` for the interpreter.
-
-    This fixture is useful for tests that install/uninstall packages and
-    need full isolation from the main workspace venv.
-    """
-    venv_dir = tmp_path / "isolated-venv"
-
-    install_args: list[str] = []
-    for pkg in _WORKSPACE_PACKAGES:
-        install_args.extend(["-e", str(pkg)])
-
-    cg = ConcurrencyGroup(name="isolated-venv-setup")
-    with cg:
-        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
-        cg.run_process_to_completion(
-            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
-        )
-
-    return venv_dir
 
 
 # =============================================================================
