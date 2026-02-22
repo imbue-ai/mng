@@ -32,7 +32,7 @@ class VerifyMode(UpperCaseStrEnum):
 
 
 class ScheduleUpdateCliOptions(CommonCliOptions):
-    """Options for the schedule update subcommand."""
+    """Shared options for the schedule add and update subcommands."""
 
     name: str | None
     command: str | None
@@ -200,6 +200,10 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
     """
+    # New schedules default to enabled. The shared options use None so that
+    # update can distinguish "not specified" from "explicitly set".
+    if ctx.params.get("enabled") is None:
+        ctx.params["enabled"] = True
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_add",
