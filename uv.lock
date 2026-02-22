@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -17,6 +17,7 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
+    "mng-schedule",
     "sculptor-web",
 ]
 
@@ -1875,6 +1876,23 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "mng", editable = "libs/mng" },
+]
+
+[[package]]
+name = "mng-schedule"
+version = "0.1.0"
+source = { editable = "libs/mng_schedule" }
+dependencies = [
+    { name = "click-option-group" },
+    { name = "imbue-common" },
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "mng", editable = "libs/mng" },
 ]
 
