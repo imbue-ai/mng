@@ -1,4 +1,3 @@
-import sys
 from io import StringIO
 
 from imbue.mng.utils.terminal import ANSI_DIM
@@ -30,12 +29,15 @@ def test_interceptor_returns_length_of_input() -> None:
     assert interceptor.write("") == 0
 
 
+class _SimulatedBrokenPipe(OSError):
+    """Simulates a broken-pipe error from the underlying stream."""
+
+
 def test_interceptor_falls_back_to_original_on_oserror() -> None:
     original = StringIO()
-    error = OSError("broken pipe")
 
     def failing_callback(s: str) -> None:
-        raise error
+        raise _SimulatedBrokenPipe("broken pipe")
 
     interceptor = StderrInterceptor(callback=failing_callback, original_stderr=original)
     interceptor.write("fallback text")
@@ -98,23 +100,13 @@ class _TtyStringIO(StringIO):
 
 def test_write_dim_stderr_no_op_for_empty_text() -> None:
     stderr = StringIO()
-    old_stderr = sys.stderr
-    sys.stderr = stderr
-    try:
-        write_dim_stderr("")
-    finally:
-        sys.stderr = old_stderr
+    write_dim_stderr("", stream=stderr)
     assert stderr.getvalue() == ""
 
 
 def test_write_dim_stderr_writes_dim_on_tty() -> None:
     stderr = _TtyStringIO()
-    old_stderr = sys.stderr
-    sys.stderr = stderr
-    try:
-        write_dim_stderr("hello")
-    finally:
-        sys.stderr = old_stderr
+    write_dim_stderr("hello", stream=stderr)
     output = stderr.getvalue()
     assert ANSI_DIM in output
     assert ANSI_RESET in output
@@ -123,12 +115,7 @@ def test_write_dim_stderr_writes_dim_on_tty() -> None:
 
 def test_write_dim_stderr_writes_plain_on_non_tty() -> None:
     stderr = StringIO()
-    old_stderr = sys.stderr
-    sys.stderr = stderr
-    try:
-        write_dim_stderr("hello")
-    finally:
-        sys.stderr = old_stderr
+    write_dim_stderr("hello", stream=stderr)
     output = stderr.getvalue()
     assert "\x1b" not in output
     assert "hello\n" == output

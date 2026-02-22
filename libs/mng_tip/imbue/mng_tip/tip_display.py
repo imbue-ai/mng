@@ -30,7 +30,7 @@ def maybe_display_tip(command_name: str) -> None:
             tip_text = ""
 
         if tip_text:
-            write_dim_stderr(f"  tip: {tip_text}")
+            write_dim_stderr(f"  tip: {tip_text}", stream=sys.stderr)
 
         try:
             next_tip_path.unlink(missing_ok=True)

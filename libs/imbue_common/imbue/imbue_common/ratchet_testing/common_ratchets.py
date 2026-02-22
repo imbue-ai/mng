@@ -121,7 +121,14 @@ PREVENT_BASE_EXCEPTION_CATCH = RegexRatchetRule(
 
 PREVENT_BUILTIN_EXCEPTION_RAISES = RegexRatchetRule(
     rule_name="direct raising of built-in exceptions",
-    rule_description="Never raise built-in exceptions directly. Create custom exception types that inherit from both the package base exception and the built-in",
+    rule_description=(
+        "Never raise built-in exceptions directly. Create custom exception types that inherit "
+        "from both the package base exception and the built-in. "
+        "IMPORTANT: Do not evade this ratchet by splitting the raise into two lines "
+        "(e.g. error = OSError(...); raise error). The regex only catches the most common forms, "
+        "but the principle applies to ALL built-in exception types. Always create and raise custom "
+        "exception subclasses, even in test code."
+    ),
     pattern_string=r"raise\s+(ValueError|KeyError|TypeError|AttributeError|IndexError|RuntimeError|OSError|IOError)\(",
 )
 
@@ -310,7 +317,12 @@ PREVENT_MONKEYPATCH_SETATTR = RegexRatchetRule(
     rule_description=(
         "Do not use monkeypatch.setattr to replace attributes or functions at runtime. "
         "Use dependency injection and concrete mock implementations of interfaces instead. "
-        "Note: monkeypatch.setenv, monkeypatch.delenv, and monkeypatch.chdir are fine."
+        "Note: monkeypatch.setenv, monkeypatch.delenv, and monkeypatch.chdir are fine. "
+        "IMPORTANT: Do not evade this ratchet by manually saving and restoring attributes "
+        "(e.g. old = sys.foo; sys.foo = fake; try: ... finally: sys.foo = old). "
+        "That has all the downsides of monkeypatch with none of the benefits. "
+        "This ratchet exists as a reminder to use real infrastructure (dependency injection, "
+        "parameter passing) instead of swapping globals."
     ),
     pattern_string=r"monkeypatch\.setattr",
 )

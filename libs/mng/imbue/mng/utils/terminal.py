@@ -1,4 +1,3 @@
-import sys
 from collections.abc import Callable
 from typing import Any
 from typing import Final
@@ -11,16 +10,16 @@ ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
 ANSI_RESET: Final[str] = "\x1b[0m"
 
 
-def write_dim_stderr(text: str) -> None:
-    """Write dim-formatted text to stderr. No-op if text is empty."""
+def write_dim_stderr(text: str, stream: Any) -> None:
+    """Write dim-formatted text to the given stream. No-op if text is empty."""
     if not text:
         return
-    is_tty = hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+    is_tty = hasattr(stream, "isatty") and stream.isatty()
     if is_tty:
-        sys.stderr.write(f"{ANSI_DIM}{text}{ANSI_RESET}\n")
+        stream.write(f"{ANSI_DIM}{text}{ANSI_RESET}\n")
     else:
-        sys.stderr.write(f"{text}\n")
-    sys.stderr.flush()
+        stream.write(f"{text}\n")
+    stream.flush()
 
 
 class StderrInterceptor(MutableModel):
