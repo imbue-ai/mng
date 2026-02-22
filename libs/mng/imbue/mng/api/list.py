@@ -25,6 +25,7 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
+from imbue.mng.cli.completion import atomic_write
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostConnectionError
@@ -231,8 +232,7 @@ def _write_completion_cache(mng_ctx: MngContext, result: ListResult) -> None:
         }
 
         cache_path = host_dir / COMPLETION_CACHE_FILENAME
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(cache_data))
+        atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write completion cache")
 

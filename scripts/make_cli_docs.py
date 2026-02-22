@@ -9,7 +9,6 @@ and writes them to libs/mng/docs/commands/. It preserves option
 groups defined via click_option_group in the generated markdown.
 """
 
-import json
 from pathlib import Path
 
 import click
@@ -17,7 +16,6 @@ from click_option_group import GroupedOption
 from mkdocs_click._docs import make_command_docs
 
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
-from imbue.mng.cli.completion import CLI_COMPLETIONS_FILENAME
 from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.main import BUILTIN_COMMANDS
 from imbue.mng.main import PLUGIN_COMMANDS
@@ -586,44 +584,6 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
         print(f"Updated: {output_file}")
 
 
-def generate_cli_completions() -> None:
-    """Generate a static JSON file listing all CLI commands and subcommands.
-
-    This file is read by the tab completion system at runtime so that it can
-    offer command/subcommand completions from a pre-generated list rather than
-    discovering them live by walking the Click command tree.
-
-    The file is written to imbue/mng/resources/cli_completions.json and is
-    analogous to the auto-generated markdown docs in libs/mng/docs/commands/.
-    """
-    # Collect all top-level command names (including aliases)
-    all_command_names = sorted(cli.commands.keys())
-
-    # Collect subcommands for each group command
-    subcommand_by_command: dict[str, list[str]] = {}
-    for name, cmd in cli.commands.items():
-        if isinstance(cmd, click.Group) and cmd.commands:
-            # Use the command's own name (canonical), not the alias it's registered under.
-            # This avoids duplicate entries for alias -> canonical mappings.
-            canonical_name = cmd.name or name
-            if canonical_name not in subcommand_by_command:
-                subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
-
-    completions_data = {
-        "commands": all_command_names,
-        "subcommand_by_command": subcommand_by_command,
-    }
-
-    output_path = (
-        Path(__file__).parent.parent / "libs" / "mng" / "imbue" / "mng" / "resources" / CLI_COMPLETIONS_FILENAME
-    )
-    content = json.dumps(completions_data, indent=2, sort_keys=True) + "\n"
-    existing_content = output_path.read_text() if output_path.exists() else None
-    if content != existing_content:
-        output_path.write_text(content)
-        print(f"Updated: {output_path}")
-
-
 def main() -> None:
     # Base output directory
     base_dir = Path(__file__).parent.parent / "libs" / "mng" / "docs" / "commands"
@@ -636,9 +596,6 @@ def main() -> None:
     # Generate docs for alias commands
     for command_name in sorted(ALIAS_COMMANDS):
         generate_alias_doc(command_name, base_dir)
-
-    # Generate static CLI completions file
-    generate_cli_completions()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ from imbue.mng.cli.completion import _trigger_background_cache_refresh
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.completion import read_cached_commands
 from imbue.mng.cli.completion import read_cached_subcommands
+from imbue.mng.cli.completion import write_cli_completions_cache
 from imbue.mng.cli.config import config as config_group
 from imbue.mng.cli.plugin import plugin as plugin_group
 from imbue.mng.cli.snapshot import snapshot as snapshot_group
@@ -41,6 +42,22 @@ def _write_cache(host_dir: Path, names: list[str]) -> Path:
     """Write a completion cache file with the given names."""
     cache_path = host_dir / COMPLETION_CACHE_FILENAME
     data = {"names": names, "updated_at": "2025-01-01T00:00:00+00:00"}
+    cache_path.write_text(json.dumps(data))
+    return cache_path
+
+
+def _write_cli_completions(
+    host_dir: Path,
+    commands: list[str] | None = None,
+    subcommand_by_command: dict[str, list[str]] | None = None,
+) -> Path:
+    """Write a CLI completions cache file for testing."""
+    data: dict = {}
+    if commands is not None:
+        data["commands"] = commands
+    if subcommand_by_command is not None:
+        data["subcommand_by_command"] = subcommand_by_command
+    cache_path = host_dir / CLI_COMPLETIONS_FILENAME
     cache_path.write_text(json.dumps(data))
     return cache_path
 
@@ -259,35 +276,53 @@ def test_complete_agent_name_returns_empty_when_no_cache(
 
 
 # =============================================================================
-# Static CLI completions tests
+# CLI completions cache tests
 # =============================================================================
 
 
-def _write_cli_completions(
-    path: Path,
-    commands: list[str] | None = None,
-    subcommand_by_command: dict[str, list[str]] | None = None,
-) -> Path:
-    """Write a CLI completions file for testing."""
-    data: dict = {}
-    if commands is not None:
-        data["commands"] = commands
-    if subcommand_by_command is not None:
-        data["subcommand_by_command"] = subcommand_by_command
-    path.write_text(json.dumps(data))
-    return path
+# -- write_cli_completions_cache tests --
 
 
-# -- _read_cached_commands tests --
+def test_write_cli_completions_cache_writes_commands_and_subcommands(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should write all commands and subcommands."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    assert cache_path.is_file()
+    data = json.loads(cache_path.read_text())
+
+    assert "create" in data["commands"]
+    assert "list" in data["commands"]
+    assert "config" in data["subcommand_by_command"]
+    assert "get" in data["subcommand_by_command"]["config"]
+    assert "snapshot" in data["subcommand_by_command"]
+    assert "plugin" in data["subcommand_by_command"]
+
+
+def test_write_cli_completions_cache_includes_aliases(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should include command aliases."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    data = json.loads(cache_path.read_text())
+    commands = data["commands"]
+
+    assert "c" in commands
+    assert "ls" in commands
+    assert "rm" in commands
+
+
+# -- read_cached_commands tests --
 
 
 def test_read_cached_commands_returns_sorted_command_names(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    _write_cli_completions(completions_path, commands=["create", "ask", "list"])
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    _write_cli_completions(temp_host_dir, commands=["create", "ask", "list"])
 
     result = read_cached_commands()
 
@@ -295,23 +330,18 @@ def test_read_cached_commands_returns_sorted_command_names(
 
 
 def test_read_cached_commands_returns_none_when_file_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(tmp_path / "nonexistent.json"))
-
     result = read_cached_commands()
 
     assert result is None
 
 
 def test_read_cached_commands_returns_none_for_malformed_json(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    completions_path.write_text("not valid json {{{")
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path.write_text("not valid json {{{")
 
     result = read_cached_commands()
 
@@ -319,12 +349,10 @@ def test_read_cached_commands_returns_none_for_malformed_json(
 
 
 def test_read_cached_commands_returns_none_when_commands_key_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    completions_path.write_text(json.dumps({"other_key": "value"}))
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path.write_text(json.dumps({"other_key": "value"}))
 
     result = read_cached_commands()
 
@@ -332,12 +360,10 @@ def test_read_cached_commands_returns_none_when_commands_key_missing(
 
 
 def test_read_cached_commands_returns_none_when_commands_not_list(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    completions_path.write_text(json.dumps({"commands": "not-a-list"}))
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path.write_text(json.dumps({"commands": "not-a-list"}))
 
     result = read_cached_commands()
 
@@ -345,32 +371,26 @@ def test_read_cached_commands_returns_none_when_commands_not_list(
 
 
 def test_read_cached_commands_filters_non_string_and_empty_entries(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
     mixed_values: list = ["good", "", 123, None, "also-good"]
-    _write_cli_completions(completions_path, commands=mixed_values)
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    _write_cli_completions(temp_host_dir, commands=mixed_values)
 
     result = read_cached_commands()
 
     assert result == ["also-good", "good"]
 
 
-# -- _read_cached_subcommands tests --
+# -- read_cached_subcommands tests --
 
 
 def test_read_cached_subcommands_returns_sorted_subcommand_names(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"config": ["set", "get", "list"]},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     result = read_cached_subcommands("config")
 
@@ -378,26 +398,20 @@ def test_read_cached_subcommands_returns_sorted_subcommand_names(
 
 
 def test_read_cached_subcommands_returns_none_when_file_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(tmp_path / "nonexistent.json"))
-
     result = read_cached_subcommands("config")
 
     assert result is None
 
 
 def test_read_cached_subcommands_returns_none_when_command_not_in_cache(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"config": ["set", "get"]},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     result = read_cached_subcommands("nonexistent")
 
@@ -405,12 +419,10 @@ def test_read_cached_subcommands_returns_none_when_command_not_in_cache(
 
 
 def test_read_cached_subcommands_returns_none_when_subcommand_by_command_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    completions_path.write_text(json.dumps({"commands": ["create"]}))
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path.write_text(json.dumps({"commands": ["create"]}))
 
     result = read_cached_subcommands("config")
 
@@ -418,63 +430,27 @@ def test_read_cached_subcommands_returns_none_when_subcommand_by_command_missing
 
 
 def test_read_cached_subcommands_filters_non_string_entries(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
     mixed_values: list = ["good", "", 42, None, "also-good"]
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"config": mixed_values},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     result = read_cached_subcommands("config")
 
     assert result == ["also-good", "good"]
 
 
-# -- Real file integration tests --
-
-
-def test_real_cli_completions_file_exists_and_has_expected_structure() -> None:
-    """The generated cli_completions.json should be present and well-formed."""
-    path = Path(__file__).parent.parent / "resources" / CLI_COMPLETIONS_FILENAME
-    assert path.is_file(), f"Expected {path} to exist (run: uv run python scripts/make_cli_docs.py)"
-
-    data = json.loads(path.read_text())
-    assert isinstance(data, dict)
-    assert isinstance(data.get("commands"), list)
-    assert isinstance(data.get("subcommand_by_command"), dict)
-
-    # Spot-check some expected commands
-    commands = data["commands"]
-    assert "create" in commands
-    assert "list" in commands
-    assert "destroy" in commands
-
-    # Spot-check subcommands
-    subcommands = data["subcommand_by_command"]
-    assert "config" in subcommands
-    assert "get" in subcommands["config"]
-    assert "set" in subcommands["config"]
-    assert "snapshot" in subcommands
-    assert "create" in subcommands["snapshot"]
-    assert "plugin" in subcommands
-    assert "list" in subcommands["plugin"]
-
-
 # -- shell_complete override tests --
 
 
 def test_top_level_shell_complete_uses_cached_commands(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    """AliasAwareGroup.shell_complete should read from the static cache."""
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
-    _write_cli_completions(completions_path, commands=["create", "list", "destroy"])
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
+    """AliasAwareGroup.shell_complete should read from the cache."""
+    _write_cli_completions(temp_host_dir, commands=["create", "list", "destroy"])
 
     ctx = click.Context(cli)
     completions = cli.shell_complete(ctx, "cr")
@@ -484,12 +460,9 @@ def test_top_level_shell_complete_uses_cached_commands(
 
 
 def test_top_level_shell_complete_falls_back_when_no_cache(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
     """When the cache file is missing, shell_complete should fall back to live discovery."""
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(tmp_path / "nonexistent.json"))
-
     ctx = click.Context(cli)
     completions = cli.shell_complete(ctx, "cr")
 
@@ -498,16 +471,13 @@ def test_top_level_shell_complete_falls_back_when_no_cache(
 
 
 def test_config_shell_complete_uses_cached_subcommands(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    """The config group should read subcommand completions from the static cache."""
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
+    """The config group should read subcommand completions from the cache."""
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"config": ["edit", "get", "list", "set"]},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     ctx = click.Context(config_group)
     completions = config_group.shell_complete(ctx, "")
@@ -519,16 +489,13 @@ def test_config_shell_complete_uses_cached_subcommands(
 
 
 def test_plugin_shell_complete_uses_cached_subcommands(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    """The plugin group should read subcommand completions from the static cache."""
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
+    """The plugin group should read subcommand completions from the cache."""
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"plugin": ["add", "list", "remove"]},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     ctx = click.Context(plugin_group)
     completions = plugin_group.shell_complete(ctx, "")
@@ -540,16 +507,13 @@ def test_plugin_shell_complete_uses_cached_subcommands(
 
 
 def test_snapshot_shell_complete_uses_cached_subcommands(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
-    """The snapshot group should read subcommand completions from the static cache."""
-    completions_path = tmp_path / CLI_COMPLETIONS_FILENAME
+    """The snapshot group should read subcommand completions from the cache."""
     _write_cli_completions(
-        completions_path,
+        temp_host_dir,
         subcommand_by_command={"snapshot": ["create", "destroy", "list"]},
     )
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(completions_path))
 
     ctx = click.Context(snapshot_group)
     completions = snapshot_group.shell_complete(ctx, "cr")
@@ -560,12 +524,9 @@ def test_snapshot_shell_complete_uses_cached_subcommands(
 
 
 def test_subcommand_shell_complete_falls_back_when_no_cache(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    temp_host_dir: Path,
 ) -> None:
     """When the cache file is missing, subcommand groups should fall back to live discovery."""
-    monkeypatch.setenv("MNG_CLI_COMPLETIONS_PATH", str(tmp_path / "nonexistent.json"))
-
     ctx = click.Context(config_group)
     completions = config_group.shell_complete(ctx, "")
 
