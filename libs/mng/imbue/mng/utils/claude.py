@@ -5,7 +5,6 @@ through ConcurrencyGroup for proper subprocess lifecycle handling.
 """
 
 import json
-import shutil
 import tempfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -84,25 +83,24 @@ def query_claude(
     Uses ConcurrencyGroup for subprocess lifecycle management.
     Returns None if claude is not installed, times out, or returns an error.
     """
-    tmp_dir = Path(tempfile.mkdtemp(prefix="mng-claude-"))
-    try:
-        command = _build_base_args(system_prompt) + [prompt]
-        result = cg.run_process_to_completion(
-            command=command,
-            timeout=timeout,
-            cwd=tmp_dir,
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
+    with tempfile.TemporaryDirectory(prefix="mng-claude-") as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        try:
+            command = _build_base_args(system_prompt) + [prompt]
+            result = cg.run_process_to_completion(
+                command=command,
+                timeout=timeout,
+                cwd=tmp_dir,
+                is_checked_after=False,
+            )
+            if result.returncode != 0:
+                return None
+            text = result.stdout.strip()
+            return text if text else None
+        except ProcessSetupError:
             return None
-        text = result.stdout.strip()
-        return text if text else None
-    except ProcessSetupError:
-        return None
-    except ProcessTimeoutError:
-        return None
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        except ProcessTimeoutError:
+            return None
 
 
 def query_claude_streaming(
@@ -115,46 +113,45 @@ def query_claude_streaming(
     Uses ConcurrencyGroup for subprocess lifecycle management.
     Raises MngError if claude is not installed or returns an error.
     """
-    tmp_dir = Path(tempfile.mkdtemp(prefix="mng-claude-"))
-    try:
-        command = _build_base_args(system_prompt) + [
-            "--output-format",
-            "stream-json",
-            "--verbose",
-            "--include-partial-messages",
-            prompt,
-        ]
-        process = cg.run_process_in_background(
-            command=command,
-            cwd=tmp_dir,
-        )
+    with tempfile.TemporaryDirectory(prefix="mng-claude-") as tmp_dir_str:
+        tmp_dir = Path(tmp_dir_str)
+        try:
+            command = _build_base_args(system_prompt) + [
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+                prompt,
+            ]
+            process = cg.run_process_in_background(
+                command=command,
+                cwd=tmp_dir,
+            )
 
-        is_error = False
-        for line, is_stdout in process.stream_stdout_and_stderr():
-            if not is_stdout:
-                continue
-            stripped = line.strip()
-            if not stripped:
-                continue
+            is_error = False
+            for line, is_stdout in process.stream_stdout_and_stderr():
+                if not is_stdout:
+                    continue
+                stripped = line.strip()
+                if not stripped:
+                    continue
 
-            try:
-                parsed = json.loads(stripped)
-                if parsed.get("type") == "result" and parsed.get("is_error"):
-                    is_error = True
-            except (json.JSONDecodeError, ValueError):
-                pass
+                try:
+                    parsed = json.loads(stripped)
+                    if parsed.get("type") == "result" and parsed.get("is_error"):
+                        is_error = True
+                except (json.JSONDecodeError, ValueError):
+                    pass
 
-            text = extract_text_delta(stripped)
-            if text is not None:
-                yield text
+                text = extract_text_delta(stripped)
+                if text is not None:
+                    yield text
 
-        process.wait()
+            process.wait()
 
-        if is_error or (process.poll() is not None and process.poll() != 0):
-            stderr_content = process.read_stderr().strip()
-            detail = stderr_content or "unknown error (no output captured)"
-            raise MngError(f"claude failed (exit code {process.poll()}): {detail}")
-    except ProcessSetupError:
-        raise MngError(_CLAUDE_NOT_INSTALLED_MESSAGE) from None
-    finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+            if is_error or (process.poll() is not None and process.poll() != 0):
+                stderr_content = process.read_stderr().strip()
+                detail = stderr_content or "unknown error (no output captured)"
+                raise MngError(f"claude failed (exit code {process.poll()}): {detail}")
+        except ProcessSetupError:
+            raise MngError(_CLAUDE_NOT_INSTALLED_MESSAGE) from None
