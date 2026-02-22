@@ -150,6 +150,20 @@ def _add_trigger_options(command: Any) -> Any:
     return command
 
 
+def _resolve_positional_name(ctx: click.Context) -> None:
+    """Merge the optional positional NAME into the --name option.
+
+    If only the positional is provided, it becomes the --name value.
+    If both are provided, raise a UsageError.
+    """
+    positional = ctx.params.get("positional_name")
+    option = ctx.params.get("name")
+    if positional and option:
+        raise click.UsageError("Cannot specify both a positional NAME and --name.")
+    if positional:
+        ctx.params["name"] = positional
+
+
 # =============================================================================
 # CLI Group
 # =============================================================================
@@ -204,9 +218,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
     """
-    # Resolve name from positional argument or --name option (positional wins)
-    if ctx.params.get("positional_name") and ctx.params.get("name"):
-        raise click.UsageError("Cannot specify both a positional NAME and --name.")
+    _resolve_positional_name(ctx)
     # New schedules default to enabled. The shared options use None so that
     # update can distinguish "not specified" from "explicitly set".
     if ctx.params.get("enabled") is None:
@@ -265,9 +277,7 @@ def schedule_update(ctx: click.Context, **kwargs: Any) -> None:
 
     Alias for 'add --update'. Accepts the same options as the add command.
     """
-    # Resolve name from positional argument or --name option (positional wins)
-    if ctx.params.get("positional_name") and ctx.params.get("name"):
-        raise click.UsageError("Cannot specify both a positional NAME and --name.")
+    _resolve_positional_name(ctx)
     ctx.params["update"] = True
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,

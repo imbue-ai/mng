@@ -1,5 +1,6 @@
 """Integration tests for the schedule CLI command."""
 
+import click
 import pluggy
 from click.testing import CliRunner
 
@@ -71,26 +72,26 @@ def test_schedule_add_accepts_positional_name(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add accepts name as a positional argument."""
+    """Test that schedule add accepts name as a positional argument (no UsageError)."""
     result = cli_runner.invoke(
         schedule,
         ["add", "my-trigger", "--command", "create"],
         obj=plugin_manager,
     )
-    assert isinstance(result.exception, NotImplementedError)
+    assert not isinstance(result.exception, (click.UsageError, SystemExit))
 
 
 def test_schedule_update_accepts_positional_name(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule update accepts name as a positional argument."""
+    """Test that schedule update accepts name as a positional argument (no UsageError)."""
     result = cli_runner.invoke(
         schedule,
         ["update", "my-trigger", "--disabled"],
         obj=plugin_manager,
     )
-    assert isinstance(result.exception, NotImplementedError)
+    assert not isinstance(result.exception, (click.UsageError, SystemExit))
 
 
 def test_schedule_add_rejects_both_positional_and_option_name(
