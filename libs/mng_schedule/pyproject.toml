@@ -6,7 +6,6 @@ requires-python = ">=3.11"
 dependencies = [
     "mng",
     "click-option-group>=0.5.6",
-    "imbue-common",
 ]
 
 [project.entry-points.mng]
@@ -21,28 +20,9 @@ packages = ["imbue"]
 
 [tool.uv.sources]
 mng = { workspace = true }
-imbue-common = { workspace = true }
 
 [tool.pyright]
 venvPath = "../.."
 venv = ".venv"
 pythonVersion = "3.11"
 strict = ["**/*.py"]
-
-[tool.pytest.ini_options]
-timeout_func_only = true
-pythonpath = ["."]
-testpaths = ["."]
-addopts = [
-  "--cov=imbue.mng_schedule",
-  "--cov-report=term-missing",
-  "--cov-report=html:.test_output/htmlcov",
-  "--cov-report=xml:.test_output/coverage.xml",
-  "--cov-fail-under=30",
-  "--durations=20",
-  "--timeout=10",
-  "--timeout-method=signal",
-  "-m not acceptance and not release",
-  "--slow-tests-to-file",
-  "--coverage-to-file",
-]
