@@ -1,7 +1,4 @@
 import os
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Generator
 from uuid import uuid4
@@ -17,6 +14,7 @@ from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
+from imbue.mng.utils.testing import isolated_tmux_server
 
 
 @pytest.fixture
@@ -54,31 +52,14 @@ def temp_host_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def _isolate_tmux_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
-    """Give each test its own isolated tmux server."""
-    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-tmux-", dir="/tmp"))
-    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
-    monkeypatch.delenv("TMUX", raising=False)
+def _isolate_tmux_server() -> Generator[None, None, None]:
+    """Give each test its own isolated tmux server.
 
-    yield
-
-    tmux_tmpdir_str = str(tmux_tmpdir)
-    assert tmux_tmpdir_str.startswith("/tmp/mng-tmux-"), (
-        f"TMUX_TMPDIR safety check failed! Expected /tmp/mng-tmux-* path but got: {tmux_tmpdir_str}. "
-        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
-    )
-    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
-    kill_env = os.environ.copy()
-    kill_env.pop("TMUX", None)
-    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    subprocess.run(
-        ["tmux", "-S", str(socket_path), "kill-server"],
-        capture_output=True,
-        env=kill_env,
-    )
-    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
+    Delegates to the shared isolated_tmux_server() context manager in testing.py.
+    See its docstring for details on the isolation strategy and why /tmp is used.
+    """
+    with isolated_tmux_server():
+        yield
 
 
 @pytest.fixture(autouse=True)

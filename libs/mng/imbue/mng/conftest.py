@@ -1,9 +1,7 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Generator
 from uuid import uuid4
@@ -33,6 +31,7 @@ from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
 from imbue.mng.utils.testing import cleanup_tmux_session
+from imbue.mng.utils.testing import isolated_tmux_server
 from imbue.mng.utils.testing import delete_modal_apps_in_environment
 from imbue.mng.utils.testing import delete_modal_environment
 from imbue.mng.utils.testing import delete_modal_volumes_in_environment
@@ -146,61 +145,14 @@ def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def _isolate_tmux_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+def _isolate_tmux_server() -> Generator[None, None, None]:
     """Give each test its own isolated tmux server.
 
-    This fixture:
-    - Creates a per-test TMUX_TMPDIR under /tmp so each test gets its own
-      tmux server socket, preventing xdist workers from racing on the shared
-      default tmux server.
-    - Unsets TMUX so tmux commands connect to the isolated server (via
-      TMUX_TMPDIR) rather than the real server.
-    - On teardown, kills the isolated tmux server and cleans up the tmpdir.
-
-    IMPORTANT: We use /tmp directly instead of pytest's tmp_path because
-    tmux sockets are Unix domain sockets, which have a ~104-byte path
-    length limit on macOS. Pytest's tmp_path lives under
-    /private/var/folders/.../pytest-of-.../... which is already ~80+ bytes,
-    leaving no room for tmux's tmux-$UID/default suffix. When the path
-    exceeds the limit, tmux silently falls back to the default socket,
-    defeating isolation entirely (and potentially killing production
-    tmux servers during test cleanup).
+    Delegates to the shared isolated_tmux_server() context manager in testing.py.
+    See its docstring for details on the isolation strategy and why /tmp is used.
     """
-    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-tmux-", dir="/tmp"))
-    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
-    # Unset TMUX so tmux commands during the test connect to the isolated
-    # server (via TMUX_TMPDIR) rather than the real server. When TMUX is
-    # set (because we're running inside a tmux session), tmux uses it to
-    # find the current server, overriding TMUX_TMPDIR.
-    monkeypatch.delenv("TMUX", raising=False)
-
-    yield
-
-    # Kill the test's isolated tmux server to clean up any leaked sessions
-    # or processes. We must use -S with the explicit socket path because:
-    # 1. The TMUX env var (set when running inside tmux) tells tmux to
-    #    connect to the CURRENT server, overriding TMUX_TMPDIR entirely.
-    #    Without -S, kill-server would kill the real tmux server.
-    # 2. We also unset TMUX in the env as a belt-and-suspenders measure.
-    tmux_tmpdir_str = str(tmux_tmpdir)
-    assert tmux_tmpdir_str.startswith("/tmp/mng-tmux-"), (
-        f"TMUX_TMPDIR safety check failed! Expected /tmp/mng-tmux-* path but got: {tmux_tmpdir_str}. "
-        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
-    )
-    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
-    kill_env = os.environ.copy()
-    kill_env.pop("TMUX", None)
-    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    subprocess.run(
-        ["tmux", "-S", str(socket_path), "kill-server"],
-        capture_output=True,
-        env=kill_env,
-    )
-
-    # Clean up the tmpdir we created outside of pytest's tmp_path.
-    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
+    with isolated_tmux_server():
+        yield
 
 
 @pytest.fixture(autouse=True)

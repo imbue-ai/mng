@@ -1,6 +1,9 @@
+import sys
 from collections.abc import Callable
+from types import TracebackType
 from typing import Any
 from typing import Final
+from typing import Self
 
 from imbue.imbue_common.mutable_model import MutableModel
 
@@ -56,6 +59,19 @@ class StderrInterceptor(MutableModel):
 
     def fileno(self) -> int:
         return self.original_stderr.fileno()
+
+    def __enter__(self) -> Self:
+        _stderr: Any = self
+        sys.stderr = _stderr
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        sys.stderr = self.original_stderr
 
     @property
     def encoding(self) -> str:

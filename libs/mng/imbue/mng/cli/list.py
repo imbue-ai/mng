@@ -3,6 +3,7 @@ import shutil
 import string
 import sys
 from collections.abc import Sequence
+from contextlib import nullcontext
 from enum import Enum
 from threading import Lock
 from typing import Any
@@ -468,11 +469,8 @@ def _list_streaming_human(
     # In TTY mode, intercept stderr so warnings (from loguru etc.) are routed
     # through the renderer and kept pinned at the bottom of the table, rather
     # than being interspersed with agent rows.
-    original_stderr = sys.stderr
-    if renderer.is_tty:
-        sys.stderr = StderrInterceptor(callback=renderer.emit_warning, original_stderr=original_stderr)
-
-    try:
+    interceptor = StderrInterceptor(callback=renderer.emit_warning, original_stderr=sys.stderr)
+    with interceptor if renderer.is_tty else nullcontext():
         renderer.start()
         try:
             result = api_list_agents(
@@ -486,8 +484,6 @@ def _list_streaming_human(
             )
         finally:
             renderer.finish()
-    finally:
-        sys.stderr = original_stderr
 
     if result.errors:
         for error in result.errors:
