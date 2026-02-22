@@ -18,6 +18,7 @@ import argparse
 import json
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -47,6 +48,20 @@ def run(*args: str) -> str:
 def get_current_version() -> str:
     """Read and validate the current version across all packages."""
     return check_versions_in_sync()
+
+
+PYPI_PACKAGE_NAME: Final[str] = "mng"
+
+
+def get_last_published_version() -> str | None:
+    """Query PyPI for the latest published version. Returns None if the query fails."""
+    try:
+        url = f"https://pypi.org/pypi/{PYPI_PACKAGE_NAME}/json"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return data["info"]["version"]
+    except Exception:
+        return None
 
 
 def bump_version(new_version: str) -> list[Path]:
@@ -226,6 +241,24 @@ def main() -> None:
     if new_version == current_version:
         print(f"ERROR: New version {new_version} is the same as the current version.", file=sys.stderr)
         sys.exit(1)
+
+    # Check if the current version was actually published — if not, this bump
+    # would skip a version (e.g. 0.1.3 published, repo at 0.1.4, bumping to 0.1.5).
+    published_version = get_last_published_version()
+    if published_version is not None and published_version != current_version:
+        published = semver.Version.parse(published_version)
+        if current > published:
+            print(f"WARNING: The current version ({current_version}) was never published.")
+            print(f"  Last published: {published_version}")
+            print(f"  Bumping to {new_version} would skip {current_version}.")
+            print()
+            print("If the publish failed, you probably want:")
+            print("  uv run scripts/release.py --retry")
+            print()
+            confirm_double = input("Continue with double bump anyway? [y/N] ")
+            if confirm_double.lower() != "y":
+                print("Aborted.")
+                return
 
     print(f"Current version: {current_version}")
     print(f"New version:     {new_version}")
