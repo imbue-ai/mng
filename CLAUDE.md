@@ -75,7 +75,7 @@ Ratchets are guidance and reminders about good code, not rules to be blindly obe
 1. Understand *why* the ratchet exists by reading its `rule_description`. It explains the principle behind the check.
 2. Fix the code in the spirit of the ratchet. For example, if `PREVENT_MONKEYPATCH_SETATTR` fires, the fix is to use dependency injection -- not to manually save/restore the attribute with `try/finally`, which evades the regex while violating the same principle.
 3. Never evade a ratchet. Restructuring code to dodge the regex pattern while still doing the same bad thing is worse than the original violation, because it hides the problem. Common evasion patterns include splitting a statement across lines, assigning to a temporary variable before the flagged operation, or using a synonym that the regex doesn't catch.
-4. If you cannot find a fix that honors the spirit of the ratchet, say so explicitly. Do not silently work around it.
+4. If you cannot find a fix that honors the spirit of the ratchet, **ask the user** rather than silently working around it. Do not use type-system escape hatches (e.g. assigning through `Any`, intermediate variables, or synonyms) to bypass a ratchet -- these are evasions even if they dodge the regex.
 
 # Manual verification and testing
 

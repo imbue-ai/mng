@@ -32,6 +32,9 @@ class StderrInterceptor(MutableModel):
     loguru warnings) from interleaving with ANSI-managed output. The callback
     receives each non-empty write as a string.
 
+    Structurally compatible with TextIO (ty uses structural subtyping for
+    sys.stderr assignment), so no explicit TextIO inheritance is needed.
+
     Falls back to writing directly to the original stderr if the callback
     raises OSError (e.g. broken pipe on the output stream), which avoids
     recursive writes through the interceptor.
@@ -42,7 +45,7 @@ class StderrInterceptor(MutableModel):
     callback: Callable[[str], None]
     original_stderr: Any
 
-    def write(self, s: str) -> int:
+    def write(self, s: str, /) -> int:
         if s:
             try:
                 self.callback(s)
@@ -61,8 +64,7 @@ class StderrInterceptor(MutableModel):
         return self.original_stderr.fileno()
 
     def __enter__(self) -> Self:
-        _stderr: Any = self
-        sys.stderr = _stderr
+        sys.stderr = self
         return self
 
     def __exit__(
