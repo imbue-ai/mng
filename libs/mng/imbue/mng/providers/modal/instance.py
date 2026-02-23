@@ -88,6 +88,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -971,7 +972,9 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            image = modal.Image.debian_slim()
+            # Pre-install required host packages so the runtime check in
+            # _check_and_install_packages is a no-op (no warnings, faster startup).
+            image = modal.Image.debian_slim().apt_install(*(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
 
         return image
 
@@ -1629,8 +1632,13 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
-        """Create a new Modal sandbox host."""
+        """Create a new Modal sandbox host.
+
+        If snapshot is provided, the host is created from the snapshot image
+        instead of building a new one.
+        """
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1657,9 +1665,16 @@ log "=== Shutdown script completed ==="
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         try:
-            # Build the Modal image
-            with log_span("Building Modal image..."):
-                modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+            if snapshot is not None:
+                # Use the snapshot image instead of building
+                with log_span("Loading Modal image from snapshot {}", str(snapshot)):
+                    modal_image: modal.Image = modal.Image.from_id(str(snapshot))  # ty: ignore[invalid-assignment]
+            else:
+                # Build the Modal image
+                with log_span("Building Modal image..."):
+                    modal_image = self._build_modal_image(
+                        base_image, dockerfile_path, context_dir_path, config.secrets
+                    )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
             with log_span("Getting Modal app", app_name=self.app_name):
