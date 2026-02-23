@@ -1,10 +1,14 @@
 import json
 from datetime import datetime
 from datetime import timezone
+from io import StringIO
 from pathlib import Path
+
+from loguru import logger
 
 from imbue.mng.api.list import COMPLETION_CACHE_FILENAME
 from imbue.mng.api.list import ListResult
+from imbue.mng.api.list import _warn_on_duplicate_host_names
 from imbue.mng.api.list import _write_completion_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -14,6 +18,8 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostId
+from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 
 # =============================================================================
@@ -103,3 +109,87 @@ def test_write_completion_cache_deduplicates_names(
     cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
+
+
+# =============================================================================
+# Duplicate Host Name Warning Tests
+# =============================================================================
+
+
+def _make_host_ref(
+    host_name: str,
+    provider_name: str = "modal",
+) -> HostReference:
+    return HostReference(
+        host_id=HostId.generate(),
+        host_name=HostName(host_name),
+        provider_name=ProviderInstanceName(provider_name),
+    )
+
+
+def test_warn_on_duplicate_host_names_no_warning_for_unique_names() -> None:
+    """_warn_on_duplicate_host_names should not warn when all host names are unique."""
+    agents_by_host = {
+        _make_host_ref("host-alpha"): [],
+        _make_host_ref("host-beta"): [],
+        _make_host_ref("host-gamma"): [],
+    }
+
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="WARNING", format="{message}")
+    try:
+        _warn_on_duplicate_host_names(agents_by_host)
+    finally:
+        logger.remove(sink_id)
+
+    assert "Duplicate host name" not in log_output.getvalue()
+
+
+def test_warn_on_duplicate_host_names_warns_on_duplicate_within_same_provider() -> None:
+    """_warn_on_duplicate_host_names should warn when the same name appears twice on the same provider."""
+    agents_by_host = {
+        _make_host_ref("duplicated-name", "modal"): [],
+        _make_host_ref("duplicated-name", "modal"): [],
+        _make_host_ref("unique-name", "modal"): [],
+    }
+
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="WARNING", format="{message}")
+    try:
+        _warn_on_duplicate_host_names(agents_by_host)
+    finally:
+        logger.remove(sink_id)
+
+    output = log_output.getvalue()
+    assert "Duplicate host name" in output
+    assert "duplicated-name" in output
+    assert "modal" in output
+
+
+def test_warn_on_duplicate_host_names_no_warning_for_same_name_on_different_providers() -> None:
+    """_warn_on_duplicate_host_names should not warn when the same name exists on different providers."""
+    agents_by_host = {
+        _make_host_ref("shared-name", "modal"): [],
+        _make_host_ref("shared-name", "docker"): [],
+    }
+
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="WARNING", format="{message}")
+    try:
+        _warn_on_duplicate_host_names(agents_by_host)
+    finally:
+        logger.remove(sink_id)
+
+    assert "Duplicate host name" not in log_output.getvalue()
+
+
+def test_warn_on_duplicate_host_names_empty_input() -> None:
+    """_warn_on_duplicate_host_names should not warn with an empty input."""
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="WARNING", format="{message}")
+    try:
+        _warn_on_duplicate_host_names({})
+    finally:
+        logger.remove(sink_id)
+
+    assert "Duplicate host name" not in log_output.getvalue()

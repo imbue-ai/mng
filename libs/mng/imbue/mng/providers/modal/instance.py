@@ -37,6 +37,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostConnectionError
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
@@ -1573,6 +1574,21 @@ log "=== Shutdown script completed ==="
         )
 
     # =========================================================================
+    # Name Uniqueness
+    # =========================================================================
+
+    def _check_host_name_is_unique(self, name: HostName) -> None:
+        """Check that no existing host on this provider already uses the given name.
+
+        Raises HostNameConflictError if a host with the same name already exists.
+        """
+        with log_span("Checking host name uniqueness for {}", name):
+            host_records = self._list_all_host_records(cg=self.mng_ctx.concurrency_group)
+        for host_record in host_records:
+            if HostName(host_record.certified_host_data.host_name) == name:
+                raise HostNameConflictError(name)
+
+    # =========================================================================
     # Core Lifecycle Methods
     # =========================================================================
 
@@ -1598,6 +1614,12 @@ log "=== Shutdown script completed ==="
             raise NotImplementedError(
                 "separate start_args are not yet supported for Modal provider: use build_args instead"
             )
+
+        # Check that no existing host already uses this name
+        # FOLLOWUP: this check is not atomic -- a race condition exists where two concurrent
+        # create_host calls could both pass the check and create hosts with the same name.
+        # We will need some kind of locking (e.g. a volume-based lock file) to prevent this.
+        self._check_host_name_is_unique(name)
 
         logger.info("Creating host {} in {} ...", name, self.name)
 

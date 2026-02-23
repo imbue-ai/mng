@@ -14,6 +14,7 @@ import modal.exception
 import pytest
 
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -1707,3 +1708,55 @@ def test_load_agent_refs_ignores_running_sandbox_without_host_record(
         result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 0
+
+
+# =============================================================================
+# Tests for _check_host_name_is_unique
+# =============================================================================
+
+
+def test_check_host_name_is_unique_passes_when_no_existing_hosts(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should not raise when there are no existing hosts."""
+    with patch.object(modal_provider, "_list_all_host_records", return_value=[]):
+        modal_provider._check_host_name_is_unique(HostName("new-host"))
+
+
+def test_check_host_name_is_unique_passes_when_name_is_different(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should not raise when the name is different from existing hosts."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="existing-host")
+
+    with patch.object(modal_provider, "_list_all_host_records", return_value=[existing_record]):
+        modal_provider._check_host_name_is_unique(HostName("different-host"))
+
+
+def test_check_host_name_is_unique_raises_when_name_already_exists(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should raise HostNameConflictError when the name already exists."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name")
+
+    with patch.object(modal_provider, "_list_all_host_records", return_value=[existing_record]):
+        with pytest.raises(HostNameConflictError) as exc_info:
+            modal_provider._check_host_name_is_unique(HostName("taken-name"))
+        assert "taken-name" in str(exc_info.value)
+
+
+def test_check_host_name_is_unique_raises_when_name_matches_any_existing(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should raise if the name matches any one of multiple existing hosts."""
+    host_records = [
+        _make_host_record(HostId.generate(), host_name="host-alpha"),
+        _make_host_record(HostId.generate(), host_name="host-beta"),
+        _make_host_record(HostId.generate(), host_name="host-gamma"),
+    ]
+
+    with patch.object(modal_provider, "_list_all_host_records", return_value=host_records):
+        with pytest.raises(HostNameConflictError):
+            modal_provider._check_host_name_is_unique(HostName("host-beta"))
