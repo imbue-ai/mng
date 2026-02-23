@@ -848,6 +848,29 @@ def test_streaming_renderer_multiple_warnings_stay_at_bottom() -> None:
     assert last_second_warning > last_first_warning
 
 
+def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
+    """Warnings separated by agents should all end up pinned at the bottom."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning("WARNING: first\n")
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.emit_warning("WARNING: second\n")
+    renderer(make_test_agent_info(name="agent-3"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # Both warnings should appear after agent-3 in the final output
+    last_agent3 = output.rfind("agent-3")
+    last_first_warning = output.rfind("WARNING: first")
+    last_second_warning = output.rfind("WARNING: second")
+    assert last_first_warning > last_agent3
+    assert last_second_warning > last_agent3
+    # Warnings should be in order
+    assert last_second_warning > last_first_warning
+
+
 # =============================================================================
 # Tests for _should_use_streaming_mode
 # =============================================================================
