@@ -20,6 +20,8 @@ from imbue.mng.cli.completion import write_cli_completions_cache
 from imbue.mng.cli.config import config as config_group
 from imbue.mng.cli.plugin import plugin as plugin_group
 from imbue.mng.cli.snapshot import snapshot as snapshot_group
+from imbue.mng.cli.test_plugin_cli_commands import _PluginWithSimpleCommand
+from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
 
 
@@ -314,6 +316,52 @@ def test_write_cli_completions_cache_includes_aliases(
     assert "c" in commands
     assert "ls" in commands
     assert "rm" in commands
+
+
+def test_write_cli_completions_cache_includes_plugin_commands(
+    temp_host_dir: Path,
+) -> None:
+    """Plugin-registered commands should appear in the completions cache."""
+    with _test_cli_with_plugin(_PluginWithSimpleCommand()) as test_cli:
+        write_cli_completions_cache(test_cli)
+
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    assert "greet" in data["commands"]
+
+
+def test_write_cli_completions_cache_includes_plugin_group_subcommands(
+    temp_host_dir: Path,
+) -> None:
+    """Plugin-registered group commands should have their subcommands cached."""
+
+    @click.group()
+    def test_cli() -> None:
+        pass
+
+    @click.group(name="myplugin")
+    def plugin_group_cmd() -> None:
+        pass
+
+    @plugin_group_cmd.command(name="run")
+    def run_cmd() -> None:
+        pass
+
+    @plugin_group_cmd.command(name="status")
+    def status_cmd() -> None:
+        pass
+
+    test_cli.add_command(plugin_group_cmd)
+    write_cli_completions_cache(test_cli)
+
+    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    assert "myplugin" in data["commands"]
+    assert "myplugin" in data["subcommand_by_command"]
+    assert "run" in data["subcommand_by_command"]["myplugin"]
+    assert "status" in data["subcommand_by_command"]["myplugin"]
 
 
 # -- read_cached_commands tests --
