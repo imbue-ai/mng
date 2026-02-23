@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import time
 from pathlib import Path
 
@@ -26,18 +25,22 @@ from imbue.mng.main import cli
 
 
 def _path_without_mng() -> str:
-    """Return PATH with the directory containing `mng` removed.
+    """Return PATH with all directories containing an ``mng`` executable removed.
 
     Used in tests to prevent _trigger_background_cache_refresh from spawning
     a real subprocess, without breaking other binaries (like tmux) that test
     fixtures need during teardown.
+
+    Checks every PATH entry (not just the first ``shutil.which`` hit) so that
+    multiple worktree venvs on PATH are all excluded.
     """
-    mng_path = shutil.which("mng")
-    if mng_path is None:
-        return os.environ.get("PATH", "")
-    mng_dir = str(Path(mng_path).parent)
     current_path = os.environ.get("PATH", "")
-    return os.pathsep.join(d for d in current_path.split(os.pathsep) if d != mng_dir)
+    dirs_with_mng: set[str] = set()
+    for d in current_path.split(os.pathsep):
+        candidate = Path(d) / "mng"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            dirs_with_mng.add(d)
+    return os.pathsep.join(d for d in current_path.split(os.pathsep) if d not in dirs_with_mng)
 
 
 def _write_cache(host_dir: Path, names: list[str]) -> Path:
@@ -62,6 +65,16 @@ def _write_cli_completions(
     cache_path = host_dir / CLI_COMPLETIONS_FILENAME
     cache_path.write_text(json.dumps(data))
     return cache_path
+
+
+@pytest.fixture
+def no_background_cache_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent _trigger_background_cache_refresh from spawning a real subprocess.
+
+    Removes all directories containing ``mng`` from PATH so ``shutil.which("mng")``
+    returns None inside the refresh function.
+    """
+    monkeypatch.setenv("PATH", _path_without_mng())
 
 
 # =============================================================================
@@ -217,8 +230,8 @@ def test_trigger_background_cache_refresh_skips_when_no_cache_and_no_mng(
 
 def test_complete_agent_name_filters_by_prefix(
     temp_host_dir: Path,
+    no_background_cache_refresh: None,
 ) -> None:
-    # Cache is fresh (just written), so background refresh is throttled
     _write_cache(temp_host_dir, ["alpha-agent", "beta-agent", "alpha-other"])
 
     ctx = click.Context(click.Command("test"))
@@ -234,8 +247,8 @@ def test_complete_agent_name_filters_by_prefix(
 
 def test_complete_agent_name_returns_all_when_incomplete_is_empty(
     temp_host_dir: Path,
+    no_background_cache_refresh: None,
 ) -> None:
-    # Cache is fresh (just written), so background refresh is throttled
     _write_cache(temp_host_dir, ["alpha", "beta"])
 
     ctx = click.Context(click.Command("test"))
@@ -250,8 +263,8 @@ def test_complete_agent_name_returns_all_when_incomplete_is_empty(
 
 def test_complete_agent_name_returns_empty_when_no_match(
     temp_host_dir: Path,
+    no_background_cache_refresh: None,
 ) -> None:
-    # Cache is fresh (just written), so background refresh is throttled
     _write_cache(temp_host_dir, ["alpha"])
 
     ctx = click.Context(click.Command("test"))
@@ -264,11 +277,8 @@ def test_complete_agent_name_returns_empty_when_no_match(
 
 def test_complete_agent_name_returns_empty_when_no_cache(
     temp_host_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    no_background_cache_refresh: None,
 ) -> None:
-    # No cache exists, so background refresh would fire. Prevent it by removing mng from PATH.
-    monkeypatch.setenv("PATH", _path_without_mng())
-
     ctx = click.Context(click.Command("test"))
     param = click.Argument(["agent"])
 
