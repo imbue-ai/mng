@@ -1,6 +1,6 @@
 [project]
 name = "mng-pair"
-version = "0.1.0"
+version = "0.1.4"
 description = "Pair command plugin for mng - continuous file sync between agent and local directory"
 requires-python = ">=3.11"
 dependencies = [
