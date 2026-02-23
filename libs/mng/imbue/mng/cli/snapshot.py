@@ -983,7 +983,85 @@ Useful for checkpointing work, creating restore points, or managing disk space."
 )
 
 register_help_metadata("snapshot", _SNAPSHOT_HELP_METADATA)
-for alias in _SNAPSHOT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _SNAPSHOT_HELP_METADATA)
 
 add_pager_help_option(snapshot)
+
+# -- Subcommand help metadata --
+
+_SNAPSHOT_CREATE_HELP_METADATA = CommandHelpMetadata(
+    name="mng-snapshot-create",
+    one_line_description="Create a snapshot of agent host(s) [experimental]",
+    synopsis="mng snapshot create [IDENTIFIERS...] [OPTIONS]",
+    description="""Create a snapshot of agent host(s).
+
+Positional arguments can be agent names/IDs or host names/IDs. Each
+identifier is automatically resolved: if it matches a known agent, that
+agent's host is snapshotted; otherwise it is treated as a host identifier.
+Multiple identifiers that resolve to the same host are deduplicated.""",
+    examples=(
+        ("Snapshot an agent's host", "mng snapshot create my-agent"),
+        ("Create a named snapshot", "mng snapshot create my-agent --name before-refactor"),
+        ("Snapshot all running agents (dry run)", "mng snapshot create --all --dry-run"),
+        ("Snapshot multiple agents", "mng snapshot create agent1 agent2 --on-error continue"),
+    ),
+    see_also=(
+        ("snapshot list", "List existing snapshots"),
+        ("snapshot destroy", "Destroy existing snapshots"),
+    ),
+)
+
+register_help_metadata("snapshot.create", _SNAPSHOT_CREATE_HELP_METADATA)
+add_pager_help_option(snapshot_create)
+
+_SNAPSHOT_LIST_HELP_METADATA = CommandHelpMetadata(
+    name="mng-snapshot-list",
+    one_line_description="List snapshots for agent host(s) [experimental]",
+    synopsis="mng snapshot list [IDENTIFIERS...] [OPTIONS]",
+    description="""List snapshots for agent host(s).
+
+Shows snapshot ID, name, creation time, size, and host for each snapshot.
+
+Positional arguments can be agent names/IDs or host names/IDs. Each
+identifier is automatically resolved: if it matches a known agent, that
+agent's host is used; otherwise it is treated as a host identifier.
+
+Supports custom format templates via --format. Available fields:
+id, name, created_at, size, size_bytes, host_id.""",
+    examples=(
+        ("List snapshots for an agent", "mng snapshot list my-agent"),
+        ("List snapshots for all running agents", "mng snapshot list --all"),
+        ("Limit number of results", "mng snapshot list my-agent --limit 5"),
+        ("Output as JSON", "mng snapshot list my-agent --format json"),
+        ("Custom format template", "mng snapshot list my-agent --format '{name}\\t{size}\\t{host_id}'"),
+    ),
+    see_also=(
+        ("snapshot create", "Create a new snapshot"),
+        ("snapshot destroy", "Destroy existing snapshots"),
+    ),
+)
+
+register_help_metadata("snapshot.list", _SNAPSHOT_LIST_HELP_METADATA)
+add_pager_help_option(snapshot_list)
+
+_SNAPSHOT_DESTROY_HELP_METADATA = CommandHelpMetadata(
+    name="mng-snapshot-destroy",
+    one_line_description="Destroy snapshots for agent host(s) [experimental]",
+    synopsis="mng snapshot destroy [AGENTS...] [OPTIONS]",
+    description="""Destroy snapshots for agent host(s).
+
+Requires either --snapshot (to delete specific snapshots) or --all-snapshots
+(to delete all snapshots for the resolved hosts). A confirmation prompt is
+shown unless --force is specified.""",
+    examples=(
+        ("Destroy a specific snapshot", "mng snapshot destroy my-agent --snapshot snap-abc123 --force"),
+        ("Destroy all snapshots for an agent", "mng snapshot destroy my-agent --all-snapshots --force"),
+        ("Preview what would be destroyed", "mng snapshot destroy my-agent --all-snapshots --dry-run"),
+    ),
+    see_also=(
+        ("snapshot create", "Create a new snapshot"),
+        ("snapshot list", "List existing snapshots"),
+    ),
+)
+
+register_help_metadata("snapshot.destroy", _SNAPSHOT_DESTROY_HELP_METADATA)
+add_pager_help_option(snapshot_destroy)

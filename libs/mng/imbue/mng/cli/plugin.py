@@ -830,7 +830,121 @@ Plugins provide agent types, provider backends, CLI commands, and lifecycle hook
 )
 
 register_help_metadata("plugin", _PLUGIN_HELP_METADATA)
-for alias in _PLUGIN_HELP_METADATA.aliases:
-    register_help_metadata(alias, _PLUGIN_HELP_METADATA)
 
 add_pager_help_option(plugin)
+
+# -- Subcommand help metadata --
+
+_PLUGIN_LIST_HELP_METADATA = CommandHelpMetadata(
+    name="mng-plugin-list",
+    one_line_description="List discovered plugins [experimental]",
+    synopsis="mng plugin list [OPTIONS]",
+    description="""List discovered plugins.
+
+Shows all plugins registered with mng, including built-in plugins
+and any externally installed plugins.
+
+Supports custom format templates via --format. Available fields:
+name, version, description, enabled.""",
+    examples=(
+        ("List all plugins", "mng plugin list"),
+        ("List only active plugins", "mng plugin list --active"),
+        ("Output as JSON", "mng plugin list --format json"),
+        ("Show specific fields", "mng plugin list --fields name,enabled"),
+        ("Custom format template", "mng plugin list --format '{name}\\t{enabled}'"),
+    ),
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin enable", "Enable a plugin"),
+    ),
+)
+
+register_help_metadata("plugin.list", _PLUGIN_LIST_HELP_METADATA)
+add_pager_help_option(plugin_list)
+
+_PLUGIN_ADD_HELP_METADATA = CommandHelpMetadata(
+    name="mng-plugin-add",
+    one_line_description="Install a plugin package [experimental]",
+    synopsis="mng plugin add [NAME] [OPTIONS]",
+    description="""Install a plugin package.
+
+Provide exactly one of NAME (positional), --path, or --git. NAME is a PyPI
+package specifier (e.g., 'mng-pair' or 'mng-pair>=1.0'). --path installs
+from a local directory in editable mode. --git installs from a git URL.""",
+    examples=(
+        ("Install from PyPI", "mng plugin add mng-pair"),
+        ("Install with version constraint", "mng plugin add mng-pair>=1.0"),
+        ("Install from a local path", "mng plugin add --path ./my-plugin"),
+        ("Install from a git URL", "mng plugin add --git https://github.com/user/mng-plugin.git"),
+    ),
+    see_also=(
+        ("plugin remove", "Uninstall a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+)
+
+register_help_metadata("plugin.add", _PLUGIN_ADD_HELP_METADATA)
+add_pager_help_option(plugin_add)
+
+_PLUGIN_REMOVE_HELP_METADATA = CommandHelpMetadata(
+    name="mng-plugin-remove",
+    one_line_description="Uninstall a plugin package [experimental]",
+    synopsis="mng plugin remove [NAME] [OPTIONS]",
+    description="""Uninstall a plugin package.
+
+Provide exactly one of NAME (positional) or --path. For local paths,
+the package name is read from pyproject.toml.""",
+    examples=(
+        ("Remove by name", "mng plugin remove mng-pair"),
+        ("Remove by local path", "mng plugin remove --path ./my-plugin"),
+    ),
+    see_also=(
+        ("plugin add", "Install a plugin package"),
+        ("plugin list", "List discovered plugins"),
+    ),
+)
+
+register_help_metadata("plugin.remove", _PLUGIN_REMOVE_HELP_METADATA)
+add_pager_help_option(plugin_remove)
+
+_PLUGIN_ENABLE_HELP_METADATA = CommandHelpMetadata(
+    name="mng-plugin-enable",
+    one_line_description="Enable a plugin [experimental]",
+    synopsis="mng plugin enable NAME [OPTIONS]",
+    description="""Enable a plugin.
+
+Sets plugins.<name>.enabled = true in the configuration file at the
+specified scope.""",
+    examples=(
+        ("Enable at project scope (default)", "mng plugin enable modal"),
+        ("Enable at user scope", "mng plugin enable modal --scope user"),
+    ),
+    see_also=(
+        ("plugin disable", "Disable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+)
+
+register_help_metadata("plugin.enable", _PLUGIN_ENABLE_HELP_METADATA)
+add_pager_help_option(plugin_enable)
+
+_PLUGIN_DISABLE_HELP_METADATA = CommandHelpMetadata(
+    name="mng-plugin-disable",
+    one_line_description="Disable a plugin [experimental]",
+    synopsis="mng plugin disable NAME [OPTIONS]",
+    description="""Disable a plugin.
+
+Sets plugins.<name>.enabled = false in the configuration file at the
+specified scope.""",
+    examples=(
+        ("Disable at project scope (default)", "mng plugin disable modal"),
+        ("Disable at user scope", "mng plugin disable modal --scope user"),
+    ),
+    see_also=(
+        ("plugin enable", "Enable a plugin"),
+        ("plugin list", "List discovered plugins"),
+    ),
+)
+
+register_help_metadata("plugin.disable", _PLUGIN_DISABLE_HELP_METADATA)
+add_pager_help_option(plugin_disable)

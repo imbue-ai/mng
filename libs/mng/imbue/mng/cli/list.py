@@ -1140,9 +1140,6 @@ All agent fields from the "Available Fields" section can be used in filter expre
 
 
 register_help_metadata("list", _LIST_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _LIST_HELP_METADATA.aliases:
-    register_help_metadata(alias, _LIST_HELP_METADATA)
 
 # Add pager-enabled help option to the list command
 add_pager_help_option(list_command)

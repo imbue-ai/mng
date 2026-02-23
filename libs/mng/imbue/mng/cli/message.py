@@ -314,9 +314,6 @@ or opens an editor (if interactive).""",
 )
 
 register_help_metadata("message", _MESSAGE_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _MESSAGE_HELP_METADATA.aliases:
-    register_help_metadata(alias, _MESSAGE_HELP_METADATA)
 
 # Add pager-enabled help option to the message command
 add_pager_help_option(message)

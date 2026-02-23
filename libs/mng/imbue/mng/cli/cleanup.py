@@ -712,9 +712,6 @@ see `mng gc`.""",
 )
 
 register_help_metadata("cleanup", _CLEANUP_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CLEANUP_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CLEANUP_HELP_METADATA)
 
 # Add pager-enabled help option to the cleanup command
 add_pager_help_option(cleanup)

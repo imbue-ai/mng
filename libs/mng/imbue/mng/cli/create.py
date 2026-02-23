@@ -1682,9 +1682,6 @@ the working directory is copied to the remote host.""",
 )
 
 register_help_metadata("create", _CREATE_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CREATE_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CREATE_HELP_METADATA)
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

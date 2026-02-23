@@ -186,9 +186,6 @@ to complete it.""",
 )
 
 register_help_metadata("rename", _RENAME_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _RENAME_HELP_METADATA.aliases:
-    register_help_metadata(alias, _RENAME_HELP_METADATA)
 
 # Add pager-enabled help option to the rename command
 add_pager_help_option(rename)

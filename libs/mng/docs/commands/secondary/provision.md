@@ -104,11 +104,6 @@ mng provision [OPTIONS] [AGENT]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also

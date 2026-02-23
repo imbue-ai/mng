@@ -51,13 +51,13 @@ mng config [OPTIONS] COMMAND [ARGS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--scope` | choice (`user` &#x7C; `project` &#x7C; `local`) | Config scope: user (~/.mng/profiles/<profile_id>/), project (.mng/), or local (.mng/settings.local.toml) | None |
-| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng config list
 
@@ -103,6 +103,7 @@ mng config list [OPTIONS]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
@@ -149,6 +150,7 @@ mng config get [OPTIONS] KEY
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
@@ -198,6 +200,7 @@ mng config set [OPTIONS] KEY VALUE
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
@@ -242,6 +245,7 @@ mng config unset [OPTIONS] KEY
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
@@ -290,6 +294,7 @@ mng config edit [OPTIONS]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 
@@ -334,6 +339,7 @@ mng config path [OPTIONS]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Other Options
 

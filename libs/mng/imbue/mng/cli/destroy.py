@@ -557,9 +557,6 @@ agents unless --force is specified.""",
 )
 
 register_help_metadata("destroy", _DESTROY_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _DESTROY_HELP_METADATA.aliases:
-    register_help_metadata(alias, _DESTROY_HELP_METADATA)
 
 # Add pager-enabled help option to the destroy command
 add_pager_help_option(destroy)

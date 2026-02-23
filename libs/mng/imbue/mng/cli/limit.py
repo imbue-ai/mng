@@ -642,7 +642,5 @@ and cannot be used with --host alone.""",
 )
 
 register_help_metadata("limit", _LIMIT_HELP_METADATA)
-for alias in _LIMIT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _LIMIT_HELP_METADATA)
 
 add_pager_help_option(limit)

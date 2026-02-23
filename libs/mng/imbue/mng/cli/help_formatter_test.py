@@ -7,7 +7,6 @@ from click.testing import CliRunner
 from click_option_group import optgroup
 
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
-from imbue.mng.cli.create import create
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import _run_pager_with_subprocess
 from imbue.mng.cli.help_formatter import _write_to_stdout
@@ -22,6 +21,7 @@ from imbue.mng.cli.help_formatter import run_pager
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.main import BUILTIN_COMMANDS
+from imbue.mng.main import cli
 
 
 def test_is_interactive_terminal_returns_bool() -> None:
@@ -195,9 +195,12 @@ def test_create_command_has_help_metadata_registered() -> None:
 
 
 def test_create_command_help_output_structure() -> None:
-    """Test that create command help has expected sections."""
+    """Test that create command help has expected sections.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     # Check exit code
     assert result.exit_code == 0
@@ -212,9 +215,12 @@ def test_create_command_help_output_structure() -> None:
 
 
 def test_create_command_help_contains_common_options() -> None:
-    """Test that create command help contains the common options."""
+    """Test that create command help contains the common options.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     help_output = result.output
 
@@ -227,9 +233,12 @@ def test_create_command_help_contains_common_options() -> None:
 
 
 def test_create_command_help_contains_examples() -> None:
-    """Test that create command help contains usage examples."""
+    """Test that create command help contains usage examples.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     help_output = result.output
 
@@ -367,9 +376,12 @@ def test_mng_config_pager_merge_keeps_base_when_override_none(mng_test_prefix: s
 
 
 def test_common_options_group_appears_last_in_help() -> None:
-    """Test that the Common options group appears after all other named option groups."""
+    """Test that the Common options group appears after all other named option groups.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     assert result.exit_code == 0
     help_output = result.output
@@ -476,9 +488,12 @@ def test_option_group_ordering_logic() -> None:
 
 
 def test_create_command_common_group_contains_expected_options() -> None:
-    """Test that the create command's Common group contains the expected common options."""
+    """Test that the create command's Common group contains the expected common options.
+
+    Must invoke through cli for correct help key resolution.
+    """
     runner = CliRunner()
-    result = runner.invoke(create, ["--help"])
+    result = runner.invoke(cli, ["create", "--help"])
 
     assert result.exit_code == 0
     help_output = result.output
@@ -529,3 +544,28 @@ def test_commands_with_aliases_have_aliases_in_synopsis() -> None:
             f"Command '{cmd.name}' has aliases {metadata.aliases} but synopsis "
             f"doesn't contain '{expected_pattern}'. Synopsis: {metadata.synopsis}"
         )
+
+
+def test_all_subcommands_have_git_style_help() -> None:
+    """Every subcommand of a group command must produce git-style help.
+
+    This test invokes through the root cli group, which is required for help
+    key resolution to work (_build_help_key builds keys from the context chain).
+    Tests that invoke subgroups directly will get wrong help output.
+    """
+    runner = CliRunner()
+    for cmd in BUILTIN_COMMANDS:
+        if not isinstance(cmd, click.Group) or not cmd.commands:
+            continue
+        for subcmd_name in cmd.commands:
+            assert cmd.name is not None
+            result = runner.invoke(cli, [cmd.name, subcmd_name, "--help"])
+            assert result.exit_code == 0, (
+                f"mng {cmd.name} {subcmd_name} --help failed with exit code {result.exit_code}:\n{result.output}"
+            )
+            assert "NAME" in result.output, (
+                f"mng {cmd.name} {subcmd_name} --help does not show git-style help. "
+                f"Add CommandHelpMetadata + register_help_metadata + add_pager_help_option. "
+                f"Help tests must invoke through the root cli group (not the subgroup directly) "
+                f"for key resolution to work."
+            )
