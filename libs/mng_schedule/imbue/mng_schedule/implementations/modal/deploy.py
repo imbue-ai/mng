@@ -54,10 +54,12 @@ def load_modal_provider_instance(
 ) -> ModalProviderInstance:
     """Load a provider instance and verify it is a Modal provider.
 
-    Raises ScheduleDeployError if the provider is not a Modal provider
-    or is a local provider (not yet supported for schedules).
+    Raises ScheduleDeployError if the provider cannot be loaded or is not a Modal provider.
     """
-    provider = get_provider_instance(ProviderInstanceName(provider_instance_name), mng_ctx)
+    try:
+        provider = get_provider_instance(ProviderInstanceName(provider_instance_name), mng_ctx)
+    except Exception as exc:
+        raise ScheduleDeployError(f"Failed to load provider '{provider_instance_name}': {exc}") from exc
     if not isinstance(provider, ModalProviderInstance):
         raise ScheduleDeployError(
             f"Provider '{provider_instance_name}' is not a Modal provider. "
