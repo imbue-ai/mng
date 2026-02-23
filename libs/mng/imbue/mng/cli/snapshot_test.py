@@ -1,3 +1,8 @@
+import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from io import StringIO
+
 import pluggy
 from click.testing import CliRunner
 
@@ -5,8 +10,13 @@ from imbue.mng.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mng.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mng.cli.snapshot import SnapshotListCliOptions
 from imbue.mng.cli.snapshot import _classify_mixed_identifiers
+from imbue.mng.cli.snapshot import _emit_create_result
+from imbue.mng.cli.snapshot import _emit_destroy_result
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.main import cli
+from imbue.mng.primitives import OutputFormat
 
 # =============================================================================
 # Options classes tests
@@ -143,8 +153,12 @@ def test_snapshot_explicit_create_still_works(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot create --help` should still work."""
-    result = cli_runner.invoke(snapshot, ["create", "--help"], obj=plugin_manager)
+    """Running `mng snapshot create --help` should still work.
+
+    Must invoke through the root cli group so that _build_help_key produces
+    the correct qualified key ("snapshot.create") for metadata resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "create", "--help"])
     assert result.exit_code == 0
     assert "Create a snapshot" in result.output
 
@@ -153,8 +167,11 @@ def test_snapshot_list_subcommand_not_forwarded(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot list` should NOT be forwarded to create."""
-    result = cli_runner.invoke(snapshot, ["list", "--help"], obj=plugin_manager)
+    """Running `mng snapshot list` should NOT be forwarded to create.
+
+    Must invoke through the root cli group for correct help key resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "list", "--help"])
     assert result.exit_code == 0
     assert "List snapshots" in result.output
 
@@ -163,8 +180,11 @@ def test_snapshot_destroy_subcommand_not_forwarded(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot destroy` should NOT be forwarded to create."""
-    result = cli_runner.invoke(snapshot, ["destroy", "--help"], obj=plugin_manager)
+    """Running `mng snapshot destroy` should NOT be forwarded to create.
+
+    Must invoke through the root cli group for correct help key resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "destroy", "--help"])
     assert result.exit_code == 0
     assert "Destroy snapshots" in result.output
 
@@ -190,3 +210,60 @@ def test_classify_mixed_identifiers_no_agents_treats_all_as_hosts(
     agent_ids, host_ids = _classify_mixed_identifiers(["foo", "bar"], temp_mng_ctx)
     assert agent_ids == []
     assert host_ids == ["foo", "bar"]
+
+
+# =============================================================================
+# _emit_create_result format template tests
+# =============================================================================
+
+
+@contextmanager
+def _capture_stdout() -> Iterator[StringIO]:
+    """Temporarily redirect sys.stdout to a StringIO buffer."""
+    buf = StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = buf
+    try:
+        yield buf
+    finally:
+        sys.stdout = old_stdout
+
+
+def test_emit_create_result_format_template() -> None:
+    """_emit_create_result renders format templates for created snapshots."""
+    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}")
+    created = [
+        {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["agent1"]},
+        {"snapshot_id": "snap-def", "host_id": "host-2", "provider": "local", "agent_names": ["agent2", "agent3"]},
+    ]
+    with _capture_stdout() as buf:
+        _emit_create_result(created, errors=[], output_opts=output_opts)
+    lines = buf.getvalue().strip().split("\n")
+    assert lines == ["snap-abc", "snap-def"]
+
+
+def test_emit_create_result_format_template_agent_names() -> None:
+    """_emit_create_result format template renders agent_names as comma-separated."""
+    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{agent_names}")
+    created = [
+        {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["a1", "a2"]},
+    ]
+    with _capture_stdout() as buf:
+        _emit_create_result(created, errors=[], output_opts=output_opts)
+    assert buf.getvalue().strip() == "a1, a2"
+
+
+# =============================================================================
+# _emit_destroy_result format template tests
+# =============================================================================
+
+
+def test_emit_destroy_result_format_template() -> None:
+    """_emit_destroy_result renders format templates for destroyed snapshots."""
+    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}\t{host_id}")
+    destroyed = [
+        {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local"},
+    ]
+    with _capture_stdout() as buf:
+        _emit_destroy_result(destroyed, output_opts=output_opts)
+    assert buf.getvalue().strip() == "snap-abc\thost-1"

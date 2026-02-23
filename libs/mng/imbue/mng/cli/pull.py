@@ -15,7 +15,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import output_sync_files_result
 from imbue.mng.cli.output_helpers import output_sync_git_result
@@ -173,23 +172,6 @@ class PullCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def pull(ctx: click.Context, **kwargs) -> None:
-    """Pull files or git commits from an agent to local machine. [experimental]
-
-    Syncs files or git state from an agent's working directory to a local directory.
-    Default behavior uses rsync for efficient incremental file transfer.
-    Use --sync-mode=git to merge git branches instead of syncing files.
-
-    If no source is specified, shows an interactive selector to choose an agent.
-
-    \b
-    Examples:
-      mng pull my-agent
-      mng pull my-agent ./local-copy
-      mng pull my-agent:src ./local-src
-      mng pull --source-agent my-agent
-      mng pull my-agent --sync-mode=git
-      mng pull my-agent --sync-mode=git --target-branch=main
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="pull",
@@ -348,13 +330,11 @@ def pull(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PULL_HELP_METADATA = CommandHelpMetadata(
-    name="mng-pull",
+CommandHelpMetadata(
+    key="pull",
     one_line_description="Pull files or git commits from an agent to local machine [experimental]",
     synopsis="mng pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]",
-    description="""Pull files or git commits from an agent to local machine.
-
-Syncs files or git state from an agent's working directory to a local directory.
+    description="""Syncs files or git state from an agent's working directory to a local directory.
 Default behavior uses rsync for efficient incremental file transfer.
 Use --sync-mode=git to merge git branches instead of syncing files.
 
@@ -379,9 +359,7 @@ If no source is specified, shows an interactive selector to choose an agent.""",
         ("connect", "Connect to an agent interactively"),
         ("push", "Push files or git commits to an agent"),
     ),
-)
-
-register_help_metadata("pull", _PULL_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the pull command
 add_pager_help_option(pull)

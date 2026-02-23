@@ -9,27 +9,20 @@
 mng gc [OPTIONS]
 ```
 
-
 Garbage collect unused resources.
 
-Automatically removes unused resources from providers and mng itself.
+Automatically removes containers, old snapshots, unused hosts, cached images,
+and any resources that are associated with destroyed hosts and agents.
 
-Examples:
-
-  mng gc --work-dirs --dry-run
-
-  mng gc --all-agent-resources
-
-  mng gc --machines --snapshots --provider docker
-
-  mng gc --logs --build-cache
+`mng destroy` automatically cleans up resources when an agent is deleted.
+`mng gc` can be used to manually trigger garbage collection of unused
+resources at any time.
 
 **Usage:**
 
 ```text
 mng gc [OPTIONS]
 ```
-
 **Options:**
 
 ## What to Clean - Agent Resources
@@ -49,13 +42,6 @@ mng gc [OPTIONS]
 | `--logs` | boolean | Remove log files from destroyed agents/hosts | `False` |
 | `--build-cache` | boolean | Remove build cache entries | `False` |
 | `--machine-cache` | boolean | Remove machine cache entries (per-provider) [future] | `False` |
-
-## Filtering
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
-| `--include` | text | Only clean resources matching CEL filter (repeatable) | None |
-| `--exclude` | text | Exclude resources matching CEL filter (repeatable) | None |
 
 ## Scope
 
@@ -88,26 +74,7 @@ mng gc [OPTIONS]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
-
-## CEL Filter Examples
-
-CEL filters let you control which resources are cleaned.
-
-**For snapshots, use `recency_idx` to filter by age:**
-- `recency_idx == 0` - the most recent snapshot
-- `recency_idx < 5` - the 5 most recent snapshots
-- To keep only the 5 most recent: `--exclude "recency_idx < 5"`
-
-**Filter by resource properties:**
-- `name.contains("test")` - resources with "test" in the name
-- `provider_name == "docker"` - Docker resources only
-
 
 ## See Also
 
@@ -139,10 +106,4 @@ $ mng gc --machines --snapshots --provider docker
 
 ```bash
 $ mng gc --logs --build-cache
-```
-
-**Keep only the 5 most recent snapshots**
-
-```bash
-$ mng gc --snapshots --exclude "recency_idx < 5"
 ```

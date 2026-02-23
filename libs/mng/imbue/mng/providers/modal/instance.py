@@ -37,6 +37,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostConnectionError
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
@@ -490,6 +491,34 @@ class ModalProviderApp(FrozenModel):
 
     def close(self) -> None:
         self.close_callback()
+
+
+@pure
+def check_host_name_is_unique(
+    name: HostName,
+    host_records: Sequence[HostRecord],
+    running_host_ids: set[HostId],
+) -> None:
+    """Check that no non-destroyed host already uses the given name.
+
+    Skips destroyed hosts (no snapshots, no failure_reason, not running) since
+    their names should be reusable.
+
+    Raises HostNameConflictError if a non-destroyed host with the same name exists.
+    """
+    for host_record in host_records:
+        if HostName(host_record.certified_host_data.host_name) != name:
+            continue
+
+        # Skip destroyed hosts (not running, no snapshots, not failed)
+        host_id = HostId(host_record.certified_host_data.host_id)
+        is_running = host_id in running_host_ids
+        has_snapshots = len(host_record.certified_host_data.snapshots) > 0
+        is_failed = host_record.certified_host_data.failure_reason is not None
+        if not is_running and not has_snapshots and not is_failed:
+            continue
+
+        raise HostNameConflictError(name)
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -1577,6 +1606,20 @@ log "=== Shutdown script completed ==="
         )
 
     # =========================================================================
+    # Name Uniqueness
+    # =========================================================================
+
+    def _check_host_name_is_unique(self, name: HostName) -> None:
+        """Check that no non-destroyed host on this provider already uses the given name."""
+        with log_span("Checking host name uniqueness for {}", name):
+            host_records, _agent_data = self._list_all_host_and_agent_records(
+                cg=self.mng_ctx.concurrency_group, is_including_agents=False
+            )
+            running_host_ids = self._list_running_host_ids(cg=self.mng_ctx.concurrency_group)
+
+        check_host_name_is_unique(name, host_records, running_host_ids)
+
+    # =========================================================================
     # Core Lifecycle Methods
     # =========================================================================
 
@@ -1590,8 +1633,13 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
-        """Create a new Modal sandbox host."""
+        """Create a new Modal sandbox host.
+
+        If snapshot is provided, the host is created from the snapshot image
+        instead of building a new one.
+        """
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1602,6 +1650,12 @@ log "=== Shutdown script completed ==="
             raise NotImplementedError(
                 "separate start_args are not yet supported for Modal provider: use build_args instead"
             )
+
+        # Check that no existing host already uses this name
+        # FOLLOWUP: this check is not atomic -- a race condition exists where two concurrent
+        # create_host calls could both pass the check and create hosts with the same name.
+        # We will need some kind of locking (e.g. a volume-based lock file) to prevent this.
+        self._check_host_name_is_unique(name)
 
         logger.info("Creating host {} in {} ...", name, self.name)
 
@@ -1619,9 +1673,16 @@ log "=== Shutdown script completed ==="
             )
 
         try:
-            # Build the Modal image
-            with log_span("Building Modal image..."):
-                modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+            if snapshot is not None:
+                # Use the snapshot image instead of building
+                with log_span("Loading Modal image from snapshot {}", str(snapshot)):
+                    modal_image: modal.Image = modal.Image.from_id(str(snapshot))  # ty: ignore[invalid-assignment]
+            else:
+                # Build the Modal image
+                with log_span("Building Modal image..."):
+                    modal_image = self._build_modal_image(
+                        base_image, dockerfile_path, context_dir_path, config.secrets
+                    )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
             with log_span("Getting Modal app", app_name=self.app_name):
