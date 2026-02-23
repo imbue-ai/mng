@@ -22,6 +22,10 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.modal.backend import MODAL_NAME_MAX_LENGTH
+from imbue.mng.providers.modal.backend import STATE_VOLUME_SUFFIX
+from imbue.mng.providers.modal.config import ModalProviderConfig
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 
@@ -29,9 +33,6 @@ _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
 # Default Dockerfile path relative to repo root (symlink to the real Dockerfile)
 _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
-
-# Name of the Modal volume used to store schedule state
-_SCHEDULE_STATE_VOLUME_NAME: Final[str] = "mng-schedule-state"
 
 # Path prefix on the state volume for schedule records
 _SCHEDULE_RECORDS_PREFIX: Final[str] = "/scheduled_functions"
@@ -52,18 +53,42 @@ def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
 
 
-def get_modal_environment_name(mng_ctx: MngContext) -> str:
+def _resolve_provider_modal_config(
+    provider_instance_name: str,
+    mng_ctx: MngContext,
+) -> ModalProviderConfig | None:
+    """Look up the ModalProviderConfig for a provider instance, if configured."""
+    provider_name = ProviderInstanceName(provider_instance_name)
+    if provider_name not in mng_ctx.config.providers:
+        return None
+    config = mng_ctx.config.providers[provider_name]
+    if isinstance(config, ModalProviderConfig):
+        return config
+    return None
+
+
+def get_modal_environment_name(
+    mng_ctx: MngContext,
+    provider_instance_name: str = "modal",
+) -> str:
     """Derive the Modal environment name from the mng context.
 
     This matches the convention used by the Modal provider backend:
     environment_name = {prefix}{user_id}
+
+    Respects user_id overrides from the provider config if present.
     """
     prefix = mng_ctx.config.prefix
-    user_id = mng_ctx.get_profile_user_id()
+    modal_config = _resolve_provider_modal_config(provider_instance_name, mng_ctx)
+    user_id = (
+        modal_config.user_id
+        if modal_config is not None and modal_config.user_id is not None
+        else mng_ctx.get_profile_user_id()
+    )
     environment_name = f"{prefix}{user_id}"
     # Modal has a 64-char limit on environment names
-    if len(environment_name) > 64:
-        environment_name = environment_name[:64]
+    if len(environment_name) > MODAL_NAME_MAX_LENGTH:
+        environment_name = environment_name[:MODAL_NAME_MAX_LENGTH]
     return environment_name
 
 
@@ -228,12 +253,38 @@ def build_deploy_config(
     }
 
 
-def _get_schedule_state_volume(environment_name: str) -> modal.Volume:
-    """Get or create the Modal volume used to store schedule creation records."""
+def _get_provider_state_volume(
+    provider_instance_name: str,
+    mng_ctx: MngContext,
+) -> modal.Volume:
+    """Get the provider's state volume, reusing the same volume as the Modal provider backend.
+
+    The volume name is derived from the provider config using the same convention
+    as the Modal provider backend: {app_name}-state, where app_name defaults to
+    {prefix}{provider_instance_name} but can be overridden in the provider config.
+    """
+    prefix = mng_ctx.config.prefix
+    modal_config = _resolve_provider_modal_config(provider_instance_name, mng_ctx)
+
+    # Derive app name using the same logic as ModalProviderBackend.build_provider_instance
+    if modal_config is not None and modal_config.app_name is not None:
+        app_name = modal_config.app_name
+    else:
+        app_name = f"{prefix}{provider_instance_name}"
+
+    # Truncate app_name if needed (same as modal backend)
+    max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
+    if len(app_name) > max_app_name_length:
+        app_name = app_name[:max_app_name_length]
+
+    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
+    environment_name = get_modal_environment_name(mng_ctx, provider_instance_name)
+
     return modal.Volume.from_name(
-        _SCHEDULE_STATE_VOLUME_NAME,
+        volume_name,
         create_if_missing=True,
         environment_name=environment_name,
+        version=2,
     )
 
 
@@ -252,10 +303,11 @@ def _get_current_mng_git_hash() -> str:
 
 def _save_schedule_creation_record(
     record: ScheduleCreationRecord,
-    environment_name: str,
+    provider_instance_name: str,
+    mng_ctx: MngContext,
 ) -> None:
-    """Save a schedule creation record to the Modal state volume."""
-    volume = _get_schedule_state_volume(environment_name)
+    """Save a schedule creation record to the provider's state volume."""
+    volume = _get_provider_state_volume(provider_instance_name, mng_ctx)
     path = f"{_SCHEDULE_RECORDS_PREFIX}/{record.trigger.name}.json"
     data = record.model_dump_json(indent=2).encode("utf-8")
 
@@ -265,10 +317,13 @@ def _save_schedule_creation_record(
     logger.debug("Saved schedule creation record to {}", path)
 
 
-def list_schedule_creation_records(environment_name: str) -> list[ScheduleCreationRecord]:
-    """Read all schedule creation records from the Modal state volume."""
+def list_schedule_creation_records(
+    provider_instance_name: str,
+    mng_ctx: MngContext,
+) -> list[ScheduleCreationRecord]:
+    """Read all schedule creation records from the provider's state volume."""
     try:
-        volume = _get_schedule_state_volume(environment_name)
+        volume = _get_provider_state_volume(provider_instance_name, mng_ctx)
     except modal.exception.NotFoundError:
         return []
 
@@ -390,7 +445,7 @@ def deploy_schedule(
                     f"(exit code {result.returncode}). See output above for details."
                 ) from None
 
-    # Save the creation record to the state volume
+    # Save the creation record to the provider's state volume
     with log_span("Saving schedule creation record"):
         creation_record = ScheduleCreationRecord(
             trigger=trigger,
@@ -402,7 +457,7 @@ def deploy_schedule(
             modal_app_name=app_name,
             modal_environment=modal_env_name,
         )
-        _save_schedule_creation_record(creation_record, modal_env_name)
+        _save_schedule_creation_record(creation_record, trigger.provider, mng_ctx)
 
     logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
     return app_name

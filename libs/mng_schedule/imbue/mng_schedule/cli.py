@@ -28,7 +28,6 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.implementations.modal.deploy import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
-from imbue.mng_schedule.implementations.modal.deploy import get_modal_environment_name
 from imbue.mng_schedule.implementations.modal.deploy import list_schedule_creation_records
 from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
@@ -390,10 +389,11 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
         command_class=ScheduleListCliOptions,
     )
 
-    modal_env_name = get_modal_environment_name(mng_ctx)
+    # Currently only modal is supported as a schedule provider
+    provider_instance_name = "modal"
 
-    with log_span("Listing schedule creation records from Modal environment '{}'", modal_env_name):
-        records = list_schedule_creation_records(modal_env_name)
+    with log_span("Listing schedule creation records"):
+        records = list_schedule_creation_records(provider_instance_name, mng_ctx)
 
     # Filter out disabled schedules unless --all is specified
     if not opts.all_schedules:
