@@ -14,6 +14,7 @@ import modal.exception
 import pytest
 
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -37,6 +38,7 @@ from imbue.mng.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mng.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mng.providers.modal.instance import _parse_volume_spec
 from imbue.mng.providers.modal.instance import build_sandbox_tags
+from imbue.mng.providers.modal.instance import check_host_name_is_unique
 from imbue.mng.providers.modal.instance import parse_sandbox_tags
 
 # =============================================================================
@@ -327,6 +329,7 @@ def _make_host_record(
     host_id: HostId,
     host_name: str = "test-host",
     snapshots: list[SnapshotRecord] | None = None,
+    failure_reason: str | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
     now = datetime.now(timezone.utc)
@@ -335,6 +338,7 @@ def _make_host_record(
         host_name=host_name,
         user_tags={},
         snapshots=snapshots or [],
+        failure_reason=failure_reason,
         created_at=now,
         updated_at=now,
     )
@@ -1707,3 +1711,71 @@ def test_load_agent_refs_ignores_running_sandbox_without_host_record(
         result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 0
+
+
+# =============================================================================
+# Tests for check_host_name_is_unique
+# =============================================================================
+
+
+def test_check_host_name_is_unique_passes_when_no_existing_hosts() -> None:
+    """check_host_name_is_unique should not raise when there are no existing hosts."""
+    check_host_name_is_unique(HostName("new-host"), host_records=[], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_passes_when_name_is_different() -> None:
+    """check_host_name_is_unique should not raise when the name is different from existing hosts."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="existing-host", snapshots=[_make_snapshot_record()])
+
+    check_host_name_is_unique(HostName("different-host"), host_records=[existing_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_already_exists_on_running_host() -> None:
+    """check_host_name_is_unique should raise HostNameConflictError when a running host has the same name."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name")
+
+    with pytest.raises(HostNameConflictError) as exc_info:
+        check_host_name_is_unique(HostName("taken-name"), host_records=[existing_record], running_host_ids={host_id})
+    assert "taken-name" in str(exc_info.value)
+
+
+def test_check_host_name_is_unique_raises_when_name_exists_on_stopped_host_with_snapshots() -> None:
+    """check_host_name_is_unique should raise when a stopped host with snapshots has the same name."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name", snapshots=[_make_snapshot_record()])
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("taken-name"), host_records=[existing_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_allows_reuse_of_destroyed_host_name() -> None:
+    """check_host_name_is_unique should allow reusing a name from a destroyed host."""
+    host_id = HostId.generate()
+    # A destroyed host: no snapshots, no failure_reason, not running
+    destroyed_record = _make_host_record(host_id, host_name="reusable-name", snapshots=[])
+
+    # Should not raise
+    check_host_name_is_unique(HostName("reusable-name"), host_records=[destroyed_record], running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_matches_any_non_destroyed() -> None:
+    """check_host_name_is_unique should raise if the name matches any non-destroyed host."""
+    host_records = [
+        _make_host_record(HostId.generate(), host_name="host-alpha", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-beta", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-gamma", snapshots=[_make_snapshot_record()]),
+    ]
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("host-beta"), host_records=host_records, running_host_ids=set())
+
+
+def test_check_host_name_is_unique_raises_when_name_exists_on_failed_host() -> None:
+    """check_host_name_is_unique should raise for a failed host (not running, no snapshots, but has failure_reason)."""
+    host_id = HostId.generate()
+    failed_record = _make_host_record(host_id, host_name="failed-host", failure_reason="Build failed")
+
+    with pytest.raises(HostNameConflictError):
+        check_host_name_is_unique(HostName("failed-host"), host_records=[failed_record], running_host_ids=set())

@@ -40,6 +40,8 @@ from imbue.mng.cli.rename import rename
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
+from imbue.mng.config.loader import block_disabled_plugins
+from imbue.mng.config.loader import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
@@ -275,11 +277,19 @@ def create_plugin_manager() -> pluggy.PluginManager:
     """
     Initializes the plugin manager and loads all plugin registries.
 
+    Plugins disabled in config files are blocked via pm.set_blocked() before
+    setuptools entrypoints are loaded, so they are never registered. CLI-level
+    --disable-plugin flags are handled later in load_config().
+
     This should only really be called once from the main command (or during testing).
     """
     # Create plugin manager and load registries first (needed for config parsing)
     pm = pluggy.PluginManager("mng")
     pm.add_hookspecs(hookspecs)
+
+    # Block plugins that are disabled in config files. This must happen before
+    # load_setuptools_entrypoints so disabled plugins are never registered.
+    block_disabled_plugins(pm, read_disabled_plugins())
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.
