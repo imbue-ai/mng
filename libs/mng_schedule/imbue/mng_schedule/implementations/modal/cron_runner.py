@@ -163,9 +163,6 @@ def run_scheduled_trigger() -> None:
         print("Schedule trigger is disabled, skipping")
         return
 
-    # Deploy files (config, settings, etc.) are already baked into $HOME and
-    # WORKDIR during the image build -- no runtime installation needed.
-
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")
     os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
