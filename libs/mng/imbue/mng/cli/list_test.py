@@ -8,7 +8,7 @@ from io import StringIO
 import pluggy
 from click.testing import CliRunner
 
-from imbue.mng.cli.fixtures import make_test_agent_info
+from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.cli.list import _StreamingHumanRenderer
 from imbue.mng.cli.list import _StreamingTemplateEmitter
 from imbue.mng.cli.list import _compute_column_widths

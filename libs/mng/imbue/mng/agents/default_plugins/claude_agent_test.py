@@ -26,9 +26,9 @@ from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.conftest import make_mng_ctx
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
-from imbue.mng.fixtures import make_mng_ctx
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentGitOptions

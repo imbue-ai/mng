@@ -68,26 +68,24 @@ Only after doing all of the above should you begin writing code.
 
 ## Test fixture discovery
 
-Before writing new tests, check the relevant fixtures.py for useful fixtures to avoid reimplementing things.
-All projects follow a consistent naming convention for test infrastructure files:
+Before writing new tests, read the relevant `conftest.py` and `testing.py` files to avoid reimplementing things that already exist. Test infrastructure lives in these files:
 
 | File pattern | Purpose |
 |---|---|
-| `conftest.py` | Autouse fixtures and pytest hooks (auto-discovered by pytest) |
-| `fixtures.py` | Non-autouse pytest fixtures (re-exported from conftest.py so pytest discovers them) |
-| `testing.py` | Non-fixture test utilities: factory functions, helpers, context managers |
-| `mock_*_test.py` | Concrete mock implementations of interfaces |
+| `conftest.py` | Pytest fixtures and hooks, scoped to the directory they're in (auto-discovered by pytest) |
+| `testing.py` | Non-fixture test utilities: factory functions, helpers, context managers (explicitly imported) |
+| `mock_*_test.py` | Concrete mock implementations of interfaces (explicitly imported) |
 
-To find all available fixtures and test utilities:
-- `glob("**/fixtures.py")` -- all pytest fixture files
+To find all available test infrastructure:
+- `glob("**/conftest.py")` -- all fixture and hook files
 - `glob("**/testing.py")` -- all test utility modules
 - `glob("**/mock_*_test.py")` -- all mock implementations
 
-Key fixture files for the mng project:
-- `libs/mng/imbue/mng/fixtures.py` -- core fixtures (temp_host_dir, temp_mng_ctx, local_provider, temp_git_repo, modal session fixtures, etc.)
-- `libs/mng/imbue/mng/cli/fixtures.py` -- CLI test fixtures (cli_runner, default_create_cli_opts, default_connect_cli_opts, project_config_dir, temp_git_repo_cwd, isolated_mng_venv)
-- `libs/mng/imbue/mng/agents/fixtures.py` -- agent test fixtures (interactive_mng_ctx)
-- `libs/mng/imbue/mng/providers/modal/fixtures.py` -- Modal acceptance test fixtures (real_modal_provider, etc.)
+Key test infrastructure files for the mng project:
+- `libs/mng/imbue/mng/conftest.py` -- core fixtures (temp_host_dir, temp_mng_ctx, local_provider, temp_git_repo, cli_runner, modal session fixtures, etc.)
+- `libs/mng/imbue/mng/cli/conftest.py` -- CLI test fixtures (default_create_cli_opts, default_connect_cli_opts, project_config_dir, temp_git_repo_cwd, isolated_mng_venv)
+- `libs/mng/imbue/mng/agents/conftest.py` -- agent test fixtures (interactive_mng_ctx)
+- `libs/mng/imbue/mng/providers/modal/conftest.py` -- Modal acceptance test fixtures (real_modal_provider, etc.)
 - `libs/mng/imbue/mng/api/fixtures.py` -- API test doubles (FakeAgent, FakeHost, SyncTestContext)
 - `libs/mng/imbue/mng/utils/testing.py` -- test utilities (init_git_repo, cleanup_tmux_session, make_local_provider, SSH helpers, Modal cleanup, etc.)
 - `libs/mng/imbue/mng/providers/docker/testing.py` -- Docker provider test utilities

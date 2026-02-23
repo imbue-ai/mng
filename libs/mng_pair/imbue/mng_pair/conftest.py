@@ -12,6 +12,14 @@ import pytest
 import imbue.mng.main
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+
+# Import shared fixtures from mng so they're available to mng_pair tests.
+# These are non-autouse fixtures that mng_pair tests depend on.
+from imbue.mng.conftest import cg as cg
+from imbue.mng.conftest import cli_runner as cli_runner
+from imbue.mng.conftest import setup_git_config as setup_git_config
+from imbue.mng.conftest import temp_git_repo as temp_git_repo
+from imbue.mng.conftest import temp_host_dir as temp_host_dir
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry

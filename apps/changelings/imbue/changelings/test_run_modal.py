@@ -16,7 +16,7 @@ from imbue.changelings.mng_commands import get_agent_name_from_command
 from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.fixtures import ModalSubprocessTestEnv
+from imbue.mng.conftest import ModalSubprocessTestEnv
 
 
 @pytest.mark.release
