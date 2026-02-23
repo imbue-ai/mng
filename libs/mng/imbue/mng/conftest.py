@@ -256,6 +256,8 @@ def setup_test_mng_env(
     # If this fails, tests could accidentally modify the real home directory.
     assert_home_is_temp_directory()
 
+    monkeypatch.chdir(tmp_home_dir)
+
     yield
 
 

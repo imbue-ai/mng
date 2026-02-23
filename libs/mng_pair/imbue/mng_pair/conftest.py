@@ -121,6 +121,8 @@ def setup_test_mng_env(
 
     assert_home_is_temp_directory()
 
+    monkeypatch.chdir(tmp_path)
+
     yield
 
 
