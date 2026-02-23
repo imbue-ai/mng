@@ -19,7 +19,7 @@ class PackageInfo(FrozenModel):
     pypi_name: str = Field(description="PyPI package name")
     internal_deps: tuple[str, ...] = Field(description="PyPI names of internal dependencies")
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @cached_property
     def pyproject_path(self) -> Path:
         return REPO_ROOT / "libs" / self.dir_name / "pyproject.toml"
