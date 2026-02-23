@@ -19,8 +19,7 @@
 #
 # A staging directory is added as the last image layer, containing:
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
-# - /staging/deploy_files/: Numbered files collected from plugins via get_files_for_deploy hook
-# - /staging/deploy_files_manifest.json: Maps numbered filenames to destination paths
+# - /staging/home/: Files destined for ~/  (mirrors home directory structure)
 # - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
 #
 # Required environment variables at deploy time:

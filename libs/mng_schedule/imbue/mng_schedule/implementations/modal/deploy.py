@@ -168,13 +168,14 @@ def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
 def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) -> None:
     """Stage files for deployment into a directory for baking into the Modal image.
 
-    Collects files from all plugins via the get_files_for_deploy hook, stages
-    them as numbered files with a JSON manifest mapping each to its destination
-    path. Also stages the secrets .env file if present.
+    Collects files from all plugins via the get_files_for_deploy hook and stages
+    them into a directory structure that mirrors their destination layout. All
+    destination paths start with "~", so they are placed under a "home/"
+    subdirectory with the "~/" prefix stripped (e.g. "~/.claude.json" becomes
+    "home/.claude.json"). Also stages the secrets .env file if present.
 
     Stages:
-    - deploy_files/: Numbered files collected from plugins
-    - deploy_files_manifest.json: Maps numbered filenames to destination paths
+    - home/: Files destined for the user's home directory, mirroring their paths
     - secrets/.env (if exists, from repo root)
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -182,20 +183,19 @@ def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) 
     # Collect files from all plugins via the hook
     deploy_files = _collect_deploy_files(mng_ctx)
 
-    # Stage the deploy files with a manifest
-    files_dir = staging_dir / "deploy_files"
-    files_dir.mkdir()
-    manifest: dict[str, str] = {}
+    # Stage files into home/ with their natural path structure
+    home_dir = staging_dir / "home"
+    home_dir.mkdir()
 
-    for idx, (dest_path, source) in enumerate(sorted(deploy_files.items(), key=lambda item: str(item[0]))):
-        filename = str(idx)
+    for dest_path, source in deploy_files.items():
+        # Strip the "~/" prefix to get the relative path within home
+        relative_path = str(dest_path).removeprefix("~/")
+        staged_path = home_dir / relative_path
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(source, Path):
-            shutil.copy2(source, files_dir / filename)
+            shutil.copy2(source, staged_path)
         else:
-            (files_dir / filename).write_text(source)
-        manifest[filename] = str(dest_path)
-
-    (staging_dir / "deploy_files_manifest.json").write_text(json.dumps(manifest))
+            staged_path.write_text(source)
 
     if deploy_files:
         logger.info("Staged {} deploy files from plugins", len(deploy_files))

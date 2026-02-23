@@ -1,6 +1,5 @@
 """Unit tests for deploy.py and verification.py pure functions."""
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -152,33 +151,25 @@ def run_staging(
     return _run
 
 
-def test_stage_deploy_files_creates_manifest_and_files(
+def test_stage_deploy_files_creates_home_directory_structure(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
-    """stage_deploy_files should create a manifest and stage files from plugins."""
-    # Create claude config files so the hook finds them
+    """stage_deploy_files should stage files into home/ mirroring their destination paths."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"staged": true}')
 
     staging_dir = run_staging(None)
 
-    # Verify manifest exists and has entries
-    manifest_path = staging_dir / "deploy_files_manifest.json"
-    assert manifest_path.exists()
-    manifest = json.loads(manifest_path.read_text())
-    assert any("~/.claude.json" == v for v in manifest.values())
-
-    # Verify deploy_files directory exists with numbered files
-    files_dir = staging_dir / "deploy_files"
-    assert files_dir.exists()
-    assert any(files_dir.iterdir())
+    # Files should be staged under home/ with their natural paths
+    staged_file = staging_dir / "home" / ".claude.json"
+    assert staged_file.exists()
+    assert staged_file.read_text() == '{"staged": true}'
 
 
 def test_stage_deploy_files_roundtrip_restores_files(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
     """Files staged by stage_deploy_files can be installed back to their destinations."""
-    # Create config files so the hooks find them
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"roundtrip": true}')
     mng_dir = Path.home() / ".mng"
@@ -215,22 +206,20 @@ def test_stage_deploy_files_stages_secrets_env(
 
     staging_dir = run_staging(repo_root)
 
-    # Verify secrets were staged
     staged_secrets = staging_dir / "secrets" / ".env"
     assert staged_secrets.exists()
     assert staged_secrets.read_text() == "GH_TOKEN=test123"
 
 
-def test_stage_deploy_files_creates_empty_manifest_when_no_files(
+def test_stage_deploy_files_creates_empty_home_when_no_files(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
-    """stage_deploy_files should create an empty manifest when no plugin returns files."""
+    """stage_deploy_files should create an empty home/ dir when no plugin returns files."""
     staging_dir = run_staging(None)
 
-    manifest_path = staging_dir / "deploy_files_manifest.json"
-    assert manifest_path.exists()
-    manifest = json.loads(manifest_path.read_text())
-    assert manifest == {}
+    home_dir = staging_dir / "home"
+    assert home_dir.exists()
+    assert not any(home_dir.iterdir())
 
 
 # =============================================================================
