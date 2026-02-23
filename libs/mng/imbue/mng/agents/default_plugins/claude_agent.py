@@ -120,6 +120,7 @@ def _get_claude_version(host: OnlineHostInterface) -> str | None:
     """
     result = host.execute_command("claude --version", timeout_seconds=10.0)
     if not result.success:
+        logger.debug("Failed to get claude version on host: {}", result.stderr)
         return None
     return _parse_claude_version_output(result.stdout)
 
@@ -138,6 +139,7 @@ def _get_local_claude_version(concurrency_group: ConcurrencyGroup) -> str | None
         logger.debug("claude binary not found locally")
         return None
     if result.returncode != 0:
+        logger.debug("Failed to get local claude version (exit code {})", result.returncode)
         return None
     return _parse_claude_version_output(result.stdout)
 

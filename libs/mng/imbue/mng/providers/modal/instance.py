@@ -3021,9 +3021,11 @@ def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequ
             raise MngError(f"Docker build arg must be in KEY=VALUE format, got: {arg_spec}")
         key, value = arg_spec.split("=", 1)
         # Replace ARG <key>=<anything> or ARG <key> (no default) with ARG <key>="<value>"
+        # Use a lambda replacement to avoid re.sub interpreting backslash sequences in value.
+        # Bind value via default arg to avoid B023 (closure over loop variable).
         new_result = re.sub(
             rf"^(ARG\s+{re.escape(key)})\b.*$",
-            rf'\1="{value}"',
+            lambda m, v=value: f'{m.group(1)}="{v}"',
             result,
             flags=re.MULTILINE,
         )

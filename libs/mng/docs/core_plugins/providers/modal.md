@@ -39,6 +39,7 @@ mng create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `dockerfile` | Path to a Dockerfile for building a custom image | None |
 | `offline` | Block all outbound network access from the sandbox | off |
 | `volume` | Mount a persistent Modal Volume (format: `name:/path`, can be specified multiple times) | None |
+| `docker-build-arg` | Override a Dockerfile ARG default value (format: `KEY=VALUE`, can be specified multiple times) | None |
 
 ### Examples
 
