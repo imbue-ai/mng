@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
 from io import StringIO
@@ -127,6 +129,17 @@ def _make_host_ref(
     )
 
 
+@contextmanager
+def _capture_loguru_warnings() -> Iterator[StringIO]:
+    """Capture loguru WARNING-level output into a StringIO buffer."""
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="WARNING", format="{message}")
+    try:
+        yield log_output
+    finally:
+        logger.remove(sink_id)
+
+
 def test_warn_on_duplicate_host_names_no_warning_for_unique_names() -> None:
     """_warn_on_duplicate_host_names should not warn when all host names are unique."""
     agents_by_host = {
@@ -135,12 +148,8 @@ def test_warn_on_duplicate_host_names_no_warning_for_unique_names() -> None:
         _make_host_ref("host-gamma"): [],
     }
 
-    log_output = StringIO()
-    sink_id = logger.add(log_output, level="WARNING", format="{message}")
-    try:
+    with _capture_loguru_warnings() as log_output:
         _warn_on_duplicate_host_names(agents_by_host)
-    finally:
-        logger.remove(sink_id)
 
     assert "Duplicate host name" not in log_output.getvalue()
 
@@ -153,12 +162,8 @@ def test_warn_on_duplicate_host_names_warns_on_duplicate_within_same_provider() 
         _make_host_ref("unique-name", "modal"): [],
     }
 
-    log_output = StringIO()
-    sink_id = logger.add(log_output, level="WARNING", format="{message}")
-    try:
+    with _capture_loguru_warnings() as log_output:
         _warn_on_duplicate_host_names(agents_by_host)
-    finally:
-        logger.remove(sink_id)
 
     output = log_output.getvalue()
     assert "Duplicate host name" in output
@@ -173,23 +178,15 @@ def test_warn_on_duplicate_host_names_no_warning_for_same_name_on_different_prov
         _make_host_ref("shared-name", "docker"): [],
     }
 
-    log_output = StringIO()
-    sink_id = logger.add(log_output, level="WARNING", format="{message}")
-    try:
+    with _capture_loguru_warnings() as log_output:
         _warn_on_duplicate_host_names(agents_by_host)
-    finally:
-        logger.remove(sink_id)
 
     assert "Duplicate host name" not in log_output.getvalue()
 
 
 def test_warn_on_duplicate_host_names_empty_input() -> None:
     """_warn_on_duplicate_host_names should not warn with an empty input."""
-    log_output = StringIO()
-    sink_id = logger.add(log_output, level="WARNING", format="{message}")
-    try:
+    with _capture_loguru_warnings() as log_output:
         _warn_on_duplicate_host_names({})
-    finally:
-        logger.remove(sink_id)
 
     assert "Duplicate host name" not in log_output.getvalue()

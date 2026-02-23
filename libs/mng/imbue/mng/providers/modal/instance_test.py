@@ -1719,7 +1719,10 @@ def test_check_host_name_is_unique_passes_when_no_existing_hosts(
     modal_provider: ModalProviderInstance,
 ) -> None:
     """_check_host_name_is_unique should not raise when there are no existing hosts."""
-    with patch.object(modal_provider, "_list_all_host_records", return_value=[]):
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
         modal_provider._check_host_name_is_unique(HostName("new-host"))
 
 
@@ -1728,35 +1731,75 @@ def test_check_host_name_is_unique_passes_when_name_is_different(
 ) -> None:
     """_check_host_name_is_unique should not raise when the name is different from existing hosts."""
     host_id = HostId.generate()
-    existing_record = _make_host_record(host_id, host_name="existing-host")
+    existing_record = _make_host_record(host_id, host_name="existing-host", snapshots=[_make_snapshot_record()])
 
-    with patch.object(modal_provider, "_list_all_host_records", return_value=[existing_record]):
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([existing_record], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
         modal_provider._check_host_name_is_unique(HostName("different-host"))
 
 
-def test_check_host_name_is_unique_raises_when_name_already_exists(
+def test_check_host_name_is_unique_raises_when_name_already_exists_on_running_host(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """_check_host_name_is_unique should raise HostNameConflictError when the name already exists."""
+    """_check_host_name_is_unique should raise HostNameConflictError when a running host has the same name."""
     host_id = HostId.generate()
     existing_record = _make_host_record(host_id, host_name="taken-name")
 
-    with patch.object(modal_provider, "_list_all_host_records", return_value=[existing_record]):
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([existing_record], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value={host_id}),
+    ):
         with pytest.raises(HostNameConflictError) as exc_info:
             modal_provider._check_host_name_is_unique(HostName("taken-name"))
         assert "taken-name" in str(exc_info.value)
 
 
-def test_check_host_name_is_unique_raises_when_name_matches_any_existing(
+def test_check_host_name_is_unique_raises_when_name_exists_on_stopped_host_with_snapshots(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """_check_host_name_is_unique should raise if the name matches any one of multiple existing hosts."""
+    """_check_host_name_is_unique should raise when a stopped host with snapshots has the same name."""
+    host_id = HostId.generate()
+    existing_record = _make_host_record(host_id, host_name="taken-name", snapshots=[_make_snapshot_record()])
+
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([existing_record], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
+        with pytest.raises(HostNameConflictError):
+            modal_provider._check_host_name_is_unique(HostName("taken-name"))
+
+
+def test_check_host_name_is_unique_allows_reuse_of_destroyed_host_name(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should allow reusing a name from a destroyed host."""
+    host_id = HostId.generate()
+    # A destroyed host: no snapshots, no failure_reason, not running
+    destroyed_record = _make_host_record(host_id, host_name="reusable-name", snapshots=[])
+
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([destroyed_record], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
+        # Should not raise
+        modal_provider._check_host_name_is_unique(HostName("reusable-name"))
+
+
+def test_check_host_name_is_unique_raises_when_name_matches_any_non_destroyed(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should raise if the name matches any non-destroyed host."""
     host_records = [
-        _make_host_record(HostId.generate(), host_name="host-alpha"),
-        _make_host_record(HostId.generate(), host_name="host-beta"),
-        _make_host_record(HostId.generate(), host_name="host-gamma"),
+        _make_host_record(HostId.generate(), host_name="host-alpha", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-beta", snapshots=[_make_snapshot_record()]),
+        _make_host_record(HostId.generate(), host_name="host-gamma", snapshots=[_make_snapshot_record()]),
     ]
 
-    with patch.object(modal_provider, "_list_all_host_records", return_value=host_records):
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=(host_records, {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
         with pytest.raises(HostNameConflictError):
             modal_provider._check_host_name_is_unique(HostName("host-beta"))
