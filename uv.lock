@@ -17,7 +17,6 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
-    "sculptor-desktop",
     "sculptor-web",
 ]
 
@@ -669,7 +668,7 @@ wheels = [
 
 [[package]]
 name = "concurrency-group"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/concurrency_group" }
 dependencies = [
     { name = "imbue-common" },
@@ -1535,7 +1534,7 @@ dev = [
 
 [[package]]
 name = "imbue-common"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/imbue_common" }
 dependencies = [
     { name = "click" },
@@ -1804,7 +1803,7 @@ wheels = [
 
 [[package]]
 name = "mng"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/mng" }
 dependencies = [
     { name = "cel-python" },
@@ -2724,17 +2723,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/60/d1e335417804df452589271818749d061b22772b87efda88354cf35cdb7a/ruff-0.12.12-py3-none-win_amd64.whl", hash = "sha256:e99620bf01884e5f38611934c09dd194eb665b0109104acae3ba6102b600fd0d", size = 13178016, upload-time = "2025-09-04T16:50:12.559Z" },
     { url = "https://files.pythonhosted.org/packages/28/7e/61c42657f6e4614a4258f1c3b0c5b93adc4d1f8575f5229d1906b483099b/ruff-0.12.12-py3-none-win_arm64.whl", hash = "sha256:2a8199cab4ce4d72d158319b63370abf60991495fb733db96cd923a34c52d093", size = 12256762, upload-time = "2025-09-04T16:50:15.737Z" },
 ]
-
-[[package]]
-name = "sculptor-desktop"
-version = "0.1.0"
-source = { editable = "apps/sculptor_desktop" }
-dependencies = [
-    { name = "mng" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "sculptor-web"
