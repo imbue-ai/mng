@@ -172,7 +172,8 @@ def test_schedule_add_and_update_share_options(
         "0 3 * * *",
         "--provider",
         "modal",
-        "--no-verify",
+        "--verify",
+        "none",
         "--git-image-hash",
         "HEAD",
     ]
@@ -194,6 +195,86 @@ def test_schedule_add_and_update_share_options(
         obj=plugin_manager,
     )
     assert isinstance(update_result.exception, NotImplementedError)
+
+
+def test_schedule_add_accepts_verify_none(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --verify none is accepted."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--git-image-hash",
+            "HEAD",
+            "--verify",
+            "none",
+        ],
+        obj=plugin_manager,
+    )
+    # Should fail at deploy (no git repo), NOT at verify option parsing
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, click.UsageError)
+
+
+def test_schedule_add_accepts_verify_full(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --verify full is accepted."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--git-image-hash",
+            "HEAD",
+            "--verify",
+            "full",
+        ],
+        obj=plugin_manager,
+    )
+    # Should fail at deploy (no git repo), NOT at verify option parsing
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, click.UsageError)
+
+
+def test_schedule_add_rejects_invalid_verify_value(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --verify with an invalid value is rejected by click."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--git-image-hash",
+            "HEAD",
+            "--verify",
+            "invalid",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert "Invalid value" in result.output
 
 
 def test_schedule_add_accepts_git_image_hash(

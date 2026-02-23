@@ -20,11 +20,13 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.data_types import VerifyMode
+from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.implementations.modal.verification import verify_schedule_deployment
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
@@ -33,10 +35,6 @@ _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
 
 # Path prefix on the state volume for schedule records
 _SCHEDULE_RECORDS_PREFIX: Final[str] = "/scheduled_functions"
-
-
-class ScheduleDeployError(MngError):
-    """Raised when schedule deployment fails."""
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
@@ -293,9 +291,10 @@ def deploy_schedule(
     trigger: ScheduleTriggerDefinition,
     mng_ctx: MngContext,
     provider: ModalProviderInstance,
-    sys_argv: list[str],
+    verify_mode: VerifyMode = VerifyMode.NONE,
+    sys_argv: list[str] | None = None,
 ) -> str:
-    """Deploy a scheduled trigger to Modal.
+    """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
     Full deployment flow:
     1. Find repo root and derive Modal environment name
@@ -303,7 +302,13 @@ def deploy_schedule(
     3. Stage local files (user config, secrets)
     4. Write deploy config as a single JSON file
     5. Run modal deploy cron_runner.py with --env for the correct Modal environment
-    6. Return the Modal app name
+    6. If verify_mode is not NONE, invoke the function once via modal run to verify
+    7. Save creation record to the provider's state volume
+    8. Return the Modal app name
+
+    Verification must happen inside this function (before the temp directory is
+    cleaned up) because modal run requires the same build-time env vars that
+    point to local filesystem paths within the temp directory.
 
     Raises ScheduleDeployError if any step fails.
     """
@@ -378,13 +383,28 @@ def deploy_schedule(
                     f"(exit code {result.returncode}). See output above for details."
                 ) from None
 
+        logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
+
+        # Post-deploy verification (must happen while temp dir is still alive)
+        if verify_mode != VerifyMode.NONE:
+            is_finish = verify_mode == VerifyMode.FULL
+            with log_span("Verifying deployment of schedule '{}'", trigger.name):
+                verify_schedule_deployment(
+                    trigger_name=trigger.name,
+                    modal_env_name=modal_env_name,
+                    is_finish_initial_run=is_finish,
+                    env=env,
+                    cron_runner_path=cron_runner_path,
+                )
+
     # Save the creation record to the provider's state volume.
     # This is best-effort: the deploy already succeeded, so a failure here
     # should not cause the command to report failure.
+    effective_sys_argv = sys_argv if sys_argv is not None else []
     with log_span("Saving schedule creation record"):
         creation_record = ScheduleCreationRecord(
             trigger=trigger,
-            full_commandline=_build_full_commandline(sys_argv),
+            full_commandline=_build_full_commandline(effective_sys_argv),
             hostname=platform.node(),
             working_directory=str(Path.cwd()),
             mng_git_hash=_get_current_mng_git_hash(),
@@ -401,5 +421,4 @@ def deploy_schedule(
                 exc,
             )
 
-    logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
     return app_name

@@ -16,6 +16,14 @@ class ScheduledMngCommand(UpperCaseStrEnum):
     EXEC = auto()
 
 
+class VerifyMode(UpperCaseStrEnum):
+    """Controls post-deploy verification behavior."""
+
+    NONE = auto()
+    QUICK = auto()
+    FULL = auto()
+
+
 class ScheduleTriggerDefinition(FrozenModel):
     """A scheduled trigger that runs an mng command on a cron schedule."""
 

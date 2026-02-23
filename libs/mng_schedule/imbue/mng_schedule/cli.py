@@ -1,5 +1,4 @@
 import sys
-from enum import auto
 from typing import Any
 from typing import Final
 from typing import assert_never
@@ -10,7 +9,6 @@ from click_option_group import optgroup
 from loguru import logger
 from tabulate import tabulate
 
-from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.logging import log_span
 from imbue.mng.cli.common_opts import CommonCliOptions
@@ -26,24 +24,12 @@ from imbue.mng.primitives import OutputFormat
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
-from imbue.mng_schedule.implementations.modal.deploy import ScheduleDeployError
+from imbue.mng_schedule.data_types import VerifyMode
+from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import list_schedule_creation_records
 from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_instance
 from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
-
-# =============================================================================
-# Enums
-# =============================================================================
-
-
-class VerifyMode(UpperCaseStrEnum):
-    """Controls post-deploy verification behavior."""
-
-    VERIFY = auto()
-    FULL_VERIFY = auto()
-    NO_VERIFY = auto()
-
 
 # =============================================================================
 # CLI Options
@@ -60,8 +46,7 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     schedule_cron: str | None
     provider: str | None
     enabled: bool | None
-    verify: bool
-    full_verify: bool
+    verify: str
     git_image_hash: str | None
 
 
@@ -116,16 +101,11 @@ def _add_trigger_options(command: Any) -> Any:
 
     # Behavior group
     command = optgroup.option(
-        "--full-verify",
-        is_flag=True,
-        help="After deploying, invoke the trigger and let the launched agent run to completion.",
-    )(command)
-    command = optgroup.option(
-        "--verify/--no-verify",
-        "verify",
-        default=True,
+        "--verify",
+        type=click.Choice(["none", "quick", "full"], case_sensitive=False),
+        default="quick",
         show_default=True,
-        help="After deploying, invoke the trigger to check that it works. The agent is destroyed once it starts successfully.",
+        help="Post-deploy verification: 'none' skips, 'quick' invokes and destroys agent, 'full' lets agent run to completion.",
     )(command)
     command = optgroup.option(
         "--enabled/--disabled",
@@ -295,8 +275,18 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         git_image_hash=resolved_hash,
     )
 
+    # Resolve verification mode from CLI option.
+    # Only apply verification for create commands (other commands don't produce agents).
+    verify_mode = VerifyMode(opts.verify.upper())
+    if verify_mode != VerifyMode.NONE and trigger.command != ScheduledMngCommand.CREATE:
+        logger.debug(
+            "Skipping verification for command '{}': only applicable to 'create' commands",
+            trigger.command,
+        )
+        verify_mode = VerifyMode.NONE
+
     try:
-        app_name = deploy_schedule(trigger, mng_ctx, provider=provider, sys_argv=sys.argv)
+        app_name = deploy_schedule(trigger, mng_ctx, provider=provider, verify_mode=verify_mode, sys_argv=sys.argv)
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
 

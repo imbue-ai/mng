@@ -1,4 +1,4 @@
-"""Unit tests for deploy.py pure functions."""
+"""Unit tests for deploy.py and verification.py pure functions."""
 
 from pathlib import Path
 
@@ -8,11 +8,20 @@ from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandl
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
 
 
 def test_get_modal_app_name() -> None:
     assert get_modal_app_name("my-trigger") == "mng-schedule-my-trigger"
     assert get_modal_app_name("nightly") == "mng-schedule-nightly"
+
+
+def test_build_modal_run_command() -> None:
+    cmd = build_modal_run_command(
+        cron_runner_path=Path("/deploy/cron_runner.py"),
+        modal_env_name="test-env",
+    )
+    assert cmd == ["uv", "run", "modal", "run", "--env", "test-env", "/deploy/cron_runner.py"]
 
 
 def test_build_deploy_config_returns_all_keys() -> None:
