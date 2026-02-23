@@ -90,7 +90,7 @@ def test_schedule_add_deploys_to_modal() -> None:
         _cleanup_modal_app(app_name, env)
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(900)
 def test_schedule_add_with_verification() -> None:
     """Test that schedule add with quick verification deploys and verifies.
