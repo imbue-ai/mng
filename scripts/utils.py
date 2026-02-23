@@ -45,7 +45,7 @@ def normalize_pypi_name(name: str) -> str:
 
 
 def parse_dep_name(dep_str: str) -> str:
-    """Extract the package name from a dependency string like 'foo==1.0' or 'foo>=2.0'."""
+    """Extract and normalize the package name from a dependency string like 'foo==1.0' or 'foo>=2.0'."""
     match = re.match(r"^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)", dep_str)
     if match is None:
         raise ValueError(f"Cannot parse dependency name from: {dep_str!r}")
