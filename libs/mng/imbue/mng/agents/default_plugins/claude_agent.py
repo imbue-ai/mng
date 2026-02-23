@@ -45,7 +45,7 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.git_utils import find_git_common_dir
-from imbue.mng.utils.polling import poll_until_counted
+from imbue.mng.utils.polling import poll_until
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
@@ -287,13 +287,11 @@ class ClaudeAgent(BaseAgent):
                 super().wait_for_ready_signal(is_creating, start_action, timeout)
 
             # Poll for the session_started file (created by SessionStart hook)
-            success, poll_count, poll_elapsed = poll_until_counted(
+            if poll_until(
                 lambda: self._check_file_exists(session_started_path),
                 timeout=timeout,
                 poll_interval=0.05,
-            )
-
-            if success:
+            ):
                 return
 
             raise AgentStartError(

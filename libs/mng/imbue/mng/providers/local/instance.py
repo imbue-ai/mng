@@ -36,6 +36,7 @@ from imbue.mng.interfaces.volume import HostVolume
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostNameStyle
 from imbue.mng.primitives import ImageReference
 from imbue.mng.primitives import SnapshotId
 from imbue.mng.primitives import SnapshotName
@@ -82,6 +83,9 @@ class LocalProviderInstance(BaseProviderInstance):
     semantics: the host cannot be stopped or destroyed, and snapshots are not
     supported. The host ID is persistent (generated once and saved to disk).
     """
+
+    def get_host_name(self, style: HostNameStyle) -> HostName:
+        return HostName("localhost")
 
     @property
     def supports_snapshots(self) -> bool:
@@ -180,6 +184,7 @@ class LocalProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create (or return) the local host.
 

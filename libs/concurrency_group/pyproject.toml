@@ -1,6 +1,6 @@
 [project]
 name = "concurrency-group"
-version = "0.1.1"
+version = "0.1.4"
 description = "Utilities for managing threads and processes in a structured way"
 requires-python = ">=3.11"
 license = "MIT"

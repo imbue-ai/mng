@@ -20,6 +20,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
@@ -37,6 +38,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IM
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RETURNS_IN_DOCSTRINGS
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_SHORT_UUID_IDS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TEST_CONTAINER_CLASSES
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TIME_SLEEP
@@ -349,6 +351,16 @@ def test_prevent_bash_without_strict_mode() -> None:
 def test_prevent_importlib_import_module() -> None:
     chunks = check_ratchet_rule(PREVENT_IMPORTLIB_IMPORT_MODULE, _get_mng_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
+
+
+def test_prevent_getattr() -> None:
+    chunks = check_ratchet_rule(PREVENT_GETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(8), PREVENT_GETATTR.format_failure(chunks)
+
+
+def test_prevent_setattr() -> None:
+    chunks = check_ratchet_rule(PREVENT_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(1), PREVENT_SETATTR.format_failure(chunks)
 
 
 _PREVENT_OLD_MNGR_NAME = RegexRatchetRule(

@@ -43,6 +43,7 @@ from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
@@ -313,6 +314,9 @@ def _process_provider_streaming(
     try:
         # Phase 1: list hosts and get agent refs
         provider_results = provider.load_agent_refs(cg=cg, include_destroyed=True)
+
+        # Warn if any host names are duplicated within this provider
+        _warn_on_duplicate_host_names(provider_results)
 
         # Phase 2: immediately process hosts (fire on_agent for this provider)
         host_futures: list[Future[None]] = []
@@ -595,9 +599,6 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """
     result = agent.model_dump(mode="json")
 
-    # Add computed fields
-    result["type"] = "agent"
-
     # Add age from create_time
     if result.get("create_time"):
         if isinstance(result["create_time"], str):
@@ -651,6 +652,37 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=f"agent {agent.name}",
     )
+
+
+def _warn_on_duplicate_host_names(
+    agents_by_host: dict[HostReference, list[AgentReference]],
+) -> None:
+    """Emit a warning if any host names are duplicated within the same provider.
+
+    This should never happen in normal operation -- it indicates a bug or race condition
+    in host creation.
+
+    Only considers hosts that have at least one agent reference, since destroyed
+    hosts (which typically have no agents) may legitimately share a name with a
+    newly created host.
+    """
+    # Group host names by provider, tracking which host IDs share each name
+    host_ids_by_provider_and_name: dict[tuple[ProviderInstanceName, HostName], list[HostId]] = {}
+    for host_ref, agent_refs in agents_by_host.items():
+        if not agent_refs:
+            continue
+        key = (host_ref.provider_name, host_ref.host_name)
+        host_ids_by_provider_and_name.setdefault(key, []).append(host_ref.host_id)
+
+    for (provider_name, host_name), host_ids in host_ids_by_provider_and_name.items():
+        if len(host_ids) > 1:
+            logger.warning(
+                "Duplicate host name '{}' found on provider '{}' (host IDs: {}). "
+                "This should never happen -- it may indicate a bug or a race condition during host creation.",
+                host_name,
+                provider_name,
+                ", ".join(str(hid) for hid in host_ids),
+            )
 
 
 def _process_provider_for_host_listing(
@@ -708,5 +740,8 @@ def load_all_agents_grouped_by_host(
         # Re-raise any thread exceptions
         for future in futures:
             future.result()
+
+        # Warn if any host names are duplicated within the same provider
+        _warn_on_duplicate_host_names(agents_by_host)
 
         return (agents_by_host, providers)

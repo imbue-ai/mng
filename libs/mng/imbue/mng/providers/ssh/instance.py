@@ -124,6 +124,7 @@ class SSHProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
         raise NotImplementedError("SSH provider does not support creating hosts")
 
