@@ -17,7 +17,6 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
-    "sculptor-desktop",
     "sculptor-web",
 ]
 
@@ -669,7 +668,7 @@ wheels = [
 
 [[package]]
 name = "concurrency-group"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/concurrency_group" }
 dependencies = [
     { name = "imbue-common" },
@@ -1535,7 +1534,7 @@ dev = [
 
 [[package]]
 name = "imbue-common"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/imbue_common" }
 dependencies = [
     { name = "click" },
@@ -1804,7 +1803,7 @@ wheels = [
 
 [[package]]
 name = "mng"
-version = "0.1.1"
+version = "0.1.4"
 source = { editable = "libs/mng" }
 dependencies = [
     { name = "cel-python" },
@@ -2413,7 +2412,7 @@ wheels = [
 
 [[package]]
 name = "pyinfra"
-version = "3.5.1"
+version = "3.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -2422,12 +2421,13 @@ dependencies = [
     { name = "jinja2" },
     { name = "packaging" },
     { name = "paramiko" },
+    { name = "pydantic" },
     { name = "python-dateutil" },
     { name = "typeguard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ca/d3/55b8387c7e9cddc0b1619962bfcdcce397d87c5671f77af49a73be702178/pyinfra-3.5.1.tar.gz", hash = "sha256:9d8e928ae7fe43cd7d6d07a09654266ec1e4e15c3d0fd8411ae85d055eff6a0b", size = 455977, upload-time = "2025-10-01T15:26:22.232Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/dc/36/7a5d4663dca48be0db267c7755a5de863a9f06fa238e066d0ae35c823ad5/pyinfra-3.6.1.tar.gz", hash = "sha256:03b56633fcd80226f454e47de6b0dfa42314ee88d6b2c1c5c31e30b009e9bd31", size = 569142, upload-time = "2026-02-02T13:47:09.375Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/84/072c355a429578b5e5f0fd7fdced21a228f7868027ff16fd1e471d58d4d1/pyinfra-3.5.1-py3-none-any.whl", hash = "sha256:212225129701a7f0fbff81fdad0f5943237106c21e798ddf5e062a37878548b9", size = 257750, upload-time = "2025-10-01T15:26:20.577Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/4a/204ec36f1f9ef924580e0dcef8968c53e5b43ba1c0d25a914b10f309ad6f/pyinfra-3.6.1-py3-none-any.whl", hash = "sha256:618c999cfc0db32b944077f76cb77f4696f01d3104e64d5c1719987f172582cc", size = 263493, upload-time = "2026-02-02T13:47:07.384Z" },
 ]
 
 [[package]]
@@ -2724,17 +2724,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/85/60/d1e335417804df452589271818749d061b22772b87efda88354cf35cdb7a/ruff-0.12.12-py3-none-win_amd64.whl", hash = "sha256:e99620bf01884e5f38611934c09dd194eb665b0109104acae3ba6102b600fd0d", size = 13178016, upload-time = "2025-09-04T16:50:12.559Z" },
     { url = "https://files.pythonhosted.org/packages/28/7e/61c42657f6e4614a4258f1c3b0c5b93adc4d1f8575f5229d1906b483099b/ruff-0.12.12-py3-none-win_arm64.whl", hash = "sha256:2a8199cab4ce4d72d158319b63370abf60991495fb733db96cd923a34c52d093", size = 12256762, upload-time = "2025-09-04T16:50:15.737Z" },
 ]
-
-[[package]]
-name = "sculptor-desktop"
-version = "0.1.0"
-source = { editable = "apps/sculptor_desktop" }
-dependencies = [
-    { name = "mng" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "sculptor-web"

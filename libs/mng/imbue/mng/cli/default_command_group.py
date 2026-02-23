@@ -37,7 +37,7 @@ class DefaultCommandGroup(click.Group):
         return super().make_context(info_name, args, parent=parent, **extra)
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        if not args and self._default_command:
+        if not args and self._default_command and not ctx.resilient_parsing:
             args = [self._default_command]
         return super().parse_args(ctx, args)
 

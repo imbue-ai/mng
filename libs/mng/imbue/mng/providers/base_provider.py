@@ -10,6 +10,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ImageReference
 from imbue.mng.primitives import SnapshotId
+from imbue.mng.primitives import SnapshotName
 
 
 class BaseProviderInstance(ProviderInstanceInterface):
@@ -28,6 +29,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
         raise NotImplementedError()
 

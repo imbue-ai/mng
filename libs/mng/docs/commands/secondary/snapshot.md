@@ -53,6 +53,9 @@ identifier is automatically resolved: if it matches a known agent, that
 agent's host is snapshotted; otherwise it is treated as a host identifier.
 Multiple identifiers that resolve to the same host are deduplicated.
 
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider, agent_names.
+
 Examples:
 
   mng snapshot create my-agent
@@ -62,6 +65,8 @@ Examples:
   mng snapshot create --all --dry-run
 
   mng snapshot create agent1 agent2 --on-error continue
+
+  mng snapshot create my-agent --format '{snapshot_id}'
 
 **Usage:**
 
@@ -194,6 +199,9 @@ Destroy snapshots for agent host(s). [experimental]
 Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
 shown unless --force is specified.
+
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider.
 
 Examples:
 

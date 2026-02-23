@@ -1,17 +1,20 @@
 import time
 from collections.abc import Callable
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
-def poll_until_counted(
-    condition: Callable[[], bool],
+def poll_for_value(
+    producer: Callable[[], T | None],
     timeout: float = 5.0,
     poll_interval: float = 0.1,
-) -> tuple[bool, int, float]:
-    """Poll until a condition becomes true or timeout expires.
+) -> tuple[T | None, int, float]:
+    """Poll until a producer returns a non-None value or timeout expires.
 
-    Returns (success, poll_count, elapsed_seconds):
-    - success: True if the condition was met, False if timeout occurred
-    - poll_count: Number of times the condition was checked
+    Returns (value, poll_count, elapsed_seconds):
+    - value: The first non-None value returned by the producer, or None if timeout occurred
+    - poll_count: Number of times the producer was called
     - elapsed_seconds: Total time spent polling
     """
     start_time = time.time()
@@ -19,15 +22,17 @@ def poll_until_counted(
     elapsed = 0.0
     while elapsed < timeout:
         poll_count += 1
-        if condition():
-            return True, poll_count, time.time() - start_time
+        result = producer()
+        if result is not None:
+            return result, poll_count, time.time() - start_time
         time.sleep(poll_interval)
         elapsed = time.time() - start_time
-    # One final check after timeout in case condition became true during last sleep
+    # One final check after timeout in case value became available during last sleep
     poll_count += 1
-    if condition():
-        return True, poll_count, time.time() - start_time
-    return False, poll_count, time.time() - start_time
+    result = producer()
+    if result is not None:
+        return result, poll_count, time.time() - start_time
+    return None, poll_count, time.time() - start_time
 
 
 def poll_until(
@@ -39,8 +44,12 @@ def poll_until(
 
     Returns True if the condition was met, False if timeout occurred.
     """
-    success, _, _ = poll_until_counted(condition, timeout, poll_interval)
-    return success
+    value, _, _ = poll_for_value(
+        lambda: True if condition() else None,
+        timeout,
+        poll_interval,
+    )
+    return value is not None
 
 
 def wait_for(
