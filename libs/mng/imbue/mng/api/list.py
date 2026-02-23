@@ -1,4 +1,3 @@
-import os
 from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -23,6 +22,7 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
+from imbue.mng.cli.completion import get_host_dir
 from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
@@ -203,10 +203,8 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    host_dir = Path(env_host_dir) if env_host_dir else mng_ctx.config.default_host_dir.expanduser()
     agent_names = [str(agent.name) for agent in result.agents]
-    write_agent_names_cache(host_dir, agent_names)
+    write_agent_names_cache(get_host_dir(), agent_names)
 
     return result
 
