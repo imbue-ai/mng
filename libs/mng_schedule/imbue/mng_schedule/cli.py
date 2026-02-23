@@ -15,6 +15,7 @@ from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.deploy import ScheduleDeployError
 from imbue.mng_schedule.deploy import deploy_schedule
 from imbue.mng_schedule.deploy import resolve_git_ref
@@ -271,7 +272,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
 
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
-        command=opts.command,
+        command=ScheduledMngCommand(opts.command.upper()),
         args=opts.args or "",
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,

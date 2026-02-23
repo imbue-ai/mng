@@ -179,8 +179,8 @@ def run_scheduled_trigger() -> None:
         is_shell=True,
     )
 
-    # Build the mng command
-    command = trigger["command"]
+    # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
+    command = trigger["command"].lower()
     args_str = trigger.get("args", "")
 
     cmd = ["uv", "run", "mng", command]

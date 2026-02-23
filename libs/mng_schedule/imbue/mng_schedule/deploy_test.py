@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.deploy import build_deploy_config
 from imbue.mng_schedule.deploy import get_modal_app_name
@@ -16,7 +17,7 @@ def test_get_modal_app_name() -> None:
 def test_build_deploy_config_returns_all_keys() -> None:
     trigger = ScheduleTriggerDefinition(
         name="test",
-        command="create",
+        command=ScheduledMngCommand.CREATE,
         args="--message hello",
         schedule_cron="0 3 * * *",
         provider="modal",
@@ -33,7 +34,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
     assert result["cron_schedule"] == "0 3 * * *"
     assert result["cron_timezone"] == "America/Los_Angeles"
     assert result["trigger"]["name"] == "test"
-    assert result["trigger"]["command"] == "create"
+    assert result["trigger"]["command"] == "CREATE"
     assert result["trigger"]["args"] == "--message hello"
 
 
