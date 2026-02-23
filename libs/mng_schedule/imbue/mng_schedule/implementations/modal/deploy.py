@@ -2,6 +2,7 @@ import io
 import json
 import os
 import platform
+import shlex
 import shutil
 import sys
 import tempfile
@@ -14,6 +15,7 @@ from typing import Final
 import modal
 import modal.exception
 from loguru import logger
+from pydantic import ValidationError
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
@@ -243,6 +245,7 @@ def _get_current_mng_git_hash() -> str:
             is_checked_after=False,
         )
     if result.returncode != 0:
+        logger.warning("Could not determine mng git hash: {}", result.stderr.strip())
         return "unknown"
     return result.stdout.strip()
 
@@ -281,17 +284,22 @@ def list_schedule_creation_records(environment_name: str) -> list[ScheduleCreati
         file_path = f"{_SCHEDULE_RECORDS_PREFIX}/{entry.path}"
         try:
             data = b"".join(volume.read_file(file_path))
-            record = ScheduleCreationRecord.model_validate_json(data)
-            records.append(record)
-        except Exception as exc:
+        except (modal.exception.NotFoundError, FileNotFoundError, OSError) as exc:
             logger.warning("Skipped unreadable schedule record at {}: {}", file_path, exc)
+            continue
+        try:
+            record = ScheduleCreationRecord.model_validate_json(data)
+        except (ValidationError, ValueError) as exc:
+            logger.warning("Skipped invalid schedule record at {}: {}", file_path, exc)
+            continue
+        records.append(record)
     return records
 
 
 @pure
 def _build_full_commandline(sys_argv: list[str]) -> str:
-    """Reconstruct the full command line from sys.argv."""
-    return " ".join(sys_argv)
+    """Reconstruct the full command line from sys.argv with proper shell escaping."""
+    return shlex.join(sys_argv)
 
 
 def deploy_schedule(

@@ -1,6 +1,7 @@
 import sys
 from enum import auto
 from typing import Any
+from typing import assert_never
 from uuid import uuid4
 
 import click
@@ -9,6 +10,7 @@ from loguru import logger
 from tabulate import tabulate
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
+from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.logging import log_span
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
@@ -399,12 +401,15 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
     # Sort by creation time (oldest first)
     records_sorted = sorted(records, key=lambda r: r.created_at)
 
-    if output_opts.output_format == OutputFormat.JSON:
-        _emit_schedule_list_json(records_sorted)
-    elif output_opts.output_format == OutputFormat.JSONL:
-        _emit_schedule_list_jsonl(records_sorted)
-    else:
-        _emit_schedule_list_human(records_sorted)
+    match output_opts.output_format:
+        case OutputFormat.JSON:
+            _emit_schedule_list_json(records_sorted)
+        case OutputFormat.JSONL:
+            _emit_schedule_list_jsonl(records_sorted)
+        case OutputFormat.HUMAN:
+            _emit_schedule_list_human(records_sorted)
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 # =============================================================================
@@ -482,7 +487,7 @@ def _get_schedule_field_value(record: ScheduleCreationRecord, field: str) -> str
     elif field == "hostname":
         return record.hostname
     else:
-        return ""
+        raise SwitchError(f"Unknown schedule display field: {field}")
 
 
 def _emit_schedule_list_human(records: list[ScheduleCreationRecord]) -> None:

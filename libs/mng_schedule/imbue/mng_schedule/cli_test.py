@@ -3,6 +3,9 @@
 from datetime import datetime
 from datetime import timezone
 
+import pytest
+
+from imbue.imbue_common.errors import SwitchError
 from imbue.mng_schedule.cli import _get_schedule_field_value
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
@@ -96,6 +99,7 @@ def test_get_schedule_field_value_hostname() -> None:
     assert _get_schedule_field_value(record, "hostname") == "dev-laptop"
 
 
-def test_get_schedule_field_value_unknown_field_returns_empty() -> None:
+def test_get_schedule_field_value_unknown_field_raises_switch_error() -> None:
     record = _make_test_record()
-    assert _get_schedule_field_value(record, "nonexistent") == ""
+    with pytest.raises(SwitchError, match="Unknown schedule display field"):
+        _get_schedule_field_value(record, "nonexistent")

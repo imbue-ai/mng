@@ -92,3 +92,9 @@ def test_build_full_commandline_handles_empty_argv() -> None:
 def test_build_full_commandline_handles_single_element() -> None:
     result = _build_full_commandline(["mng"])
     assert result == "mng"
+
+
+def test_build_full_commandline_shell_escapes_spaces_in_arguments() -> None:
+    argv = ["mng", "schedule", "add", "--args", "hello world"]
+    result = _build_full_commandline(argv)
+    assert result == "mng schedule add --args 'hello world'"
