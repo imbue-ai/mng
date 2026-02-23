@@ -28,11 +28,8 @@ def _path_without_mng() -> str:
     """Return PATH with all directories containing an ``mng`` executable removed.
 
     Used in tests to prevent _trigger_background_cache_refresh from spawning
-    a real subprocess, without breaking other binaries (like tmux) that test
-    fixtures need during teardown.
-
-    Checks every PATH entry (not just the first ``shutil.which`` hit) so that
-    multiple worktree venvs on PATH are all excluded.
+    a real subprocess. Checks every PATH entry (not just the first
+    ``shutil.which`` hit) so that multiple worktree venvs are all excluded.
     """
     current_path = os.environ.get("PATH", "")
     dirs_with_mng: set[str] = set()
@@ -71,8 +68,10 @@ def _write_cli_completions(
 def no_background_cache_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent _trigger_background_cache_refresh from spawning a real subprocess.
 
-    Removes all directories containing ``mng`` from PATH so ``shutil.which("mng")``
-    returns None inside the refresh function.
+    Removes all directories containing ``mng`` from PATH so that
+    ``shutil.which("mng")`` returns None inside the refresh function.
+    The removed directories are typically .venv/bin dirs that only contain
+    Python package entry-points, not system binaries.
     """
     monkeypatch.setenv("PATH", _path_without_mng())
 
@@ -178,16 +177,14 @@ def test_read_agent_names_from_cache_uses_default_host_dir(
 
 def test_trigger_background_cache_refresh_skips_when_cache_is_fresh(
     temp_host_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    no_background_cache_refresh: None,
 ) -> None:
     """When the cache was recently written, no subprocess should be spawned."""
     _write_cache(temp_host_dir, ["agent"])
 
-    # Remove mng from PATH as a safety net against accidental process spawning.
-    # If the freshness check works, we never reach shutil.which() anyway.
-    monkeypatch.setenv("PATH", _path_without_mng())
-
-    # Should return without spawning (cache is fresh)
+    # Cache is fresh (just written), so the function should return immediately
+    # without reaching shutil.which(). The no_background_cache_refresh fixture
+    # acts as a safety net in case the freshness check is bypassed.
     _trigger_background_cache_refresh()
 
     # Verify the cache still exists (was not corrupted)
@@ -197,29 +194,24 @@ def test_trigger_background_cache_refresh_skips_when_cache_is_fresh(
 
 def test_trigger_background_cache_refresh_skips_when_mng_not_on_path(
     temp_host_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    no_background_cache_refresh: None,
 ) -> None:
     """When mng is not found on PATH, no subprocess should be spawned."""
-    # Make cache stale so the freshness check passes
+    # Make cache stale so the freshness check passes through to shutil.which()
     cache_path = _write_cache(temp_host_dir, ["agent"])
     old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
     os.utime(cache_path, (old_time, old_time))
 
-    # Ensure mng is not findable
-    monkeypatch.setenv("PATH", _path_without_mng())
-
-    # Should return without spawning (mng not found)
+    # no_background_cache_refresh removes mng from PATH, so shutil.which("mng")
+    # returns None and no subprocess is spawned.
     _trigger_background_cache_refresh()
 
 
 def test_trigger_background_cache_refresh_skips_when_no_cache_and_no_mng(
     temp_host_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    no_background_cache_refresh: None,
 ) -> None:
     """When no cache exists and mng is not on PATH, nothing happens."""
-    monkeypatch.setenv("PATH", _path_without_mng())
-
-    # Should return without error
     _trigger_background_cache_refresh()
 
 
