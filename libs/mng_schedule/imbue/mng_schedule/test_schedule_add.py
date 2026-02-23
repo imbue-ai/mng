@@ -32,6 +32,8 @@ def _build_subprocess_env() -> dict[str, str]:
     env.pop("MNG_HOST_DIR", None)
     env.pop("MNG_PREFIX", None)
     env.pop("MNG_ROOT_NAME", None)
+    # Remove pytest marker so mng doesn't reject the call
+    env.pop("PYTEST_CURRENT_TEST", None)
     return env
 
 
