@@ -256,6 +256,7 @@ scripts/notify_user.local.sh
 .offload-image-cache
 .offload/**
 test-results/junit.xml
+current.tar.gz
 
 # Changelings deploy-time build artifacts
 .changelings/
