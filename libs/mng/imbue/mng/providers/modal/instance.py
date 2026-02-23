@@ -492,6 +492,34 @@ class ModalProviderApp(FrozenModel):
         self.close_callback()
 
 
+@pure
+def check_host_name_is_unique(
+    name: HostName,
+    host_records: Sequence[HostRecord],
+    running_host_ids: set[HostId],
+) -> None:
+    """Check that no non-destroyed host already uses the given name.
+
+    Skips destroyed hosts (no snapshots, no failure_reason, not running) since
+    their names should be reusable.
+
+    Raises HostNameConflictError if a non-destroyed host with the same name exists.
+    """
+    for host_record in host_records:
+        if HostName(host_record.certified_host_data.host_name) != name:
+            continue
+
+        # Skip destroyed hosts (not running, no snapshots, not failed)
+        host_id = HostId(host_record.certified_host_data.host_id)
+        is_running = host_id in running_host_ids
+        has_snapshots = len(host_record.certified_host_data.snapshots) > 0
+        is_failed = host_record.certified_host_data.failure_reason is not None
+        if not is_running and not has_snapshots and not is_failed:
+            continue
+
+        raise HostNameConflictError(name)
+
+
 class ModalProviderInstance(BaseProviderInstance):
     """Provider instance for managing Modal sandboxes as hosts.
 
@@ -1578,32 +1606,14 @@ log "=== Shutdown script completed ==="
     # =========================================================================
 
     def _check_host_name_is_unique(self, name: HostName) -> None:
-        """Check that no non-destroyed host on this provider already uses the given name.
-
-        Skips destroyed hosts (no snapshots, no failure_reason) since their names
-        should be reusable. Running hosts are detected by also querying sandboxes.
-
-        Raises HostNameConflictError if a host with the same name already exists.
-        """
+        """Check that no non-destroyed host on this provider already uses the given name."""
         with log_span("Checking host name uniqueness for {}", name):
             host_records, _agent_data = self._list_all_host_and_agent_records(
                 cg=self.mng_ctx.concurrency_group, is_including_agents=False
             )
             running_host_ids = self._list_running_host_ids(cg=self.mng_ctx.concurrency_group)
 
-        for host_record in host_records:
-            if HostName(host_record.certified_host_data.host_name) != name:
-                continue
-
-            # Skip destroyed hosts (not running, no snapshots, not failed)
-            host_id = HostId(host_record.certified_host_data.host_id)
-            is_running = host_id in running_host_ids
-            has_snapshots = len(host_record.certified_host_data.snapshots) > 0
-            is_failed = host_record.certified_host_data.failure_reason is not None
-            if not is_running and not has_snapshots and not is_failed:
-                continue
-
-            raise HostNameConflictError(name)
+        check_host_name_is_unique(name, host_records, running_host_ids)
 
     # =========================================================================
     # Core Lifecycle Methods
