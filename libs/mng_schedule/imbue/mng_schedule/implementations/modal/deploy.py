@@ -166,43 +166,59 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
         ) from None
 
 
-def stage_local_files(staging_dir: Path, repo_root: Path) -> None:
-    """Stage local config files and secrets into a directory for baking into the Modal image.
+def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
+    """Collect all files for deployment by calling the get_files_for_deploy hook."""
+    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
+    merged: dict[Path, Path | str] = {}
+    for result in all_results:
+        for dest_path, source in result.items():
+            if not str(dest_path).startswith("~"):
+                raise ScheduleDeployError(f"Deploy file destination path must start with '~', got: {dest_path}")
+            if dest_path in merged:
+                logger.warning(
+                    "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
+                    dest_path,
+                )
+            merged[dest_path] = source
+    return merged
+
+
+def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) -> None:
+    """Stage files for deployment into a directory for baking into the Modal image.
+
+    Collects files from all plugins via the get_files_for_deploy hook and stages
+    them into a directory structure that mirrors their destination layout. All
+    destination paths start with "~", so they are placed under a "home/"
+    subdirectory with the "~/" prefix stripped (e.g. "~/.claude.json" becomes
+    "home/.claude.json"). Also stages the secrets .env file if present.
 
     Stages:
-    - ~/.claude.json (if exists)
-    - ~/.claude/settings.json (if exists)
-    - ~/.mng/config.toml (if exists)
-    - ~/.mng/profiles/ (if exists)
-    - .mng/dev/secrets/.env (if exists, from repo root)
+    - home/: Files destined for the user's home directory, mirroring their paths
+    - secrets/.env (if exists, from repo root)
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
-    user_home = Path.home()
 
-    # User config files
-    user_cfg_dir = staging_dir / "user_config"
-    user_cfg_dir.mkdir()
+    # Collect files from all plugins via the hook
+    deploy_files = _collect_deploy_files(mng_ctx)
 
-    claude_json = user_home / ".claude.json"
-    if claude_json.exists():
-        shutil.copy2(claude_json, user_cfg_dir / "claude.json")
+    # Stage files into home/ with their natural path structure
+    home_dir = staging_dir / "home"
+    home_dir.mkdir()
 
-    claude_settings = user_home / ".claude" / "settings.json"
-    if claude_settings.exists():
-        (user_cfg_dir / "claude_dir").mkdir()
-        shutil.copy2(claude_settings, user_cfg_dir / "claude_dir" / "settings.json")
+    for dest_path, source in deploy_files.items():
+        # Strip the "~/" prefix to get the relative path within home
+        relative_path = str(dest_path).removeprefix("~/")
+        staged_path = home_dir / relative_path
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(source, Path):
+            shutil.copy2(source, staged_path)
+        else:
+            staged_path.write_text(source)
 
-    mng_config = user_home / ".mng" / "config.toml"
-    if mng_config.exists():
-        (user_cfg_dir / "mng").mkdir()
-        shutil.copy2(mng_config, user_cfg_dir / "mng" / "config.toml")
+    if deploy_files:
+        logger.info("Staged {} deploy files from plugins", len(deploy_files))
 
-    mng_profiles = user_home / ".mng" / "profiles"
-    if mng_profiles.is_dir():
-        (user_cfg_dir / "mng").mkdir(exist_ok=True)
-        shutil.copytree(mng_profiles, user_cfg_dir / "mng" / "profiles", dirs_exist_ok=True)
-
-    # Secrets env file
+    # Secrets env file (project-specific, not from hook)
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
     secrets_env = repo_root / ".mng" / "dev" / "secrets" / ".env"
@@ -301,7 +317,7 @@ def deploy_schedule(
     Full deployment flow:
     1. Find repo root and derive Modal environment name
     2. Package repo at the specified commit into a tarball
-    3. Stage local files (user config, secrets)
+    3. Stage deploy files (collected from plugins via hook) and secrets
     4. Write deploy config as a single JSON file
     5. Run modal deploy cron_runner.py with --env for the correct Modal environment
     6. If verify_mode is not NONE, invoke the function once via modal run to verify
@@ -337,10 +353,10 @@ def deploy_schedule(
         if not tarball.exists():
             raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
 
-        # Stage local files
+        # Stage deploy files (collected from plugins via hook)
         staging_dir = tmp_path / "staging"
-        with log_span("Staging local files"):
-            stage_local_files(staging_dir, repo_root)
+        with log_span("Staging deploy files"):
+            stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
         # Write deploy config as a single JSON file into the staging dir
         deploy_config = build_deploy_config(

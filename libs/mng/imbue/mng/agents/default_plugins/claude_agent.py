@@ -782,3 +782,20 @@ class ClaudeAgent(BaseAgent):
 def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentTypeConfig]]:
     """Register the claude agent type."""
     return ("claude", ClaudeAgent, ClaudeAgentConfig)
+
+
+@hookimpl
+def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+    """Register claude-specific files for scheduled deployments."""
+    files: dict[Path, Path | str] = {}
+    user_home = Path.home()
+
+    claude_json = user_home / ".claude.json"
+    if claude_json.exists():
+        files[Path("~/.claude.json")] = claude_json
+
+    claude_settings = user_home / ".claude" / "settings.json"
+    if claude_settings.exists():
+        files[Path("~/.claude/settings.json")] = claude_settings
+
+    return files

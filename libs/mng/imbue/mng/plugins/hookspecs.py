@@ -8,6 +8,7 @@ import pluggy
 
 from imbue.mng.api.data_types import OnBeforeCreateArgs
 from imbue.mng.cli.data_types import OptionStackItem
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -264,6 +265,24 @@ def override_command_options(
                 # Override the model for claude agents
                 params["model"] = "opus"
     """
+
+
+@hookspec
+def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+    """[experimental] Return files to include when deploying scheduled commands.
+
+    Called during schedule deployment to collect files that should be baked
+    into the deployment image. Each plugin can contribute files needed for
+    its operation in the remote environment.
+
+    Return a dict mapping destination paths to sources (empty dict if none):
+    - Keys are destination Paths on the remote machine. Paths must start
+      with "~" to place files relative to the user's home directory
+      (e.g. Path("~/.claude.json")).
+    - Values are either a Path to a local file (whose contents will be
+      copied) or a str containing the file contents directly.
+    """
+    return {}
 
 
 @hookspec

@@ -41,6 +41,14 @@ Plugins implement these to register new capabilities with mng. They are called o
 | `register_cli_commands`      | Define an entirely new CLI command                                                                             |
 | `register_cli_options`       | Add custom CLI options to any existing command's schema so that they appear in `--help`                        |
 
+### Deployment hooks
+
+Called during `mng schedule add` to collect files for baking into scheduled deployment images:
+
+| Hook                         | Description                                                                                                    |
+|------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `get_files_for_deploy`       | Return files to include in scheduled deployment images (e.g., config files, settings). Destination paths must start with `~`. [experimental] |
+
 ### Program lifecycle hooks
 
 mng calls these at various points in the execution of any command:

@@ -5,8 +5,9 @@
 # env vars, building the image). The runtime function runs the configured mng
 # command.
 #
-# IMPORTANT: This file must NOT import anything from imbue.* packages.
-# It runs standalone on Modal via `modal deploy`.
+# IMPORTANT: This file must NOT import from imbue.* packages that depend on
+# the mng framework. It runs standalone on Modal via `modal deploy`. The only
+# exception is staging.py, which has no framework dependencies.
 #
 # Unlike the changelings cron_runner, this version bakes the entire codebase
 # (including mng tooling) into the Docker image at deploy time via the
@@ -18,19 +19,18 @@
 #
 # A staging directory is added as the last image layer, containing:
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
-# - /staging/user_config/: User config files (claude.json, mng config, profiles)
+# - /staging/home/: Files destined for ~/  (mirrors home directory structure)
 # - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
 #
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
 # - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
-# - SCHEDULE_STAGING_DIR: Local path to staging directory (user config + secrets)
+# - SCHEDULE_STAGING_DIR: Local path to staging directory (deploy files + secrets)
 # - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
 
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -126,29 +126,6 @@ def _run_and_stream(
     return process.returncode
 
 
-def _install_user_config() -> None:
-    """Copy staged user config files to their expected locations in the container."""
-    staged = Path("/staging/user_config")
-
-    claude_json = staged / "claude.json"
-    if claude_json.exists():
-        shutil.copy2(claude_json, Path.home() / ".claude.json")
-
-    claude_settings = staged / "claude_dir" / "settings.json"
-    if claude_settings.exists():
-        (Path.home() / ".claude").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(claude_settings, Path.home() / ".claude" / "settings.json")
-
-    mng_config = staged / "mng" / "config.toml"
-    if mng_config.exists():
-        (Path.home() / ".mng").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(mng_config, Path.home() / ".mng" / "config.toml")
-
-    mng_profiles = staged / "mng" / "profiles"
-    if mng_profiles.is_dir():
-        shutil.copytree(mng_profiles, Path.home() / ".mng" / "profiles", dirs_exist_ok=True)
-
-
 @app.function(
     schedule=modal.Cron(_CRON_SCHEDULE, timezone=_CRON_TIMEZONE),
     timeout=3600,
@@ -158,7 +135,7 @@ def run_scheduled_trigger() -> None:
 
     This function executes on the cron schedule and:
     1. Checks if the trigger is enabled
-    2. Installs user config files to their expected locations
+    2. Installs deploy files (config, settings, etc.) from staged manifest
     3. Sets up GitHub authentication
     4. Builds and runs the mng command with secrets env file
     """
@@ -168,8 +145,12 @@ def run_scheduled_trigger() -> None:
         print("Schedule trigger is disabled, skipping")
         return
 
-    # Install user config
-    _install_user_config()
+    # Install deploy files (config, settings, etc.) from staged manifest
+    # Late import: staging.py is only available at runtime (after the image is built),
+    # not at deploy time when this file's module-level code runs.
+    from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
+
+    install_deploy_files()
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")
