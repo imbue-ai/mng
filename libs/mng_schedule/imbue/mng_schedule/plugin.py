@@ -15,7 +15,7 @@ def register_cli_commands() -> Sequence[click.Command] | None:
 
 
 @hookimpl
-def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str] | None:
+def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
     """Register mng-specific config files for scheduled deployments."""
     files: dict[Path, Path | str] = {}
     user_home = Path.home()
@@ -31,4 +31,4 @@ def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str] | None:
                 relative = file_path.relative_to(user_home)
                 files[Path(f"~/{relative}")] = file_path
 
-    return files or None
+    return files

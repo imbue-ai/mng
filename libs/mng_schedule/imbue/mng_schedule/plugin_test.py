@@ -33,11 +33,11 @@ def test_register_cli_commands_returns_schedule_command() -> None:
 _UNUSED_MNG_CTX = cast(MngContext, SimpleNamespace())
 
 
-def test_get_files_for_deploy_returns_none_when_no_mng_files() -> None:
-    """get_files_for_deploy returns None when no mng config files exist."""
+def test_get_files_for_deploy_returns_empty_dict_when_no_mng_files() -> None:
+    """get_files_for_deploy returns empty dict when no mng config files exist."""
     result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
 
-    assert result is None
+    assert result == {}
 
 
 def test_get_files_for_deploy_includes_mng_config() -> None:

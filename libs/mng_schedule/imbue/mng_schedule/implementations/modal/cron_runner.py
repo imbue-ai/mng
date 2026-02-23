@@ -39,8 +39,6 @@ from typing import Any
 
 import modal
 
-from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
-
 # --- Deploy-time configuration ---
 # At deploy time (modal.is_local() == True), we read configuration from a
 # single JSON env var and write it to /staging/deploy_config.json. At runtime,
@@ -149,6 +147,10 @@ def run_scheduled_trigger() -> None:
         return
 
     # Install deploy files (config, settings, etc.) from staged manifest
+    # Late import: staging.py is only available at runtime (after the image is built),
+    # not at deploy time when this file's module-level code runs.
+    from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
+
     install_deploy_files()
 
     # Set up GitHub authentication

@@ -1577,11 +1577,11 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
 # =============================================================================
 
 
-def test_get_files_for_deploy_returns_none_when_no_claude_files(temp_mng_ctx: MngContext) -> None:
-    """get_files_for_deploy returns None when no claude config files exist."""
+def test_get_files_for_deploy_returns_empty_dict_when_no_claude_files(temp_mng_ctx: MngContext) -> None:
+    """get_files_for_deploy returns empty dict when no claude config files exist."""
     result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
 
-    assert result is None
+    assert result == {}
 
 
 def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext) -> None:

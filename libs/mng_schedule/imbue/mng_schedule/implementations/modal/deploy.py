@@ -152,19 +152,18 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
 
 def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
     """Collect all files for deployment by calling the get_files_for_deploy hook."""
-    all_results: list[dict[Path, Path | str] | None] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
+    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
     merged: dict[Path, Path | str] = {}
     for result in all_results:
-        if result is not None:
-            for dest_path, source in result.items():
-                if not str(dest_path).startswith("~"):
-                    raise ScheduleDeployError(f"Deploy file destination path must start with '~', got: {dest_path}")
-                if dest_path in merged:
-                    logger.warning(
-                        "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
-                        dest_path,
-                    )
-                merged[dest_path] = source
+        for dest_path, source in result.items():
+            if not str(dest_path).startswith("~"):
+                raise ScheduleDeployError(f"Deploy file destination path must start with '~', got: {dest_path}")
+            if dest_path in merged:
+                logger.warning(
+                    "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
+                    dest_path,
+                )
+            merged[dest_path] = source
     return merged
 
 
