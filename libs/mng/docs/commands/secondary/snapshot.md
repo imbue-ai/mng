@@ -60,6 +60,9 @@ identifier is automatically resolved: if it matches a known agent, that
 agent's host is snapshotted; otherwise it is treated as a host identifier.
 Multiple identifiers that resolve to the same host are deduplicated.
 
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider, agent_names.
+
 **Usage:**
 
 ```text
@@ -237,6 +240,9 @@ Destroy snapshots for agent host(s) [experimental].
 Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
 shown unless --force is specified.
+
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider.
 
 **Usage:**
 

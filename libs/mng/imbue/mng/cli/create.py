@@ -92,7 +92,6 @@ from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
-from imbue.mng.utils.name_generator import generate_host_name
 from imbue.mng.utils.polling import wait_for
 
 
@@ -1438,13 +1437,6 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        parsed_host_name: HostName
-        if opts.host_name:
-            parsed_host_name = HostName(opts.host_name)
-        else:
-            parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
-            parsed_host_name = generate_host_name(parsed_host_name_style)
-
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
@@ -1477,9 +1469,11 @@ def _parse_target_host(
             start_args=tuple(combined_start_args),
         )
 
+        parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
         parsed_target_host = NewHostOptions(
             provider=ProviderInstanceName(opts.new_host),
-            name=parsed_host_name,
+            name=HostName(opts.host_name) if opts.host_name else None,
+            name_style=parsed_host_name_style,
             tags=tags,
             build=build_options,
             environment=HostEnvironmentOptions(

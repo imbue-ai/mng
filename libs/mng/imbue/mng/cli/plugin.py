@@ -92,6 +92,9 @@ def _gather_plugin_info(mng_ctx: MngContext) -> list[PluginInfo]:
 
     Uses pm.list_name_plugin() for all registered plugins and
     pm.list_plugin_distinfo() for distribution metadata (version, description).
+
+    Also includes disabled plugins that were blocked from registration
+    (via pm.set_blocked) so they still appear in `mng plugin list`.
     """
     pm = mng_ctx.pm
 
@@ -127,6 +130,20 @@ def _gather_plugin_info(mng_ctx: MngContext) -> list[PluginInfo]:
             description=description,
             is_enabled=is_enabled,
         )
+
+    # Include disabled plugins that were blocked and never registered.
+    # These won't appear in pm.list_name_plugin() but should still be
+    # visible in the plugin list so users can see and re-enable them.
+    # Version/description are unavailable because pluggy doesn't expose
+    # metadata for blocked plugins.
+    for disabled_name in mng_ctx.config.disabled_plugins:
+        if disabled_name not in plugin_info_by_name:
+            plugin_info_by_name[disabled_name] = PluginInfo(
+                name=disabled_name,
+                version=None,
+                description=None,
+                is_enabled=False,
+            )
 
     return sorted(plugin_info_by_name.values(), key=lambda p: p.name)
 

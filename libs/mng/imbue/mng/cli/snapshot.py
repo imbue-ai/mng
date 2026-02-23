@@ -264,6 +264,19 @@ def _emit_create_result(
     output_opts: OutputOptions,
 ) -> None:
     """Emit final output for snapshot create."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for entry in created:
+            items.append(
+                {
+                    "snapshot_id": entry["snapshot_id"],
+                    "host_id": entry["host_id"],
+                    "provider": entry["provider"],
+                    "agent_names": ", ".join(entry["agent_names"]),
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             data: dict[str, Any] = {"snapshots_created": created, "count": len(created)}
@@ -350,6 +363,18 @@ def _emit_destroy_result(
     output_opts: OutputOptions,
 ) -> None:
     """Emit final output for snapshot destroy."""
+    if output_opts.format_template is not None:
+        items: list[dict[str, str]] = []
+        for entry in destroyed:
+            items.append(
+                {
+                    "snapshot_id": entry["snapshot_id"],
+                    "host_id": entry["host_id"],
+                    "provider": entry["provider"],
+                }
+            )
+        emit_format_template_lines(output_opts.format_template, items)
+        return
     match output_opts.output_format:
         case OutputFormat.JSON:
             emit_final_json({"snapshots_destroyed": destroyed, "count": len(destroyed)})
@@ -489,6 +514,7 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="snapshot_create",
         command_class=SnapshotCreateCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot create command")
 
@@ -555,12 +581,13 @@ def _snapshot_create_impl(ctx: click.Context, **kwargs: Any) -> None:
             }
             created.append(result)
 
-            agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
-            emit_event(
-                "snapshot_created",
-                {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
-                output_opts.output_format,
-            )
+            if output_opts.format_template is None:
+                agents_str = f" (agents: {', '.join(agent_names)})" if agent_names else ""
+                emit_event(
+                    "snapshot_created",
+                    {"message": f"Created snapshot {snapshot_id} for host {host_id_str}{agents_str}", **result},
+                    output_opts.output_format,
+                )
         except BaseMngError as e:
             error_msg = f"Failed to create snapshot for host {host_id_str}: {e}"
             errors.append({"host_id": host_id_str, "error": str(e)})
@@ -743,6 +770,7 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
         ctx=ctx,
         command_name="snapshot_destroy",
         command_class=SnapshotDestroyCliOptions,
+        is_format_template_supported=True,
     )
     logger.debug("Started snapshot destroy command")
 
@@ -830,11 +858,12 @@ def snapshot_destroy(ctx: click.Context, **kwargs: Any) -> None:
         }
         destroyed.append(result)
 
-        emit_event(
-            "snapshot_destroyed",
-            {"message": f"Destroyed snapshot {snap_id} on host {host_id_str}", **result},
-            output_opts.output_format,
-        )
+        if output_opts.format_template is None:
+            emit_event(
+                "snapshot_destroyed",
+                {"message": f"Destroyed snapshot {snap_id} on host {host_id_str}", **result},
+                output_opts.output_format,
+            )
 
     _emit_destroy_result(destroyed, output_opts)
 
@@ -888,7 +917,10 @@ CommandHelpMetadata(
     description="""Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
 agent's host is snapshotted; otherwise it is treated as a host identifier.
-Multiple identifiers that resolve to the same host are deduplicated.""",
+Multiple identifiers that resolve to the same host are deduplicated.
+
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider, agent_names.""",
     examples=(
         ("Snapshot an agent's host", "mng snapshot create my-agent"),
         ("Create a named snapshot", "mng snapshot create my-agent --name before-refactor"),
@@ -934,7 +966,10 @@ CommandHelpMetadata(
     synopsis="mng snapshot destroy [AGENTS...] [OPTIONS]",
     description="""Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
-shown unless --force is specified.""",
+shown unless --force is specified.
+
+Supports custom format templates via --format. Available fields:
+snapshot_id, host_id, provider.""",
     examples=(
         ("Destroy a specific snapshot", "mng snapshot destroy my-agent --snapshot snap-abc123 --force"),
         ("Destroy all snapshots for an agent", "mng snapshot destroy my-agent --all-snapshots --force"),
