@@ -8,10 +8,6 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 - ALWAYS run commands by calling "uv run" from the root of the git checkout (ex: "uv run mng create ..."). Do NOT call "mng" directly (it will refer to the wrong version).
 - NEVER amend commits or rebase--always create new commits.
 
-# Style guide (applies to all projects):
-
-@style_guide.md
-
 # How to get started on any task:
 
 The following files are automatically injected into the system prompt via CLAUDE.md files in each project directory (you do NOT need to read them manually):
@@ -100,3 +96,7 @@ If you get a failure in `test_no_type_errors` that seems spurious, try running `
 If you get a "ModuleNotFoundError" error for a 3rd-party dependency when running a command that is defined in this repo (like `mng`), then run "uv tool uninstall mng && uv tool install -e libs/mng" (for the relevant tool) to refresh the dependencies for that tool, and then try running the command again.
 
 If you get a failure when trying to commit the first time, just try committing again (the pre-commit hook returns a non-zero exit code when ruff reformats files).
+
+# Style guide (applies to all projects):
+
+@style_guide.md
