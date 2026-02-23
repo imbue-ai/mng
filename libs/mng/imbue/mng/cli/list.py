@@ -39,8 +39,10 @@ from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.utils.terminal import ANSI_DIM_GRAY
 from imbue.mng.utils.terminal import ANSI_ERASE_LINE
+from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
 from imbue.mng.utils.terminal import ANSI_RESET
 from imbue.mng.utils.terminal import StderrInterceptor
+from imbue.mng.utils.terminal import ansi_cursor_up
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -645,8 +647,8 @@ class _StreamingHumanRenderer(MutableModel):
                 # past them and erase to end of screen. The warnings will be
                 # re-written after the new agent row so they stay at the bottom.
                 if self._warning_line_count > 0:
-                    self.output.write(f"\x1b[{self._warning_line_count}A")
-                    self.output.write("\x1b[J")
+                    self.output.write(ansi_cursor_up(self._warning_line_count))
+                    self.output.write(ANSI_ERASE_TO_END)
 
             # Write header on first agent
             if not self._is_header_written:

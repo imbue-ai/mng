@@ -8,8 +8,14 @@ from typing import Self
 from imbue.imbue_common.mutable_model import MutableModel
 
 ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
+ANSI_ERASE_TO_END: Final[str] = "\x1b[J"
 ANSI_DIM_GRAY: Final[str] = "\x1b[38;5;245m"
 ANSI_RESET: Final[str] = "\x1b[0m"
+
+
+def ansi_cursor_up(lines: int) -> str:
+    """ANSI escape sequence to move the cursor up by the given number of lines."""
+    return f"\x1b[{lines}A"
 
 
 class StderrInterceptor(MutableModel):
