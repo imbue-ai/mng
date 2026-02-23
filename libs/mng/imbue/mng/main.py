@@ -15,7 +15,6 @@ from imbue.mng.cli.common_opts import create_group_title_option
 from imbue.mng.cli.common_opts import find_last_option_index_in_group
 from imbue.mng.cli.common_opts import find_option_group
 from imbue.mng.cli.completion import read_cached_commands
-from imbue.mng.cli.completion import write_cli_completions_cache
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
@@ -163,13 +162,21 @@ class AliasAwareGroup(DefaultCommandGroup):
                 formatter.write_dl(rows)
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached_commands = read_cached_commands()
-        if cached_commands is not None:
-            completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
-            # Include option completions (--help, --version) from the base Command class
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-        else:
-            completions = super().shell_complete(ctx, incomplete)
+        try:
+            cached_commands = read_cached_commands()
+            if cached_commands is not None:
+                completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
+                # Include option completions (--help, --version) from the base Command class
+                completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+                completed_names = {item.value for item in completions}
+                return [
+                    item
+                    for item in completions
+                    if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
+                ]
+        except Exception:
+            pass
+        completions = super().shell_complete(ctx, incomplete)
         completed_names = {item.value for item in completions}
         return [
             item
@@ -189,8 +196,6 @@ def cli(ctx: click.Context) -> None:
     # This uses the singleton that was already created during command registration
     pm = get_or_create_plugin_manager()
     ctx.obj = pm
-
-    write_cli_completions_cache(cli)
 
     pm.hook.on_startup()
     ctx.call_on_close(lambda: pm.hook.on_shutdown())

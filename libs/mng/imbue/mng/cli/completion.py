@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Final
@@ -10,8 +9,8 @@ from typing import Final
 import click
 from click.shell_completion import CompletionItem
 
-COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
-CLI_COMPLETIONS_FILENAME: Final[str] = ".cli_completions.json"
+AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
+COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
@@ -21,40 +20,22 @@ def _get_host_dir() -> Path:
     return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
 
 
-def atomic_write(path: Path, content: str) -> None:
-    """Write content to a file atomically using a temp file and rename.
-
-    This ensures readers never see a partially-written file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    is_fd_closed = False
-    try:
-        os.write(fd, content.encode())
-        os.close(fd)
-        is_fd_closed = True
-        os.replace(tmp_path, path)
-    except OSError:
-        if not is_fd_closed:
-            os.close(fd)
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+# =============================================================================
+# Agent name completion (read from runtime cache)
+# =============================================================================
 
 
 def _read_agent_names_from_cache() -> list[str]:
     """Read agent names from the completion cache file.
 
-    Reads {host_dir}/.completion_cache.json and returns the "names" list.
+    Reads {host_dir}/.agent_completions.json and returns the "names" list.
     The cache is written by list_agents() in the API layer.
 
     Returns an empty list if the cache does not exist, is malformed, or any error occurs.
     This function is designed to never raise -- shell completion must not crash.
     """
     try:
-        cache_path = _get_host_dir() / COMPLETION_CACHE_FILENAME
+        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if not cache_path.is_file():
             return []
 
@@ -80,7 +61,7 @@ def _trigger_background_cache_refresh() -> None:
     every TAB press, and log output on stderr can interfere with shell completion.
     """
     try:
-        cache_path = _get_host_dir() / COMPLETION_CACHE_FILENAME
+        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if cache_path.is_file():
             age = time.time() - cache_path.stat().st_mtime
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
@@ -111,58 +92,34 @@ def complete_agent_name(
     param: click.Parameter,
     incomplete: str,
 ) -> list[CompletionItem]:
-    """Click shell_complete callback that provides agent name completions."""
-    names = _read_agent_names_from_cache()
-    _trigger_background_cache_refresh()
-    return [CompletionItem(name) for name in names if name.startswith(incomplete)]
+    """Click shell_complete callback that provides agent name completions.
+
+    Never raises -- shell completion must not interfere with normal CLI operation.
+    """
+    try:
+        names = _read_agent_names_from_cache()
+        _trigger_background_cache_refresh()
+        return [CompletionItem(name) for name in names if name.startswith(incomplete)]
+    except Exception:
+        return []
 
 
 # =============================================================================
-# CLI completions cache (written at runtime)
+# CLI command/subcommand completion (read from runtime cache)
 # =============================================================================
 #
-# These functions read and write a JSON file that lists all CLI commands and
-# subcommands. The file is written to {host_dir}/.cli_completions.json on
-# every CLI invocation, and read during tab completion.
+# These functions read a JSON file listing all CLI commands and subcommands.
+# The file is written to {host_dir}/.command_completions.json by
+# write_cli_completions_cache() in completion_writer.py, called from the
+# list command (which is triggered by the background tab completion refresh).
 #
-# This is analogous to the agent name cache above, but for commands: instead of
-# discovering commands live by walking the Click command tree, tab completion
-# reads from a cached list.
+# This is analogous to the agent name cache above: tab completion reads from
+# a cached list rather than discovering commands live.
 
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
-    return _get_host_dir() / CLI_COMPLETIONS_FILENAME
-
-
-def write_cli_completions_cache(cli_group: click.Group) -> None:
-    """Write all CLI commands and subcommands to the completions cache (best-effort).
-
-    Walks the CLI command tree and writes the result to
-    {host_dir}/.cli_completions.json. This is called on every CLI invocation
-    so the cache stays up to date with installed plugins.
-
-    This function never raises -- cache write failures must not break CLI commands.
-    """
-    try:
-        all_command_names = sorted(cli_group.commands.keys())
-
-        subcommand_by_command: dict[str, list[str]] = {}
-        for name, cmd in cli_group.commands.items():
-            if isinstance(cmd, click.Group) and cmd.commands:
-                canonical_name = cmd.name or name
-                if canonical_name not in subcommand_by_command:
-                    subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
-
-        cache_data = {
-            "commands": all_command_names,
-            "subcommand_by_command": subcommand_by_command,
-        }
-
-        cache_path = _get_cli_completions_path()
-        atomic_write(cache_path, json.dumps(cache_data))
-    except OSError:
-        pass
+    return _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
 
 
 def _read_cli_completions_file() -> dict | None:
@@ -229,9 +186,12 @@ class CachedCompletionGroup(click.Group):
     _completion_cache_key: str
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached = read_cached_subcommands(self._completion_cache_key)
-        if cached is not None:
-            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-            return completions
+        try:
+            cached = read_cached_subcommands(self._completion_cache_key)
+            if cached is not None:
+                completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
+                completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+                return completions
+        except Exception:
+            pass
         return super().shell_complete(ctx, incomplete)

@@ -1,4 +1,3 @@
-import json
 import os
 from collections.abc import Callable
 from collections.abc import Sequence
@@ -8,7 +7,6 @@ from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -25,7 +23,7 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
-from imbue.mng.cli.completion import atomic_write
+from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostConnectionError
@@ -205,37 +203,12 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
-    _write_completion_cache(mng_ctx, result)
+    env_host_dir = os.environ.get("MNG_HOST_DIR")
+    host_dir = Path(env_host_dir) if env_host_dir else mng_ctx.config.default_host_dir.expanduser()
+    agent_names = [str(agent.name) for agent in result.agents]
+    write_agent_names_cache(host_dir, agent_names)
 
     return result
-
-
-COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
-
-
-def _write_completion_cache(mng_ctx: MngContext, result: ListResult) -> None:
-    """Write agent names to the completion cache file (best-effort).
-
-    Writes a JSON file with all agent names from the list result so that
-    shell completion can read it without importing the mng config system.
-    The cache file is written to {host_dir}/.completion_cache.json.
-
-    This function never raises -- cache write failures must not break list_agents().
-    """
-    try:
-        env_host_dir = os.environ.get("MNG_HOST_DIR")
-        host_dir = Path(env_host_dir) if env_host_dir else mng_ctx.config.default_host_dir.expanduser()
-
-        names = sorted({str(agent.name) for agent in result.agents})
-        cache_data = {
-            "names": names,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        cache_path = host_dir / COMPLETION_CACHE_FILENAME
-        atomic_write(cache_path, json.dumps(cache_data))
-    except OSError:
-        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(

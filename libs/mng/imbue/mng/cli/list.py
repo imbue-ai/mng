@@ -22,6 +22,7 @@ from imbue.mng.api.list import list_agents as api_list_agents
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.cli.completion_writer import write_cli_completions_cache
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
@@ -232,6 +233,9 @@ def list_command(ctx: click.Context, **kwargs) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+
+    if ctx.parent is not None and isinstance(ctx.parent.command, click.Group):
+        write_cli_completions_cache(ctx.parent.command)
 
 
 def _list_impl(ctx: click.Context, **kwargs) -> None:
