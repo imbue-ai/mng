@@ -18,7 +18,7 @@ from imbue.mng.providers.docker.instance import _get_ssh_host_from_docker_config
 from imbue.mng.providers.docker.instance import build_container_labels
 from imbue.mng.providers.docker.instance import parse_container_labels
 from imbue.mng.providers.docker.testing import make_docker_provider
-from imbue.mng.providers.local.volume import LocalVolume
+from imbue.mng.providers.docker.testing import make_docker_provider_with_local_volume
 
 HOST_ID_A = "host-00000000000000000000000000000001"
 HOST_ID_B = "host-00000000000000000000000000000002"
@@ -249,27 +249,15 @@ def test_remove_tags_from_host_raises_mng_error(temp_mng_ctx: MngContext) -> Non
 
 
 # =========================================================================
-# Volume Methods (using LocalVolume as stand-in for DockerVolume)
+# Volume Methods
 # =========================================================================
-
-
-def _make_provider_with_local_state_volume(
-    temp_mng_ctx: MngContext,
-    tmp_path: Path,
-) -> DockerProviderInstance:
-    """Create a Docker provider with a LocalVolume injected as the state volume."""
-    provider = make_docker_provider(temp_mng_ctx)
-    local_vol = LocalVolume(root_path=tmp_path)
-    # Inject LocalVolume in place of the Docker-backed _state_volume
-    provider.__dict__["_state_volume"] = local_vol
-    return provider
 
 
 def test_list_volumes_returns_empty_when_no_volumes_dir(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
     assert provider.list_volumes() == []
 
 
@@ -278,7 +266,7 @@ def test_list_volumes_discovers_vol_directories(
     tmp_path: Path,
 ) -> None:
     """list_volumes returns VolumeInfo for vol-* directories."""
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
     vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
     (tmp_path / "volumes" / str(vol_id)).mkdir(parents=True)
 
@@ -293,7 +281,7 @@ def test_list_volumes_discovers_multiple(
     tmp_path: Path,
 ) -> None:
     """list_volumes returns all vol-* directories."""
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
     vol_a = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
     vol_b = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_B))
     (tmp_path / "volumes" / str(vol_a)).mkdir(parents=True)
@@ -309,7 +297,7 @@ def test_delete_volume_removes_directory(
     tmp_path: Path,
 ) -> None:
     """delete_volume removes a volume directory."""
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
     vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
     vol_dir = tmp_path / "volumes" / str(vol_id)
     vol_dir.mkdir(parents=True)
