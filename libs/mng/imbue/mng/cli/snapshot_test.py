@@ -1,4 +1,6 @@
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from io import StringIO
 
 import pluggy
@@ -204,35 +206,39 @@ def test_classify_mixed_identifiers_no_agents_treats_all_as_hosts(
 # =============================================================================
 
 
-def test_emit_create_result_format_template(capsys: object) -> None:
+@contextmanager
+def _capture_stdout() -> Iterator[StringIO]:
+    """Temporarily redirect sys.stdout to a StringIO buffer."""
+    buf = StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = buf
+    try:
+        yield buf
+    finally:
+        sys.stdout = old_stdout
+
+
+def test_emit_create_result_format_template() -> None:
     """_emit_create_result renders format templates for created snapshots."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}")
     created = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["agent1"]},
         {"snapshot_id": "snap-def", "host_id": "host-2", "provider": "local", "agent_names": ["agent2", "agent3"]},
     ]
-    old_stdout = sys.stdout
-    sys.stdout = buf = StringIO()
-    try:
+    with _capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
-    finally:
-        sys.stdout = old_stdout
     lines = buf.getvalue().strip().split("\n")
     assert lines == ["snap-abc", "snap-def"]
 
 
-def test_emit_create_result_format_template_agent_names(capsys: object) -> None:
+def test_emit_create_result_format_template_agent_names() -> None:
     """_emit_create_result format template renders agent_names as comma-separated."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{agent_names}")
     created = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["a1", "a2"]},
     ]
-    old_stdout = sys.stdout
-    sys.stdout = buf = StringIO()
-    try:
+    with _capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
-    finally:
-        sys.stdout = old_stdout
     assert buf.getvalue().strip() == "a1, a2"
 
 
@@ -247,10 +253,6 @@ def test_emit_destroy_result_format_template() -> None:
     destroyed = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local"},
     ]
-    old_stdout = sys.stdout
-    sys.stdout = buf = StringIO()
-    try:
+    with _capture_stdout() as buf:
         _emit_destroy_result(destroyed, output_opts=output_opts)
-    finally:
-        sys.stdout = old_stdout
     assert buf.getvalue().strip() == "snap-abc\thost-1"
