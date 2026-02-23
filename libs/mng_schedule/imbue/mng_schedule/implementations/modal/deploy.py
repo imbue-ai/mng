@@ -150,43 +150,52 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
         ) from None
 
 
-def stage_local_files(staging_dir: Path, repo_root: Path) -> None:
-    """Stage local config files and secrets into a directory for baking into the Modal image.
+def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
+    """Collect all files for deployment by calling the get_files_for_deploy hook."""
+    all_results: list[dict[Path, Path | str] | None] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
+    merged: dict[Path, Path | str] = {}
+    for result in all_results:
+        if result is not None:
+            merged.update(result)
+    return merged
+
+
+def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) -> None:
+    """Stage files for deployment into a directory for baking into the Modal image.
+
+    Collects files from all plugins via the get_files_for_deploy hook, stages
+    them as numbered files with a JSON manifest mapping each to its destination
+    path. Also stages the secrets .env file if present.
 
     Stages:
-    - ~/.claude.json (if exists)
-    - ~/.claude/settings.json (if exists)
-    - ~/.mng/config.toml (if exists)
-    - ~/.mng/profiles/ (if exists)
-    - .mng/dev/secrets/.env (if exists, from repo root)
+    - deploy_files/: Numbered files collected from plugins
+    - deploy_files_manifest.json: Maps numbered filenames to destination paths
+    - secrets/.env (if exists, from repo root)
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
-    user_home = Path.home()
 
-    # User config files
-    user_cfg_dir = staging_dir / "user_config"
-    user_cfg_dir.mkdir()
+    # Collect files from all plugins via the hook
+    deploy_files = _collect_deploy_files(mng_ctx)
 
-    claude_json = user_home / ".claude.json"
-    if claude_json.exists():
-        shutil.copy2(claude_json, user_cfg_dir / "claude.json")
+    # Stage the deploy files with a manifest
+    files_dir = staging_dir / "deploy_files"
+    files_dir.mkdir()
+    manifest: dict[str, str] = {}
 
-    claude_settings = user_home / ".claude" / "settings.json"
-    if claude_settings.exists():
-        (user_cfg_dir / "claude_dir").mkdir()
-        shutil.copy2(claude_settings, user_cfg_dir / "claude_dir" / "settings.json")
+    for idx, (dest_path, source) in enumerate(sorted(deploy_files.items(), key=lambda item: str(item[0]))):
+        filename = str(idx)
+        if isinstance(source, Path):
+            shutil.copy2(source, files_dir / filename)
+        else:
+            (files_dir / filename).write_text(source)
+        manifest[filename] = str(dest_path)
 
-    mng_config = user_home / ".mng" / "config.toml"
-    if mng_config.exists():
-        (user_cfg_dir / "mng").mkdir()
-        shutil.copy2(mng_config, user_cfg_dir / "mng" / "config.toml")
+    (staging_dir / "deploy_files_manifest.json").write_text(json.dumps(manifest))
 
-    mng_profiles = user_home / ".mng" / "profiles"
-    if mng_profiles.is_dir():
-        (user_cfg_dir / "mng").mkdir(exist_ok=True)
-        shutil.copytree(mng_profiles, user_cfg_dir / "mng" / "profiles", dirs_exist_ok=True)
+    if deploy_files:
+        logger.info("Staged {} deploy files from plugins", len(deploy_files))
 
-    # Secrets env file
+    # Secrets env file (project-specific, not from hook)
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
     secrets_env = repo_root / ".mng" / "dev" / "secrets" / ".env"
@@ -249,10 +258,10 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> 
         if not tarball.exists():
             raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
 
-        # Stage local files
+        # Stage deploy files (collected from plugins via hook)
         staging_dir = tmp_path / "staging"
-        with log_span("Staging local files"):
-            stage_local_files(staging_dir, repo_root)
+        with log_span("Staging deploy files"):
+            stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
         # Write deploy config as a single JSON file into the staging dir
         deploy_config = build_deploy_config(

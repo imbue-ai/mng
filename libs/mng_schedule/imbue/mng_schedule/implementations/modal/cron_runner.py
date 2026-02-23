@@ -126,27 +126,32 @@ def _run_and_stream(
     return process.returncode
 
 
-def _install_user_config() -> None:
-    """Copy staged user config files to their expected locations in the container."""
-    staged = Path("/staging/user_config")
+def _install_deploy_files(staging_base: Path = Path("/staging")) -> None:
+    """Install staged deploy files to their expected locations in the container.
 
-    claude_json = staged / "claude.json"
-    if claude_json.exists():
-        shutil.copy2(claude_json, Path.home() / ".claude.json")
+    Reads the manifest to determine where each file should be placed.
+    Destination paths starting with "~" are expanded to the user's home directory.
+    """
+    manifest_path = staging_base / "deploy_files_manifest.json"
+    if not manifest_path.exists():
+        return
 
-    claude_settings = staged / "claude_dir" / "settings.json"
-    if claude_settings.exists():
-        (Path.home() / ".claude").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(claude_settings, Path.home() / ".claude" / "settings.json")
+    manifest: dict[str, str] = json.loads(manifest_path.read_text())
+    files_dir = staging_base / "deploy_files"
 
-    mng_config = staged / "mng" / "config.toml"
-    if mng_config.exists():
-        (Path.home() / ".mng").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(mng_config, Path.home() / ".mng" / "config.toml")
+    for filename, dest_path_str in manifest.items():
+        source = files_dir / filename
+        if not source.exists():
+            continue
 
-    mng_profiles = staged / "mng" / "profiles"
-    if mng_profiles.is_dir():
-        shutil.copytree(mng_profiles, Path.home() / ".mng" / "profiles", dirs_exist_ok=True)
+        # Expand ~ to home directory
+        if dest_path_str.startswith("~"):
+            dest_path = Path(os.path.expanduser(dest_path_str))
+        else:
+            dest_path = Path(dest_path_str)
+
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, dest_path)
 
 
 @app.function(
@@ -158,7 +163,7 @@ def run_scheduled_trigger() -> None:
 
     This function executes on the cron schedule and:
     1. Checks if the trigger is enabled
-    2. Installs user config files to their expected locations
+    2. Installs deploy files (config, settings, etc.) from staged manifest
     3. Sets up GitHub authentication
     4. Builds and runs the mng command with secrets env file
     """
@@ -168,8 +173,8 @@ def run_scheduled_trigger() -> None:
         print("Schedule trigger is disabled, skipping")
         return
 
-    # Install user config
-    _install_user_config()
+    # Install deploy files (config, settings, etc.) from staged manifest
+    _install_deploy_files()
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")

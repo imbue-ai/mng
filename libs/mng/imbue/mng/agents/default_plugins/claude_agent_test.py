@@ -19,6 +19,7 @@ from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
+from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -1569,3 +1570,59 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
         )
         is False
     )
+
+
+# =============================================================================
+# get_files_for_deploy Tests
+# =============================================================================
+
+
+def test_get_files_for_deploy_returns_none_when_no_claude_files(temp_mng_ctx: MngContext) -> None:
+    """get_files_for_deploy returns None when no claude config files exist."""
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
+
+    assert result is None
+
+
+def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext) -> None:
+    """get_files_for_deploy includes ~/.claude.json when it exists."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
+
+    assert result is not None
+    assert Path("~/.claude.json") in result
+    assert result[Path("~/.claude.json")] == claude_json
+
+
+def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext) -> None:
+    """get_files_for_deploy includes ~/.claude/settings.json when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
+
+    assert result is not None
+    assert Path("~/.claude/settings.json") in result
+    assert result[Path("~/.claude/settings.json")] == settings
+
+
+def test_get_files_for_deploy_includes_both_files(temp_mng_ctx: MngContext) -> None:
+    """get_files_for_deploy includes both claude.json and settings.json when both exist."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
+
+    assert result is not None
+    assert len(result) == 2
+    assert Path("~/.claude.json") in result
+    assert Path("~/.claude/settings.json") in result
