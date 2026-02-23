@@ -196,7 +196,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
 
 
 class _ConfigGroup(CachedCompletionGroup):
-    """Config group that reads subcommand completions from the static cache."""
+    """Config group that reads subcommand completions from the completions cache."""
 
     _completion_cache_key = "config"
 

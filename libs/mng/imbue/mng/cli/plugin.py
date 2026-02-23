@@ -355,7 +355,7 @@ def _emit_plugin_remove_result(
 
 
 class _PluginGroup(CachedCompletionGroup):
-    """Plugin group that reads subcommand completions from the static cache."""
+    """Plugin group that reads subcommand completions from the completions cache."""
 
     _completion_cache_key = "plugin"
 
