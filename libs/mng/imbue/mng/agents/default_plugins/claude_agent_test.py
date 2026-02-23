@@ -16,8 +16,11 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
+from imbue.mng.agents.default_plugins.claude_agent import _install_claude
+from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
@@ -1569,3 +1572,213 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
         )
         is False
     )
+
+
+# =============================================================================
+# Version Pinning Tests
+# =============================================================================
+
+
+def test_claude_agent_config_version_defaults_to_none() -> None:
+    """ClaudeAgentConfig.version should default to None."""
+    config = ClaudeAgentConfig()
+    assert config.version is None
+
+
+def test_claude_agent_config_version_can_be_set() -> None:
+    """ClaudeAgentConfig.version should accept a version string."""
+    config = ClaudeAgentConfig(version="2.1.50")
+    assert config.version == "2.1.50"
+
+
+def test_parse_claude_version_output_normal() -> None:
+    """_parse_claude_version_output should extract the version from standard output."""
+    assert _parse_claude_version_output("2.1.50 (Claude Code)") == "2.1.50"
+
+
+def test_parse_claude_version_output_version_only() -> None:
+    """_parse_claude_version_output should handle version-only output."""
+    assert _parse_claude_version_output("2.1.50") == "2.1.50"
+
+
+def test_parse_claude_version_output_with_whitespace() -> None:
+    """_parse_claude_version_output should handle leading/trailing whitespace."""
+    assert _parse_claude_version_output("  2.1.50 (Claude Code)\n") == "2.1.50"
+
+
+def test_parse_claude_version_output_empty() -> None:
+    """_parse_claude_version_output should return None for empty output."""
+    assert _parse_claude_version_output("") is None
+    assert _parse_claude_version_output("   ") is None
+
+
+def test_build_install_command_hint_no_version() -> None:
+    """_build_install_command_hint should return standard install command without version."""
+    assert _build_install_command_hint() == "curl -fsSL https://claude.ai/install.sh | bash"
+    assert _build_install_command_hint(None) == "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def test_build_install_command_hint_with_version() -> None:
+    """_build_install_command_hint should include version in install command."""
+    assert _build_install_command_hint("2.1.50") == "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.50"
+
+
+def test_provision_raises_on_version_mismatch(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mng_test_prefix: str,
+) -> None:
+    """provision should raise when installed claude version does not match pinned version."""
+    config = MngConfig(
+        prefix=mng_test_prefix,
+        default_host_dir=temp_host_dir,
+    )
+    with ConcurrencyGroup(name="test-version-mismatch") as cg:
+        ctx = make_mng_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, _ = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True, version="99.99.99"),
+        )
+
+        # Simulate a host where claude is installed but at a different version.
+        host_with_wrong_version = cast(
+            OnlineHostInterface,
+            SimpleNamespace(
+                is_local=True,
+                execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                    success=True,
+                    stdout="2.1.50 (Claude Code)\n",
+                    stderr="",
+                ),
+            ),
+        )
+
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+        with pytest.raises(PluginMngError, match="Claude version mismatch"):
+            agent.provision(host=host_with_wrong_version, options=options, mng_ctx=ctx)
+
+
+def test_provision_succeeds_when_version_matches(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mng_test_prefix: str,
+) -> None:
+    """provision should not raise when installed claude version matches pinned version."""
+    config = MngConfig(
+        prefix=mng_test_prefix,
+        default_host_dir=temp_host_dir,
+    )
+    with ConcurrencyGroup(name="test-version-match") as cg:
+        ctx = make_mng_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, host = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True, version="2.1.50"),
+        )
+
+        # Simulate a local host where claude is installed at the correct version.
+        # Use a SimpleNamespace for execute_command but use the real host for
+        # everything else via the real host (readiness hooks, etc.)
+        _init_git_with_gitignore(agent.work_dir)
+
+        # Patch _check_claude_installed and _get_claude_version to simulate correct version
+        with (
+            patch(
+                "imbue.mng.agents.default_plugins.claude_agent._check_claude_installed",
+                return_value=True,
+            ),
+            patch(
+                "imbue.mng.agents.default_plugins.claude_agent._get_claude_version",
+                return_value="2.1.50",
+            ),
+        ):
+            options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+            # Should not raise
+            agent.provision(host=host, options=options, mng_ctx=ctx)
+
+
+def test_provision_does_not_check_version_when_not_pinned(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """provision should not check version when version is not pinned."""
+    agent, host = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=True, version=None),
+    )
+
+    _init_git_with_gitignore(agent.work_dir)
+
+    with patch(
+        "imbue.mng.agents.default_plugins.claude_agent._check_claude_installed",
+        return_value=True,
+    ) as mock_check:
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+        agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
+
+    mock_check.assert_called_once()
+
+
+def test_install_claude_passes_version_to_command(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """_install_claude should pass the version to the install script via bash -s."""
+    # Track what command was executed
+    executed_commands: list[str] = []
+
+    def mock_execute_command(cmd: str, *args: object, **kwargs: object) -> SimpleNamespace:
+        executed_commands.append(cmd)
+        return SimpleNamespace(success=True, stdout="", stderr="")
+
+    mock_host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=mock_execute_command,
+        ),
+    )
+
+    _install_claude(mock_host, version="2.1.50")
+
+    assert len(executed_commands) == 1
+    assert "bash -s 2.1.50" in executed_commands[0]
+
+
+def test_install_claude_without_version(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+) -> None:
+    """_install_claude should not pass -s flag when no version is specified."""
+    executed_commands: list[str] = []
+
+    def mock_execute_command(cmd: str, *args: object, **kwargs: object) -> SimpleNamespace:
+        executed_commands.append(cmd)
+        return SimpleNamespace(success=True, stdout="", stderr="")
+
+    mock_host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=mock_execute_command,
+        ),
+    )
+
+    _install_claude(mock_host, version=None)
+
+    assert len(executed_commands) == 1
+    assert "bash -s" not in executed_commands[0]
+    assert "install.sh | bash" in executed_commands[0]

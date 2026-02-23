@@ -33,9 +33,11 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && echo 'PATH="/root/.local/bin:$PATH"' >> /root/.bashrc
 ENV PATH="/root/.local/bin:$PATH"
 
-# Install claude code
-RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( cat /tmp/install_claude.sh | bash && echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc ) || ( cat /tmp/install_claude.sh && exit 1 )
+# Install claude code (pass CLAUDE_CODE_VERSION as a build arg to pin a specific version)
+ARG CLAUDE_CODE_VERSION=""
+RUN curl -fsSL https://claude.ai/install.sh > /tmp/install_claude.sh && ( if [ -n "$CLAUDE_CODE_VERSION" ]; then cat /tmp/install_claude.sh | bash -s "$CLAUDE_CODE_VERSION"; else cat /tmp/install_claude.sh | bash; fi && echo 'PATH="/root/.claude/local/bin:$PATH"' >> /root/.bashrc ) || ( cat /tmp/install_claude.sh && exit 1 )
 ENV PATH="/root/.claude/local/bin:$PATH"
+ENV CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}
 
 # without this, there are some annoying bugs on modal's side with snapshotting
 ENV UV_LINK_MODE=copy
