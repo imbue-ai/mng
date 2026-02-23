@@ -149,20 +149,20 @@ def update_internal_dep_pins(all_versions: dict[str, str]) -> list[str]:
             continue
         doc = tomlkit.loads(pkg.pyproject_path.read_text())
         project = cast(dict[str, Any], doc["project"])
-        deps: list[str] = list(project["dependencies"])
+        # Modify the tomlkit array in-place to preserve formatting and comments
+        deps = project["dependencies"]
         is_changed = False
-        for idx, dep_str in enumerate(deps):
+        for idx in range(len(deps)):
+            dep_str = str(deps[idx])
             dep_name = parse_dep_name(dep_str)
             dep_normalized = normalize_pypi_name(dep_name)
             if dep_normalized in all_versions:
-                # Reconstruct using the original casing from PACKAGE_BY_PYPI_NAME
                 canonical_name = PACKAGE_BY_PYPI_NAME[dep_normalized].pypi_name
                 new_dep = f"{canonical_name}=={all_versions[dep_normalized]}"
-                if deps[idx] != new_dep:
+                if dep_str != new_dep:
                     deps[idx] = new_dep
                     is_changed = True
         if is_changed:
-            project["dependencies"] = deps
             pkg.pyproject_path.write_text(tomlkit.dumps(doc))
             modified.append(pkg.pypi_name)
     return modified
