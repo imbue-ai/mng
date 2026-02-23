@@ -1,31 +1,82 @@
+import re
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 REPO_ROOT: Final[Path] = Path(__file__).parent.parent
 
-PUBLISHABLE_PACKAGE_PYPROJECT_PATHS: Final[list[Path]] = [
-    REPO_ROOT / "libs" / "mng" / "pyproject.toml",
-    REPO_ROOT / "libs" / "imbue_common" / "pyproject.toml",
-    REPO_ROOT / "libs" / "concurrency_group" / "pyproject.toml",
-    REPO_ROOT / "libs" / "mng_pair" / "pyproject.toml",
-    REPO_ROOT / "libs" / "mng_opencode" / "pyproject.toml",
-]
+
+@dataclass(frozen=True)
+class PackageInfo:
+    """Metadata for a publishable package and its internal dependencies."""
+
+    dir_name: str
+    pypi_name: str
+    internal_deps: tuple[str, ...]
+
+    @property
+    def pyproject_path(self) -> Path:
+        return REPO_ROOT / "libs" / self.dir_name / "pyproject.toml"
+
+
+# Hard-coded dependency graph. Validated by tests against actual pyproject.toml files.
+PACKAGES: Final[tuple[PackageInfo, ...]] = (
+    PackageInfo(dir_name="imbue_common", pypi_name="imbue-common", internal_deps=()),
+    PackageInfo(dir_name="concurrency_group", pypi_name="concurrency-group", internal_deps=("imbue-common",)),
+    PackageInfo(dir_name="mng", pypi_name="mng", internal_deps=("imbue-common", "concurrency-group")),
+    PackageInfo(dir_name="mng_pair", pypi_name="mng-pair", internal_deps=("mng",)),
+    PackageInfo(dir_name="mng_opencode", pypi_name="mng-opencode", internal_deps=("mng",)),
+)
+
+PACKAGE_BY_PYPI_NAME: Final[dict[str, PackageInfo]] = {pkg.pypi_name: pkg for pkg in PACKAGES}
+
+PUBLISHABLE_PACKAGE_PYPROJECT_PATHS: Final[list[Path]] = [pkg.pyproject_path for pkg in PACKAGES]
+
+
+def normalize_pypi_name(name: str) -> str:
+    """PEP 503 normalization: lowercase and replace runs of [-_.] with a single dash."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def parse_dep_name(dep_str: str) -> str:
+    """Extract the package name from a dependency string like 'foo==1.0' or 'foo>=2.0'."""
+    match = re.match(r"^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)", dep_str)
+    if match is None:
+        raise ValueError(f"Cannot parse dependency name from: {dep_str!r}")
+    return normalize_pypi_name(match.group(1))
 
 
 def get_package_versions() -> dict[str, str]:
-    """Read the version from each publishable package. Returns {name: version}."""
+    """Read the version from each publishable package. Returns {pypi_name: version}."""
     versions: dict[str, str] = {}
-    for path in PUBLISHABLE_PACKAGE_PYPROJECT_PATHS:
-        data = tomllib.loads(path.read_text())
-        versions[data["project"]["name"]] = data["project"]["version"]
+    for pkg in PACKAGES:
+        data = tomllib.loads(pkg.pyproject_path.read_text())
+        versions[pkg.pypi_name] = data["project"]["version"]
     return versions
 
 
-def check_versions_in_sync() -> str:
-    """Verify all packages have the same version. Returns the version, or raises ValueError."""
-    versions = get_package_versions()
-    unique = set(versions.values())
-    if len(unique) != 1:
-        raise ValueError(f"Version mismatch across packages: {versions}")
-    return unique.pop()
+def validate_package_graph() -> None:
+    """Assert the hard-coded graph matches actual pyproject.toml dependency declarations.
+
+    For each package, verify that every internal dep listed in PACKAGES actually appears
+    in the package's dependencies, and that no unlisted internal deps are present.
+    """
+    internal_names = {pkg.pypi_name for pkg in PACKAGES}
+
+    for pkg in PACKAGES:
+        data = tomllib.loads(pkg.pyproject_path.read_text())
+        raw_deps: list[str] = data["project"].get("dependencies", [])
+        actual_internal = {
+            normalize_pypi_name(parse_dep_name(dep))
+            for dep in raw_deps
+            if normalize_pypi_name(parse_dep_name(dep)) in internal_names
+        }
+        expected_internal = {normalize_pypi_name(name) for name in pkg.internal_deps}
+
+        if actual_internal != expected_internal:
+            raise ValueError(
+                f"Package graph mismatch for {pkg.pypi_name}: "
+                f"expected internal deps {sorted(expected_internal)}, "
+                f"got {sorted(actual_internal)}"
+            )

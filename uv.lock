@@ -1854,7 +1854,7 @@ requires-dist = [
 
 [[package]]
 name = "mng-opencode"
-version = "0.1.4"
+version = "0.1.0"
 source = { editable = "libs/mng_opencode" }
 dependencies = [
     { name = "mng" },
@@ -1865,7 +1865,7 @@ requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "mng-pair"
-version = "0.1.4"
+version = "0.1.0"
 source = { editable = "libs/mng_pair" }
 dependencies = [
     { name = "click-option-group" },

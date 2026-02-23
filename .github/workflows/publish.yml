@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g. 0.1.0). Must match the version in pyproject.toml files.'
+        description: 'Version to publish (e.g. 0.1.0). Must match the mng version in pyproject.toml.'
         required: true
         type: string
   push:
@@ -35,41 +35,84 @@ jobs:
       - name: Install build dependencies
         run: uv tool install build
 
-      - name: Verify version consistency
+      - name: Verify versions and pin consistency
         env:
           INPUT_VERSION: ${{ inputs.version }}
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
         run: |
+          # Display all package versions
+          echo "=== Package versions ==="
+          for dir in imbue_common concurrency_group mng mng_pair mng_opencode; do
+            NAME=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/${dir}/pyproject.toml', 'rb'))['project']['name'])")
+            VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/${dir}/pyproject.toml', 'rb'))['project']['version'])")
+            echo "  ${NAME}: ${VERSION}"
+          done
+
           MNG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mng/pyproject.toml', 'rb'))['project']['version'])")
-          COMMON_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/imbue_common/pyproject.toml', 'rb'))['project']['version'])")
-          CG_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/concurrency_group/pyproject.toml', 'rb'))['project']['version'])")
-          PAIR_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mng_pair/pyproject.toml', 'rb'))['project']['version'])")
-          OPENCODE_VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('libs/mng_opencode/pyproject.toml', 'rb'))['project']['version'])")
 
-          echo "mng version: $MNG_VERSION"
-          echo "imbue-common version: $COMMON_VERSION"
-          echo "concurrency-group version: $CG_VERSION"
-          echo "mng-pair version: $PAIR_VERSION"
-          echo "mng-opencode version: $OPENCODE_VERSION"
-
-          if [ "$MNG_VERSION" != "$COMMON_VERSION" ] || [ "$MNG_VERSION" != "$CG_VERSION" ] || [ "$MNG_VERSION" != "$PAIR_VERSION" ] || [ "$MNG_VERSION" != "$OPENCODE_VERSION" ]; then
-            echo "ERROR: Version mismatch across packages"
-            exit 1
-          fi
-
+          # If workflow_dispatch, verify mng version matches input
           if [ -n "$INPUT_VERSION" ] && [ "$MNG_VERSION" != "$INPUT_VERSION" ]; then
-            echo "ERROR: Input version ($INPUT_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
+            echo "ERROR: Input version ($INPUT_VERSION) does not match mng version ($MNG_VERSION)"
             exit 1
           fi
 
+          # If tag-triggered, verify mng version matches tag
           if [ "$REF_TYPE" = "tag" ]; then
             TAG_VERSION="${REF_NAME#v}"
             if [ "$MNG_VERSION" != "$TAG_VERSION" ]; then
-              echo "ERROR: Tag version ($TAG_VERSION) does not match pyproject.toml version ($MNG_VERSION)"
+              echo "ERROR: Tag version ($TAG_VERSION) does not match mng version ($MNG_VERSION)"
               exit 1
             fi
           fi
+
+          # Verify internal dependency pins are consistent
+          echo ""
+          echo "=== Pin consistency check ==="
+          uv run python -c "
+          import tomllib, re, sys
+
+          PACKAGES = [
+              ('imbue_common', 'imbue-common', []),
+              ('concurrency_group', 'concurrency-group', ['imbue-common']),
+              ('mng', 'mng', ['imbue-common', 'concurrency-group']),
+              ('mng_pair', 'mng-pair', ['mng']),
+              ('mng_opencode', 'mng-opencode', ['mng']),
+          ]
+
+          # Read all versions
+          versions = {}
+          for dir_name, pypi_name, _ in PACKAGES:
+              data = tomllib.load(open(f'libs/{dir_name}/pyproject.toml', 'rb'))
+              versions[pypi_name] = data['project']['version']
+
+          internal_names = {pypi_name for _, pypi_name, _ in PACKAGES}
+          errors = []
+
+          for dir_name, pypi_name, internal_deps in PACKAGES:
+              data = tomllib.load(open(f'libs/{dir_name}/pyproject.toml', 'rb'))
+              for dep_str in data['project'].get('dependencies', []):
+                  match = re.match(r'^([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)', dep_str)
+                  if not match:
+                      continue
+                  dep_name = re.sub(r'[-_.]+', '-', match.group(1)).lower()
+                  if dep_name not in internal_names:
+                      continue
+                  pin_match = re.search(r'==(.+)$', dep_str)
+                  if not pin_match:
+                      errors.append(f'{pypi_name}: internal dep {dep_name} not pinned: {dep_str}')
+                      continue
+                  pinned = pin_match.group(1)
+                  expected = versions[dep_name]
+                  if pinned != expected:
+                      errors.append(f'{pypi_name}: pin for {dep_name} is {pinned} but actual version is {expected}')
+
+          if errors:
+              for e in errors:
+                  print(f'ERROR: {e}')
+              sys.exit(1)
+          print('All internal dependency pins are consistent.')
+          "
 
       - name: Build imbue-common
         run: pyproject-build libs/imbue_common -o dist/
