@@ -28,7 +28,7 @@ def _get_host_dir() -> Path:
 def _read_agent_names_from_cache() -> list[str]:
     """Read agent names from the completion cache file.
 
-    Reads {host_dir}/.completion_cache.json and returns the "names" list.
+    Reads {host_dir}/.agent_completions.json and returns the "names" list.
     The cache is written by list_agents() in the API layer.
 
     Returns an empty list if the cache does not exist, is malformed, or any error occurs.
