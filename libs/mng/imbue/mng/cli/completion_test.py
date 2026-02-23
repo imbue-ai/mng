@@ -1,12 +1,12 @@
 import json
 import os
 import shutil
-import subprocess
 import time
 from pathlib import Path
 from typing import Any
 
 import click
+import psutil
 import pytest
 from click.shell_completion import CompletionItem
 
@@ -207,48 +207,47 @@ def test_trigger_background_cache_refresh_does_not_raise_with_no_cache(
 @pytest.mark.timeout(30)
 def test_trigger_background_cache_refresh_throttles_spawning(
     temp_host_dir: Path,
-    mng_test_root_name: str,
+    disable_modal_for_subprocesses: Path,
 ) -> None:
     """Stale cache triggers a refresh that updates the file; fresh cache does not."""
     if shutil.which("mng") is None:
         pytest.skip("mng not on PATH")
 
-    # The spawned subprocess inherits our env, including MNG_ROOT_NAME. Write a
-    # local settings file that disables Modal so `mng list` can succeed without
-    # real provider credentials. The config loader walks up to the git worktree
-    # root, so the file must be placed there (not in the pytest CWD).
-    git_root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
-    config_dir = git_root / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = config_dir / "settings.local.toml"
-    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
 
-    try:
-        cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+    # -- Stale cache: the spawned `mng list` should rewrite the cache file --
+    _write_cache(temp_host_dir, ["agent"])
+    old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
+    os.utime(cache_path, (old_time, old_time))
+    stale_mtime = cache_path.stat().st_mtime
 
-        # -- Stale cache: the spawned `mng list` should rewrite the cache file --
-        _write_cache(temp_host_dir, ["agent"])
-        old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
-        os.utime(cache_path, (old_time, old_time))
-        stale_mtime = cache_path.stat().st_mtime
+    _trigger_background_cache_refresh()
 
-        _trigger_background_cache_refresh()
+    wait_for(
+        lambda: cache_path.stat().st_mtime != stale_mtime,
+        timeout=15.0,
+        error_message="Stale cache should trigger a background refresh that updates the file",
+    )
 
-        wait_for(
-            lambda: cache_path.stat().st_mtime != stale_mtime,
-            timeout=15.0,
-            error_message="Stale cache should trigger a background refresh that updates the file",
-        )
+    # -- Fresh cache: calling again immediately should be throttled --
+    fresh_mtime = cache_path.stat().st_mtime
 
-        # -- Fresh cache: calling again immediately should be throttled --
-        fresh_mtime = cache_path.stat().st_mtime
+    _trigger_background_cache_refresh()
 
-        _trigger_background_cache_refresh()
+    assert cache_path.stat().st_mtime == fresh_mtime, "Fresh cache should prevent spawning"
 
-        assert cache_path.stat().st_mtime == fresh_mtime, "Fresh cache should prevent spawning"
-    finally:
-        settings_path.unlink(missing_ok=True)
-        config_dir.rmdir()
+    # Wait for the background process to exit so the conftest teardown doesn't
+    # report it as a leaked child process.
+    def _no_mng_list_children() -> bool:
+        for child in psutil.Process().children(recursive=True):
+            try:
+                if "mng" in " ".join(child.cmdline()) and "list" in " ".join(child.cmdline()):
+                    return False
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        return True
+
+    wait_for(_no_mng_list_children, timeout=10.0, error_message="Spawned mng list process did not exit")
 
 
 # =============================================================================
