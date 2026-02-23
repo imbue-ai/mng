@@ -205,7 +205,7 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run acceptance tests
-        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "acceptance"' --no-cov -v --tb=short --durations=0 --splits 16 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "acceptance"' --no-cov -v --tb=short --splits 16 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
       - name: Upload test timing data
         if: always()
