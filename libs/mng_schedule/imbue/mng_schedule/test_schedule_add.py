@@ -37,7 +37,7 @@ def _build_subprocess_env() -> dict[str, str]:
     return env
 
 
-@pytest.mark.acceptance
+@pytest.mark.release
 @pytest.mark.timeout(600)
 def test_schedule_add_deploys_to_modal() -> None:
     """Test that schedule add successfully deploys a cron function to Modal.
