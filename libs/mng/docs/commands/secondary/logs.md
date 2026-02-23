@@ -9,28 +9,26 @@
 mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
 ```
 
+View log files from an agent or host [experimental].
 
-View log files from an agent or host. [experimental]
+TARGET identifies an agent (by name or ID) or a host (by name or ID).
+The command first tries to match TARGET as an agent, then as a host.
 
-TARGET is an agent name/ID or host name/ID. If a log file name is not
-specified, lists all available log files.
+If LOG_FILE is not specified, lists all available log files.
+If LOG_FILE is specified, prints its contents.
 
-When listing files, supports custom format templates via --format.
-Available fields: name, size.
+In follow mode (--follow), the command uses tail -f for real-time
+streaming when the host is online (locally or via SSH). When the host
+is offline, it falls back to polling the volume for new content.
+Press Ctrl+C to stop.
 
-Examples:
-  mng logs my-agent
-  mng logs my-agent output.log
-  mng logs my-agent output.log --tail 50
-  mng logs my-agent output.log --follow
-  mng logs my-agent --format '{name}\t{size}'
+When listing files, supports custom format templates via --format. Available fields: name, size.
 
 **Usage:**
 
 ```text
 mng logs [OPTIONS] TARGET [LOG_FILENAME]
 ```
-
 ## Arguments
 
 - `TARGET`: Agent or host name/ID whose logs to view
@@ -62,11 +60,6 @@ mng logs [OPTIONS] TARGET [LOG_FILENAME]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also
@@ -98,4 +91,10 @@ $ mng logs my-agent output.log --tail 50
 
 ```bash
 $ mng logs my-agent output.log --follow
+```
+
+**List files with custom format template**
+
+```bash
+$ mng logs my-agent --format '{name}\t{size}'
 ```

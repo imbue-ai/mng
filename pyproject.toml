@@ -31,7 +31,6 @@ dev = [
     "semver>=3.0",
     "tomlkit>=0.12.0",
     "imbue-common[dev]",
-    "mkdocs-click>=0.9.0",
 ]
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)

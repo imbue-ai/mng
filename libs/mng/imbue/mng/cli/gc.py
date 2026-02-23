@@ -16,7 +16,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -134,20 +133,6 @@ class GcCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def gc(ctx: click.Context, **kwargs) -> None:
-    """Garbage collect unused resources.
-
-    Automatically removes unused resources from providers and mng itself.
-
-    Examples:
-
-      mng gc --work-dirs --dry-run
-
-      mng gc --all-agent-resources
-
-      mng gc --machines --snapshots --provider docker
-
-      mng gc --logs --build-cache
-    """
     try:
         _gc_impl(ctx, **kwargs)
     except AbortError as e:
@@ -453,13 +438,11 @@ def _get_selected_providers(mng_ctx: MngContext, opts: GcCliOptions) -> list[Pro
 
 
 # Register help metadata for git-style help formatting
-_GC_HELP_METADATA = CommandHelpMetadata(
-    name="mng-gc",
+CommandHelpMetadata(
+    key="gc",
     one_line_description="Garbage collect unused resources",
     synopsis="mng gc [OPTIONS]",
-    description="""Garbage collect unused resources.
-
-Automatically removes containers, old snapshots, unused hosts, cached images,
+    description="""Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.
 
 `mng destroy` automatically cleans up resources when an agent is deleted.
@@ -476,9 +459,7 @@ resources at any time.""",
         ("destroy", "Destroy agents (includes automatic GC)"),
         ("list", "List agents to find unused resources"),
     ),
-)
-
-register_help_metadata("gc", _GC_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the gc command
 add_pager_help_option(gc)
