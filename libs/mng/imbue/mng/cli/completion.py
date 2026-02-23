@@ -145,43 +145,35 @@ def read_cached_commands() -> list[str] | None:
     """Read cached top-level command names from the completions cache.
 
     Returns a sorted list of command names (including aliases), or None if the
-    cache does not exist or is malformed. Never raises -- shell completion must
-    not interfere with normal CLI operation.
+    cache does not exist or is malformed.
     """
-    try:
-        data = _read_cli_completions_file()
-        if data is None:
-            return None
-        commands = data.get("commands")
-        if not isinstance(commands, list):
-            return None
-        result = [name for name in commands if isinstance(name, str) and name]
-        return sorted(result) if result else None
-    except Exception:
+    data = _read_cli_completions_file()
+    if data is None:
         return None
+    commands = data.get("commands")
+    if not isinstance(commands, list):
+        return None
+    result = [name for name in commands if isinstance(name, str) and name]
+    return sorted(result) if result else None
 
 
 def read_cached_subcommands(command_name: str) -> list[str] | None:
     """Read cached subcommand names for a given parent command.
 
     Returns a sorted list of subcommand names, or None if the cache does not
-    exist, is malformed, or the command has no cached subcommands. Never
-    raises -- shell completion must not interfere with normal CLI operation.
+    exist, is malformed, or the command has no cached subcommands.
     """
-    try:
-        data = _read_cli_completions_file()
-        if data is None:
-            return None
-        subcommand_by_command = data.get("subcommand_by_command")
-        if not isinstance(subcommand_by_command, dict):
-            return None
-        subcommands = subcommand_by_command.get(command_name)
-        if not isinstance(subcommands, list):
-            return None
-        result = [name for name in subcommands if isinstance(name, str) and name]
-        return sorted(result) if result else None
-    except Exception:
+    data = _read_cli_completions_file()
+    if data is None:
         return None
+    subcommand_by_command = data.get("subcommand_by_command")
+    if not isinstance(subcommand_by_command, dict):
+        return None
+    subcommands = subcommand_by_command.get(command_name)
+    if not isinstance(subcommands, list):
+        return None
+    result = [name for name in subcommands if isinstance(name, str) and name]
+    return sorted(result) if result else None
 
 
 class CachedCompletionGroup(click.Group):
@@ -194,9 +186,12 @@ class CachedCompletionGroup(click.Group):
     _completion_cache_key: str
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached = read_cached_subcommands(self._completion_cache_key)
-        if cached is not None:
-            completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-            return completions
+        try:
+            cached = read_cached_subcommands(self._completion_cache_key)
+            if cached is not None:
+                completions = [CompletionItem(name) for name in cached if name.startswith(incomplete)]
+                completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+                return completions
+        except Exception:
+            pass
         return super().shell_complete(ctx, incomplete)

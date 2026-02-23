@@ -162,13 +162,21 @@ class AliasAwareGroup(DefaultCommandGroup):
                 formatter.write_dl(rows)
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        cached_commands = read_cached_commands()
-        if cached_commands is not None:
-            completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
-            # Include option completions (--help, --version) from the base Command class
-            completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-        else:
-            completions = super().shell_complete(ctx, incomplete)
+        try:
+            cached_commands = read_cached_commands()
+            if cached_commands is not None:
+                completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
+                # Include option completions (--help, --version) from the base Command class
+                completions.extend(click.Command.shell_complete(self, ctx, incomplete))
+                completed_names = {item.value for item in completions}
+                return [
+                    item
+                    for item in completions
+                    if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
+                ]
+        except Exception:
+            pass
+        completions = super().shell_complete(ctx, incomplete)
         completed_names = {item.value for item in completions}
         return [
             item
