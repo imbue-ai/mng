@@ -87,6 +87,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
+from imbue.mng.providers.ssh_host_setup import DEFAULT_DOCKERFILE_CONTENTS
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -942,7 +943,10 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            image = modal.Image.debian_slim()
+            image = _build_image_from_dockerfile_contents(
+                DEFAULT_DOCKERFILE_CONTENTS,
+                is_each_layer_cached=True,
+            )
 
         return image
 
@@ -1609,10 +1613,9 @@ log "=== Shutdown script completed ==="
 
         if not base_image and not dockerfile_path:
             logger.warning(
-                "No image or Dockerfile specified -- using bare default image (debian slim). "
-                "This image does not include tools needed by mng (ssh, tmux, etc.) "
-                "and they will be installed at runtime. Consider specifying a Dockerfile "
-                "with -b --dockerfile=<path> or an image with -b --image=<image>.",
+                "No image or Dockerfile specified -- building from mng default Dockerfile. "
+                "Consider using your own Dockerfile (-b --dockerfile=<path>) to include "
+                "your project's dependencies for faster startup.",
             )
 
         try:

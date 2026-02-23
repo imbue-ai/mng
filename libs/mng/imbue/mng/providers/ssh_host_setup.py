@@ -8,6 +8,24 @@ from imbue.mng import resources
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNG_WARN:"
 
+# Base image used by the default Dockerfile when no image or Dockerfile is specified.
+DEFAULT_BASE_IMAGE: Final[str] = "debian:bookworm-slim"
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = f"""\
+FROM {DEFAULT_BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    curl \\
+    git \\
+    jq \\
+    openssh-server \\
+    rsync \\
+    tmux \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
 
 @pure
 def get_user_ssh_dir(user: str) -> Path:
