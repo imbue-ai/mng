@@ -40,7 +40,14 @@ Plugins implement these to register new capabilities with mng. They are called o
 | `register_provider_backend`  | Register a new provider backend (e.g., cloud platforms)                                                        |
 | `register_cli_commands`      | Define an entirely new CLI command                                                                             |
 | `register_cli_options`       | Add custom CLI options to any existing command's schema so that they appear in `--help`                        |
-| `get_files_for_deploy`       | Return files to bake into scheduled deployment images (e.g., config files, settings). Paths must start with `~`. [experimental] |
+
+### Deployment hooks
+
+Called during `mng schedule add` to collect files for baking into scheduled deployment images:
+
+| Hook                         | Description                                                                                                    |
+|------------------------------|----------------------------------------------------------------------------------------------------------------|
+| `get_files_for_deploy`       | Return files to include in scheduled deployment images (e.g., config files, settings). Destination paths must start with `~`. [experimental] |
 
 ### Program lifecycle hooks
 
