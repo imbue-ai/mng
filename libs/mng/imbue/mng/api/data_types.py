@@ -24,6 +24,7 @@ from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostNameStyle
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotName
@@ -163,8 +164,13 @@ class NewHostOptions(FrozenModel):
     provider: ProviderInstanceName = Field(
         description="Provider to use for creating the host (docker, modal, local, ...)",
     )
-    name: HostName = Field(
-        description="Name for the new host",
+    name: HostName | None = Field(
+        default=None,
+        description="Name for the new host (None means use provider default or auto-generate)",
+    )
+    name_style: HostNameStyle = Field(
+        default=HostNameStyle.ASTRONOMY,
+        description="Style for auto-generated host name (used when name is None and provider has no default)",
     )
     tags: dict[str, str] = Field(
         default_factory=dict,

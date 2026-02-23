@@ -186,12 +186,16 @@ def resolve_target_host(
     """Resolve which host to use for the agent."""
     if target_host is not None and isinstance(target_host, NewHostOptions):
         # Create a new host using the specified provider
-        with log_span("Calling on_before_host_create hooks"):
-            mng_ctx.pm.hook.on_before_host_create(name=target_host.name, provider_name=target_host.provider)
         provider = get_provider_instance(target_host.provider, mng_ctx)
+        host_name = (
+            target_host.name if target_host.name is not None else provider.get_host_name(target_host.name_style)
+        )
+
+        with log_span("Calling on_before_host_create hooks"):
+            mng_ctx.pm.hook.on_before_host_create(name=host_name, provider_name=target_host.provider)
         with log_span(
             "Creating new host '{}' using provider '{}'",
-            target_host.name,
+            host_name,
             target_host.provider,
             tags=target_host.tags,
             build_args=target_host.build.build_args,
@@ -200,7 +204,7 @@ def resolve_target_host(
             known_hosts_count=len(target_host.environment.known_hosts),
         ):
             new_host = provider.create_host(
-                name=target_host.name,
+                name=host_name,
                 tags=target_host.tags,
                 build_args=target_host.build.build_args,
                 start_args=target_host.build.start_args,
