@@ -502,7 +502,10 @@ def test_find_repo_root_returns_path_in_git_repo(imbue_repo_cwd: Path) -> None:
 
 
 def test_find_repo_root_raises_outside_git_repo() -> None:
-    """When called from outside a git repo, ChangelingDeployError should be raised."""
+    """When called from outside a git repo, ChangelingDeployError should be raised.
+
+    The autouse _isolated_home fixture chdirs to tmp_path (not a git repo).
+    """
     with pytest.raises(ChangelingDeployError, match="Could not find git repository root"):
         find_repo_root()
 
@@ -519,6 +522,7 @@ def test_get_imbue_commit_hash_returns_hex_string(imbue_repo_cwd: Path) -> None:
 
 
 def test_get_imbue_commit_hash_raises_outside_git_repo() -> None:
+    """The autouse _isolated_home fixture chdirs to tmp_path (not a git repo)."""
     with pytest.raises(ChangelingDeployError, match="Could not get current commit hash"):
         get_imbue_commit_hash()
 
@@ -541,6 +545,7 @@ def test_get_imbue_repo_url_returns_https_url(imbue_repo_cwd: Path) -> None:
 
 
 def test_get_imbue_repo_url_raises_outside_git_repo() -> None:
+    """The autouse _isolated_home fixture chdirs to tmp_path (not a git repo)."""
     with pytest.raises(ChangelingDeployError, match="Could not get repository clone URL"):
         get_imbue_repo_url()
 
