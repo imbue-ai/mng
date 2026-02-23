@@ -7,6 +7,8 @@ module ensures hooks are only registered once even when multiple conftest.py fil
 are discovered (e.g., when running from the monorepo root).
 """
 
+import pytest
+
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
 from imbue.mng.utils.logging import suppress_warnings
 
@@ -15,3 +17,37 @@ suppress_warnings()
 
 # Register the common conftest hooks (locking, timing, output file redirection)
 register_conftest_hooks(globals())
+
+
+@pytest.fixture(autouse=True)
+def set_junit_classname_to_filepath(request, record_xml_attribute):
+    """Set JUnit XML classname to match the file-based test ID from monorepo root.
+
+    This ensures consistent classnames regardless of PYTHONPATH configuration or
+    pytest rootdir. Without this, pytest may report different classnames depending
+    on how the test module is imported, causing test counting issues in parallel
+    test runners like offload.
+
+    The classname is derived from the absolute file path, made relative to the
+    monorepo root (e.g., 'libs/mng/imbue/mng/cli/test_plugin.py' becomes
+    'libs.mng.imbue.mng.cli.test_plugin').
+    """
+    import os
+
+    fspath = str(request.node.fspath)
+
+    # Find the monorepo root by looking for libs/ or apps/ directories
+    mng_root = None
+    path_parts = fspath.split(os.sep)
+    for i, part in enumerate(path_parts):
+        if part in ("libs", "apps") and i + 1 < len(path_parts):
+            mng_root = os.sep.join(path_parts[:i])
+            break
+
+    if mng_root and fspath.startswith(mng_root):
+        rel_path = os.path.relpath(fspath, mng_root)
+    else:
+        rel_path = request.node.nodeid.split("::")[0]
+
+    classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
+    record_xml_attribute("classname", classname)

@@ -542,6 +542,43 @@ def _print_test_durations_for_ci(
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _set_junit_classname_to_filepath(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML classname to match the file-based test ID from monorepo root.
+
+    This ensures consistent classnames regardless of PYTHONPATH configuration or
+    pytest rootdir. Without this, pytest may report different classnames depending
+    on how the test module is imported, causing test counting issues in parallel
+    test runners like offload.
+
+    The classname is derived from the absolute file path, made relative to the
+    monorepo root (e.g., 'libs/mng/imbue/mng/cli/test_plugin.py' becomes
+    'libs.mng.imbue.mng.cli.test_plugin').
+    """
+    fspath = str(request.node.fspath)
+
+    # Find the monorepo root by looking for libs/ or apps/ directories
+    mng_root = None
+    path_parts = fspath.split(os.sep)
+    for i, part in enumerate(path_parts):
+        if part in ("libs", "apps") and i + 1 < len(path_parts):
+            mng_root = os.sep.join(path_parts[:i])
+            break
+
+    if mng_root and fspath.startswith(mng_root):
+        rel_path = os.path.relpath(fspath, mng_root)
+    else:
+        rel_path = request.node.nodeid.split("::")[0]
+
+    classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
+    record_xml_attribute("classname", classname)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -567,3 +604,5 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    # Register the JUnit classname fixture (with public name for pytest discovery)
+    namespace["set_junit_classname_to_filepath"] = _set_junit_classname_to_filepath
