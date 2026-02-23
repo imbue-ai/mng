@@ -8,15 +8,18 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 - ALWAYS run commands by calling "uv run" from the root of the git checkout (ex: "uv run mng create ..."). Do NOT call "mng" directly (it will refer to the wrong version).
 - NEVER amend commits or rebase--always create new commits.
 
+# Style guide (applies to all projects):
+
+@style_guide.md
+
 # How to get started on any task:
 
-Always begin your session by reading all documentation in the docs/ directory of the project you are working on. These represent *user-facing* documentation and are the most important to understand.
+The following files are automatically injected into the system prompt via CLAUDE.md files in each project directory (you do NOT need to read them manually):
+- User-facing documentation (docs/)
+- README.md files
+- Core source files (primitives, errors, interfaces, utils, data_types)
 
-Once you've read these once during a session, there's no need to re-read them unless explicitly instructed to do so.
-
-If you will be writing code, be sure to read the style_guide.md for the project. Then read all README.md files in the relevant project directories, as well as all `.py` files at the root of the project you are working on (ex: `primitives.py`, etc.). Also read everything in data_types, interfaces, and utils to ensure you understand the core abstractions.
-
-Then take a look at the other code directories, and based on the task, determine which files are most relevant to read in depth. Be sure to read the full contents from those files.
+When working on a task, take a look at the code directories beyond what is already injected, and based on the task, determine which files are most relevant to read in depth. Be sure to read the full contents from those files.
 
 Do NOT read files that end with "_test.py" during this first pass as they contain unit tests (unless you are explicitly instructed to read the unit tests).
 
