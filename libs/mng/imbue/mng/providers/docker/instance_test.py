@@ -8,7 +8,6 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.primitives import VolumeId
 from imbue.mng.providers.docker.instance import CONTAINER_SSH_PORT
 from imbue.mng.providers.docker.instance import DockerProviderInstance
 from imbue.mng.providers.docker.instance import LABEL_HOST_ID
@@ -274,96 +273,59 @@ def test_list_volumes_returns_empty_when_no_volumes_dir(
     assert provider.list_volumes() == []
 
 
-def test_list_volumes_handles_host_directories(
+def test_list_volumes_discovers_vol_directories(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """list_volumes handles host-* directories without crashing."""
+    """list_volumes returns VolumeInfo for vol-* directories."""
     provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
-    host_dir = tmp_path / "volumes" / HOST_ID_A
-    host_dir.mkdir(parents=True)
-
-    volumes = provider.list_volumes()
-    assert len(volumes) == 1
-    assert volumes[0].name == HOST_ID_A
-    assert volumes[0].host_id == HostId(HOST_ID_A)
-    assert volumes[0].volume_id.startswith("vol-")
-
-
-def test_list_volumes_handles_vol_directories(
-    temp_mng_ctx: MngContext,
-    tmp_path: Path,
-) -> None:
-    """list_volumes handles vol-* directories."""
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
-    vol_id = VolumeId.generate()
-    vol_dir = tmp_path / "volumes" / str(vol_id)
-    vol_dir.mkdir(parents=True)
-
-    volumes = provider.list_volumes()
-    assert len(volumes) == 1
-    assert volumes[0].name == str(vol_id)
-    assert volumes[0].host_id is None
-
-
-def test_list_volumes_handles_mixed_directories(
-    temp_mng_ctx: MngContext,
-    tmp_path: Path,
-) -> None:
-    """list_volumes handles a mix of host-* and vol-* directories."""
-    provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
-    (tmp_path / "volumes" / HOST_ID_A).mkdir(parents=True)
-    (tmp_path / "volumes" / HOST_ID_B).mkdir(parents=True)
-    vol_id = VolumeId.generate()
+    vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
     (tmp_path / "volumes" / str(vol_id)).mkdir(parents=True)
 
     volumes = provider.list_volumes()
-    assert len(volumes) == 3
-
-    host_volumes = [v for v in volumes if v.host_id is not None]
-    non_host_volumes = [v for v in volumes if v.host_id is None]
-    assert len(host_volumes) == 2
-    assert len(non_host_volumes) == 1
+    assert len(volumes) == 1
+    assert volumes[0].volume_id == vol_id
+    assert volumes[0].host_id == HostId(HOST_ID_A)
 
 
-def test_delete_volume_removes_host_directory(
+def test_list_volumes_discovers_multiple(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """delete_volume removes a host-* volume directory."""
+    """list_volumes returns all vol-* directories."""
     provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
-    host_dir = tmp_path / "volumes" / HOST_ID_A
-    host_dir.mkdir(parents=True)
+    vol_a = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    vol_b = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_B))
+    (tmp_path / "volumes" / str(vol_a)).mkdir(parents=True)
+    (tmp_path / "volumes" / str(vol_b)).mkdir(parents=True)
 
     volumes = provider.list_volumes()
-    assert len(volumes) == 1
-
-    provider.delete_volume(volumes[0].volume_id)
-
-    assert provider.list_volumes() == []
-    assert not host_dir.exists()
+    assert len(volumes) == 2
+    assert {v.volume_id for v in volumes} == {vol_a, vol_b}
 
 
-def test_delete_volume_raises_when_not_found(
+def test_delete_volume_removes_directory(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """delete_volume raises MngError for nonexistent volume."""
+    """delete_volume removes a volume directory."""
     provider = _make_provider_with_local_state_volume(temp_mng_ctx, tmp_path)
-    (tmp_path / "volumes").mkdir(parents=True)
-    with pytest.raises(MngError, match="not found"):
-        provider.delete_volume(VolumeId.generate())
+    vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    vol_dir = tmp_path / "volumes" / str(vol_id)
+    vol_dir.mkdir(parents=True)
+
+    provider.delete_volume(vol_id)
+    assert not vol_dir.exists()
 
 
-def test_volume_id_for_dir_is_deterministic() -> None:
-    """_volume_id_for_dir returns the same VolumeId for the same directory name."""
-    id1 = DockerProviderInstance._volume_id_for_dir("host-abc123")
-    id2 = DockerProviderInstance._volume_id_for_dir("host-abc123")
-    assert id1 == id2
+def test_volume_id_for_host_is_deterministic() -> None:
+    """_volume_id_for_host returns the same VolumeId for the same HostId."""
+    host_id = HostId(HOST_ID_A)
+    assert DockerProviderInstance._volume_id_for_host(host_id) == DockerProviderInstance._volume_id_for_host(host_id)
 
 
-def test_volume_id_for_dir_differs_for_different_names() -> None:
-    """_volume_id_for_dir returns different VolumeIds for different names."""
-    id1 = DockerProviderInstance._volume_id_for_dir("host-abc123")
-    id2 = DockerProviderInstance._volume_id_for_dir("host-def456")
+def test_volume_id_for_host_differs_for_different_hosts() -> None:
+    """_volume_id_for_host returns different VolumeIds for different HostIds."""
+    id1 = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    id2 = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_B))
     assert id1 != id2

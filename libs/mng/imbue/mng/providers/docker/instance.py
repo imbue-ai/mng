@@ -1,7 +1,6 @@
 import json
 import os
 import subprocess
-import uuid
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -87,9 +86,6 @@ LABEL_TAGS: Final[str] = f"{LABEL_PREFIX}tags"
 # Path where the state volume is mounted inside host containers (when host volume is enabled).
 # The host_dir (e.g. /mng) is symlinked to <this>/<host_id> so all data persists on the volume.
 HOST_VOLUME_MOUNT_PATH: Final[str] = STATE_VOLUME_MOUNT_PATH
-
-# Namespace for generating deterministic VolumeIds from directory names.
-_DOCKER_VOLUME_ID_NAMESPACE: Final[uuid.UUID] = uuid.UUID("c8f2a5b3-3e6d-4901-bcde-234567890def")
 
 # SSH constants
 CONTAINER_SSH_PORT: Final[int] = 22
@@ -225,7 +221,7 @@ class DockerProviderInstance(BaseProviderInstance):
 
         Returns None when host volumes are disabled. When enabled, returns
         '<volume_name>:<mount_path>:rw' so the container can read/write the
-        shared state volume (where per-host data lives under volumes/<host_id>/).
+        shared state volume (where per-host data lives under volumes/vol-<host_hex>/).
         """
         if not self.config.is_host_volume_created:
             return None
@@ -235,11 +231,12 @@ class DockerProviderInstance(BaseProviderInstance):
         """Get the path inside a container that host_dir should symlink to.
 
         Returns the per-host sub-folder of the volume mount, e.g.
-        /mng-state/volumes/<host_id>. Returns None when host volumes are disabled.
+        /mng-state/volumes/vol-<host_hex>. Returns None when host volumes are disabled.
         """
         if not self.config.is_host_volume_created:
             return None
-        return f"{HOST_VOLUME_MOUNT_PATH}/volumes/{host_id}"
+        volume_id = self._volume_id_for_host(host_id)
+        return f"{HOST_VOLUME_MOUNT_PATH}/volumes/{volume_id}"
 
     def _get_ssh_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH keypair for this provider instance."""
@@ -1063,8 +1060,9 @@ kill -TERM 1
 
         # Clean up the host volume directory
         if self.config.is_host_volume_created:
+            volume_id = self._volume_id_for_host(host_id)
             try:
-                self._state_volume.remove_directory(f"volumes/{host_id}")
+                self._state_volume.remove_directory(f"volumes/{volume_id}")
             except (FileNotFoundError, OSError, MngError) as e:
                 logger.trace("No host volume to clean up for {}: {}", host_id, e)
 
@@ -1349,14 +1347,13 @@ kill -TERM 1
     # =========================================================================
 
     @staticmethod
-    def _volume_id_for_dir(dir_name: str) -> VolumeId:
-        """Create a deterministic VolumeId from a volume directory name.
+    def _volume_id_for_host(host_id: HostId) -> VolumeId:
+        """Derive a VolumeId from a HostId.
 
-        Uses UUID5 with a fixed namespace to produce a stable 32-char hex ID
-        from any directory name.
+        Both IDs share the same 32-char hex suffix (``host-<hex>`` ->
+        ``vol-<hex>``), so the mapping is a simple prefix swap.
         """
-        derived = uuid.uuid5(_DOCKER_VOLUME_ID_NAMESPACE, dir_name)
-        return VolumeId(f"vol-{derived.hex}")
+        return VolumeId(f"vol-{host_id.get_uuid().hex}")
 
     def list_volumes(self) -> list[VolumeInfo]:
         """List logical volumes stored on the state volume."""
@@ -1368,16 +1365,13 @@ kill -TERM 1
         volumes: list[VolumeInfo] = []
         for entry in entries:
             if entry.file_type == VolumeFileType.DIRECTORY:
-                dir_name = entry.path.rsplit("/", 1)[-1]
-                # Directories are created by _ensure_host_volume_dir with a
-                # validated HostId, so the constructor call here should always
-                # succeed. If the format is wrong, it's corrupted state and we
-                # let the InvalidRandomIdError propagate.
-                host_id = HostId(dir_name) if dir_name.startswith("host-") else None
+                vol_name = entry.path.rsplit("/", 1)[-1]
+                volume_id = VolumeId(vol_name)
+                host_id = HostId(f"host-{volume_id.get_uuid().hex}")
                 volumes.append(
                     VolumeInfo(
-                        volume_id=self._volume_id_for_dir(dir_name),
-                        name=dir_name,
+                        volume_id=volume_id,
+                        name=vol_name,
                         size_bytes=0,
                         host_id=host_id,
                     )
@@ -1386,33 +1380,25 @@ kill -TERM 1
 
     def delete_volume(self, volume_id: VolumeId) -> None:
         """Delete a logical volume from the state volume."""
-        try:
-            entries = self._state_volume.listdir("volumes")
-        except (FileNotFoundError, OSError) as e:
-            raise MngError(f"Volume {volume_id} not found") from e
-        for entry in entries:
-            if entry.file_type == VolumeFileType.DIRECTORY:
-                dir_name = entry.path.rsplit("/", 1)[-1]
-                if self._volume_id_for_dir(dir_name) == volume_id:
-                    self._state_volume.remove_directory(f"volumes/{dir_name}")
-                    return
-        raise MngError(f"Volume {volume_id} not found")
+        self._state_volume.remove_directory(f"volumes/{volume_id}")
 
     def get_volume_for_host(self, host: HostInterface | HostId) -> HostVolume | None:
         """Get the host volume for a given host.
 
         Returns a HostVolume backed by a sub-folder of the state volume
-        at volumes/<host_id>/. Returns None when host volumes are disabled.
+        at volumes/vol-<host_hex>/. Returns None when host volumes are disabled.
         """
         if not self.config.is_host_volume_created:
             return None
         host_id = host.id if isinstance(host, HostInterface) else host
-        scoped_volume = self._state_volume.scoped(f"volumes/{host_id}")
+        volume_id = self._volume_id_for_host(host_id)
+        scoped_volume = self._state_volume.scoped(f"volumes/{volume_id}")
         return HostVolume(volume=scoped_volume)
 
     def _ensure_host_volume_dir(self, host_id: HostId) -> None:
         """Ensure the volume directory for a host exists on the state volume."""
-        self._state_volume.write_files({f"volumes/{host_id}/.volume": b""})
+        volume_id = self._volume_id_for_host(host_id)
+        self._state_volume.write_files({f"volumes/{volume_id}/.volume": b""})
 
     # =========================================================================
     # Tag Methods (immutable)
