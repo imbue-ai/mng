@@ -1041,7 +1041,10 @@ class Host(BaseHost, OnlineHostInterface):
                 logger.trace("Skipped git repo initialization: target already has .git")
             else:
                 with log_span("Initializing bare git repo on target"):
-                    result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
+                    init_cmd = f"git init --bare {shlex.quote(str(target_path / '.git'))}"
+                    if not self.is_local:
+                        init_cmd += f" && git config --global --add safe.directory {shlex.quote(str(target_path))}"
+                    result = self.execute_command(init_cmd)
                     if not result.success:
                         raise MngError(f"Failed to initialize git repo on target: {result.stderr}")
 
