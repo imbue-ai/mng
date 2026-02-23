@@ -328,6 +328,7 @@ def _make_host_record(
     host_id: HostId,
     host_name: str = "test-host",
     snapshots: list[SnapshotRecord] | None = None,
+    failure_reason: str | None = None,
 ) -> HostRecord:
     """Create a HostRecord for testing."""
     now = datetime.now(timezone.utc)
@@ -336,6 +337,7 @@ def _make_host_record(
         host_name=host_name,
         user_tags={},
         snapshots=snapshots or [],
+        failure_reason=failure_reason,
         created_at=now,
         updated_at=now,
     )
@@ -1803,3 +1805,18 @@ def test_check_host_name_is_unique_raises_when_name_matches_any_non_destroyed(
     ):
         with pytest.raises(HostNameConflictError):
             modal_provider._check_host_name_is_unique(HostName("host-beta"))
+
+
+def test_check_host_name_is_unique_raises_when_name_exists_on_failed_host(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_check_host_name_is_unique should raise for a failed host (not running, no snapshots, but has failure_reason)."""
+    host_id = HostId.generate()
+    failed_record = _make_host_record(host_id, host_name="failed-host", failure_reason="Build failed")
+
+    with (
+        patch.object(modal_provider, "_list_all_host_and_agent_records", return_value=([failed_record], {})),
+        patch.object(modal_provider, "_list_running_host_ids", return_value=set()),
+    ):
+        with pytest.raises(HostNameConflictError):
+            modal_provider._check_host_name_is_unique(HostName("failed-host"))

@@ -691,14 +691,20 @@ def _warn_on_duplicate_host_names(
 
     This should never happen in normal operation -- it indicates a bug or race condition
     in host creation.
+
+    Only considers hosts that have at least one agent reference, since destroyed
+    hosts (which typically have no agents) may legitimately share a name with a
+    newly created host.
     """
     # Group host names by provider, tracking which host IDs share each name
-    host_ids_by_name_and_provider: dict[tuple[ProviderInstanceName, HostName], list[HostId]] = {}
-    for host_ref in agents_by_host:
+    host_ids_by_provider_and_name: dict[tuple[ProviderInstanceName, HostName], list[HostId]] = {}
+    for host_ref, agent_refs in agents_by_host.items():
+        if not agent_refs:
+            continue
         key = (host_ref.provider_name, host_ref.host_name)
-        host_ids_by_name_and_provider.setdefault(key, []).append(host_ref.host_id)
+        host_ids_by_provider_and_name.setdefault(key, []).append(host_ref.host_id)
 
-    for (provider_name, host_name), host_ids in host_ids_by_name_and_provider.items():
+    for (provider_name, host_name), host_ids in host_ids_by_provider_and_name.items():
         if len(host_ids) > 1:
             logger.warning(
                 "Duplicate host name '{}' found on provider '{}' (host IDs: {}). "
