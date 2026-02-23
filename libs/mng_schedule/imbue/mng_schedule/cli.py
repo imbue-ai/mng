@@ -1,6 +1,7 @@
 import sys
 from enum import auto
 from typing import Any
+from typing import Final
 from typing import assert_never
 from uuid import uuid4
 
@@ -445,7 +446,7 @@ def schedule_run(ctx: click.Context, **kwargs: Any) -> None:
 # =============================================================================
 
 
-_SCHEDULE_LIST_DISPLAY_FIELDS: tuple[str, ...] = (
+_SCHEDULE_LIST_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
     "command",
     "schedule",
@@ -456,7 +457,7 @@ _SCHEDULE_LIST_DISPLAY_FIELDS: tuple[str, ...] = (
     "hostname",
 )
 
-_SCHEDULE_LIST_HEADERS: dict[str, str] = {
+_SCHEDULE_LIST_HEADERS: Final[dict[str, str]] = {
     "name": "NAME",
     "command": "COMMAND",
     "schedule": "SCHEDULE",
@@ -470,24 +471,25 @@ _SCHEDULE_LIST_HEADERS: dict[str, str] = {
 
 def _get_schedule_field_value(record: ScheduleCreationRecord, field: str) -> str:
     """Extract a display value from a ScheduleCreationRecord."""
-    if field == "name":
-        return record.trigger.name
-    elif field == "command":
-        return record.trigger.command.value.lower()
-    elif field == "schedule":
-        return record.trigger.schedule_cron
-    elif field == "enabled":
-        return "yes" if record.trigger.is_enabled else "no"
-    elif field == "provider":
-        return record.trigger.provider
-    elif field == "git_hash":
-        return record.trigger.git_image_hash[:12]
-    elif field == "created_at":
-        return record.created_at.strftime("%Y-%m-%d %H:%M")
-    elif field == "hostname":
-        return record.hostname
-    else:
-        raise SwitchError(f"Unknown schedule display field: {field}")
+    match field:
+        case "name":
+            return record.trigger.name
+        case "command":
+            return record.trigger.command.value.lower()
+        case "schedule":
+            return record.trigger.schedule_cron
+        case "enabled":
+            return "yes" if record.trigger.is_enabled else "no"
+        case "provider":
+            return record.trigger.provider
+        case "git_hash":
+            return record.trigger.git_image_hash[:12]
+        case "created_at":
+            return record.created_at.strftime("%Y-%m-%d %H:%M")
+        case "hostname":
+            return record.hostname
+        case _:
+            raise SwitchError(f"Unknown schedule display field: {field}")
 
 
 def _emit_schedule_list_human(records: list[ScheduleCreationRecord]) -> None:
