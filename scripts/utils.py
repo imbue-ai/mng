@@ -36,8 +36,6 @@ PACKAGES: Final[tuple[PackageInfo, ...]] = (
 
 PACKAGE_BY_PYPI_NAME: Final[dict[str, PackageInfo]] = {pkg.pypi_name: pkg for pkg in PACKAGES}
 
-PUBLISHABLE_PACKAGE_PYPROJECT_PATHS: Final[list[Path]] = [pkg.pyproject_path for pkg in PACKAGES]
-
 
 def normalize_pypi_name(name: str) -> str:
     """PEP 503 normalization: lowercase and replace runs of [-_.] with a single dash."""
