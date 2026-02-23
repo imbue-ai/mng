@@ -5,8 +5,9 @@
 # env vars, building the image). The runtime function runs the configured mng
 # command.
 #
-# IMPORTANT: This file must NOT import anything from imbue.* packages.
-# It runs standalone on Modal via `modal deploy`.
+# IMPORTANT: This file must NOT import from imbue.* packages that depend on
+# the mng framework. It runs standalone on Modal via `modal deploy`. The only
+# exception is staging.py, which has no framework dependencies.
 #
 # Unlike the changelings cron_runner, this version bakes the entire codebase
 # (including mng tooling) into the Docker image at deploy time via the
@@ -37,6 +38,8 @@ from pathlib import Path
 from typing import Any
 
 import modal
+
+from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
 
 # --- Deploy-time configuration ---
 # At deploy time (modal.is_local() == True), we read configuration from a
@@ -124,11 +127,6 @@ def _run_and_stream(
     if is_checked and process.returncode != 0:
         raise RuntimeError(f"Command failed with exit code {process.returncode}: {cmd}")
     return process.returncode
-
-
-# Import from the shared staging module (kept separate so tests can import
-# it without triggering this file's module-level Modal configuration).
-from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
 
 
 @app.function(

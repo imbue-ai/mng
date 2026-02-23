@@ -1,8 +1,8 @@
 """Unit tests for deploy.py pure functions."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pluggy
 import pytest
