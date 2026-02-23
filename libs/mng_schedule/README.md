@@ -79,6 +79,7 @@ This is done by introspecting to understand how `mng_schedule` is installed:
 
 1. if it is installed as a normal remote package, then that package is added as a dependency of the Modal App. This is the normal production method used by most users.
 2. if it is installed in editable mode (eg via `pip install -e .`), then the local code is packaged up and uploaded to Modal during deployment, and then used as the source for building the Modal images. This method is primarily used for development.
+3. if configured, this step can be disaled (this is an optimization for when the project *is* `mng` itself, since in that case the code will already be available in the execution environment via the strategy described in #1 above).
 
 Note that for #2, the code is packaged via the same "make a snapshot of the repo at a specific commit hash" strategy described above, since this leads to better caching.
 In this case, the GH_TOKEN secret is required in order to ensure that the code is fully up-to-date when it is deployed.
