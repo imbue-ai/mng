@@ -28,7 +28,6 @@ from utils import PACKAGES
 from utils import PACKAGE_BY_PYPI_NAME
 from utils import REPO_ROOT
 from utils import get_package_versions
-from utils import normalize_pypi_name
 from utils import parse_dep_name
 
 from imbue.mng.utils.polling import poll_for_value
@@ -100,7 +99,7 @@ def _compute_bump_set(directly_changed: set[str]) -> dict[str, str]:
     reverse_deps: dict[str, list[str]] = {pkg.pypi_name: [] for pkg in PACKAGES}
     for pkg in PACKAGES:
         for dep in pkg.internal_deps:
-            reverse_deps[normalize_pypi_name(dep)].append(pkg.pypi_name)
+            reverse_deps[dep].append(pkg.pypi_name)
 
     # BFS from directly changed packages through reverse deps
     to_bump: dict[str, str] = {}
@@ -155,10 +154,9 @@ def update_internal_dep_pins(all_versions: dict[str, str]) -> list[str]:
         for idx in range(len(deps)):
             dep_str = str(deps[idx])
             dep_name = parse_dep_name(dep_str)
-            dep_normalized = normalize_pypi_name(dep_name)
-            if dep_normalized in all_versions:
-                canonical_name = PACKAGE_BY_PYPI_NAME[dep_normalized].pypi_name
-                new_dep = f"{canonical_name}=={all_versions[dep_normalized]}"
+            if dep_name in all_versions:
+                canonical_name = PACKAGE_BY_PYPI_NAME[dep_name].pypi_name
+                new_dep = f"{canonical_name}=={all_versions[dep_name]}"
                 if dep_str != new_dep:
                     deps[idx] = new_dep
                     is_changed = True

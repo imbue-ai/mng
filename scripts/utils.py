@@ -70,12 +70,8 @@ def validate_package_graph() -> None:
     for pkg in PACKAGES:
         data = tomllib.loads(pkg.pyproject_path.read_text())
         raw_deps: list[str] = data["project"].get("dependencies", [])
-        actual_internal = {
-            normalize_pypi_name(parse_dep_name(dep))
-            for dep in raw_deps
-            if normalize_pypi_name(parse_dep_name(dep)) in internal_names
-        }
-        expected_internal = {normalize_pypi_name(name) for name in pkg.internal_deps}
+        actual_internal = {dep_name for dep in raw_deps if (dep_name := parse_dep_name(dep)) in internal_names}
+        expected_internal = set(pkg.internal_deps)
 
         if actual_internal != expected_internal:
             raise ValueError(
@@ -98,7 +94,7 @@ def verify_pin_consistency() -> list[str]:
         data = tomllib.loads(pkg.pyproject_path.read_text())
         raw_deps: list[str] = data["project"].get("dependencies", [])
         for dep_str in raw_deps:
-            dep_name = normalize_pypi_name(parse_dep_name(dep_str))
+            dep_name = parse_dep_name(dep_str)
             if dep_name not in internal_names:
                 continue
             pin_match = re.search(r"==(.+)$", dep_str)
