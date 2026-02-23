@@ -157,8 +157,13 @@ def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
     for result in all_results:
         if result is not None:
             for dest_path, source in result.items():
+                if not str(dest_path).startswith("~"):
+                    raise ScheduleDeployError(f"Deploy file destination path must start with '~', got: {dest_path}")
                 if dest_path in merged:
-                    logger.warning("Deploy file collision: {} registered by multiple plugins, using latest", dest_path)
+                    logger.warning(
+                        "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
+                        dest_path,
+                    )
                 merged[dest_path] = source
     return merged
 

@@ -18,7 +18,7 @@ def install_deploy_files(staging_base: Path = Path("/staging")) -> None:
     """Install staged deploy files to their expected locations in the container.
 
     Reads the manifest to determine where each file should be placed.
-    Destination paths starting with "~" are expanded to the user's home directory.
+    All destination paths must start with "~" (validated at staging time).
     """
     manifest_path = staging_base / "deploy_files_manifest.json"
     if not manifest_path.exists():
@@ -33,11 +33,11 @@ def install_deploy_files(staging_base: Path = Path("/staging")) -> None:
             print(f"WARNING: staged file {filename} not found at {source}, skipping")
             continue
 
-        # Expand ~ to home directory
-        if dest_path_str.startswith("~"):
-            dest_path = Path(os.path.expanduser(dest_path_str))
-        else:
-            dest_path = Path(dest_path_str)
+        # All paths should start with ~ (validated at staging time)
+        if not dest_path_str.startswith("~"):
+            print(f"WARNING: deploy file destination '{dest_path_str}' does not start with '~', skipping")
+            continue
+        dest_path = Path(os.path.expanduser(dest_path_str))
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest_path)
