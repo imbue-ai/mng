@@ -13,7 +13,9 @@ from click.core import ParameterSource
 from click_option_group import GroupedOption
 from click_option_group import OptionGroup
 from click_option_group import optgroup
+from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -142,6 +144,25 @@ def add_common_options(command: TDecorated) -> TDecorated:
     return command
 
 
+def _close_concurrency_group(cg: ConcurrencyGroup) -> None:
+    """Clean up the top-level ConcurrencyGroup when a CLI command finishes.
+
+    We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
+    wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
+
+    We also catch ConcurrencyExceptionGroup raised during cleanup. The most common case is
+    Ctrl+C: SIGINT kills child processes, and the CG reports their failures as a
+    ConcurrencyExceptionGroup. Since this runs inside Click's ctx.close(), an unhandled
+    exception here would replace the original KeyboardInterrupt and produce a long, scary
+    traceback instead of Click's clean "Aborted!" message. Real command errors are raised
+    during command execution, not during cleanup.
+    """
+    try:
+        cg.__exit__(None, None, None)
+    except ConcurrencyExceptionGroup:
+        logger.debug("Suppressed exception during concurrency group cleanup (likely Ctrl+C)")
+
+
 def setup_command_context(
     ctx: click.Context,
     command_name: str,
@@ -163,9 +184,7 @@ def setup_command_context(
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mng-{command_name}")
     cg.__enter__()
-    # We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
-    # wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
-    ctx.call_on_close(lambda: cg.__exit__(None, None, None))
+    ctx.call_on_close(lambda: _close_concurrency_group(cg))
 
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
