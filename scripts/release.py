@@ -52,24 +52,20 @@ def get_mng_version() -> str:
     return versions["mng"]
 
 
-def _find_last_release_tag() -> str | None:
-    """Find the most recent v* tag reachable from HEAD. Returns None if no tags exist."""
+def _find_last_release_tag() -> str:
+    """Find the most recent v* tag reachable from HEAD. Fetches tags from origin first."""
+    run("git", "fetch", "--tags", "origin")
     try:
         return run("git", "describe", "--tags", "--match", "v*", "--abbrev=0")
     except subprocess.CalledProcessError:
-        return None
+        print("ERROR: No v* tags found. Cannot determine what changed.", file=sys.stderr)
+        sys.exit(1)
 
 
-def _detect_changed_packages(since_tag: str | None) -> set[str]:
-    """Return the set of pypi names for packages whose source changed since the given tag.
-
-    If since_tag is None, all packages are considered changed.
-    """
+def _detect_changed_packages(since_tag: str) -> set[str]:
+    """Return the set of pypi names for packages whose source changed since the given tag."""
     changed: set[str] = set()
     for pkg in PACKAGES:
-        if since_tag is None:
-            changed.add(pkg.pypi_name)
-            continue
         # git diff --quiet exits 1 if there are differences
         result = subprocess.run(
             ["git", "diff", "--quiet", since_tag, "HEAD", "--", f"libs/{pkg.dir_name}/"],
@@ -362,10 +358,7 @@ def main() -> None:
 
     # Detect what changed since the last release
     last_tag = _find_last_release_tag()
-    if last_tag is not None:
-        print(f"Last release tag: {last_tag}")
-    else:
-        print("No previous release tag found -- treating all packages as changed.")
+    print(f"Last release tag: {last_tag}")
     directly_changed = _detect_changed_packages(last_tag)
 
     if not directly_changed:
