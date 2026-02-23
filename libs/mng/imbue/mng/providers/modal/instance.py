@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -419,6 +420,10 @@ class SandboxConfig(HostConfig):
     volumes: tuple[tuple[str, str], ...] = Field(
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
+    )
+    docker_build_args: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Docker build args as KEY=VALUE pairs to substitute into Dockerfile ARG defaults",
     )
 
     @property
@@ -913,6 +918,7 @@ class ModalProviderInstance(BaseProviderInstance):
         dockerfile: Path | None = None,
         context_dir: Path | None = None,
         secrets: Sequence[str] = (),
+        docker_build_args: Sequence[str] = (),
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -930,6 +936,10 @@ class ModalProviderInstance(BaseProviderInstance):
         will be read from the current environment and passed to the Modal image build
         process. These are available during Dockerfile RUN commands via --mount=type=secret.
 
+        The docker_build_args parameter is a sequence of KEY=VALUE strings that override
+        ARG defaults in the Dockerfile. For example, passing 'CLAUDE_CODE_VERSION=2.1.50'
+        substitutes the default value of ARG CLAUDE_CODE_VERSION in the Dockerfile.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
@@ -938,6 +948,9 @@ class ModalProviderInstance(BaseProviderInstance):
 
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
+            # Substitute docker build args into ARG defaults
+            if docker_build_args:
+                dockerfile_contents = _substitute_dockerfile_build_args(dockerfile_contents, docker_build_args)
             effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
@@ -1311,6 +1324,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
         parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
+        parser.add_argument("--docker-build-arg", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1333,6 +1347,7 @@ log "=== Shutdown script completed ==="
             cidr_allowlist=tuple(parsed.cidr_allowlist),
             offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
+            docker_build_args=tuple(parsed.docker_build_arg),
         )
 
     # =========================================================================
@@ -1616,7 +1631,9 @@ log "=== Shutdown script completed ==="
         try:
             # Build the Modal image
             with log_span("Building Modal image..."):
-                modal_image = self._build_modal_image(base_image, dockerfile_path, context_dir_path, config.secrets)
+                modal_image = self._build_modal_image(
+                    base_image, dockerfile_path, context_dir_path, config.secrets, config.docker_build_args
+                )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
             with log_span("Getting Modal app", app_name=self.app_name):
@@ -2984,6 +3001,39 @@ def _build_modal_secrets_from_env(
 
     with log_span("Creating Modal secrets from environment variables", count=len(secret_dict)):
         return [modal.Secret.from_dict(secret_dict)]
+
+
+@pure
+def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequence[str]) -> str:
+    """Substitute Docker build arg defaults in Dockerfile contents.
+
+    Parses KEY=VALUE pairs from build_args and replaces the default values of
+    matching ARG instructions in the Dockerfile. For example, if build_args
+    contains 'CLAUDE_CODE_VERSION=2.1.50', then 'ARG CLAUDE_CODE_VERSION=""'
+    becomes 'ARG CLAUDE_CODE_VERSION="2.1.50"'.
+
+    Raises MngError if a build arg is not in KEY=VALUE format or if the ARG
+    is not found in the Dockerfile.
+    """
+    result = dockerfile_contents
+    for arg_spec in build_args:
+        if "=" not in arg_spec:
+            raise MngError(f"Docker build arg must be in KEY=VALUE format, got: {arg_spec}")
+        key, value = arg_spec.split("=", 1)
+        # Replace ARG <key>=<anything> or ARG <key> (no default) with ARG <key>="<value>"
+        new_result = re.sub(
+            rf"^(ARG\s+{re.escape(key)})\b.*$",
+            rf'\1="{value}"',
+            result,
+            flags=re.MULTILINE,
+        )
+        if new_result == result:
+            raise MngError(
+                f"Docker build arg {key!r} not found as an ARG instruction in the Dockerfile. "
+                "Ensure the Dockerfile contains a matching ARG instruction."
+            )
+        result = new_result
+    return result
 
 
 def _build_image_from_dockerfile_contents(

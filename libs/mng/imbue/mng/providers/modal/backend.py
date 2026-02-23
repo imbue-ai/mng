@@ -370,6 +370,10 @@ Supported build arguments for the modal provider:
   --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox [experimental]. NAME is the
                         volume name on Modal (created if it doesn't exist). Can be specified
                         multiple times.
+  --docker-build-arg KEY=VALUE
+                        Override a Dockerfile ARG default value. For example,
+                        --docker-build-arg=CLAUDE_CODE_VERSION=2.1.50 sets the CLAUDE_CODE_VERSION
+                        ARG during the image build. Can be specified multiple times.
 """
 
     @staticmethod
