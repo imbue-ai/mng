@@ -77,6 +77,20 @@ def _detect_changed_packages(since_tag: str) -> set[str]:
     return changed
 
 
+def _cascade_reverse_deps(
+    seeds: deque[str],
+    reverse_deps: dict[str, list[str]],
+    to_bump: dict[str, str],
+) -> None:
+    """BFS through reverse deps, marking unvisited dependents as "cascade"."""
+    while seeds:
+        current = seeds.popleft()
+        for dependent in reverse_deps.get(current, []):
+            if dependent not in to_bump:
+                to_bump[dependent] = "cascade"
+                seeds.append(dependent)
+
+
 def _compute_bump_set(directly_changed: set[str]) -> dict[str, str]:
     """Compute the full set of packages to bump and the reason for each.
 
@@ -90,29 +104,14 @@ def _compute_bump_set(directly_changed: set[str]) -> dict[str, str]:
 
     # BFS from directly changed packages through reverse deps
     to_bump: dict[str, str] = {}
-    queue: deque[tuple[str, str]] = deque()
     for name in directly_changed:
         to_bump[name] = "changed"
-        queue.append((name, "changed"))
-
-    while queue:
-        current, _reason = queue.popleft()
-        for dependent in reverse_deps.get(current, []):
-            if dependent not in to_bump:
-                to_bump[dependent] = "cascade"
-                queue.append((dependent, "cascade"))
+    _cascade_reverse_deps(deque(directly_changed), reverse_deps, to_bump)
 
     # mng is always bumped (tag is v<mng-version>)
     if "mng" not in to_bump:
         to_bump["mng"] = "always"
-        # Cascade from mng too
-        queue.append(("mng", "always"))
-        while queue:
-            current, _reason = queue.popleft()
-            for dependent in reverse_deps.get(current, []):
-                if dependent not in to_bump:
-                    to_bump[dependent] = "cascade"
-                    queue.append((dependent, "cascade"))
+        _cascade_reverse_deps(deque(["mng"]), reverse_deps, to_bump)
 
     return to_bump
 
