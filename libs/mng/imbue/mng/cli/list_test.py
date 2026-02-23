@@ -771,9 +771,7 @@ def test_streaming_renderer_emit_warning_tty() -> None:
     output = captured.getvalue()
     assert "WARNING: something bad" in output
     # Warning should appear after the agent row
-    agent_pos = output.rfind("agent-1")
-    warning_pos = output.rfind("WARNING: something bad")
-    assert warning_pos > agent_pos
+    assert output.rfind("WARNING: something bad") > output.rfind("agent-1")
 
 
 def test_streaming_renderer_warning_stays_below_new_agents() -> None:
@@ -788,10 +786,7 @@ def test_streaming_renderer_warning_stays_below_new_agents() -> None:
 
     output = captured.getvalue()
     # In the final output, the warning should be re-written after agent-2.
-    # Find the last occurrence of each to verify final ordering.
-    last_agent2 = output.rfind("agent-2")
-    last_warning = output.rfind("WARNING: bad thing")
-    assert last_warning > last_agent2
+    assert output.rfind("WARNING: bad thing") > output.rfind("agent-2")
 
 
 def test_streaming_renderer_emit_warning_non_tty() -> None:
@@ -821,9 +816,7 @@ def test_streaming_renderer_warning_before_any_agents() -> None:
     assert "WARNING: early warning" in output
     assert "agent-1" in output
     # Warning should be re-written after agent-1 (pinned to bottom)
-    last_agent = output.rfind("agent-1")
-    last_warning = output.rfind("WARNING: early warning")
-    assert last_warning > last_agent
+    assert output.rfind("WARNING: early warning") > output.rfind("agent-1")
 
 
 def test_streaming_renderer_multiple_warnings_stay_at_bottom() -> None:
@@ -839,13 +832,13 @@ def test_streaming_renderer_multiple_warnings_stay_at_bottom() -> None:
 
     output = captured.getvalue()
     # Both warnings should appear after agent-2 in the final output
-    last_agent2 = output.rfind("agent-2")
-    last_first_warning = output.rfind("WARNING: first")
-    last_second_warning = output.rfind("WARNING: second")
-    assert last_first_warning > last_agent2
-    assert last_second_warning > last_agent2
+    agent2_pos = output.rfind("agent-2")
+    warning1_pos = output.rfind("WARNING: first")
+    warning2_pos = output.rfind("WARNING: second")
+    assert warning1_pos > agent2_pos
+    assert warning2_pos > agent2_pos
     # Warnings should be in order
-    assert last_second_warning > last_first_warning
+    assert warning2_pos > warning1_pos
 
 
 def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
@@ -862,13 +855,13 @@ def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
 
     output = captured.getvalue()
     # Both warnings should appear after agent-3 in the final output
-    last_agent3 = output.rfind("agent-3")
-    last_first_warning = output.rfind("WARNING: first")
-    last_second_warning = output.rfind("WARNING: second")
-    assert last_first_warning > last_agent3
-    assert last_second_warning > last_agent3
+    agent3_pos = output.rfind("agent-3")
+    warning1_pos = output.rfind("WARNING: first")
+    warning2_pos = output.rfind("WARNING: second")
+    assert warning1_pos > agent3_pos
+    assert warning2_pos > agent3_pos
     # Warnings should be in order
-    assert last_second_warning > last_first_warning
+    assert warning2_pos > warning1_pos
 
 
 # =============================================================================
