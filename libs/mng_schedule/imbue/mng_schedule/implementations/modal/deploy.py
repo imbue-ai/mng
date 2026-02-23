@@ -253,15 +253,15 @@ def build_deploy_config(
     }
 
 
-def _get_provider_state_volume(
+def _derive_state_volume_name_and_environment(
     provider_instance_name: str,
     mng_ctx: MngContext,
-) -> modal.Volume:
-    """Get the provider's state volume, reusing the same volume as the Modal provider backend.
+) -> tuple[str, str]:
+    """Derive the state volume name and environment for the given provider instance.
 
-    The volume name is derived from the provider config using the same convention
-    as the Modal provider backend: {app_name}-state, where app_name defaults to
-    {prefix}{provider_instance_name} but can be overridden in the provider config.
+    Uses the same naming convention as the Modal provider backend:
+    volume_name = {app_name}-state, environment = {prefix}{user_id}.
+    Respects provider config overrides for app_name and user_id.
     """
     prefix = mng_ctx.config.prefix
     modal_config = _resolve_provider_modal_config(provider_instance_name, mng_ctx)
@@ -279,10 +279,23 @@ def _get_provider_state_volume(
 
     volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
     environment_name = get_modal_environment_name(mng_ctx, provider_instance_name)
+    return volume_name, environment_name
 
+
+def _get_provider_state_volume(
+    provider_instance_name: str,
+    mng_ctx: MngContext,
+    is_creating_if_missing: bool = True,
+) -> modal.Volume:
+    """Get the provider's state volume, reusing the same volume as the Modal provider backend.
+
+    When is_creating_if_missing is False, raises modal.exception.NotFoundError if the
+    volume does not exist. This is appropriate for read-only operations like listing.
+    """
+    volume_name, environment_name = _derive_state_volume_name_and_environment(provider_instance_name, mng_ctx)
     return modal.Volume.from_name(
         volume_name,
-        create_if_missing=True,
+        create_if_missing=is_creating_if_missing,
         environment_name=environment_name,
         version=2,
     )
@@ -321,9 +334,13 @@ def list_schedule_creation_records(
     provider_instance_name: str,
     mng_ctx: MngContext,
 ) -> list[ScheduleCreationRecord]:
-    """Read all schedule creation records from the provider's state volume."""
+    """Read all schedule creation records from the provider's state volume.
+
+    Returns an empty list if the state volume does not exist (e.g., no schedules
+    have been deployed yet). Does not create the volume as a side effect.
+    """
     try:
-        volume = _get_provider_state_volume(provider_instance_name, mng_ctx)
+        volume = _get_provider_state_volume(provider_instance_name, mng_ctx, is_creating_if_missing=False)
     except modal.exception.NotFoundError:
         return []
 
@@ -445,7 +462,9 @@ def deploy_schedule(
                     f"(exit code {result.returncode}). See output above for details."
                 ) from None
 
-    # Save the creation record to the provider's state volume
+    # Save the creation record to the provider's state volume.
+    # This is best-effort: the deploy already succeeded, so a failure here
+    # should not cause the command to report failure.
     with log_span("Saving schedule creation record"):
         creation_record = ScheduleCreationRecord(
             trigger=trigger,
@@ -457,7 +476,14 @@ def deploy_schedule(
             modal_app_name=app_name,
             modal_environment=modal_env_name,
         )
-        _save_schedule_creation_record(creation_record, trigger.provider, mng_ctx)
+        try:
+            _save_schedule_creation_record(creation_record, trigger.provider, mng_ctx)
+        except (modal.exception.Error, OSError) as exc:
+            logger.warning(
+                "Schedule '{}' was deployed successfully but failed to save creation record: {}",
+                trigger.name,
+                exc,
+            )
 
     logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
     return app_name
