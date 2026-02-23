@@ -1,9 +1,10 @@
-"""Pre-publish verification for CI: check versions and pin consistency.
+"""Pre-publish verification for CI: check versions, graph, and pin consistency.
 
 Called from the publish workflow before building packages. Verifies:
 1. Displays all package versions
 2. If --expected-mng-version is given, checks mng version matches (for tag/dispatch checks)
-3. All internal dependency pins are consistent
+3. The hard-coded package graph matches actual pyproject.toml declarations
+4. All internal dependency pins are consistent
 
 Usage:
     uv run scripts/verify_publish.py
@@ -14,6 +15,7 @@ import argparse
 import sys
 
 from utils import get_package_versions
+from utils import validate_package_graph
 from utils import verify_pin_consistency
 
 
@@ -41,6 +43,11 @@ def main() -> None:
             )
             sys.exit(1)
         print(f"\nmng version matches expected: {mng_version}")
+
+    # Verify the hard-coded package graph matches actual pyproject.toml declarations
+    print("\n=== Package graph validation ===")
+    validate_package_graph()
+    print("Package graph is consistent.")
 
     # Verify pin consistency
     print("\n=== Pin consistency check ===")
