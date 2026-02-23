@@ -1,11 +1,11 @@
 """Unit tests for deploy.py pure functions."""
 
 import json
-import os
-import shutil
 from pathlib import Path
+from typing import Callable
 
 import pluggy
+import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import MngConfig
@@ -16,6 +16,7 @@ from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_fr
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
+from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
 
 
 def test_get_modal_app_name() -> None:
@@ -91,56 +92,47 @@ def test_resolve_timezone_skips_empty_etc_timezone(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def _simulate_install_deploy_files(staging_dir: Path) -> None:
-    """Simulate what _install_deploy_files does in the cron_runner.
+@pytest.fixture()
+def run_staging(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> Callable[[Path | None], Path]:
+    """Return a callable that runs stage_deploy_files and returns the staging dir.
 
-    Reads the manifest and copies files to their destinations.
-    This duplicates the cron_runner logic for testing (since cron_runner.py
-    cannot be imported due to module-level Modal configuration).
+    Accepts an optional repo_root (creates an empty one if not provided).
+    The caller should create any files they want staged BEFORE calling this.
     """
-    manifest_path = staging_dir / "deploy_files_manifest.json"
-    if not manifest_path.exists():
-        return
 
-    manifest: dict[str, str] = json.loads(manifest_path.read_text())
-    files_dir = staging_dir / "deploy_files"
+    def _run(repo_root: Path | None = None) -> Path:
+        if repo_root is None:
+            repo_root = tmp_path / "repo"
+            repo_root.mkdir(exist_ok=True)
+        staging_dir = tmp_path / "staging"
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir(exist_ok=True)
+        config = MngConfig(default_host_dir=tmp_path / ".mng_host")
+        with ConcurrencyGroup(name="test-staging") as cg:
+            mng_ctx = MngContext(
+                config=config,
+                pm=plugin_manager,
+                profile_dir=profile_dir,
+                concurrency_group=cg,
+            )
+            stage_deploy_files(staging_dir, mng_ctx, repo_root)
+        return staging_dir
 
-    for filename, dest_path_str in manifest.items():
-        source = files_dir / filename
-        if not source.exists():
-            continue
-        if dest_path_str.startswith("~"):
-            dest_path = Path(os.path.expanduser(dest_path_str))
-        else:
-            dest_path = Path(dest_path_str)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, dest_path)
+    return _run
 
 
 def test_stage_deploy_files_creates_manifest_and_files(
-    tmp_path: Path,
-    plugin_manager: "pluggy.PluginManager",
+    run_staging: Callable[[Path | None], Path],
 ) -> None:
     """stage_deploy_files should create a manifest and stage files from plugins."""
     # Create claude config files so the hook finds them
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"staged": true}')
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    staging_dir = tmp_path / "staging"
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    config = MngConfig(default_host_dir=tmp_path / ".mng")
-    with ConcurrencyGroup(name="test-staging") as cg:
-        mng_ctx = MngContext(
-            config=config,
-            pm=plugin_manager,
-            profile_dir=profile_dir,
-            concurrency_group=cg,
-        )
-        stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    staging_dir = run_staging(None)
 
     # Verify manifest exists and has entries
     manifest_path = staging_dir / "deploy_files_manifest.json"
@@ -155,8 +147,7 @@ def test_stage_deploy_files_creates_manifest_and_files(
 
 
 def test_stage_deploy_files_roundtrip_restores_files(
-    tmp_path: Path,
-    plugin_manager: "pluggy.PluginManager",
+    run_staging: Callable[[Path | None], Path],
 ) -> None:
     """Files staged by stage_deploy_files can be installed back to their destinations."""
     # Create config files so the hooks find them
@@ -167,28 +158,14 @@ def test_stage_deploy_files_roundtrip_restores_files(
     mng_config = mng_dir / "config.toml"
     mng_config.write_text("[test]\nroundtrip = true\n")
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    staging_dir = tmp_path / "staging"
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    config = MngConfig(default_host_dir=tmp_path / ".mng_host")
-    with ConcurrencyGroup(name="test-roundtrip") as cg:
-        mng_ctx = MngContext(
-            config=config,
-            pm=plugin_manager,
-            profile_dir=profile_dir,
-            concurrency_group=cg,
-        )
-        stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    staging_dir = run_staging(None)
 
     # Delete the originals to prove the install recreates them
     claude_json.unlink()
     mng_config.unlink()
 
-    # Simulate what _install_deploy_files does
-    _simulate_install_deploy_files(staging_dir)
+    # Use the shared install function (same code as cron_runner uses)
+    install_deploy_files(staging_base=staging_dir)
 
     # Verify files were restored
     assert claude_json.exists()
@@ -197,25 +174,18 @@ def test_stage_deploy_files_roundtrip_restores_files(
     assert mng_config.read_text() == "[test]\nroundtrip = true\n"
 
 
-def test_stage_deploy_files_stages_secrets_env(tmp_path: Path, plugin_manager: "pluggy.PluginManager") -> None:
+def test_stage_deploy_files_stages_secrets_env(
+    tmp_path: Path,
+    run_staging: Callable[[Path | None], Path],
+) -> None:
     """stage_deploy_files should stage the secrets .env file when present."""
     repo_root = tmp_path / "repo"
+    repo_root.mkdir(exist_ok=True)
     secrets_dir = repo_root / ".mng" / "dev" / "secrets"
     secrets_dir.mkdir(parents=True)
     (secrets_dir / ".env").write_text("GH_TOKEN=test123")
 
-    staging_dir = tmp_path / "staging"
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    config = MngConfig(default_host_dir=tmp_path / ".mng")
-    with ConcurrencyGroup(name="test-secrets") as cg:
-        mng_ctx = MngContext(
-            config=config,
-            pm=plugin_manager,
-            profile_dir=profile_dir,
-            concurrency_group=cg,
-        )
-        stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    staging_dir = run_staging(repo_root)
 
     # Verify secrets were staged
     staged_secrets = staging_dir / "secrets" / ".env"
@@ -224,24 +194,10 @@ def test_stage_deploy_files_stages_secrets_env(tmp_path: Path, plugin_manager: "
 
 
 def test_stage_deploy_files_creates_empty_manifest_when_no_files(
-    tmp_path: Path, plugin_manager: "pluggy.PluginManager"
+    run_staging: Callable[[Path | None], Path],
 ) -> None:
     """stage_deploy_files should create an empty manifest when no plugin returns files."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
-    staging_dir = tmp_path / "staging"
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir()
-    config = MngConfig(default_host_dir=tmp_path / ".mng")
-    with ConcurrencyGroup(name="test-empty") as cg:
-        mng_ctx = MngContext(
-            config=config,
-            pm=plugin_manager,
-            profile_dir=profile_dir,
-            concurrency_group=cg,
-        )
-        stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    staging_dir = run_staging(None)
 
     manifest_path = staging_dir / "deploy_files_manifest.json"
     assert manifest_path.exists()

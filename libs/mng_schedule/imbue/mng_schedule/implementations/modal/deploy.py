@@ -228,7 +228,7 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> 
     Full deployment flow:
     1. Find repo root and derive Modal environment name
     2. Package repo at the specified commit into a tarball
-    3. Stage local files (user config, secrets)
+    3. Stage deploy files (collected from plugins via hook) and secrets
     4. Write deploy config as a single JSON file
     5. Run modal deploy cron_runner.py with --env for the correct Modal environment
     6. Return the Modal app name

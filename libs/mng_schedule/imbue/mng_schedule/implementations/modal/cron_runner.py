@@ -18,19 +18,19 @@
 #
 # A staging directory is added as the last image layer, containing:
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
-# - /staging/user_config/: User config files (claude.json, mng config, profiles)
+# - /staging/deploy_files/: Numbered files collected from plugins via get_files_for_deploy hook
+# - /staging/deploy_files_manifest.json: Maps numbered filenames to destination paths
 # - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
 #
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
 # - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
-# - SCHEDULE_STAGING_DIR: Local path to staging directory (user config + secrets)
+# - SCHEDULE_STAGING_DIR: Local path to staging directory (deploy files + secrets)
 # - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
 
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -126,32 +126,9 @@ def _run_and_stream(
     return process.returncode
 
 
-def _install_deploy_files(staging_base: Path = Path("/staging")) -> None:
-    """Install staged deploy files to their expected locations in the container.
-
-    Reads the manifest to determine where each file should be placed.
-    Destination paths starting with "~" are expanded to the user's home directory.
-    """
-    manifest_path = staging_base / "deploy_files_manifest.json"
-    if not manifest_path.exists():
-        return
-
-    manifest: dict[str, str] = json.loads(manifest_path.read_text())
-    files_dir = staging_base / "deploy_files"
-
-    for filename, dest_path_str in manifest.items():
-        source = files_dir / filename
-        if not source.exists():
-            continue
-
-        # Expand ~ to home directory
-        if dest_path_str.startswith("~"):
-            dest_path = Path(os.path.expanduser(dest_path_str))
-        else:
-            dest_path = Path(dest_path_str)
-
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, dest_path)
+# Import from the shared staging module (kept separate so tests can import
+# it without triggering this file's module-level Modal configuration).
+from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
 
 
 @app.function(
@@ -174,7 +151,7 @@ def run_scheduled_trigger() -> None:
         return
 
     # Install deploy files (config, settings, etc.) from staged manifest
-    _install_deploy_files()
+    install_deploy_files()
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")
