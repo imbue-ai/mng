@@ -712,12 +712,15 @@ kill -TERM 1
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         """Create a new Docker container host.
 
         Build args are passed through to 'docker build' (if provided).
         Start args are passed through to 'docker run' for resource limits,
         volumes, ports, network, etc.
+
+        If dockerfile is provided, it is passed as --file=<path> to docker build.
         """
         host_id = HostId.generate()
         logger.info("Creating host {} in {} ...", name, self.name)
@@ -725,11 +728,18 @@ kill -TERM 1
         base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
+        # Prepend --file=<path> to build_args if dockerfile is specified
+        effective_build_args: Sequence[str] | None
+        if dockerfile is not None:
+            effective_build_args = [f"--file={dockerfile}"] + list(build_args or [])
+        else:
+            effective_build_args = build_args
+
         try:
             # Build image if build_args provided, otherwise pull base image
-            if build_args:
+            if effective_build_args:
                 build_tag = f"mng-build-{host_id}"
-                image_name = self._build_image(build_args, build_tag)
+                image_name = self._build_image(effective_build_args, build_tag)
             else:
                 image_name = self._pull_image(base_image)
 

@@ -204,6 +204,7 @@ class CreateCliOptions(CommonCliOptions):
     pass_host_env: tuple[str, ...]
     known_host: tuple[str, ...]
     snapshot: str | None
+    dockerfile: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
     start_arg: tuple[str, ...]
@@ -450,6 +451,11 @@ class CreateCliOptions(CommonCliOptions):
 )
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
+@optgroup.option(
+    "--dockerfile",
+    type=click.Path(exists=True),
+    help="Path to the Dockerfile to build the host image (works with all providers)",
+)
 @optgroup.option(
     "-b",
     "--build",
@@ -1465,6 +1471,7 @@ def _parse_target_host(
         build_options = NewHostBuildOptions(
             snapshot=SnapshotName(opts.snapshot) if opts.snapshot else None,
             context_path=Path(opts.project_context_path) if opts.project_context_path else None,
+            dockerfile=Path(opts.dockerfile) if opts.dockerfile else None,
             build_args=tuple(combined_build_args),
             start_args=tuple(combined_start_args),
         )

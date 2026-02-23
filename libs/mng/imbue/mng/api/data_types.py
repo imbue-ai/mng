@@ -83,6 +83,10 @@ class NewHostBuildOptions(FrozenModel):
         default=None,
         description="Build context directory [default: local .git root]",
     )
+    dockerfile: Path | None = Field(
+        default=None,
+        description="Path to the Dockerfile to build the host image",
+    )
     build_args: tuple[str, ...] = Field(
         default=(),
         description="Arguments for the build command",

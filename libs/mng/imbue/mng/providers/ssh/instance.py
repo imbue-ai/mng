@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import Mapping
@@ -125,6 +126,7 @@ class SSHProviderInstance(BaseProviderInstance):
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         raise NotImplementedError("SSH provider does not support creating hosts")
 

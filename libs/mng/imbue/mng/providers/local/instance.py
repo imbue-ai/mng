@@ -185,6 +185,7 @@ class LocalProviderInstance(BaseProviderInstance):
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         """Create (or return) the local host.
 

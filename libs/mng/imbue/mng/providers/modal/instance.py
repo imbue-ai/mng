@@ -1633,11 +1633,15 @@ log "=== Shutdown script completed ==="
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
+        dockerfile: Path | None = None,
     ) -> Host:
         """Create a new Modal sandbox host.
 
         If snapshot is provided, the host is created from the snapshot image
         instead of building a new one.
+
+        If dockerfile is provided, it takes precedence over any --dockerfile
+        passed via build_args.
         """
         # Generate host ID
         host_id = HostId.generate()
@@ -1658,10 +1662,13 @@ log "=== Shutdown script completed ==="
 
         logger.info("Creating host {} in {} ...", name, self.name)
 
-        # Parse build arguments (including --dockerfile if specified)
+        # Parse build arguments (including --dockerfile if specified via build args)
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
-        dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
+        # Top-level --dockerfile takes precedence over -b --dockerfile=...
+        dockerfile_path = (
+            dockerfile if dockerfile is not None else (Path(config.dockerfile) if config.dockerfile else None)
+        )
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         try:

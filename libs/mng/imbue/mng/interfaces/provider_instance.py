@@ -103,11 +103,16 @@ class ProviderInstanceInterface(MutableModel, ABC):
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
+        dockerfile: Path | None = None,
     ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration.
 
         If snapshot is provided, the host is created from the snapshot image
         instead of building a new one.
+
+        If dockerfile is provided, it specifies the path to the Dockerfile to
+        use for building the host image. Each provider translates this to its
+        native flag (e.g. --file for Docker, --dockerfile for Modal).
         """
         ...
 

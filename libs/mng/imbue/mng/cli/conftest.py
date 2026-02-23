@@ -125,6 +125,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         pass_host_env=(),
         known_host=(),
         snapshot=None,
+        dockerfile=None,
         build_arg=(),
         build_args=None,
         start_arg=(),
