@@ -926,6 +926,7 @@ snapshot_id, host_id, provider, agent_names.""",
         ("Create a named snapshot", "mng snapshot create my-agent --name before-refactor"),
         ("Snapshot all running agents (dry run)", "mng snapshot create --all --dry-run"),
         ("Snapshot multiple agents", "mng snapshot create agent1 agent2 --on-error continue"),
+        ("Custom format template output", "mng snapshot create my-agent --format '{snapshot_id}'"),
     ),
     see_also=(
         ("snapshot list", "List existing snapshots"),

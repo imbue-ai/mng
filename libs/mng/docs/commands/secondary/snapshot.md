@@ -144,6 +144,12 @@ $ mng snapshot create --all --dry-run
 $ mng snapshot create agent1 agent2 --on-error continue
 ```
 
+**Custom format template output**
+
+```bash
+$ mng snapshot create my-agent --format '{snapshot_id}'
+```
+
 ## mng snapshot list
 
 List snapshots for agent host(s) [experimental].
