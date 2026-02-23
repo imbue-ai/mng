@@ -12,14 +12,14 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 
 
-def _make_test_record() -> ScheduleCreationRecord:
+def _make_test_record(is_enabled: bool = True) -> ScheduleCreationRecord:
     trigger = ScheduleTriggerDefinition(
         name="nightly-build",
         command=ScheduledMngCommand.CREATE,
         args="--type claude",
         schedule_cron="0 2 * * *",
         provider="modal",
-        is_enabled=True,
+        is_enabled=is_enabled,
         git_image_hash="abc123def456789012345678901234567890abcd",
     )
     return ScheduleCreationRecord(
@@ -55,24 +55,7 @@ def test_get_schedule_field_value_enabled() -> None:
 
 
 def test_get_schedule_field_value_enabled_when_disabled() -> None:
-    trigger = ScheduleTriggerDefinition(
-        name="disabled-trigger",
-        command=ScheduledMngCommand.START,
-        schedule_cron="0 3 * * *",
-        provider="modal",
-        is_enabled=False,
-        git_image_hash="abc123",
-    )
-    record = ScheduleCreationRecord(
-        trigger=trigger,
-        full_commandline="mng schedule add",
-        hostname="host",
-        working_directory="/tmp",
-        mng_git_hash="xyz",
-        created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
-        modal_app_name="app",
-        modal_environment="env",
-    )
+    record = _make_test_record(is_enabled=False)
     assert _get_schedule_field_value(record, "enabled") == "no"
 
 
