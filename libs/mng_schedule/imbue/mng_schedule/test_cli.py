@@ -4,7 +4,7 @@ import click
 import pluggy
 from click.testing import CliRunner
 
-from imbue.mng_schedule.cli import schedule
+from imbue.mng_schedule.cli.commands import schedule
 
 
 def test_schedule_add_requires_command(

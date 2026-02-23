@@ -1,0 +1,129 @@
+from typing import Any
+
+import click
+from click_option_group import optgroup
+
+from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.default_command_group import DefaultCommandGroup
+
+# =============================================================================
+# Shared option decorator
+# =============================================================================
+
+
+def add_trigger_options(command: Any) -> Any:
+    """Add trigger definition options shared by add and update commands.
+
+    All options are optional at the click level. Commands that require specific
+    options (e.g. add requires --command, --schedule, --provider) should
+    validate at runtime.
+    """
+    # Applied in reverse order (bottom-up per click convention)
+
+    # Optional positional argument for the name (alternative to --name)
+    command = click.argument("positional_name", default=None, required=False)(command)
+
+    # Behavior group
+    command = optgroup.option(
+        "--verify",
+        type=click.Choice(["none", "quick", "full"], case_sensitive=False),
+        default="quick",
+        show_default=True,
+        help="Post-deploy verification: 'none' skips, 'quick' invokes and destroys agent, 'full' lets agent run to completion.",
+    )(command)
+    command = optgroup.option(
+        "--enabled/--disabled",
+        "enabled",
+        default=None,
+        help="Whether the schedule is enabled.",
+    )(command)
+    command = optgroup.group("Behavior")(command)
+
+    # Execution group
+    command = optgroup.option(
+        "--provider",
+        default=None,
+        help="Provider in which to schedule the call (e.g. 'local', 'modal').",
+    )(command)
+    command = optgroup.group("Execution")(command)
+
+    # Code Packaging group
+    command = optgroup.option(
+        "--git-image-hash",
+        "git_image_hash",
+        default=None,
+        help="Git commit hash (or ref like HEAD) to package project code from. Required for modal provider.",
+    )(command)
+    command = optgroup.group("Code Packaging")(command)
+
+    # Trigger Definition group
+    command = optgroup.option(
+        "--schedule",
+        "schedule_cron",
+        default=None,
+        help="Cron schedule expression defining when the command runs (e.g. '0 2 * * *').",
+    )(command)
+    command = optgroup.option(
+        "--args",
+        "args",
+        default=None,
+        help="Arguments to pass to the mng command (as a string).",
+    )(command)
+    command = optgroup.option(
+        "--command",
+        "command",
+        type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
+        default=None,
+        help="Which mng command to run when triggered.",
+    )(command)
+    command = optgroup.option(
+        "--name",
+        default=None,
+        help="Name for this scheduled trigger. If not specified, a random name is generated.",
+    )(command)
+    command = optgroup.group("Trigger Definition")(command)
+
+    return command
+
+
+def resolve_positional_name(ctx: click.Context) -> None:
+    """Merge the optional positional NAME into the --name option.
+
+    If only the positional is provided, it becomes the --name value.
+    If both are provided, raise a UsageError.
+    """
+    positional = ctx.params.get("positional_name")
+    option = ctx.params.get("name")
+    if positional and option:
+        raise click.UsageError("Cannot specify both a positional NAME and --name.")
+    if positional:
+        ctx.params["name"] = positional
+
+
+# =============================================================================
+# CLI Group
+# =============================================================================
+
+
+class _ScheduleGroup(DefaultCommandGroup):
+    """Schedule group that defaults to 'list' when no subcommand is given."""
+
+    _default_command = "list"
+
+
+@click.group(name="schedule", cls=_ScheduleGroup)
+@add_common_options
+@click.pass_context
+def schedule(ctx: click.Context, **kwargs: Any) -> None:
+    """Schedule remote invocations of mng commands.
+
+    Manage cron-scheduled triggers that run mng commands (create, start,
+    message, exec) on a specified provider at regular intervals.
+
+    \b
+    Examples:
+      mng schedule add --command create --args '--message "do work" --in modal' --schedule "0 2 * * *" --provider modal
+      mng schedule list
+      mng schedule remove my-trigger
+      mng schedule run my-trigger
+    """

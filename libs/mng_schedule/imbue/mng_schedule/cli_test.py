@@ -6,7 +6,7 @@ from datetime import timezone
 import pytest
 
 from imbue.imbue_common.errors import SwitchError
-from imbue.mng_schedule.cli import _get_schedule_field_value
+from imbue.mng_schedule.cli.list import _get_schedule_field_value
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand

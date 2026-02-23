@@ -1,0 +1,105 @@
+import sys
+from typing import Any
+from uuid import uuid4
+
+import click
+from click_option_group import optgroup
+from loguru import logger
+
+from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng_schedule.cli.group import add_trigger_options
+from imbue.mng_schedule.cli.group import resolve_positional_name
+from imbue.mng_schedule.cli.group import schedule
+from imbue.mng_schedule.cli.options import ScheduleAddCliOptions
+from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.data_types import ScheduledMngCommand
+from imbue.mng_schedule.data_types import VerifyMode
+from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
+from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_instance
+from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
+
+
+@schedule.command(name="add")
+@add_trigger_options
+@optgroup.group("Add-specific")
+@optgroup.option(
+    "--update",
+    is_flag=True,
+    help="If a schedule with the same name already exists, update it instead of failing.",
+)
+@add_common_options
+@click.pass_context
+def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
+    """Add a new scheduled trigger.
+
+    Creates a new cron-scheduled trigger that will run the specified mng
+    command at the specified interval on the specified provider.
+
+    \b
+    Examples:
+      mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
+    """
+    resolve_positional_name(ctx)
+    # New schedules default to enabled. The shared options use None so that
+    # update can distinguish "not specified" from "explicitly set".
+    if ctx.params.get("enabled") is None:
+        ctx.params["enabled"] = True
+    mng_ctx, _output_opts, opts = setup_command_context(
+        ctx=ctx,
+        command_name="schedule_add",
+        command_class=ScheduleAddCliOptions,
+    )
+
+    # Validate required options for add
+    if opts.command is None:
+        raise click.UsageError("--command is required for schedule add")
+    if opts.schedule_cron is None:
+        raise click.UsageError("--schedule is required for schedule add")
+    if opts.provider is None:
+        raise click.UsageError("--provider is required for schedule add")
+    if opts.git_image_hash is None:
+        raise click.UsageError(
+            "--git-image-hash is required when provider is 'modal'. Use HEAD to package the current commit."
+        )
+
+    # Load and validate the provider instance
+    try:
+        provider = load_modal_provider_instance(opts.provider, mng_ctx)
+    except ScheduleDeployError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Generate name if not provided
+    trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
+
+    # Resolve git ref to full SHA (git_image_hash is guaranteed non-None by validation above)
+    resolved_hash = resolve_git_ref(opts.git_image_hash)
+
+    trigger = ScheduleTriggerDefinition(
+        name=trigger_name,
+        command=ScheduledMngCommand(opts.command.upper()),
+        args=opts.args or "",
+        schedule_cron=opts.schedule_cron,
+        provider=opts.provider,
+        is_enabled=opts.enabled if opts.enabled is not None else True,
+        git_image_hash=resolved_hash,
+    )
+
+    # Resolve verification mode from CLI option.
+    # Only apply verification for create commands (other commands don't produce agents).
+    verify_mode = VerifyMode(opts.verify.upper())
+    if verify_mode != VerifyMode.NONE and trigger.command != ScheduledMngCommand.CREATE:
+        logger.debug(
+            "Skipping verification for command '{}': only applicable to 'create' commands",
+            trigger.command,
+        )
+        verify_mode = VerifyMode.NONE
+
+    try:
+        app_name = deploy_schedule(trigger, mng_ctx, provider=provider, verify_mode=verify_mode, sys_argv=sys.argv)
+    except ScheduleDeployError as e:
+        raise click.ClickException(str(e)) from e
+
+    logger.info("Schedule '{}' deployed as Modal app '{}'", trigger_name, app_name)
+    click.echo(f"Deployed schedule '{trigger_name}' as Modal app '{app_name}'")

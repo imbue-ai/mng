@@ -5,7 +5,7 @@ import click
 
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngContext
-from imbue.mng_schedule.cli import schedule
+from imbue.mng_schedule.cli.commands import schedule
 
 
 @hookimpl
