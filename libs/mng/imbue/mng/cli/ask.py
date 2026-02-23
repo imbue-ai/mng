@@ -181,6 +181,7 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
 _PROCESS_WAIT_TIMEOUT_SECONDS: Final[int] = 10
 
 _READ_ONLY_TOOLS: Final[str] = "Read,Glob,Grep"
+_MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
 
 
 def _find_mng_source_directory() -> Path | None:
@@ -210,6 +211,18 @@ def _build_source_access_context(source_directory: Path) -> str:
         f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n"
         f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n"
         f"- {source_directory}/imbue/mng/config/ - Configuration handling\n"
+    )
+
+
+@pure
+def _build_web_access_context() -> str:
+    """Build system prompt section describing available web access."""
+    return (
+        "\n\n# Web Access\n\n"
+        "You have access to the WebFetch tool, restricted to the mng GitHub repository.\n"
+        f"The repository is at: {_MNG_REPO_URL}\n"
+        "Use WebFetch to read source files, documentation, issues, or pull requests\n"
+        "from the repository when the information is not available locally.\n"
     )
 
 
@@ -260,7 +273,22 @@ def _extract_text_delta(line: str) -> str | None:
 class SubprocessClaudeBackend(ClaudeBackendInterface):
     """Runs claude in a subprocess from an empty temp directory with streaming."""
 
+    is_web_access_enabled: bool = False
+
     def query(self, prompt: str, system_prompt: str) -> Iterator[str]:
+        tools = _READ_ONLY_TOOLS + (",WebFetch" if self.is_web_access_enabled else "")
+
+        # Build the allowed tools list. Read-only tools are always allowed.
+        # WebFetch is restricted to GitHub domains only.
+        allowed_tools_args = ["--allowedTools", _READ_ONLY_TOOLS]
+        if self.is_web_access_enabled:
+            allowed_tools_args += [
+                "--allowedTools",
+                "WebFetch(domain:github.com)",
+                "--allowedTools",
+                "WebFetch(domain:raw.githubusercontent.com)",
+            ]
+
         with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
             try:
                 process = subprocess.Popen(
@@ -274,9 +302,8 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
                         "--verbose",
                         "--include-partial-messages",
                         "--tools",
-                        _READ_ONLY_TOOLS,
-                        "--allowedTools",
-                        _READ_ONLY_TOOLS,
+                        tools,
+                        *allowed_tools_args,
                         "--permission-mode",
                         "dontAsk",
                         "--no-session-persistence",
@@ -396,6 +423,7 @@ class AskCliOptions(CommonCliOptions):
 
     query: tuple[str, ...]
     execute: bool
+    allow_web: bool
 
 
 @click.command(name="ask")
@@ -405,6 +433,11 @@ class AskCliOptions(CommonCliOptions):
     "--execute",
     is_flag=True,
     help="Execute the generated CLI command instead of just printing it",
+)
+@optgroup.option(
+    "--allow-web",
+    is_flag=True,
+    help="Allow fetching content from the mng GitHub repository",
 )
 @add_common_options
 @click.pass_context
@@ -447,11 +480,13 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     emit_info("Thinking...", output_opts.output_format)
 
-    backend = SubprocessClaudeBackend()
+    backend = SubprocessClaudeBackend(is_web_access_enabled=opts.allow_web)
     system_prompt = _build_ask_context()
     source_dir = _find_mng_source_directory()
     if source_dir is not None:
         system_prompt += _build_source_access_context(source_dir)
+    if opts.allow_web:
+        system_prompt += _build_web_access_context()
     chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
 
     if opts.execute:
@@ -506,7 +541,7 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 _ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
     name="mng-ask",
     one_line_description="Chat with mng for help [experimental]",
-    synopsis="mng ask [--execute] QUERY...",
+    synopsis="mng ask [--execute] [--allow-web] QUERY...",
     description="""Chat directly with mng for help -- it can create the
 necessary CLI call for pretty much anything you want to do.
 

@@ -10,6 +10,7 @@ import imbue.mng.cli.ask as ask_module
 from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _build_ask_context
 from imbue.mng.cli.ask import _build_source_access_context
+from imbue.mng.cli.ask import _build_web_access_context
 from imbue.mng.cli.ask import _execute_response
 from imbue.mng.cli.ask import _extract_text_delta
 from imbue.mng.cli.ask import _find_mng_source_directory
@@ -44,7 +45,7 @@ class FakeClaudeError(ClaudeBackendInterface):
 def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
     """Provide a FakeClaude backend and monkeypatch it into the ask module."""
     backend = FakeClaude()
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
     return backend
 
 
@@ -133,7 +134,7 @@ def test_ask_claude_error_shows_message(
 ) -> None:
     """When the claude backend raises an error, it should be displayed to the user."""
     backend = FakeClaudeError(error_message=error_message)
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda: backend)
+    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
 
     result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
 
@@ -268,3 +269,39 @@ def test_ask_system_prompt_includes_source_access_context(
     assert "docs/" in system_prompt
 
 
+def test_build_web_access_context_includes_repo_url() -> None:
+    context = _build_web_access_context()
+    assert "github.com/imbue-ai/mng" in context
+    assert "WebFetch" in context
+
+
+def test_ask_without_allow_web_does_not_include_web_context(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Without --allow-web, the system prompt should not include web access info."""
+    fake_claude.responses.append("mng list")
+
+    cli_runner.invoke(ask, ["list", "agents"], obj=plugin_manager, catch_exceptions=False)
+
+    assert len(fake_claude.system_prompts) == 1
+    assert "Web Access" not in fake_claude.system_prompts[0]
+
+
+def test_ask_with_allow_web_includes_web_context(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """With --allow-web, the system prompt should include web access info."""
+    fake_claude.responses.append("mng list")
+
+    cli_runner.invoke(
+        ask, ["--allow-web", "list", "agents"], obj=plugin_manager, catch_exceptions=False
+    )
+
+    assert len(fake_claude.system_prompts) == 1
+    system_prompt = fake_claude.system_prompts[0]
+    assert "Web Access" in system_prompt
+    assert "github.com/imbue-ai/mng" in system_prompt
