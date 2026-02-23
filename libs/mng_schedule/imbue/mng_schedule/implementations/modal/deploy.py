@@ -156,7 +156,10 @@ def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
     merged: dict[Path, Path | str] = {}
     for result in all_results:
         if result is not None:
-            merged.update(result)
+            for dest_path, source in result.items():
+                if dest_path in merged:
+                    logger.warning("Deploy file collision: {} registered by multiple plugins, using latest", dest_path)
+                merged[dest_path] = source
     return merged
 
 
