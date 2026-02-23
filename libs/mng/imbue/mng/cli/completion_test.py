@@ -16,7 +16,7 @@ from imbue.mng.cli.completion import _trigger_background_cache_refresh
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.completion import read_cached_commands
 from imbue.mng.cli.completion import read_cached_subcommands
-from imbue.mng.cli.completion import write_cli_completions_cache
+from imbue.mng.cli.completion_writer import write_cli_completions_cache
 from imbue.mng.cli.config import config as config_group
 from imbue.mng.cli.plugin import plugin as plugin_group
 from imbue.mng.cli.snapshot import snapshot as snapshot_group

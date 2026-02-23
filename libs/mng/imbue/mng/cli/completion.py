@@ -2,7 +2,6 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Final
@@ -21,27 +20,9 @@ def _get_host_dir() -> Path:
     return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
 
 
-def atomic_write(path: Path, content: str) -> None:
-    """Write content to a file atomically using a temp file and rename.
-
-    This ensures readers never see a partially-written file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    is_fd_closed = False
-    try:
-        os.write(fd, content.encode())
-        os.close(fd)
-        is_fd_closed = True
-        os.replace(tmp_path, path)
-    except OSError:
-        if not is_fd_closed:
-            os.close(fd)
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+# =============================================================================
+# Agent name completion (read from runtime cache)
+# =============================================================================
 
 
 def _read_agent_names_from_cache() -> list[str]:
@@ -118,51 +99,20 @@ def complete_agent_name(
 
 
 # =============================================================================
-# CLI completions cache (written at runtime)
+# CLI command/subcommand completion (read from runtime cache)
 # =============================================================================
 #
-# These functions read and write a JSON file that lists all CLI commands and
-# subcommands. The file is written to {host_dir}/.cli_completions.json on
-# every CLI invocation, and read during tab completion.
+# These functions read a JSON file listing all CLI commands and subcommands.
+# The file is written to {host_dir}/.cli_completions.json on every CLI
+# invocation by write_cli_completions_cache() in completion_writer.py.
 #
-# This is analogous to the agent name cache above, but for commands: instead of
-# discovering commands live by walking the Click command tree, tab completion
-# reads from a cached list.
+# This is analogous to the agent name cache above: tab completion reads from
+# a cached list rather than discovering commands live.
 
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
     return _get_host_dir() / CLI_COMPLETIONS_FILENAME
-
-
-def write_cli_completions_cache(cli_group: click.Group) -> None:
-    """Write all CLI commands and subcommands to the completions cache (best-effort).
-
-    Walks the CLI command tree and writes the result to
-    {host_dir}/.cli_completions.json. This is called on every CLI invocation
-    so the cache stays up to date with installed plugins.
-
-    This function never raises -- cache write failures must not break CLI commands.
-    """
-    try:
-        all_command_names = sorted(cli_group.commands.keys())
-
-        subcommand_by_command: dict[str, list[str]] = {}
-        for name, cmd in cli_group.commands.items():
-            if isinstance(cmd, click.Group) and cmd.commands:
-                canonical_name = cmd.name or name
-                if canonical_name not in subcommand_by_command:
-                    subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
-
-        cache_data = {
-            "commands": all_command_names,
-            "subcommand_by_command": subcommand_by_command,
-        }
-
-        cache_path = _get_cli_completions_path()
-        atomic_write(cache_path, json.dumps(cache_data))
-    except OSError:
-        pass
 
 
 def _read_cli_completions_file() -> dict | None:

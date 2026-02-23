@@ -15,7 +15,7 @@ from imbue.mng.cli.common_opts import create_group_title_option
 from imbue.mng.cli.common_opts import find_last_option_index_in_group
 from imbue.mng.cli.common_opts import find_option_group
 from imbue.mng.cli.completion import read_cached_commands
-from imbue.mng.cli.completion import write_cli_completions_cache
+from imbue.mng.cli.completion_writer import write_cli_completions_cache
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
