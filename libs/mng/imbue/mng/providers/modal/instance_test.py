@@ -36,6 +36,7 @@ from imbue.mng.providers.modal.instance import TAG_HOST_NAME
 from imbue.mng.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mng.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mng.providers.modal.instance import _parse_volume_spec
+from imbue.mng.providers.modal.instance import _substitute_dockerfile_build_args
 from imbue.mng.providers.modal.instance import build_sandbox_tags
 from imbue.mng.providers.modal.instance import parse_sandbox_tags
 
@@ -1720,3 +1721,60 @@ def test_load_agent_refs_ignores_running_sandbox_without_host_record(
         result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 0
+
+
+# =============================================================================
+# Docker Build Args Tests
+# =============================================================================
+
+
+def test_parse_build_args_docker_build_arg(modal_provider: ModalProviderInstance) -> None:
+    """Should parse --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(["--docker-build-arg=CLAUDE_CODE_VERSION=2.1.50"])
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50",)
+
+
+def test_parse_build_args_multiple_docker_build_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(
+        [
+            "docker-build-arg=CLAUDE_CODE_VERSION=2.1.50",
+            "docker-build-arg=OTHER_ARG=value",
+        ]
+    )
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50", "OTHER_ARG=value")
+
+
+def test_parse_build_args_docker_build_arg_default_empty(modal_provider: ModalProviderInstance) -> None:
+    """docker_build_args should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.docker_build_args == ()
+
+
+def test_substitute_dockerfile_build_args_replaces_default() -> None:
+    """_substitute_dockerfile_build_args should replace ARG defaults."""
+    dockerfile = 'FROM python:3.11-slim\nARG CLAUDE_CODE_VERSION=""\nRUN echo $CLAUDE_CODE_VERSION'
+    result = _substitute_dockerfile_build_args(dockerfile, ("CLAUDE_CODE_VERSION=2.1.50",))
+    assert 'ARG CLAUDE_CODE_VERSION="2.1.50"' in result
+    assert 'ARG CLAUDE_CODE_VERSION=""' not in result
+
+
+def test_substitute_dockerfile_build_args_replaces_non_empty_default() -> None:
+    """_substitute_dockerfile_build_args should replace non-empty ARG defaults."""
+    dockerfile = 'FROM python:3.11\nARG MY_VERSION="1.0.0"\n'
+    result = _substitute_dockerfile_build_args(dockerfile, ("MY_VERSION=2.0.0",))
+    assert 'ARG MY_VERSION="2.0.0"' in result
+
+
+def test_substitute_dockerfile_build_args_raises_for_missing_arg() -> None:
+    """_substitute_dockerfile_build_args should raise if ARG is not found."""
+    dockerfile = "FROM python:3.11-slim\nRUN echo hello\n"
+    with pytest.raises(MngError, match="not found as an ARG instruction"):
+        _substitute_dockerfile_build_args(dockerfile, ("NONEXISTENT_ARG=value",))
+
+
+def test_substitute_dockerfile_build_args_raises_for_bad_format() -> None:
+    """_substitute_dockerfile_build_args should raise for non KEY=VALUE format."""
+    dockerfile = 'FROM python:3.11-slim\nARG FOO=""\n'
+    with pytest.raises(MngError, match="KEY=VALUE format"):
+        _substitute_dockerfile_build_args(dockerfile, ("no-equals-sign",))

@@ -86,6 +86,12 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
+    version: str | None = Field(
+        default=None,
+        description="Pin the Claude Code version to install (e.g., '2.1.50'). "
+        "When set, installation uses this specific version and provisioning verifies the installed version matches. "
+        "If None, uses the latest available version.",
+    )
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -94,20 +100,110 @@ def _check_claude_installed(host: OnlineHostInterface) -> bool:
     return result.success
 
 
-def _install_claude(host: OnlineHostInterface) -> None:
-    """Install claude on the host using the official installer."""
-    install_command = """curl --version && ( curl -fsSL https://claude.ai/install.sh | bash ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
+def _parse_claude_version_output(output: str) -> str | None:
+    """Parse the version string from 'claude --version' output.
+
+    Expected format: '2.1.50 (Claude Code)' -> '2.1.50'
+    """
+    stripped = output.strip()
+    if not stripped:
+        return None
+    parts = stripped.split()
+    return parts[0] if parts else None
+
+
+def _get_claude_version(host: OnlineHostInterface) -> str | None:
+    """Get the installed claude version on the host.
+
+    Returns the version string (e.g., '2.1.50') or None if claude is not installed
+    or the version cannot be determined.
+    """
+    result = host.execute_command("claude --version", timeout_seconds=10.0)
+    if not result.success:
+        logger.debug("Failed to get claude version on host: {}", result.stderr)
+        return None
+    return _parse_claude_version_output(result.stdout)
+
+
+def _get_local_claude_version(concurrency_group: ConcurrencyGroup) -> str | None:
+    """Get the locally installed claude version.
+
+    Returns the version string (e.g., '2.1.50') or None if claude is not installed locally.
+    """
+    try:
+        result = concurrency_group.run_process_to_completion(
+            ["claude", "--version"],
+            is_checked_after=False,
+        )
+    except ProcessSetupError:
+        logger.debug("claude binary not found locally")
+        return None
+    if result.returncode != 0:
+        logger.debug("Failed to get local claude version (exit code {})", result.returncode)
+        return None
+    return _parse_claude_version_output(result.stdout)
+
+
+def _build_install_command_hint(version: str | None = None) -> str:
+    """Build the install command hint shown in user-facing messages."""
+    if version:
+        return f"curl -fsSL https://claude.ai/install.sh | bash -s {version}"
+    return "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def _install_claude(host: OnlineHostInterface, version: str | None = None) -> None:
+    """Install claude on the host using the official installer.
+
+    When version is specified, passes it to the install script to install that
+    specific version (e.g., 'bash -s 2.1.50').
+    """
+    if version:
+        version_arg = f" -s {shlex.quote(version)}"
+    else:
+        version_arg = ""
+    install_command = f"""curl --version && ( curl -fsSL https://claude.ai/install.sh | bash{version_arg} ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
     result = host.execute_command(install_command, timeout_seconds=300.0)
     if not result.success:
         raise PluginMngError(f"Failed to install claude. stderr: {result.stderr}")
 
 
-def _prompt_user_for_installation() -> bool:
+def _prompt_user_for_installation(version: str | None = None) -> bool:
     """Prompt the user to install claude locally."""
+    install_cmd = _build_install_command_hint(version)
     logger.info(
-        "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
+        "\nClaude is not installed on this machine.\nYou can install it by running:\n  {}\n",
+        install_cmd,
     )
     return click.confirm("Would you like to install it now?", default=True)
+
+
+def _warn_about_version_consistency(config: ClaudeAgentConfig, concurrency_group: ConcurrencyGroup) -> None:
+    """Warn about potential version inconsistency when syncing local claude files to a remote host.
+
+    When local claude files (settings, credentials) are synced to a remote host,
+    version consistency matters:
+    - If no version is pinned, the remote host may be running a different version
+    - If a version is pinned but the local version differs, synced settings may be incompatible
+    """
+    local_version = _get_local_claude_version(concurrency_group)
+
+    if config.version is None:
+        logger.warning(
+            "No claude version is pinned in agent config, but local claude files are being "
+            "synced to the remote host. Consider setting 'version' in your claude agent config "
+            "to ensure version consistency between local and remote. "
+            "Local claude version: {}",
+            local_version or "unknown",
+        )
+    elif local_version is not None and local_version != config.version:
+        logger.warning(
+            "Local claude version ({}) does not match the pinned version ({}). "
+            "This may cause compatibility issues with synced settings.",
+            local_version,
+            config.version,
+        )
+    else:
+        logger.debug("Version consistency check passed (pinned={}, local={})", config.version, local_version)
 
 
 def _prompt_user_for_trust(source_path: Path) -> bool:
@@ -547,31 +643,40 @@ class ClaudeAgent(BaseAgent):
 
         config = self._get_claude_config()
 
-        # ensure that claude is installed
+        # ensure that claude is installed (and at the right version if pinned)
         if config.check_installation:
             is_installed = _check_claude_installed(host)
             if is_installed:
                 logger.debug("Claude is already installed on the host")
+                # If version is pinned, verify the installed version matches
+                if config.version is not None:
+                    installed_version = _get_claude_version(host)
+                    if installed_version != config.version:
+                        raise PluginMngError(
+                            f"Claude version mismatch: installed version is {installed_version!r}, "
+                            f"but agent config pins version {config.version!r}. "
+                            "Re-install claude with the correct version or update the pinned version in your agent config."
+                        )
+                    logger.debug("Claude version {} matches pinned version", installed_version)
             else:
                 logger.warning("Claude is not installed on the host")
+                install_hint = _build_install_command_hint(config.version)
 
                 if host.is_local:
                     # For local hosts, auto-approve or prompt the user for consent
                     if mng_ctx.is_auto_approve:
                         logger.debug("Auto-approving claude installation (--yes)")
                     elif mng_ctx.is_interactive:
-                        if _prompt_user_for_installation():
+                        if _prompt_user_for_installation(config.version):
                             logger.debug("User consented to install claude locally")
                         else:
                             raise PluginMngError(
-                                "Claude is not installed. Please install it manually with:\n"
-                                "  curl -fsSL https://claude.ai/install.sh | bash"
+                                f"Claude is not installed. Please install it manually with:\n  {install_hint}"
                             )
                     else:
                         # Non-interactive mode: fail with a clear message
                         raise PluginMngError(
-                            "Claude is not installed. Please install it manually with:\n"
-                            "  curl -fsSL https://claude.ai/install.sh | bash"
+                            f"Claude is not installed. Please install it manually with:\n  {install_hint}"
                         )
                 else:
                     if not mng_ctx.config.is_remote_agent_installation_allowed:
@@ -585,11 +690,15 @@ class ClaudeAgent(BaseAgent):
 
                 # Install claude
                 logger.info("Installing claude...")
-                _install_claude(host)
+                _install_claude(host, config.version)
                 logger.info("Claude installed successfully")
 
         # transfer some extra files to remote hosts (if configured):
         if not host.is_local:
+            # Warn about version consistency when syncing local files
+            if config.sync_home_settings or config.sync_claude_json or config.sync_claude_credentials:
+                _warn_about_version_consistency(config, mng_ctx.concurrency_group)
+
             if config.sync_home_settings:
                 logger.info("Transferring claude home directory settings to remote host...")
                 # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
