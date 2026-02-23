@@ -26,10 +26,10 @@ class CommandHelpMetadata(FrozenModel):
     that isn't available from click's standard help machinery.
     """
 
-    name: str = Field(description="Command name (e.g., 'mng-create')")
+    key: str = Field(description="Dot-separated registry key (e.g., 'create', 'snapshot.create')")
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
-    description: str = Field(description="Detailed description of the command")
+    description: str = Field(description="Extended description (paragraphs after the one-line summary)")
     aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
     arguments_description: str | None = Field(
         default=None,
@@ -53,14 +53,28 @@ class CommandHelpMetadata(FrozenModel):
         "Command name is just the subcommand (e.g., 'create' not 'mng create').",
     )
 
+    @property
+    def name(self) -> str:
+        """Display name derived from key (e.g., key='snapshot.create' -> 'mng snapshot create')."""
+        return "mng " + self.key.replace(".", " ")
+
+    @property
+    def full_description(self) -> str:
+        """One-line description (with period) + extended description, separated by a blank line."""
+        one_line = self.one_line_description
+        if not one_line.endswith("."):
+            one_line += "."
+        if self.description:
+            return one_line + "\n\n" + self.description
+        return one_line
+
+    def register(self) -> None:
+        """Register this metadata in the global help registry, keyed by self.key."""
+        _help_metadata_registry[self.key] = self
+
 
 # Registry of help metadata for commands that have been configured
 _help_metadata_registry: dict[str, CommandHelpMetadata] = {}
-
-
-def register_help_metadata(command_name: str, metadata: CommandHelpMetadata) -> None:
-    """Register help metadata for a command."""
-    _help_metadata_registry[command_name] = metadata
 
 
 def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
@@ -265,7 +279,7 @@ def _write_git_style_help(
 
     # DESCRIPTION section
     output.write(f"{_format_section_title('Description')}\n")
-    for paragraph in metadata.description.strip().split("\n\n"):
+    for paragraph in metadata.full_description.strip().split("\n\n"):
         wrapped = _wrap_text(paragraph.strip(), width - 7, "       ", None)
         output.write(f"{wrapped}\n\n")
 

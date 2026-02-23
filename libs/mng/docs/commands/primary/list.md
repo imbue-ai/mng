@@ -9,28 +9,18 @@
 mng [list|ls] [OPTIONS]
 ```
 
-
 List all agents managed by mng.
 
 Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.
 
-Examples:
-
-  mng list
-
-  mng list --running
-
-  mng list --provider docker
-
-  mng list --format json
+Alias: ls
 
 **Usage:**
 
 ```text
 mng list [OPTIONS]
 ```
-
 **Options:**
 
 ## Filtering

@@ -16,7 +16,6 @@ from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.cli.help_formatter import get_pager_command
 from imbue.mng.cli.help_formatter import help_option_callback
 from imbue.mng.cli.help_formatter import is_interactive_terminal
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.help_formatter import run_pager
 from imbue.mng.cli.help_formatter import show_help_with_pager
 from imbue.mng.config.data_types import MngConfig
@@ -57,18 +56,19 @@ def test_get_pager_command_uses_less_when_config_has_no_pager(mng_test_prefix: s
 def test_register_and_get_help_metadata() -> None:
     """Test registering and retrieving help metadata."""
     metadata = CommandHelpMetadata(
-        name="test-cmd",
+        key="test-cmd",
         one_line_description="A test command",
         synopsis="mng test [options]",
         description="This is a test command for testing.",
         examples=(("Run a basic test", "mng test"),),
     )
 
-    register_help_metadata("test", metadata)
-    retrieved = get_help_metadata("test")
+    metadata.register()
+    retrieved = get_help_metadata("test-cmd")
 
     assert retrieved is not None
-    assert retrieved.name == "test-cmd"
+    assert retrieved.key == "test-cmd"
+    assert retrieved.name == "mng test-cmd"
     assert retrieved.one_line_description == "A test command"
 
 
@@ -89,7 +89,7 @@ def test_format_git_style_help_with_metadata() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="A test command for testing",
         synopsis="mng test [options]",
         description="This is a detailed description of what the test command does.",
@@ -106,7 +106,7 @@ def test_format_git_style_help_with_metadata() -> None:
 
         # Check that the help contains expected sections
         assert "NAME" in help_text
-        assert "mng-test - A test command for testing" in help_text
+        assert "mng test - A test command for testing" in help_text
         assert "SYNOPSIS" in help_text
         assert "mng test [options]" in help_text
         assert "DESCRIPTION" in help_text
@@ -165,7 +165,7 @@ def test_format_git_style_help_handles_empty_examples() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-noex",
+        key="noex",
         one_line_description="No examples here",
         synopsis="mng noex",
         description="A command that has no usage examples.",
@@ -190,7 +190,8 @@ def test_create_command_has_help_metadata_registered() -> None:
     metadata = get_help_metadata("create")
 
     assert metadata is not None
-    assert metadata.name == "mng-create"
+    assert metadata.key == "create"
+    assert metadata.name == "mng create"
     assert "Create and run an agent" in metadata.one_line_description
 
 
@@ -411,7 +412,7 @@ def test_ungrouped_options_display_as_ungrouped_not_common() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="Test ungrouped options display",
         synopsis="mng test [options]",
         description="Test that ungrouped options show as Ungrouped.",
@@ -455,7 +456,7 @@ def test_option_group_ordering_logic() -> None:
         pass
 
     metadata = CommandHelpMetadata(
-        name="mng-test",
+        key="test",
         one_line_description="Test option group ordering",
         synopsis="mng test [options]",
         description="Test that groups are ordered correctly.",
@@ -565,7 +566,7 @@ def test_all_subcommands_have_git_style_help() -> None:
             )
             assert "NAME" in result.output, (
                 f"mng {cmd.name} {subcmd_name} --help does not show git-style help. "
-                f"Add CommandHelpMetadata + register_help_metadata + add_pager_help_option. "
+                f"Add CommandHelpMetadata(...).register() + add_pager_help_option. "
                 f"Help tests must invoke through the root cli group (not the subgroup directly) "
                 f"for key resolution to work."
             )

@@ -13,7 +13,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -102,26 +101,6 @@ class MessageCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def message(ctx: click.Context, **kwargs) -> None:
-    """Send a message to one or more agents.
-
-    Agent IDs can be specified as positional arguments for convenience.
-    The message is sent to the agent's stdin.
-
-    If no message is specified with --message, reads from stdin (if not a tty)
-    or opens an editor (if interactive).
-
-    Examples:
-
-      mng message my-agent --message "Hello"
-
-      mng message agent1 agent2 --message "Hello to all"
-
-      mng message --agent my-agent --agent another-agent --message "Hello"
-
-      mng message --all --message "Hello everyone"
-
-      echo "Hello" | mng message my-agent
-    """
     try:
         _message_impl(ctx, **kwargs)
     except AbortError as e:
@@ -283,13 +262,11 @@ def _emit_json_output(result: MessageResult) -> None:
 
 
 # Register help metadata for git-style help formatting
-_MESSAGE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-message",
+CommandHelpMetadata(
+    key="message",
     one_line_description="Send a message to one or more agents",
     synopsis="mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]",
-    description="""Send a message to one or more agents.
-
-Agent IDs can be specified as positional arguments for convenience. The
+    description="""Agent IDs can be specified as positional arguments for convenience. The
 message is sent to the agent's stdin.
 
 If no message is specified with --message, reads from stdin (if not a tty)
@@ -300,6 +277,7 @@ or opens an editor (if interactive).""",
         ("Send to multiple agents", 'mng message agent1 agent2 --message "Hello to all"'),
         ("Send to all agents", 'mng message --all --message "Hello everyone"'),
         ("Pipe message from stdin", 'echo "Hello" | mng message my-agent'),
+        ("Use --agent flag (repeatable)", 'mng message --agent my-agent --agent another-agent --message "Hello"'),
     ),
     see_also=(
         ("connect", "Connect to an agent interactively"),
@@ -311,9 +289,7 @@ or opens an editor (if interactive).""",
             """- [Multi-target Options](../generic/multi_target.md) - Behavior when some agents fail to receive the message""",
         ),
     ),
-)
-
-register_help_metadata("message", _MESSAGE_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the message command
 add_pager_help_option(message)

@@ -9,8 +9,7 @@
 mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]
 ```
 
-
-Continuously sync files between an agent and local directory. [experimental]
+Continuously sync files between an agent and local directory [experimental].
 
 This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
@@ -20,23 +19,13 @@ state (branches and commits) before starting the continuous file sync.
 
 Press Ctrl+C to stop the sync.
 
-During rapid concurrent edits, changes will be debounced to avoid partial
-writes [future].
-
-Examples:
-  mng pair my-agent
-  mng pair my-agent --target ./local-dir
-  mng pair --source-agent my-agent --target ./local-copy
-  mng pair my-agent --sync-direction=forward
-  mng pair my-agent --conflict=source
-  mng pair my-agent --source-host @local
+During rapid concurrent edits, changes will be debounced to avoid partial writes [future].
 
 **Usage:**
 
 ```text
 mng pair [OPTIONS] SOURCE
 ```
-
 ## Arguments
 
 - `SOURCE`: The source (optional)
@@ -134,4 +123,10 @@ $ mng pair my-agent --conflict=source
 
 ```bash
 $ mng pair my-agent --source-host @local
+```
+
+**Use --source-agent flag**
+
+```bash
+$ mng pair --source-agent my-agent --target ./local-copy
 ```

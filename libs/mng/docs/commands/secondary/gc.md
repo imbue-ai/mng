@@ -9,27 +9,20 @@
 mng gc [OPTIONS]
 ```
 
-
 Garbage collect unused resources.
 
-Automatically removes unused resources from providers and mng itself.
+Automatically removes containers, old snapshots, unused hosts, cached images,
+and any resources that are associated with destroyed hosts and agents.
 
-Examples:
-
-  mng gc --work-dirs --dry-run
-
-  mng gc --all-agent-resources
-
-  mng gc --machines --snapshots --provider docker
-
-  mng gc --logs --build-cache
+`mng destroy` automatically cleans up resources when an agent is deleted.
+`mng gc` can be used to manually trigger garbage collection of unused
+resources at any time.
 
 **Usage:**
 
 ```text
 mng gc [OPTIONS]
 ```
-
 **Options:**
 
 ## What to Clean - Agent Resources

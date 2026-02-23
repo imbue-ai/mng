@@ -22,7 +22,6 @@ from imbue.mng.cli.destroy import destroy
 from imbue.mng.cli.exec import exec_command
 from imbue.mng.cli.gc import gc
 from imbue.mng.cli.help_formatter import get_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.issue_reporting import handle_not_implemented_error
 from imbue.mng.cli.issue_reporting import handle_unexpected_error
 from imbue.mng.cli.limit import limit
@@ -149,7 +148,8 @@ class AliasAwareGroup(DefaultCommandGroup):
 
         rows: list[tuple[str, str]] = []
         for subcommand, cmd in commands:
-            help_text = cmd.get_short_help_str(limit=limit)
+            meta = get_help_metadata(subcommand)
+            help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
             aliases = COMMAND_ALIASES.get(subcommand, [])
             if aliases:
@@ -386,7 +386,7 @@ def _update_create_help_with_provider_args() -> None:
             existing_metadata.additional_sections + provider_sections,
         ),
     )
-    register_help_metadata("create", updated_metadata)
+    updated_metadata.register()
 
 
 _update_create_help_with_provider_args()

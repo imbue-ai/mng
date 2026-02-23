@@ -9,26 +9,20 @@
 mng ask [--execute] QUERY...
 ```
 
+Chat with mng for help [experimental].
 
-Chat with mng for help. [experimental]
+Ask a question and mng will generate the appropriate CLI command.
+If no query is provided, shows general help about available commands
+and common workflows.
 
-Ask mng a question and it will generate the appropriate CLI command.
-If no query is provided, shows general help.
-
-Examples:
-
-  mng ask "how do I create an agent?"
-
-  mng ask start a container with claude code
-
-  mng ask --execute forward port 8080 to the public internet
+When --execute is specified, the generated CLI command is executed
+directly instead of being printed.
 
 **Usage:**
 
 ```text
 mng ask [OPTIONS] [QUERY]...
 ```
-
 ## Arguments
 
 - `QUERY`: The query (optional)

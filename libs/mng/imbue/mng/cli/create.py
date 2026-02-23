@@ -41,7 +41,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -523,14 +522,6 @@ class CreateCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
-    """Create and run an agent.
-
-    Sets up the agent's work_dir, optionally provisions a new host (or uses
-    an existing one), runs the specified agent, and connects to it (by default).
-
-    \b
-    Alias: c
-    """
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mng_ctx, output_opts, opts = setup_command_context(
@@ -1609,7 +1600,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 
 # Register help metadata for git-style help formatting
 _CREATE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-create",
+    key="create",
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
@@ -1622,9 +1613,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
 - `AGENT_ARGS`: Additional arguments passed to the agent""",
-    description="""Create a new agent and optionally connect to it.
-
-This command sets up an agent's working directory, optionally provisions a
+    description="""This command sets up an agent's working directory, optionally provisions a
 new host (or uses an existing one), runs the specified agent process, and
 connects to it by default.
 
@@ -1681,7 +1670,7 @@ the working directory is copied to the remote host.""",
     ),
 )
 
-register_help_metadata("create", _CREATE_HELP_METADATA)
+_CREATE_HELP_METADATA.register()
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

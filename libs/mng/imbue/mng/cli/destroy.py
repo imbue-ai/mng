@@ -18,7 +18,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
@@ -177,28 +176,6 @@ class DestroyCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def destroy(ctx: click.Context, **kwargs) -> None:
-    """Destroy agent(s) and clean up resources.
-
-    When the last agent on a host is destroyed, the host itself is also destroyed.
-
-    Use with caution! This operation is irreversible.
-
-    Supports custom format templates via --format. Available fields: name.
-
-    Examples:
-
-      mng destroy my-agent
-
-      mng destroy agent1 agent2 agent3
-
-      mng destroy --agent my-agent --agent another-agent
-
-      mng destroy --session mng-my-agent
-
-      mng destroy --all --force
-
-      mng destroy --all --force --format '{name}'
-    """
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mng_ctx, output_opts, opts = setup_command_context(
@@ -521,26 +498,29 @@ def _run_post_destroy_gc(mng_ctx: MngContext, output_opts: OutputOptions) -> Non
 
 
 # Register help metadata for git-style help formatting
-_DESTROY_HELP_METADATA = CommandHelpMetadata(
-    name="mng-destroy",
+CommandHelpMetadata(
+    key="destroy",
     one_line_description="Destroy agent(s) and clean up resources",
     synopsis="mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run]",
-    description="""Destroy one or more agents and clean up their resources.
-
-When the last agent on a host is destroyed, the host itself is also destroyed
+    description="""When the last agent on a host is destroyed, the host itself is also destroyed
 (including containers, volumes, snapshots, and any remote infrastructure).
 
 Use with caution! This operation is irreversible.
 
 By default, running agents cannot be destroyed. Use --force to stop and destroy
 running agents. The command will prompt for confirmation before destroying
-agents unless --force is specified.""",
+agents unless --force is specified.
+
+Supports custom format templates via --format. Available fields: name.""",
     aliases=("rm",),
     examples=(
         ("Destroy an agent by name", "mng destroy my-agent"),
         ("Destroy multiple agents", "mng destroy agent1 agent2 agent3"),
         ("Destroy all agents", "mng destroy --all --force"),
         ("Preview what would be destroyed", "mng destroy my-agent --dry-run"),
+        ("Destroy using --agent flag (repeatable)", "mng destroy --agent my-agent --agent another-agent"),
+        ("Destroy by tmux session name", "mng destroy --session mng-my-agent"),
+        ("Custom format template output", "mng destroy --all --force --format '{name}'"),
     ),
     see_also=(
         ("create", "Create a new agent"),
@@ -554,9 +534,7 @@ agents unless --force is specified.""",
 - [Multi-target Options](../generic/multi_target.md) - Behavior when targeting multiple agents""",
         ),
     ),
-)
-
-register_help_metadata("destroy", _DESTROY_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the destroy command
 add_pager_help_option(destroy)

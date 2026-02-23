@@ -24,7 +24,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import render_format_template
@@ -212,21 +211,6 @@ class ListCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def list_command(ctx: click.Context, **kwargs) -> None:
-    """List all agents managed by mng.
-
-    Displays agents with their status, host information, and other metadata.
-    Supports filtering, sorting, and multiple output formats.
-
-    Examples:
-
-      mng list
-
-      mng list --running
-
-      mng list --provider docker
-
-      mng list --format json
-    """
     try:
         _list_impl(ctx, **kwargs)
     except AbortError as e:
@@ -1015,13 +999,11 @@ def _render_format_template(template: str, agent: AgentInfo) -> str:
 
 
 # Register help metadata for git-style help formatting
-_LIST_HELP_METADATA = CommandHelpMetadata(
-    name="mng-list",
+CommandHelpMetadata(
+    key="list",
     one_line_description="List all agents managed by mng",
     synopsis="mng [list|ls] [OPTIONS]",
-    description="""List all agents managed by mng.
-
-Displays agents with their status, host information, and other metadata.
+    description="""Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.""",
     aliases=("ls",),
     examples=(
@@ -1136,10 +1118,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
         ("connect", "Connect to an existing agent"),
         ("destroy", "Destroy agents"),
     ),
-)
-
-
-register_help_metadata("list", _LIST_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the list command
 add_pager_help_option(list_command)
