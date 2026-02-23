@@ -172,43 +172,33 @@ def test_read_agent_names_from_cache_uses_default_host_dir(
 # =============================================================================
 
 
-def test_trigger_background_cache_refresh_skips_when_cache_is_fresh(
+def test_trigger_background_cache_refresh_does_not_corrupt_fresh_cache(
     temp_host_dir: Path,
     no_background_cache_refresh: None,
 ) -> None:
-    """When the cache was recently written, no subprocess should be spawned."""
     _write_cache(temp_host_dir, ["agent"])
 
-    # Cache is fresh (just written), so the function should return immediately
-    # without reaching shutil.which(). The no_background_cache_refresh fixture
-    # acts as a safety net in case the freshness check is bypassed.
     _trigger_background_cache_refresh()
 
-    # Verify the cache still exists (was not corrupted)
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
 
 
-def test_trigger_background_cache_refresh_skips_when_mng_not_on_path(
+def test_trigger_background_cache_refresh_does_not_raise_with_stale_cache(
     temp_host_dir: Path,
     no_background_cache_refresh: None,
 ) -> None:
-    """When mng is not found on PATH, no subprocess should be spawned."""
-    # Make cache stale so the freshness check passes through to shutil.which()
     cache_path = _write_cache(temp_host_dir, ["agent"])
     old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
     os.utime(cache_path, (old_time, old_time))
 
-    # no_background_cache_refresh removes mng from PATH, so shutil.which("mng")
-    # returns None and no subprocess is spawned.
     _trigger_background_cache_refresh()
 
 
-def test_trigger_background_cache_refresh_skips_when_no_cache_and_no_mng(
+def test_trigger_background_cache_refresh_does_not_raise_with_no_cache(
     temp_host_dir: Path,
     no_background_cache_refresh: None,
 ) -> None:
-    """When no cache exists and mng is not on PATH, nothing happens."""
     _trigger_background_cache_refresh()
 
 
