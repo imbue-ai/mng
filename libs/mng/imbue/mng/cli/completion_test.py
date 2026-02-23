@@ -8,8 +8,8 @@ import click
 import pytest
 from click.shell_completion import CompletionItem
 
-from imbue.mng.cli.completion import CLI_COMPLETIONS_FILENAME
-from imbue.mng.cli.completion import COMPLETION_CACHE_FILENAME
+from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import _BACKGROUND_REFRESH_COOLDOWN_SECONDS
 from imbue.mng.cli.completion import _read_agent_names_from_cache
 from imbue.mng.cli.completion import _trigger_background_cache_refresh
@@ -42,7 +42,7 @@ def _path_without_mng() -> str:
 
 def _write_cache(host_dir: Path, names: list[str]) -> Path:
     """Write a completion cache file with the given names."""
-    cache_path = host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     data = {"names": names, "updated_at": "2025-01-01T00:00:00+00:00"}
     cache_path.write_text(json.dumps(data))
     return cache_path
@@ -59,7 +59,7 @@ def _write_cli_completions(
         data["commands"] = commands
     if subcommand_by_command is not None:
         data["subcommand_by_command"] = subcommand_by_command
-    cache_path = host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps(data))
     return cache_path
 
@@ -101,7 +101,7 @@ def test_read_agent_names_from_cache_returns_empty_when_dir_missing(
 def test_read_agent_names_from_cache_returns_empty_for_malformed_json(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text("not valid json {{{")
 
     result = _read_agent_names_from_cache()
@@ -112,7 +112,7 @@ def test_read_agent_names_from_cache_returns_empty_for_malformed_json(
 def test_read_agent_names_from_cache_returns_empty_when_names_not_list(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"names": "not-a-list"}))
 
     result = _read_agent_names_from_cache()
@@ -123,7 +123,7 @@ def test_read_agent_names_from_cache_returns_empty_when_names_not_list(
 def test_read_agent_names_from_cache_returns_empty_when_names_missing(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"other_key": "value"}))
 
     result = _read_agent_names_from_cache()
@@ -134,7 +134,7 @@ def test_read_agent_names_from_cache_returns_empty_when_names_missing(
 def test_read_agent_names_from_cache_filters_non_string_and_empty_names(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"names": ["good", "", 123, None, "also-good"]}))
 
     result = _read_agent_names_from_cache()
@@ -178,7 +178,7 @@ def test_trigger_background_cache_refresh_skips_when_cache_is_fresh(
     _trigger_background_cache_refresh()
 
     # Verify the cache still exists (was not corrupted)
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
 
 
@@ -291,7 +291,7 @@ def test_write_cli_completions_cache_writes_commands_and_subcommands(
     """write_cli_completions_cache should write all commands and subcommands."""
     write_cli_completions_cache(cli)
 
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     data = json.loads(cache_path.read_text())
 
@@ -309,7 +309,7 @@ def test_write_cli_completions_cache_includes_aliases(
     """write_cli_completions_cache should include command aliases."""
     write_cli_completions_cache(cli)
 
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     data = json.loads(cache_path.read_text())
     commands = data["commands"]
 
@@ -325,7 +325,7 @@ def test_write_cli_completions_cache_includes_plugin_commands(
     with _test_cli_with_plugin(_PluginWithSimpleCommand()) as test_cli:
         write_cli_completions_cache(test_cli)
 
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     data = json.loads(cache_path.read_text())
 
     assert "greet" in data["commands"]
@@ -355,7 +355,7 @@ def test_write_cli_completions_cache_includes_plugin_group_subcommands(
     test_cli.add_command(plugin_group_cmd)
     write_cli_completions_cache(test_cli)
 
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     data = json.loads(cache_path.read_text())
 
     assert "myplugin" in data["commands"]
@@ -388,7 +388,7 @@ def test_read_cached_commands_returns_none_when_file_missing(
 def test_read_cached_commands_returns_none_for_malformed_json(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text("not valid json {{{")
 
     result = read_cached_commands()
@@ -399,7 +399,7 @@ def test_read_cached_commands_returns_none_for_malformed_json(
 def test_read_cached_commands_returns_none_when_commands_key_missing(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"other_key": "value"}))
 
     result = read_cached_commands()
@@ -410,7 +410,7 @@ def test_read_cached_commands_returns_none_when_commands_key_missing(
 def test_read_cached_commands_returns_none_when_commands_not_list(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"commands": "not-a-list"}))
 
     result = read_cached_commands()
@@ -469,7 +469,7 @@ def test_read_cached_subcommands_returns_none_when_command_not_in_cache(
 def test_read_cached_subcommands_returns_none_when_subcommand_by_command_missing(
     temp_host_dir: Path,
 ) -> None:
-    cache_path = temp_host_dir / CLI_COMPLETIONS_FILENAME
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps({"commands": ["create"]}))
 
     result = read_cached_subcommands("config")

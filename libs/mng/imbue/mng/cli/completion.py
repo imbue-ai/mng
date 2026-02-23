@@ -9,8 +9,8 @@ from typing import Final
 import click
 from click.shell_completion import CompletionItem
 
-COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
-CLI_COMPLETIONS_FILENAME: Final[str] = ".cli_completions.json"
+AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
+COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
@@ -35,7 +35,7 @@ def _read_agent_names_from_cache() -> list[str]:
     This function is designed to never raise -- shell completion must not crash.
     """
     try:
-        cache_path = _get_host_dir() / COMPLETION_CACHE_FILENAME
+        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if not cache_path.is_file():
             return []
 
@@ -61,7 +61,7 @@ def _trigger_background_cache_refresh() -> None:
     every TAB press, and log output on stderr can interfere with shell completion.
     """
     try:
-        cache_path = _get_host_dir() / COMPLETION_CACHE_FILENAME
+        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if cache_path.is_file():
             age = time.time() - cache_path.stat().st_mtime
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
@@ -103,8 +103,9 @@ def complete_agent_name(
 # =============================================================================
 #
 # These functions read a JSON file listing all CLI commands and subcommands.
-# The file is written to {host_dir}/.cli_completions.json on every CLI
-# invocation by write_cli_completions_cache() in completion_writer.py.
+# The file is written to {host_dir}/.command_completions.json by
+# write_cli_completions_cache() in completion_writer.py, called from the
+# list command (which is triggered by the background tab completion refresh).
 #
 # This is analogous to the agent name cache above: tab completion reads from
 # a cached list rather than discovering commands live.
@@ -112,7 +113,7 @@ def complete_agent_name(
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
-    return _get_host_dir() / CLI_COMPLETIONS_FILENAME
+    return _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
 
 
 def _read_cli_completions_file() -> dict | None:

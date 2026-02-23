@@ -3,7 +3,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-from imbue.mng.cli.completion import COMPLETION_CACHE_FILENAME
+from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
@@ -52,7 +52,7 @@ def test_write_agent_names_cache_writes_sorted_names(
     """write_agent_names_cache should write sorted agent names to the cache file."""
     write_agent_names_cache(temp_host_dir, ["beta-agent", "alpha-agent"])
 
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["alpha-agent", "beta-agent"]
@@ -65,7 +65,7 @@ def test_write_agent_names_cache_writes_empty_list_for_no_agents(
     """write_agent_names_cache should write an empty names list when no agents."""
     write_agent_names_cache(temp_host_dir, [])
 
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == []
@@ -77,6 +77,6 @@ def test_write_agent_names_cache_deduplicates_names(
     """write_agent_names_cache should deduplicate agent names."""
     write_agent_names_cache(temp_host_dir, ["same-name", "same-name"])
 
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
