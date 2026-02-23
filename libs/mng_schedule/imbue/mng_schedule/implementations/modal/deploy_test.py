@@ -108,17 +108,20 @@ def _make_test_mng_ctx(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> MngContext:
-    """Create a MngContext for testing with the given plugin manager."""
+    """Create a MngContext for testing with the given plugin manager.
+
+    Uses a bare ConcurrencyGroup (not as a context manager) since these tests
+    only exercise hook calls, not process execution.
+    """
     profile_dir = tmp_path / "profile"
     profile_dir.mkdir(exist_ok=True)
     config = MngConfig(default_host_dir=tmp_path / ".mng_host")
-    with ConcurrencyGroup(name="test") as cg:
-        return MngContext(
-            config=config,
-            pm=plugin_manager,
-            profile_dir=profile_dir,
-            concurrency_group=cg,
-        )
+    return MngContext(
+        config=config,
+        pm=plugin_manager,
+        profile_dir=profile_dir,
+        concurrency_group=ConcurrencyGroup(name="test"),
+    )
 
 
 # =============================================================================

@@ -1595,7 +1595,6 @@ def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext) -> 
 
     result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
 
-    assert result is not None
     assert Path("~/.claude.json") in result
     assert result[Path("~/.claude.json")] == claude_json
 
@@ -1609,7 +1608,6 @@ def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext)
 
     result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
 
-    assert result is not None
     assert Path("~/.claude/settings.json") in result
     assert result[Path("~/.claude/settings.json")] == settings
 
@@ -1626,7 +1624,6 @@ def test_get_files_for_deploy_includes_both_files(temp_mng_ctx: MngContext) -> N
 
     result = get_files_for_deploy(mng_ctx=temp_mng_ctx)
 
-    assert result is not None
     assert len(result) == 2
     assert Path("~/.claude.json") in result
     assert Path("~/.claude/settings.json") in result

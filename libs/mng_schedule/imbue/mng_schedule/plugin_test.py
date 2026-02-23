@@ -49,7 +49,6 @@ def test_get_files_for_deploy_includes_mng_config() -> None:
 
     result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
 
-    assert result is not None
     assert Path("~/.mng/config.toml") in result
     assert result[Path("~/.mng/config.toml")] == config_file
 
@@ -63,7 +62,6 @@ def test_get_files_for_deploy_includes_mng_profiles() -> None:
 
     result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
 
-    assert result is not None
     assert Path("~/.mng/profiles/default") in result
     assert result[Path("~/.mng/profiles/default")] == profile_file
 
@@ -77,5 +75,4 @@ def test_get_files_for_deploy_includes_nested_profile_files() -> None:
 
     result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
 
-    assert result is not None
     assert Path("~/.mng/profiles/subdir/settings.toml") in result
