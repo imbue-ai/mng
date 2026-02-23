@@ -759,21 +759,6 @@ def test_streaming_renderer_tty_erases_status_on_finish() -> None:
     assert output.endswith("\r\x1b[K")
 
 
-def test_streaming_renderer_emit_warning_tty() -> None:
-    """TTY streaming should show warnings below agent rows, above the status line."""
-    captured = StringIO()
-    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
-    renderer.start()
-    renderer(make_test_agent_info(name="agent-1"))
-    renderer.emit_warning("WARNING: something bad\n")
-    renderer.finish()
-
-    output = captured.getvalue()
-    assert "WARNING: something bad" in output
-    # Warning should appear after the agent row
-    assert output.rfind("WARNING: something bad") > output.rfind("agent-1")
-
-
 def test_streaming_renderer_warning_stays_below_new_agents() -> None:
     """Warnings should stay at the bottom when new agents arrive after the warning."""
     captured = StringIO()
