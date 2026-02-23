@@ -37,7 +37,6 @@ def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
 
 
-@pure
 def get_modal_environment_name(mng_ctx: MngContext) -> str:
     """Derive the Modal environment name from the mng context.
 
@@ -110,6 +109,20 @@ def get_repo_root() -> Path:
             "Could not find git repository root. Must be run from within a git repository."
         ) from None
     return Path(result.stdout.strip())
+
+
+def _ensure_modal_environment(environment_name: str) -> None:
+    """Ensure a Modal environment exists, creating it if necessary."""
+    with ConcurrencyGroup(name="modal-env-create") as cg:
+        result = cg.run_process_to_completion(
+            ["uv", "run", "modal", "environment", "create", environment_name],
+            is_checked_after=False,
+        )
+    # Exit code 0 = created. Non-zero with "same name" = already exists (OK).
+    if result.returncode != 0 and "same name" not in result.stderr:
+        raise ScheduleDeployError(
+            f"Failed to create Modal environment '{environment_name}': {result.stderr.strip()}"
+        ) from None
 
 
 def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) -> None:
@@ -220,6 +233,9 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> 
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
     logger.info("Using commit {} for code packaging", trigger.git_image_hash)
+
+    # Ensure the Modal environment exists (modal deploy does not auto-create it)
+    _ensure_modal_environment(modal_env_name)
 
     with tempfile.TemporaryDirectory(prefix="mng-schedule-") as tmpdir:
         tmp_path = Path(tmpdir)

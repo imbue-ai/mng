@@ -58,10 +58,6 @@ if modal.is_local():
     _deploy_config_json: str = _require_env("SCHEDULE_DEPLOY_CONFIG")
     _deploy_config: dict[str, Any] = json.loads(_deploy_config_json)
 
-    _APP_NAME: str = _deploy_config["app_name"]
-    _CRON_SCHEDULE: str = _deploy_config["cron_schedule"]
-    _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
-
     # Local filesystem paths only needed at deploy time for image building
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
@@ -69,13 +65,14 @@ if modal.is_local():
 else:
     _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
 
-    _APP_NAME = _deploy_config["app_name"]
-    _CRON_SCHEDULE = _deploy_config["cron_schedule"]
-    _CRON_TIMEZONE = _deploy_config["cron_timezone"]
-
     _BUILD_CONTEXT_DIR = ""
     _STAGING_DIR = ""
     _DOCKERFILE = ""
+
+# Extract config values used by both deploy-time image building and runtime scheduling
+_APP_NAME: str = _deploy_config["app_name"]
+_CRON_SCHEDULE: str = _deploy_config["cron_schedule"]
+_CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
 
 
 # --- Image definition ---
