@@ -1,3 +1,4 @@
+import sys
 from enum import auto
 from typing import Any
 from uuid import uuid4
@@ -5,8 +6,10 @@ from uuid import uuid4
 import click
 from click_option_group import optgroup
 from loguru import logger
+from tabulate import tabulate
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
+from imbue.imbue_common.logging import log_span
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
@@ -14,10 +17,16 @@ from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
+from imbue.mng.cli.output_helpers import emit_final_json
+from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.primitives import OutputFormat
+from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.implementations.modal.deploy import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
+from imbue.mng_schedule.implementations.modal.deploy import get_modal_environment_name
+from imbue.mng_schedule.implementations.modal.deploy import list_schedule_creation_records
 from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 # =============================================================================
@@ -281,7 +290,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     try:
-        app_name = deploy_schedule(trigger, mng_ctx)
+        app_name = deploy_schedule(trigger, mng_ctx, sys_argv=sys.argv)
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
 
@@ -372,12 +381,30 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
       mng schedule list --all
       mng schedule list --json
     """
-    _mng_ctx, _output_opts, _opts = setup_command_context(
+    mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_list",
         command_class=ScheduleListCliOptions,
     )
-    raise NotImplementedError("schedule list is not implemented yet")
+
+    modal_env_name = get_modal_environment_name(mng_ctx)
+
+    with log_span("Listing schedule creation records from Modal environment '{}'", modal_env_name):
+        records = list_schedule_creation_records(modal_env_name)
+
+    # Filter out disabled schedules unless --all is specified
+    if not opts.all_schedules:
+        records = [r for r in records if r.trigger.is_enabled]
+
+    # Sort by creation time (oldest first)
+    records_sorted = sorted(records, key=lambda r: r.created_at)
+
+    if output_opts.output_format == OutputFormat.JSON:
+        _emit_schedule_list_json(records_sorted)
+    elif output_opts.output_format == OutputFormat.JSONL:
+        _emit_schedule_list_jsonl(records_sorted)
+    else:
+        _emit_schedule_list_human(records_sorted)
 
 
 # =============================================================================
@@ -406,6 +433,86 @@ def schedule_run(ctx: click.Context, **kwargs: Any) -> None:
         command_class=ScheduleRunCliOptions,
     )
     raise NotImplementedError("schedule run is not implemented yet")
+
+
+# =============================================================================
+# Output helpers for schedule list
+# =============================================================================
+
+
+_SCHEDULE_LIST_DISPLAY_FIELDS: tuple[str, ...] = (
+    "name",
+    "command",
+    "schedule",
+    "enabled",
+    "provider",
+    "git_hash",
+    "created_at",
+    "hostname",
+)
+
+_SCHEDULE_LIST_HEADERS: dict[str, str] = {
+    "name": "NAME",
+    "command": "COMMAND",
+    "schedule": "SCHEDULE",
+    "enabled": "ENABLED",
+    "provider": "PROVIDER",
+    "git_hash": "GIT HASH",
+    "created_at": "CREATED",
+    "hostname": "HOST",
+}
+
+
+def _get_schedule_field_value(record: ScheduleCreationRecord, field: str) -> str:
+    """Extract a display value from a ScheduleCreationRecord."""
+    if field == "name":
+        return record.trigger.name
+    elif field == "command":
+        return record.trigger.command.value.lower()
+    elif field == "schedule":
+        return record.trigger.schedule_cron
+    elif field == "enabled":
+        return "yes" if record.trigger.is_enabled else "no"
+    elif field == "provider":
+        return record.trigger.provider
+    elif field == "git_hash":
+        return record.trigger.git_image_hash[:12]
+    elif field == "created_at":
+        return record.created_at.strftime("%Y-%m-%d %H:%M")
+    elif field == "hostname":
+        return record.hostname
+    else:
+        return ""
+
+
+def _emit_schedule_list_human(records: list[ScheduleCreationRecord]) -> None:
+    """Emit human-readable table output for schedule list."""
+    if not records:
+        write_human_line("No schedules found")
+        return
+
+    headers = [_SCHEDULE_LIST_HEADERS[f] for f in _SCHEDULE_LIST_DISPLAY_FIELDS]
+    rows: list[list[str]] = []
+    for record in records:
+        row = [_get_schedule_field_value(record, f) for f in _SCHEDULE_LIST_DISPLAY_FIELDS]
+        rows.append(row)
+
+    table = tabulate(rows, headers=headers, tablefmt="plain")
+    write_human_line("\n" + table)
+
+
+def _emit_schedule_list_json(records: list[ScheduleCreationRecord]) -> None:
+    """Emit JSON output for schedule list."""
+    data = {
+        "schedules": [record.model_dump(mode="json") for record in records],
+    }
+    emit_final_json(data)
+
+
+def _emit_schedule_list_jsonl(records: list[ScheduleCreationRecord]) -> None:
+    """Emit JSONL output for schedule list."""
+    for record in records:
+        emit_final_json(record.model_dump(mode="json"))
 
 
 # =============================================================================

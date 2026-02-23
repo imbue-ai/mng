@@ -4,6 +4,7 @@ from pathlib import Path
 
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
+from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandline
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
@@ -75,3 +76,19 @@ def test_resolve_timezone_skips_empty_etc_timezone(tmp_path: Path) -> None:
 
     result = _resolve_timezone_from_paths(etc_timezone, etc_localtime)
     assert result == "UTC"
+
+
+def test_build_full_commandline_joins_argv_with_spaces() -> None:
+    argv = ["uv", "run", "mng", "schedule", "add", "--command", "create"]
+    result = _build_full_commandline(argv)
+    assert result == "uv run mng schedule add --command create"
+
+
+def test_build_full_commandline_handles_empty_argv() -> None:
+    result = _build_full_commandline([])
+    assert result == ""
+
+
+def test_build_full_commandline_handles_single_element() -> None:
+    result = _build_full_commandline(["mng"])
+    assert result == "mng"

@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import auto
 
 from pydantic import Field
@@ -25,3 +26,16 @@ class ScheduleTriggerDefinition(FrozenModel):
     provider: str = Field(description="Provider on which to run the scheduled command (e.g. 'modal')")
     is_enabled: bool = Field(default=True, description="Whether this schedule is active")
     git_image_hash: str = Field(description="Git commit SHA for packaging project code into the image")
+
+
+class ScheduleCreationRecord(FrozenModel):
+    """Metadata about how a scheduled trigger was created, persisted on the Modal state volume."""
+
+    trigger: ScheduleTriggerDefinition = Field(description="The trigger definition that was deployed")
+    full_commandline: str = Field(description="The full command line used to create this schedule")
+    hostname: str = Field(description="The hostname of the machine where the schedule was created")
+    working_directory: str = Field(description="The directory from which the schedule was created")
+    mng_git_hash: str = Field(description="Git commit hash of the mng codebase at creation time")
+    created_at: datetime = Field(description="UTC timestamp of when the schedule was created")
+    modal_app_name: str = Field(description="The Modal app name for this schedule")
+    modal_environment: str = Field(description="The Modal environment name")

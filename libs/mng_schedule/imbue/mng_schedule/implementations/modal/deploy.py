@@ -1,12 +1,18 @@
+import io
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
 
+import modal
+import modal.exception
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -14,12 +20,19 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
+from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
 # Default Dockerfile path relative to repo root (symlink to the real Dockerfile)
 _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
+
+# Name of the Modal volume used to store schedule state
+_SCHEDULE_STATE_VOLUME_NAME: Final[str] = "mng-schedule-state"
+
+# Path prefix on the state volume for schedule records
+_SCHEDULE_RECORDS_PREFIX: Final[str] = "/scheduled_functions"
 
 
 class ScheduleDeployError(MngError):
@@ -213,7 +226,79 @@ def build_deploy_config(
     }
 
 
-def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> str:
+def _get_schedule_state_volume(environment_name: str) -> modal.Volume:
+    """Get or create the Modal volume used to store schedule creation records."""
+    return modal.Volume.from_name(
+        _SCHEDULE_STATE_VOLUME_NAME,
+        create_if_missing=True,
+        environment_name=environment_name,
+    )
+
+
+def _get_current_mng_git_hash() -> str:
+    """Get the git commit hash of the current mng codebase."""
+    with ConcurrencyGroup(name="git-rev-parse-mng") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "HEAD"],
+            is_checked_after=False,
+        )
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip()
+
+
+def _save_schedule_creation_record(
+    record: ScheduleCreationRecord,
+    environment_name: str,
+) -> None:
+    """Save a schedule creation record to the Modal state volume."""
+    volume = _get_schedule_state_volume(environment_name)
+    path = f"{_SCHEDULE_RECORDS_PREFIX}/{record.trigger.name}.json"
+    data = record.model_dump_json(indent=2).encode("utf-8")
+
+    with volume.batch_upload(force=True) as batch:
+        batch.put_file(io.BytesIO(data), path)
+
+    logger.debug("Saved schedule creation record to {}", path)
+
+
+def list_schedule_creation_records(environment_name: str) -> list[ScheduleCreationRecord]:
+    """Read all schedule creation records from the Modal state volume."""
+    try:
+        volume = _get_schedule_state_volume(environment_name)
+    except modal.exception.NotFoundError:
+        return []
+
+    try:
+        entries = volume.listdir(_SCHEDULE_RECORDS_PREFIX)
+    except (modal.exception.NotFoundError, FileNotFoundError):
+        return []
+
+    records: list[ScheduleCreationRecord] = []
+    for entry in entries:
+        if not entry.path.endswith(".json"):
+            continue
+        file_path = f"{_SCHEDULE_RECORDS_PREFIX}/{entry.path}"
+        try:
+            data = b"".join(volume.read_file(file_path))
+            record = ScheduleCreationRecord.model_validate_json(data)
+            records.append(record)
+        except Exception as exc:
+            logger.warning("Skipped unreadable schedule record at {}: {}", file_path, exc)
+    return records
+
+
+@pure
+def _build_full_commandline(sys_argv: list[str]) -> str:
+    """Reconstruct the full command line from sys.argv."""
+    return " ".join(sys_argv)
+
+
+def deploy_schedule(
+    trigger: ScheduleTriggerDefinition,
+    mng_ctx: MngContext,
+    sys_argv: list[str],
+) -> str:
     """Deploy a scheduled trigger to Modal.
 
     Full deployment flow:
@@ -296,6 +381,20 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> 
                     f"Failed to deploy schedule '{trigger.name}' to Modal "
                     f"(exit code {result.returncode}). See output above for details."
                 ) from None
+
+    # Save the creation record to the state volume
+    with log_span("Saving schedule creation record"):
+        creation_record = ScheduleCreationRecord(
+            trigger=trigger,
+            full_commandline=_build_full_commandline(sys_argv),
+            hostname=platform.node(),
+            working_directory=str(Path.cwd()),
+            mng_git_hash=_get_current_mng_git_hash(),
+            created_at=datetime.now(timezone.utc),
+            modal_app_name=app_name,
+            modal_environment=modal_env_name,
+        )
+        _save_schedule_creation_record(creation_record, modal_env_name)
 
     logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
     return app_name
