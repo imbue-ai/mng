@@ -71,7 +71,8 @@ def test_schedule_add_deploys_to_modal() -> None:
                 "modal",
                 "--git-image-hash",
                 "HEAD",
-                "--no-verify",
+                "--verify",
+                "none",
             ],
             capture_output=True,
             text=True,
@@ -81,6 +82,60 @@ def test_schedule_add_deploys_to_modal() -> None:
 
         assert result.returncode == 0, (
             f"schedule add failed with exit code {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert app_name in result.stdout or app_name in result.stderr, (
+            f"Expected app name '{app_name}' in output\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    finally:
+        _cleanup_modal_app(app_name, env)
+
+
+@pytest.mark.release
+@pytest.mark.timeout(900)
+def test_schedule_add_with_verification() -> None:
+    """Test that schedule add with quick verification deploys and verifies.
+
+    This test verifies the full flow including post-deploy verification:
+    1. CLI deploys the cron function to Modal
+    2. Invokes the function once via modal run
+    3. Waits for the agent to start
+    4. Destroys the verification agent
+    5. Cleanup: stop/delete the deployed app
+    """
+    trigger_name = "test-schedule-verify"
+    app_name = get_modal_app_name(trigger_name)
+    env = _build_subprocess_env()
+
+    try:
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "mng",
+                "schedule",
+                "add",
+                trigger_name,
+                "--command",
+                "create",
+                "--args",
+                "test-agent echo --no-connect --await-ready --no-ensure-clean -- hello-verify",
+                "--schedule",
+                "0 3 * * *",
+                "--provider",
+                "modal",
+                "--git-image-hash",
+                "HEAD",
+                "--verify",
+                "quick",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=900,
+            env=env,
+        )
+
+        assert result.returncode == 0, (
+            f"schedule add with verify failed\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
         assert app_name in result.stdout or app_name in result.stderr, (
             f"Expected app name '{app_name}' in output\nstdout: {result.stdout}\nstderr: {result.stderr}"
