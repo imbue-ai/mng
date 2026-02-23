@@ -39,6 +39,7 @@ from imbue.mng.utils.testing import delete_modal_volumes_in_environment
 from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_subprocess_test_env
 from imbue.mng.utils.testing import init_git_repo
+from imbue.mng.utils.testing import isolate_home
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -239,7 +240,7 @@ def setup_test_mng_env(
                 "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
             )
 
-    monkeypatch.setenv("HOME", str(tmp_home_dir))
+    isolate_home(tmp_home_dir, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
@@ -255,8 +256,6 @@ def setup_test_mng_env(
     # Safety check: verify Path.home() is in a temp directory.
     # If this fails, tests could accidentally modify the real home directory.
     assert_home_is_temp_directory()
-
-    monkeypatch.chdir(tmp_home_dir)
 
     yield
 

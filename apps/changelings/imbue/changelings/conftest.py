@@ -5,6 +5,7 @@ import pytest
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.primitives import ChangelingName
+from imbue.mng.utils.testing import isolate_home
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -12,8 +13,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate config operations to a temporary home directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
+    isolate_home(tmp_path, monkeypatch)
 
 
 @pytest.fixture
