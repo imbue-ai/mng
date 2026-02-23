@@ -88,7 +88,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
-from imbue.mng.providers.ssh_host_setup import DEFAULT_DOCKERFILE_CONTENTS
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -972,10 +972,7 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            image = _build_image_from_dockerfile_contents(
-                DEFAULT_DOCKERFILE_CONTENTS,
-                is_each_layer_cached=True,
-            )
+            image = modal.Image.debian_slim().apt_install(*(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
 
         return image
 
