@@ -4,9 +4,9 @@ from pathlib import Path
 
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
-from imbue.mng_schedule.deploy import _resolve_timezone_from_paths
-from imbue.mng_schedule.deploy import build_deploy_config
-from imbue.mng_schedule.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
+from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
+from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 
 
 def test_get_modal_app_name() -> None:

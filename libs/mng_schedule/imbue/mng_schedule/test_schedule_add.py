@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mng_schedule.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 
 # Read the real home directory BEFORE the autouse fixture overrides HOME.
 # This is needed because the subprocess needs the real Modal credentials.

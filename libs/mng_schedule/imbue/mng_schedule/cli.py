@@ -16,9 +16,9 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
-from imbue.mng_schedule.deploy import ScheduleDeployError
-from imbue.mng_schedule.deploy import deploy_schedule
-from imbue.mng_schedule.deploy import resolve_git_ref
+from imbue.mng_schedule.implementations.modal.deploy import ScheduleDeployError
+from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
+from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 # =============================================================================
 # Enums
