@@ -20,7 +20,8 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
     (triggered by background tab completion refresh) to keep the cache up to
     date with installed plugins.
 
-    This function never raises -- cache write failures must not break CLI commands.
+    Catches OSError from cache writes so filesystem failures do not break
+    CLI commands. Other exceptions are allowed to propagate.
     """
     try:
         all_command_names = sorted(cli_group.commands.keys())
@@ -50,7 +51,8 @@ def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
     without importing the mng config system. The cache file is written to
     {host_dir}/.agent_completions.json.
 
-    This function never raises -- cache write failures must not break the caller.
+    Catches OSError from cache writes so filesystem failures do not break
+    the caller. Other exceptions are allowed to propagate.
     """
     try:
         cache_data = {
