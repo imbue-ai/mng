@@ -199,3 +199,26 @@ def test_multiple_plugin_hooks_all_fire(
     ]
     assert tracker1.hook_names == expected
     assert tracker2.hook_names == expected
+
+
+# --- Disabled plugin hooks should not fire ---
+
+
+def test_blocked_plugin_hooks_do_not_fire(
+    plugin_manager: pluggy.PluginManager,
+    cli_runner: CliRunner,
+) -> None:
+    """Hooks from a plugin that has been blocked via pm.set_blocked() should not fire."""
+    tracker = _LifecycleTracker()
+    plugin_manager.register(tracker, name="test-blocked-plugin")
+
+    # Block the plugin -- this simulates what create_plugin_manager does
+    # for config-disabled plugins
+    plugin_manager.set_blocked("test-blocked-plugin")
+
+    imbue.mng.main._plugin_manager_container["pm"] = plugin_manager
+
+    cli_runner.invoke(cli, ["list"])
+
+    # The tracker's hooks should NOT have fired since the plugin was blocked
+    assert tracker.hook_names == []

@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import imbue.mng.resources as mng_resources
+from imbue.mng.providers.ssh_host_setup import RequiredHostPackage
 from imbue.mng.providers.ssh_host_setup import WARNING_PREFIX
 from imbue.mng.providers.ssh_host_setup import _build_package_check_snippet
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
@@ -41,7 +42,8 @@ def test_valid_shell_command() -> None:
 
 def test_build_package_check_snippet_default_check() -> None:
     """When no check_cmd is given, should use 'command -v <binary>' and reference the package."""
-    snippet = _build_package_check_snippet(binary="tmux", package="tmux", check_cmd=None)
+    pkg = RequiredHostPackage(package="tmux", binary="tmux", check_cmd=None)
+    snippet = _build_package_check_snippet(pkg)
     assert "command -v tmux >/dev/null 2>&1" in snippet
     assert f"{WARNING_PREFIX}tmux is not pre-installed" in snippet
     assert 'PKGS_TO_INSTALL="$PKGS_TO_INSTALL tmux"' in snippet
@@ -49,7 +51,8 @@ def test_build_package_check_snippet_default_check() -> None:
 
 def test_build_package_check_snippet_custom_check() -> None:
     """When check_cmd is provided, should use that instead of the default."""
-    snippet = _build_package_check_snippet(binary="sshd", package="openssh-server", check_cmd="test -x /usr/sbin/sshd")
+    pkg = RequiredHostPackage(package="openssh-server", binary="sshd", check_cmd="test -x /usr/sbin/sshd")
+    snippet = _build_package_check_snippet(pkg)
     assert "test -x /usr/sbin/sshd" in snippet
     assert "command -v" not in snippet
     assert f"{WARNING_PREFIX}openssh-server is not pre-installed" in snippet
