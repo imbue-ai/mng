@@ -140,8 +140,9 @@ omit = [
     "apps/changelings/imbue/changelings/deploy/cron_runner.py",
     "apps/changelings/imbue/changelings/deploy/remote_runner.py",
     "apps/changelings/imbue/changelings/deploy/verification.py",
-    # Schedule plugin cron runner runs on Modal and requires infrastructure to test
+    # Schedule plugin cron runner and verification run on Modal and require infrastructure to test
     "libs/mng_schedule/imbue/mng_schedule/implementations/modal/cron_runner.py",
+    "libs/mng_schedule/imbue/mng_schedule/implementations/modal/verification.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
