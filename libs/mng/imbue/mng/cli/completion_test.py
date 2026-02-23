@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import click
+import psutil
 import pytest
 from click.shell_completion import CompletionItem
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import _BACKGROUND_REFRESH_COOLDOWN_SECONDS
@@ -24,6 +26,7 @@ from imbue.mng.cli.snapshot import snapshot as snapshot_group
 from imbue.mng.cli.test_plugin_cli_commands import _PluginWithSimpleCommand
 from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
+from imbue.mng.utils.polling import wait_for
 
 
 def _shutil_which_without_mng(name: str, *args: Any, **kwargs: Any) -> str | None:
@@ -200,6 +203,64 @@ def test_trigger_background_cache_refresh_does_not_raise_with_no_cache(
     no_background_cache_refresh: None,
 ) -> None:
     _trigger_background_cache_refresh()
+
+
+def _find_mng_list_children() -> list[psutil.Process]:
+    """Find child processes that are running ``mng list``."""
+    try:
+        children = psutil.Process().children(recursive=True)
+    except psutil.NoSuchProcess:
+        return []
+    result = []
+    for p in children:
+        try:
+            cmdline = " ".join(p.cmdline())
+            if "mng" in cmdline and "list" in cmdline:
+                result.append(p)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+    return result
+
+
+def test_trigger_background_cache_refresh_throttles_spawning(
+    temp_host_dir: Path,
+) -> None:
+    """Fresh cache prevents subprocess spawning; stale cache allows it."""
+    if shutil.which("mng") is None:
+        pytest.skip("mng not on PATH")
+
+    with ConcurrencyGroup(name="test-throttle"):
+        # -- Fresh cache: should NOT spawn --
+        _write_cache(temp_host_dir, ["agent"])
+        baseline = _find_mng_list_children()
+
+        _trigger_background_cache_refresh()
+
+        after_fresh = _find_mng_list_children()
+        new_after_fresh = [p for p in after_fresh if p not in baseline]
+        assert new_after_fresh == [], "Fresh cache should prevent subprocess spawning"
+
+        # -- Stale cache: should spawn --
+        cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+        old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
+        os.utime(cache_path, (old_time, old_time))
+
+        _trigger_background_cache_refresh()
+
+        def _spawned_process_exists() -> bool:
+            new = [p for p in _find_mng_list_children() if p not in baseline]
+            return len(new) >= 1
+
+        wait_for(_spawned_process_exists, timeout=5.0, error_message="Stale cache should spawn a subprocess")
+
+        # Clean up spawned processes
+        for p in _find_mng_list_children():
+            if p not in baseline:
+                try:
+                    p.kill()
+                    p.wait(timeout=5)
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    pass
 
 
 # =============================================================================
