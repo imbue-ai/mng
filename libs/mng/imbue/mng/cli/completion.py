@@ -11,13 +11,14 @@ from click.shell_completion import CompletionItem
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
+DEFAULT_HOST_DIR: Final[Path] = Path("~/.mng")
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
 def get_host_dir() -> Path:
     """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
     env_host_dir = os.environ.get("MNG_HOST_DIR")
-    return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
+    return Path(env_host_dir) if env_host_dir else DEFAULT_HOST_DIR.expanduser()
 
 
 # =============================================================================
