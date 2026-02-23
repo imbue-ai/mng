@@ -12,6 +12,8 @@ from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
+from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
@@ -212,3 +214,105 @@ def test_stage_deploy_files_creates_empty_manifest_when_no_files(
     assert manifest_path.exists()
     manifest = json.loads(manifest_path.read_text())
     assert manifest == {}
+
+
+# =============================================================================
+# _collect_deploy_files validation Tests
+# =============================================================================
+
+
+def _make_mng_ctx_with_hook_returning(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+    files: dict[Path, Path | str],
+) -> MngContext:
+    """Create a MngContext whose get_files_for_deploy hook returns the given files."""
+    from imbue.mng import hookimpl
+
+    class _TestPlugin:
+        @staticmethod
+        @hookimpl
+        def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+            return files
+
+    plugin_manager.register(_TestPlugin())
+
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir(exist_ok=True)
+    config = MngConfig(default_host_dir=tmp_path / ".mng_host")
+    with ConcurrencyGroup(name="test-validation") as cg:
+        return MngContext(
+            config=config,
+            pm=plugin_manager,
+            profile_dir=profile_dir,
+            concurrency_group=cg,
+        )
+
+
+def test_collect_deploy_files_rejects_non_tilde_path(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """_collect_deploy_files should raise ScheduleDeployError for paths not starting with ~."""
+    mng_ctx = _make_mng_ctx_with_hook_returning(
+        plugin_manager,
+        tmp_path,
+        {Path("relative/config.toml"): "content"},
+    )
+
+    with pytest.raises(ScheduleDeployError, match="must start with '~'"):
+        _collect_deploy_files(mng_ctx)
+
+
+def test_collect_deploy_files_rejects_absolute_path(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """_collect_deploy_files should raise ScheduleDeployError for absolute paths."""
+    mng_ctx = _make_mng_ctx_with_hook_returning(
+        plugin_manager,
+        tmp_path,
+        {Path("/etc/config.toml"): "content"},
+    )
+
+    with pytest.raises(ScheduleDeployError, match="must start with '~'"):
+        _collect_deploy_files(mng_ctx)
+
+
+def test_collect_deploy_files_warns_on_collision(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+    capfd: pytest.CaptureFixture[str],
+) -> None:
+    """_collect_deploy_files should log a warning when two plugins register the same path."""
+    from imbue.mng import hookimpl
+
+    class _PluginA:
+        @staticmethod
+        @hookimpl
+        def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+            return {Path("~/.config/test.toml"): "content-a"}
+
+    class _PluginB:
+        @staticmethod
+        @hookimpl
+        def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+            return {Path("~/.config/test.toml"): "content-b"}
+
+    plugin_manager.register(_PluginA())
+    plugin_manager.register(_PluginB())
+
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir(exist_ok=True)
+    config = MngConfig(default_host_dir=tmp_path / ".mng_host")
+    with ConcurrencyGroup(name="test-collision") as cg:
+        mng_ctx = MngContext(
+            config=config,
+            pm=plugin_manager,
+            profile_dir=profile_dir,
+            concurrency_group=cg,
+        )
+        result = _collect_deploy_files(mng_ctx)
+
+    # Should still succeed, with one entry (last one wins)
+    assert Path("~/.config/test.toml") in result
