@@ -1,7 +1,9 @@
 import json
 import os
+import shutil
 import time
 from pathlib import Path
+from typing import Any
 
 import click
 import pytest
@@ -24,20 +26,16 @@ from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
 
 
-def _path_without_mng() -> str:
-    """Return PATH with all directories containing an ``mng`` executable removed.
+def _shutil_which_without_mng(name: str, *args: Any, **kwargs: Any) -> str | None:
+    """Wrapper around shutil.which that returns None for ``mng``.
 
-    Used in tests to prevent _trigger_background_cache_refresh from spawning
-    a real subprocess. Checks every PATH entry (not just the first
-    ``shutil.which`` hit) so that multiple worktree venvs are all excluded.
+    Used to prevent _trigger_background_cache_refresh from finding and
+    spawning a real ``mng`` subprocess during tests, without removing
+    entire directories from PATH (which could break other binaries).
     """
-    current_path = os.environ.get("PATH", "")
-    dirs_with_mng: set[str] = set()
-    for d in current_path.split(os.pathsep):
-        candidate = Path(d) / "mng"
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            dirs_with_mng.add(d)
-    return os.pathsep.join(d for d in current_path.split(os.pathsep) if d not in dirs_with_mng)
+    if name == "mng":
+        return None
+    return shutil.which(name, *args, **kwargs)
 
 
 def _write_cache(host_dir: Path, names: list[str]) -> Path:
@@ -68,12 +66,11 @@ def _write_cli_completions(
 def no_background_cache_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prevent _trigger_background_cache_refresh from spawning a real subprocess.
 
-    Removes all directories containing ``mng`` from PATH so that
-    ``shutil.which("mng")`` returns None inside the refresh function.
-    The removed directories are typically .venv/bin dirs that only contain
-    Python package entry-points, not system binaries.
+    Makes ``shutil.which("mng")`` return None inside the completion module
+    so the refresh function cannot find an ``mng`` binary to invoke.
+    All other ``shutil.which`` lookups are unaffected.
     """
-    monkeypatch.setenv("PATH", _path_without_mng())
+    monkeypatch.setattr("imbue.mng.cli.completion.shutil.which", _shutil_which_without_mng)
 
 
 # =============================================================================
