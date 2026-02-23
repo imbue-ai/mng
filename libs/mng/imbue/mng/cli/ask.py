@@ -6,6 +6,7 @@ import tempfile
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import assert_never
@@ -179,6 +180,38 @@ _EXECUTE_QUERY_PREFIX: Final[str] = (
 
 _PROCESS_WAIT_TIMEOUT_SECONDS: Final[int] = 10
 
+_READ_ONLY_TOOLS: Final[str] = "Read,Glob,Grep"
+
+
+def _find_mng_source_directory() -> Path | None:
+    """Find the mng project directory by walking up from this file.
+
+    Returns the project root (containing docs/ and imbue/mng/) or None if not
+    found (e.g. when installed from a wheel without source).
+    """
+    candidate = Path(__file__).resolve().parents[3]
+    if (candidate / "docs").is_dir() and (candidate / "imbue" / "mng").is_dir():
+        return candidate
+    return None
+
+
+@pure
+def _build_source_access_context(source_directory: Path) -> str:
+    """Build system prompt section describing available source code access."""
+    return (
+        "\n\n# Source Code Access\n\n"
+        f"The mng source code is available on disk at: {source_directory}\n"
+        "You can use the Read, Glob, and Grep tools to explore it when answering questions.\n\n"
+        "Key directories:\n"
+        f"- {source_directory}/docs/ - User-facing documentation (markdown)\n"
+        f"- {source_directory}/imbue/mng/ - Python source code\n"
+        f"- {source_directory}/imbue/mng/cli/ - CLI command implementations\n"
+        f"- {source_directory}/imbue/mng/agents/ - Agent type implementations\n"
+        f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n"
+        f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n"
+        f"- {source_directory}/imbue/mng/config/ - Configuration handling\n"
+    )
+
 
 class ClaudeBackendInterface(MutableModel, ABC):
     """Abstraction over the claude subprocess for testability."""
@@ -241,7 +274,11 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
                         "--verbose",
                         "--include-partial-messages",
                         "--tools",
-                        "",
+                        _READ_ONLY_TOOLS,
+                        "--allowedTools",
+                        _READ_ONLY_TOOLS,
+                        "--permission-mode",
+                        "dontAsk",
                         "--no-session-persistence",
                         prompt,
                     ],
@@ -412,6 +449,9 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
 
     backend = SubprocessClaudeBackend()
     system_prompt = _build_ask_context()
+    source_dir = _find_mng_source_directory()
+    if source_dir is not None:
+        system_prompt += _build_source_access_context(source_dir)
     chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
 
     if opts.execute:

@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from pathlib import Path
 
 import pluggy
 import pytest
@@ -8,8 +9,10 @@ from click.testing import CliRunner
 import imbue.mng.cli.ask as ask_module
 from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _build_ask_context
+from imbue.mng.cli.ask import _build_source_access_context
 from imbue.mng.cli.ask import _execute_response
 from imbue.mng.cli.ask import _extract_text_delta
+from imbue.mng.cli.ask import _find_mng_source_directory
 from imbue.mng.cli.ask import ask
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import OutputFormat
@@ -231,3 +234,37 @@ def test_no_query_json_output(
     result = cli_runner.invoke(ask, ["--format", "json"], obj=plugin_manager, catch_exceptions=False)
     assert result.exit_code == 0
     assert '"commands"' in result.output
+
+
+def test_find_mng_source_directory_returns_valid_path() -> None:
+    """When running from source, should find the project directory with docs/ and imbue/mng/."""
+    source_dir = _find_mng_source_directory()
+    assert source_dir is not None
+    assert (source_dir / "docs").is_dir()
+    assert (source_dir / "imbue" / "mng").is_dir()
+
+
+def test_build_source_access_context_includes_source_directory_and_key_paths() -> None:
+    context = _build_source_access_context(Path("/fake/mng/project"))
+    assert "/fake/mng/project" in context
+    assert "docs/" in context
+    assert "imbue/mng/" in context
+    assert "Read" in context
+
+
+def test_ask_system_prompt_includes_source_access_context(
+    fake_claude: FakeClaude,
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """The system prompt passed to claude should include source code access info."""
+    fake_claude.responses.append("mng list")
+
+    cli_runner.invoke(ask, ["list", "agents"], obj=plugin_manager, catch_exceptions=False)
+
+    assert len(fake_claude.system_prompts) == 1
+    system_prompt = fake_claude.system_prompts[0]
+    assert "Source Code Access" in system_prompt
+    assert "docs/" in system_prompt
+
+
