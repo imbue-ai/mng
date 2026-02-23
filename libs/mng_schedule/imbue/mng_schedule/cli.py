@@ -241,7 +241,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # update can distinguish "not specified" from "explicitly set".
     if ctx.params.get("enabled") is None:
         ctx.params["enabled"] = True
-    _mng_ctx, _output_opts, opts = setup_command_context(
+    mng_ctx, _output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_add",
         command_class=ScheduleAddCliOptions,
@@ -280,7 +280,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     try:
-        app_name = deploy_schedule(trigger)
+        app_name = deploy_schedule(trigger, mng_ctx)
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
 

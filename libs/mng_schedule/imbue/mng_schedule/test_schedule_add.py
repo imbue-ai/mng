@@ -22,16 +22,16 @@ def _build_subprocess_env() -> dict[str, str]:
     """Build environment for subprocess calls that need real Modal credentials.
 
     The autouse test fixture overrides HOME to a temp directory for test isolation.
-    Subprocesses need the real HOME to find ~/.modal.toml, git config, etc.
-    We restore the real HOME and also set MNG_ROOT_NAME to prevent loading
-    the project's .mng/settings.toml.
+    Subprocesses need the real HOME to find ~/.modal.toml, git config, mng profiles,
+    etc. We restore the real HOME and remove test isolation vars so the subprocess
+    uses the real mng configuration (which has the correct Modal environment).
     """
     env = os.environ.copy()
     env["HOME"] = str(_REAL_HOME)
-    env["MNG_ROOT_NAME"] = "mng-schedule-test"
-    # Remove test isolation vars that would interfere
+    # Remove test isolation vars that would interfere with the real mng config
     env.pop("MNG_HOST_DIR", None)
     env.pop("MNG_PREFIX", None)
+    env.pop("MNG_ROOT_NAME", None)
     return env
 
 

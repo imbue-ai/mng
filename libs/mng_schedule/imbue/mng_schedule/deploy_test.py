@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
+from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.deploy import _resolve_timezone_from_paths
-from imbue.mng_schedule.deploy import build_deploy_env
+from imbue.mng_schedule.deploy import build_deploy_config
 from imbue.mng_schedule.deploy import get_modal_app_name
 
 
@@ -12,25 +13,28 @@ def test_get_modal_app_name() -> None:
     assert get_modal_app_name("nightly") == "mng-schedule-nightly"
 
 
-def test_build_deploy_env_returns_all_keys() -> None:
-    result = build_deploy_env(
+def test_build_deploy_config_returns_all_keys() -> None:
+    trigger = ScheduleTriggerDefinition(
+        name="test",
+        command="create",
+        args="--message hello",
+        schedule_cron="0 3 * * *",
+        provider="modal",
+        is_enabled=True,
+        git_image_hash="abc123",
+    )
+    result = build_deploy_config(
         app_name="test-app",
-        trigger_json='{"name": "test"}',
+        trigger=trigger,
         cron_schedule="0 3 * * *",
         cron_timezone="America/Los_Angeles",
-        build_context_dir="/tmp/build",
-        staging_dir="/tmp/staging",
-        dockerfile="/path/to/Dockerfile",
     )
-    assert result == {
-        "SCHEDULE_APP_NAME": "test-app",
-        "SCHEDULE_TRIGGER_JSON": '{"name": "test"}',
-        "SCHEDULE_CRON": "0 3 * * *",
-        "SCHEDULE_CRON_TIMEZONE": "America/Los_Angeles",
-        "SCHEDULE_BUILD_CONTEXT_DIR": "/tmp/build",
-        "SCHEDULE_STAGING_DIR": "/tmp/staging",
-        "SCHEDULE_DOCKERFILE": "/path/to/Dockerfile",
-    }
+    assert result["app_name"] == "test-app"
+    assert result["cron_schedule"] == "0 3 * * *"
+    assert result["cron_timezone"] == "America/Los_Angeles"
+    assert result["trigger"]["name"] == "test"
+    assert result["trigger"]["command"] == "create"
+    assert result["trigger"]["args"] == "--message hello"
 
 
 def test_resolve_timezone_reads_etc_timezone(tmp_path: Path) -> None:

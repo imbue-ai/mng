@@ -1,8 +1,10 @@
+import json
 import os
 import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 from typing import Final
 
 from loguru import logger
@@ -10,10 +12,14 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
+
+# Default Dockerfile path relative to repo root (symlink to the real Dockerfile)
+_DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
 
 
 class ScheduleDeployError(MngError):
@@ -29,6 +35,22 @@ def _forward_output(line: str, is_stdout: bool) -> None:
 @pure
 def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
+
+
+@pure
+def get_modal_environment_name(mng_ctx: MngContext) -> str:
+    """Derive the Modal environment name from the mng context.
+
+    This matches the convention used by the Modal provider backend:
+    environment_name = {prefix}{user_id}
+    """
+    prefix = mng_ctx.config.prefix
+    user_id = mng_ctx.get_profile_user_id()
+    environment_name = f"{prefix}{user_id}"
+    # Modal has a 64-char limit on environment names
+    if len(environment_name) > 64:
+        environment_name = environment_name[:64]
+    return environment_name
 
 
 @pure
@@ -163,36 +185,30 @@ def stage_local_files(staging_dir: Path, repo_root: Path) -> None:
 
 
 @pure
-def build_deploy_env(
+def build_deploy_config(
     app_name: str,
-    trigger_json: str,
+    trigger: ScheduleTriggerDefinition,
     cron_schedule: str,
     cron_timezone: str,
-    build_context_dir: str,
-    staging_dir: str,
-    dockerfile: str,
-) -> dict[str, str]:
-    """Build the complete set of environment variables needed for deploying the cron runner."""
+) -> dict[str, Any]:
+    """Build the deploy configuration dict that gets baked into the Modal image."""
     return {
-        "SCHEDULE_APP_NAME": app_name,
-        "SCHEDULE_TRIGGER_JSON": trigger_json,
-        "SCHEDULE_CRON": cron_schedule,
-        "SCHEDULE_CRON_TIMEZONE": cron_timezone,
-        "SCHEDULE_BUILD_CONTEXT_DIR": build_context_dir,
-        "SCHEDULE_STAGING_DIR": staging_dir,
-        "SCHEDULE_DOCKERFILE": dockerfile,
+        "app_name": app_name,
+        "trigger": json.loads(trigger.model_dump_json()),
+        "cron_schedule": cron_schedule,
+        "cron_timezone": cron_timezone,
     }
 
 
-def deploy_schedule(trigger: ScheduleTriggerDefinition) -> str:
+def deploy_schedule(trigger: ScheduleTriggerDefinition, mng_ctx: MngContext) -> str:
     """Deploy a scheduled trigger to Modal.
 
     Full deployment flow:
-    1. Resolve commit hash and find repo root
-    2. Package repo at that commit into a tarball
+    1. Find repo root and derive Modal environment name
+    2. Package repo at the specified commit into a tarball
     3. Stage local files (user config, secrets)
-    4. Build deploy env vars
-    5. Run modal deploy cron_runner.py
+    4. Write deploy config as a single JSON file
+    5. Run modal deploy cron_runner.py with --env for the correct Modal environment
     6. Return the Modal app name
 
     Raises ScheduleDeployError if any step fails.
@@ -200,8 +216,9 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition) -> str:
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
+    modal_env_name = get_modal_environment_name(mng_ctx)
 
-    logger.info("Deploying schedule '{}' (app: {})", trigger.name, app_name)
+    logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
     logger.info("Using commit {} for code packaging", trigger.git_image_hash)
 
     with tempfile.TemporaryDirectory(prefix="mng-schedule-") as tmpdir:
@@ -221,28 +238,35 @@ def deploy_schedule(trigger: ScheduleTriggerDefinition) -> str:
         with log_span("Staging local files"):
             stage_local_files(staging_dir, repo_root)
 
-        # Write trigger config for the cron runner
-        trigger_json = trigger.model_dump_json()
-        (staging_dir / "trigger.json").write_text(trigger_json)
-
-        # Build deploy env vars
-        dockerfile_path = repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
-        deploy_env_vars = build_deploy_env(
+        # Write deploy config as a single JSON file into the staging dir
+        deploy_config = build_deploy_config(
             app_name=app_name,
-            trigger_json=trigger_json,
+            trigger=trigger,
             cron_schedule=trigger.schedule_cron,
             cron_timezone=cron_timezone,
-            build_context_dir=str(build_dir),
-            staging_dir=str(staging_dir),
-            dockerfile=str(dockerfile_path),
         )
+        deploy_config_json = json.dumps(deploy_config)
+        (staging_dir / "deploy_config.json").write_text(deploy_config_json)
 
-        env = {**os.environ, **deploy_env_vars}
+        # Resolve the Dockerfile path (default: .mng/Dockerfile)
+        dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
+        if not dockerfile_path.exists():
+            raise ScheduleDeployError(
+                f"Dockerfile not found at {dockerfile_path}. "
+                "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
+            ) from None
+
+        # Build env vars: deploy config as single JSON + local-only paths for image building
+        env = os.environ.copy()
+        env["SCHEDULE_DEPLOY_CONFIG"] = deploy_config_json
+        env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
+        env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
+        env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
 
         cron_runner_path = Path(__file__).parent / "cron_runner.py"
-        cmd = ["uv", "run", "modal", "deploy", str(cron_runner_path)]
+        cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
 
-        with log_span("Deploying to Modal as app '{}'", app_name):
+        with log_span("Deploying to Modal as app '{}' in env '{}'", app_name, modal_env_name):
             with ConcurrencyGroup(name=f"modal-deploy-{trigger.name}") as cg:
                 result = cg.run_process_to_completion(
                     cmd,

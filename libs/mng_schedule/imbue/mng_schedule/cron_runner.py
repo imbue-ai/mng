@@ -12,23 +12,20 @@
 # (including mng tooling) into the Docker image at deploy time via the
 # --git-image-hash approach. No runtime repo cloning is needed.
 #
-# The image is built from the Dockerfile at libs/mng/imbue/mng/resources/Dockerfile
+# The image is built from the project's Dockerfile (typically .mng/Dockerfile)
 # which installs system deps, uv, claude code, extracts the repo tarball, and
 # runs `uv sync --all-packages`. The code lives at /code/mng/ in the image.
 #
 # A staging directory is added as the last image layer, containing:
-# - /staging/trigger.json: The trigger definition
+# - /staging/deploy_config.json: All deploy-time configuration as a single JSON
 # - /staging/user_config/: User config files (claude.json, mng config, profiles)
 # - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
 #
 # Required environment variables at deploy time:
-# - SCHEDULE_APP_NAME: The Modal app name
-# - SCHEDULE_TRIGGER_JSON: JSON-encoded trigger definition
-# - SCHEDULE_CRON: Cron schedule expression (e.g., "0 3 * * *")
-# - SCHEDULE_CRON_TIMEZONE: IANA timezone for the cron schedule
-# - SCHEDULE_BUILD_CONTEXT_DIR: Path to the build context directory (contains current.tar.gz)
-# - SCHEDULE_STAGING_DIR: Path to the staging directory (user config + secrets)
-# - SCHEDULE_DOCKERFILE: Path to the Dockerfile to use for building the image
+# - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
+# - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
+# - SCHEDULE_STAGING_DIR: Local path to staging directory (user config + secrets)
+# - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
 
 import json
 import os
@@ -37,10 +34,16 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import modal
 
 # --- Deploy-time configuration ---
+# At deploy time (modal.is_local() == True), we read configuration from a
+# single JSON env var and write it to /staging/deploy_config.json. At runtime,
+# we read from that baked-in file. Local filesystem paths (build context,
+# staging dir, dockerfile) are separate env vars since they're only needed
+# at deploy time for image building.
 
 
 def _require_env(name: str) -> str:
@@ -52,18 +55,24 @@ def _require_env(name: str) -> str:
 
 
 if modal.is_local():
-    _APP_NAME: str = _require_env("SCHEDULE_APP_NAME")
-    _TRIGGER_JSON: str = _require_env("SCHEDULE_TRIGGER_JSON")
-    _CRON_SCHEDULE: str = _require_env("SCHEDULE_CRON")
-    _CRON_TIMEZONE: str = _require_env("SCHEDULE_CRON_TIMEZONE")
+    _deploy_config_json: str = _require_env("SCHEDULE_DEPLOY_CONFIG")
+    _deploy_config: dict[str, Any] = json.loads(_deploy_config_json)
+
+    _APP_NAME: str = _deploy_config["app_name"]
+    _CRON_SCHEDULE: str = _deploy_config["cron_schedule"]
+    _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
+
+    # Local filesystem paths only needed at deploy time for image building
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
     _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
 else:
-    _APP_NAME = "unknown"
-    _TRIGGER_JSON = "{}"
-    _CRON_SCHEDULE = "0 0 * * *"
-    _CRON_TIMEZONE = "UTC"
+    _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
+
+    _APP_NAME = _deploy_config["app_name"]
+    _CRON_SCHEDULE = _deploy_config["cron_schedule"]
+    _CRON_TIMEZONE = _deploy_config["cron_timezone"]
+
     _BUILD_CONTEXT_DIR = ""
     _STAGING_DIR = ""
     _DOCKERFILE = ""
@@ -156,7 +165,7 @@ def run_scheduled_trigger() -> None:
     3. Sets up GitHub authentication
     4. Builds and runs the mng command with secrets env file
     """
-    trigger = json.loads(Path("/staging/trigger.json").read_text())
+    trigger = _deploy_config["trigger"]
 
     if not trigger.get("is_enabled", True):
         print("Schedule trigger is disabled, skipping")
