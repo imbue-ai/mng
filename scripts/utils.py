@@ -1,21 +1,26 @@
 import re
 import tomllib
-from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Final
+
+from pydantic import Field
+from pydantic import computed_field
+
+from imbue.imbue_common.frozen_model import FrozenModel
 
 REPO_ROOT: Final[Path] = Path(__file__).parent.parent
 
 
-@dataclass(frozen=True)
-class PackageInfo:
+class PackageInfo(FrozenModel):
     """Metadata for a publishable package and its internal dependencies."""
 
-    dir_name: str
-    pypi_name: str
-    internal_deps: tuple[str, ...]
+    dir_name: str = Field(description="Directory name under libs/")
+    pypi_name: str = Field(description="PyPI package name")
+    internal_deps: tuple[str, ...] = Field(description="PyPI names of internal dependencies")
 
-    @property
+    @computed_field  # type: ignore[prop-decorator]
+    @cached_property
     def pyproject_path(self) -> Path:
         return REPO_ROOT / "libs" / self.dir_name / "pyproject.toml"
 
