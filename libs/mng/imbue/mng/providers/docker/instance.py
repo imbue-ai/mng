@@ -76,7 +76,7 @@ from imbue.mng.providers.ssh_utils import wait_for_sshd
 # Container entrypoint as SDK-style command tuple (used by tests)
 CONTAINER_ENTRYPOINT: Final[tuple[str, ...]] = ("sh", "-c", CONTAINER_ENTRYPOINT_CMD)
 
-# Default image used when an explicit --image is set in config but no Dockerfile is provided
+# Fallback base image when no image is specified by the user or provider config.
 DEFAULT_IMAGE: Final[str] = DEFAULT_BASE_IMAGE
 
 # Docker label prefix
