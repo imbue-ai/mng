@@ -29,6 +29,7 @@ from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.implementations.modal.deploy import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import list_schedule_creation_records
+from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_instance
 from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 # =============================================================================
@@ -86,6 +87,7 @@ class ScheduleListCliOptions(CommonCliOptions):
     """Options for the schedule list subcommand."""
 
     all_schedules: bool
+    provider: str
 
 
 class ScheduleRunCliOptions(CommonCliOptions):
@@ -266,14 +268,16 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         raise click.UsageError("--schedule is required for schedule add")
     if opts.provider is None:
         raise click.UsageError("--provider is required for schedule add")
-    if opts.provider != "modal":
-        raise click.UsageError(
-            f"Provider '{opts.provider}' is not yet supported for schedule add. Currently only 'modal' is supported."
-        )
     if opts.git_image_hash is None:
         raise click.UsageError(
             "--git-image-hash is required when provider is 'modal'. Use HEAD to package the current commit."
         )
+
+    # Load and validate the provider instance
+    try:
+        provider = load_modal_provider_instance(opts.provider, mng_ctx)
+    except ScheduleDeployError as e:
+        raise click.ClickException(str(e)) from e
 
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
@@ -292,7 +296,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     try:
-        app_name = deploy_schedule(trigger, mng_ctx, sys_argv=sys.argv)
+        app_name = deploy_schedule(trigger, mng_ctx, provider=provider, sys_argv=sys.argv)
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
 
@@ -370,6 +374,12 @@ def schedule_update(ctx: click.Context, **kwargs: Any) -> None:
     is_flag=True,
     help="Show all schedules, including disabled ones.",
 )
+@optgroup.option(
+    "--provider",
+    default="modal",
+    show_default=True,
+    help="Provider instance to list schedules from.",
+)
 @add_common_options
 @click.pass_context
 def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
@@ -389,11 +399,14 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
         command_class=ScheduleListCliOptions,
     )
 
-    # Currently only modal is supported as a schedule provider
-    provider_instance_name = "modal"
+    # Load the provider instance
+    try:
+        provider = load_modal_provider_instance(opts.provider, mng_ctx)
+    except ScheduleDeployError as e:
+        raise click.ClickException(str(e)) from e
 
     with log_span("Listing schedule creation records"):
-        records = list_schedule_creation_records(provider_instance_name, mng_ctx)
+        records = list_schedule_creation_records(provider)
 
     # Filter out disabled schedules unless --all is specified
     if not opts.all_schedules:

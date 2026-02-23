@@ -1,4 +1,3 @@
-import io
 import json
 import os
 import platform
@@ -12,7 +11,6 @@ from pathlib import Path
 from typing import Any
 from typing import Final
 
-import modal
 import modal.exception
 from loguru import logger
 from pydantic import ValidationError
@@ -20,12 +18,11 @@ from pydantic import ValidationError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
+from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.providers.modal.backend import MODAL_NAME_MAX_LENGTH
-from imbue.mng.providers.modal.backend import STATE_VOLUME_SUFFIX
-from imbue.mng.providers.modal.config import ModalProviderConfig
+from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 
@@ -53,43 +50,22 @@ def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
 
 
-def _resolve_provider_modal_config(
+def load_modal_provider_instance(
     provider_instance_name: str,
     mng_ctx: MngContext,
-) -> ModalProviderConfig | None:
-    """Look up the ModalProviderConfig for a provider instance, if configured."""
-    provider_name = ProviderInstanceName(provider_instance_name)
-    if provider_name not in mng_ctx.config.providers:
-        return None
-    config = mng_ctx.config.providers[provider_name]
-    if isinstance(config, ModalProviderConfig):
-        return config
-    return None
+) -> ModalProviderInstance:
+    """Load a provider instance and verify it is a Modal provider.
 
-
-def get_modal_environment_name(
-    mng_ctx: MngContext,
-    provider_instance_name: str = "modal",
-) -> str:
-    """Derive the Modal environment name from the mng context.
-
-    This matches the convention used by the Modal provider backend:
-    environment_name = {prefix}{user_id}
-
-    Respects user_id overrides from the provider config if present.
+    Raises ScheduleDeployError if the provider is not a Modal provider
+    or is a local provider (not yet supported for schedules).
     """
-    prefix = mng_ctx.config.prefix
-    modal_config = _resolve_provider_modal_config(provider_instance_name, mng_ctx)
-    user_id = (
-        modal_config.user_id
-        if modal_config is not None and modal_config.user_id is not None
-        else mng_ctx.get_profile_user_id()
-    )
-    environment_name = f"{prefix}{user_id}"
-    # Modal has a 64-char limit on environment names
-    if len(environment_name) > MODAL_NAME_MAX_LENGTH:
-        environment_name = environment_name[:MODAL_NAME_MAX_LENGTH]
-    return environment_name
+    provider = get_provider_instance(ProviderInstanceName(provider_instance_name), mng_ctx)
+    if not isinstance(provider, ModalProviderInstance):
+        raise ScheduleDeployError(
+            f"Provider '{provider_instance_name}' is not a Modal provider. "
+            "Only Modal providers are currently supported for schedules."
+        ) from None
+    return provider
 
 
 @pure
@@ -253,96 +229,35 @@ def build_deploy_config(
     }
 
 
-def _derive_state_volume_name_and_environment(
-    provider_instance_name: str,
-    mng_ctx: MngContext,
-) -> tuple[str, str]:
-    """Derive the state volume name and environment for the given provider instance.
-
-    Uses the same naming convention as the Modal provider backend:
-    volume_name = {app_name}-state, environment = {prefix}{user_id}.
-    Respects provider config overrides for app_name and user_id.
-    """
-    prefix = mng_ctx.config.prefix
-    modal_config = _resolve_provider_modal_config(provider_instance_name, mng_ctx)
-
-    # Derive app name using the same logic as ModalProviderBackend.build_provider_instance
-    if modal_config is not None and modal_config.app_name is not None:
-        app_name = modal_config.app_name
-    else:
-        app_name = f"{prefix}{provider_instance_name}"
-
-    # Truncate app_name if needed (same as modal backend)
-    max_app_name_length = MODAL_NAME_MAX_LENGTH - len(STATE_VOLUME_SUFFIX)
-    if len(app_name) > max_app_name_length:
-        app_name = app_name[:max_app_name_length]
-
-    volume_name = f"{app_name}{STATE_VOLUME_SUFFIX}"
-    environment_name = get_modal_environment_name(mng_ctx, provider_instance_name)
-    return volume_name, environment_name
-
-
-def _get_provider_state_volume(
-    provider_instance_name: str,
-    mng_ctx: MngContext,
-    is_creating_if_missing: bool = True,
-) -> modal.Volume:
-    """Get the provider's state volume, reusing the same volume as the Modal provider backend.
-
-    When is_creating_if_missing is False, raises modal.exception.NotFoundError if the
-    volume does not exist. This is appropriate for read-only operations like listing.
-    """
-    volume_name, environment_name = _derive_state_volume_name_and_environment(provider_instance_name, mng_ctx)
-    return modal.Volume.from_name(
-        volume_name,
-        create_if_missing=is_creating_if_missing,
-        environment_name=environment_name,
-        version=2,
-    )
-
-
 def _get_current_mng_git_hash() -> str:
     """Get the git commit hash of the current mng codebase."""
-    with ConcurrencyGroup(name="git-rev-parse-mng") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "HEAD"],
-            is_checked_after=False,
-        )
-    if result.returncode != 0:
-        logger.warning("Could not determine mng git hash: {}", result.stderr.strip())
+    try:
+        return resolve_git_ref("HEAD")
+    except ScheduleDeployError:
+        logger.warning("Could not determine mng git hash (not in a git repository?)")
         return "unknown"
-    return result.stdout.strip()
 
 
 def _save_schedule_creation_record(
     record: ScheduleCreationRecord,
-    provider_instance_name: str,
-    mng_ctx: MngContext,
+    provider: ModalProviderInstance,
 ) -> None:
     """Save a schedule creation record to the provider's state volume."""
-    volume = _get_provider_state_volume(provider_instance_name, mng_ctx)
+    volume = provider.get_state_volume()
     path = f"{_SCHEDULE_RECORDS_PREFIX}/{record.trigger.name}.json"
     data = record.model_dump_json(indent=2).encode("utf-8")
-
-    with volume.batch_upload(force=True) as batch:
-        batch.put_file(io.BytesIO(data), path)
-
+    volume.write_files({path: data})
     logger.debug("Saved schedule creation record to {}", path)
 
 
 def list_schedule_creation_records(
-    provider_instance_name: str,
-    mng_ctx: MngContext,
+    provider: ModalProviderInstance,
 ) -> list[ScheduleCreationRecord]:
     """Read all schedule creation records from the provider's state volume.
 
-    Returns an empty list if the state volume does not exist (e.g., no schedules
-    have been deployed yet). Does not create the volume as a side effect.
+    Returns an empty list if no schedules directory exists on the volume.
     """
-    try:
-        volume = _get_provider_state_volume(provider_instance_name, mng_ctx, is_creating_if_missing=False)
-    except modal.exception.NotFoundError:
-        return []
+    volume = provider.get_state_volume()
 
     try:
         entries = volume.listdir(_SCHEDULE_RECORDS_PREFIX)
@@ -355,7 +270,7 @@ def list_schedule_creation_records(
             continue
         file_path = f"{_SCHEDULE_RECORDS_PREFIX}/{entry.path}"
         try:
-            data = b"".join(volume.read_file(file_path))
+            data = volume.read_file(file_path)
         except (modal.exception.NotFoundError, FileNotFoundError, OSError) as exc:
             logger.warning("Skipped unreadable schedule record at {}: {}", file_path, exc)
             continue
@@ -377,6 +292,7 @@ def _build_full_commandline(sys_argv: list[str]) -> str:
 def deploy_schedule(
     trigger: ScheduleTriggerDefinition,
     mng_ctx: MngContext,
+    provider: ModalProviderInstance,
     sys_argv: list[str],
 ) -> str:
     """Deploy a scheduled trigger to Modal.
@@ -394,7 +310,7 @@ def deploy_schedule(
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
-    modal_env_name = get_modal_environment_name(mng_ctx)
+    modal_env_name = provider.environment_name
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
     logger.info("Using commit {} for code packaging", trigger.git_image_hash)
@@ -477,7 +393,7 @@ def deploy_schedule(
             modal_environment=modal_env_name,
         )
         try:
-            _save_schedule_creation_record(creation_record, trigger.provider, mng_ctx)
+            _save_schedule_creation_record(creation_record, provider)
         except (modal.exception.Error, OSError) as exc:
             logger.warning(
                 "Schedule '{}' was deployed successfully but failed to save creation record: {}",

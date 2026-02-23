@@ -622,8 +622,8 @@ class ModalProviderInstance(BaseProviderInstance):
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def _get_state_volume(self) -> ModalVolume:
-        """Get the state volume for persisting host records and agent data.
+    def get_state_volume(self) -> ModalVolume:
+        """Get the state volume for persisting host records, agent data, and schedule records.
 
         This volume is used to persist host records (including snapshots) across
         sandbox termination. It is NOT the same as the host volume (which is
@@ -638,7 +638,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the state volume."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
@@ -693,7 +693,7 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         path = self._get_host_record_path(host_id)
 
         try:
@@ -708,7 +708,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _destroy_agents_on_host(self, host_id: HostId) -> None:
         """Remove the agents for this host from the state volume."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         # delete all agent records for this host
         host_dir = f"/hosts/{host_id}"
@@ -724,7 +724,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the state volume and clear caches."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
@@ -779,7 +779,7 @@ class ModalProviderInstance(BaseProviderInstance):
         self, cg: ConcurrencyGroup, is_including_agents: bool = True
     ) -> tuple[list[HostRecord], dict[str, Any]]:
         with trace_span("  _list_all_host_and_agent_records", _is_trace_span_enabled=False):
-            volume = self._get_state_volume()
+            volume = self.get_state_volume()
 
             futures: list[Future[HostRecord | None]] = []
             future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
@@ -819,7 +819,7 @@ class ModalProviderInstance(BaseProviderInstance):
         These are persisted when a host shuts down so that mng list can
         show agents on stopped hosts.
         """
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
         host_dir = f"/hosts/{host_id}"
@@ -862,7 +862,7 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.warning("Cannot persist agent data without id field")
             return
 
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         host_dir = f"/hosts/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
@@ -878,7 +878,7 @@ class ModalProviderInstance(BaseProviderInstance):
         Called when an agent is destroyed. Removes the agent data file from
         /hosts/{host_id}/{agent_id}.json on the state volume.
         """
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         agent_path = f"/hosts/{host_id}/{agent_id}.json"
 
         try:
