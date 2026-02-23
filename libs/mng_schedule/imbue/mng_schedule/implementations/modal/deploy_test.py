@@ -19,7 +19,6 @@ from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_fr
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
-from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
 
 
@@ -189,10 +188,10 @@ def test_stage_deploy_files_creates_home_directory_structure(
     assert staged_file.read_text() == '{"staged": true}'
 
 
-def test_stage_deploy_files_roundtrip_restores_files(
+def test_stage_deploy_files_stages_multiple_home_files(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
-    """Files staged by stage_deploy_files can be installed back to their destinations."""
+    """stage_deploy_files stages multiple home files preserving directory structure."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"roundtrip": true}')
     mng_dir = Path.home() / ".mng"
@@ -202,18 +201,13 @@ def test_stage_deploy_files_roundtrip_restores_files(
 
     staging_dir = run_staging(None)
 
-    # Delete the originals to prove the install recreates them
-    claude_json.unlink()
-    mng_config.unlink()
-
-    # Use the shared install function (same code as cron_runner uses)
-    install_deploy_files(staging_base=staging_dir)
-
-    # Verify files were restored
-    assert claude_json.exists()
-    assert claude_json.read_text() == '{"roundtrip": true}'
-    assert mng_config.exists()
-    assert mng_config.read_text() == "[test]\nroundtrip = true\n"
+    # Both files should be staged under home/ with their natural paths
+    staged_claude = staging_dir / "home" / ".claude.json"
+    assert staged_claude.exists()
+    assert staged_claude.read_text() == '{"roundtrip": true}'
+    staged_config = staging_dir / "home" / ".mng" / "config.toml"
+    assert staged_config.exists()
+    assert staged_config.read_text() == "[test]\nroundtrip = true\n"
 
 
 def test_stage_deploy_files_stages_secrets_env(
@@ -234,15 +228,46 @@ def test_stage_deploy_files_stages_secrets_env(
     assert staged_secrets.read_text() == "GH_TOKEN=test123"
 
 
-def test_stage_deploy_files_creates_empty_home_when_no_files(
+def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
-    """stage_deploy_files should create an empty home/ dir when no plugin returns files."""
+    """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
     staging_dir = run_staging(None)
 
     home_dir = staging_dir / "home"
     assert home_dir.exists()
     assert not any(home_dir.iterdir())
+
+    project_dir = staging_dir / "project"
+    assert project_dir.exists()
+    assert not any(project_dir.iterdir())
+
+
+def test_stage_deploy_files_stages_project_files(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """stage_deploy_files should stage relative paths under project/."""
+
+    class _ProjectFilePlugin:
+        @staticmethod
+        @hookimpl
+        def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+            return {Path("config/settings.toml"): "[settings]\nkey = 1\n"}
+
+    plugin_manager.register(_ProjectFilePlugin())
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    stage_deploy_files(staging_dir, mng_ctx, repo_root)
+
+    staged_file = staging_dir / "project" / "config" / "settings.toml"
+    assert staged_file.exists()
+    assert staged_file.read_text() == "[settings]\nkey = 1\n"
+
+    # home/ should be empty since no home files were registered
+    assert not any((staging_dir / "home").iterdir())
 
 
 # =============================================================================
@@ -267,19 +292,19 @@ def _make_mng_ctx_with_hook_returning(
     return _make_test_mng_ctx(plugin_manager, tmp_path)
 
 
-def test_collect_deploy_files_rejects_non_tilde_path(
+def test_collect_deploy_files_accepts_relative_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> None:
-    """_collect_deploy_files should raise ScheduleDeployError for paths not starting with ~."""
+    """_collect_deploy_files should accept relative paths as project files."""
     mng_ctx = _make_mng_ctx_with_hook_returning(
         plugin_manager,
         tmp_path,
         {Path("relative/config.toml"): "content"},
     )
 
-    with pytest.raises(ScheduleDeployError, match="must start with '~'"):
-        _collect_deploy_files(mng_ctx)
+    result = _collect_deploy_files(mng_ctx)
+    assert Path("relative/config.toml") in result
 
 
 def test_collect_deploy_files_rejects_absolute_path(
@@ -293,7 +318,7 @@ def test_collect_deploy_files_rejects_absolute_path(
         {Path("/etc/config.toml"): "content"},
     )
 
-    with pytest.raises(ScheduleDeployError, match="must start with '~'"):
+    with pytest.raises(ScheduleDeployError, match="must be relative or start with '~'"):
         _collect_deploy_files(mng_ctx)
 
 

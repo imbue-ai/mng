@@ -276,9 +276,11 @@ def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
     its operation in the remote environment.
 
     Return a dict mapping destination paths to sources (empty dict if none):
-    - Keys are destination Paths on the remote machine. Paths must start
-      with "~" to place files relative to the user's home directory
-      (e.g. Path("~/.claude.json")).
+    - Keys are destination Paths on the remote machine. Paths starting
+      with "~" are placed relative to the user's home directory
+      (e.g. Path("~/.claude.json")). Relative paths (without "~" prefix)
+      are placed relative to the project working directory (the Dockerfile
+      WORKDIR). Absolute paths are not allowed.
     - Values are either a Path to a local file (whose contents will be
       copied) or a str containing the file contents directly.
     """

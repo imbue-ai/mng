@@ -6,8 +6,7 @@
 # command.
 #
 # IMPORTANT: This file must NOT import from imbue.* packages that depend on
-# the mng framework. It runs standalone on Modal via `modal deploy`. The only
-# exception is staging.py, which has no framework dependencies.
+# the mng framework. It runs standalone on Modal via `modal deploy`.
 #
 # Unlike the changelings cron_runner, this version bakes the entire codebase
 # (including mng tooling) into the Docker image at deploy time via the
@@ -20,7 +19,12 @@
 # A staging directory is added as the last image layer, containing:
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
 # - /staging/home/: Files destined for ~/  (mirrors home directory structure)
+# - /staging/project/: Files destined for the project working directory
 # - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
+#
+# Files from /staging/home/ and /staging/project/ are baked into their final
+# locations ($HOME and WORKDIR respectively) during the image build via
+# dockerfile_commands, so no runtime file installation is needed.
 #
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
@@ -78,16 +82,28 @@ _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
 # --- Image definition ---
 # The image is built from the project's Dockerfile, which already installs
 # system dependencies, uv, claude code, extracts the repo tarball, and runs
-# `uv sync --all-packages`. We add the staging directory on top.
+# `uv sync --all-packages`. We add the staging directory on top and then
+# bake user/project files into their final locations via dockerfile_commands.
+# The Dockerfile's WORKDIR must be set to the project directory (e.g.
+# /code/mng/) so that project files are copied to the correct location.
 
 if modal.is_local():
-    _image = modal.Image.from_dockerfile(
-        _DOCKERFILE,
-        context_dir=_BUILD_CONTEXT_DIR,
-    ).add_local_dir(
-        _STAGING_DIR,
-        "/staging",
-        copy=True,
+    _image = (
+        modal.Image.from_dockerfile(
+            _DOCKERFILE,
+            context_dir=_BUILD_CONTEXT_DIR,
+        )
+        .add_local_dir(
+            _STAGING_DIR,
+            "/staging",
+            copy=True,
+        )
+        .dockerfile_commands(
+            [
+                "RUN cp -a /staging/home/. $HOME/",
+                "RUN cp -a /staging/project/. .",
+            ]
+        )
     )
 else:
     # At runtime, the image is already built
@@ -135,9 +151,11 @@ def run_scheduled_trigger() -> None:
 
     This function executes on the cron schedule and:
     1. Checks if the trigger is enabled
-    2. Installs deploy files (config, settings, etc.) from staged manifest
-    3. Sets up GitHub authentication
-    4. Builds and runs the mng command with secrets env file
+    2. Sets up GitHub authentication
+    3. Builds and runs the mng command with secrets env file
+
+    Deploy files (config, settings, etc.) are already baked into $HOME and
+    WORKDIR during the image build via dockerfile_commands.
     """
     trigger = _deploy_config["trigger"]
 
@@ -145,12 +163,8 @@ def run_scheduled_trigger() -> None:
         print("Schedule trigger is disabled, skipping")
         return
 
-    # Install deploy files (config, settings, etc.) from staged manifest
-    # Late import: staging.py is only available at runtime (after the image is built),
-    # not at deploy time when this file's module-level code runs.
-    from imbue.mng_schedule.implementations.modal.staging import install_deploy_files
-
-    install_deploy_files()
+    # Deploy files (config, settings, etc.) are already baked into $HOME and
+    # WORKDIR during the image build -- no runtime installation needed.
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")

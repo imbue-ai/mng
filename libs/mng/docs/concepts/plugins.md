@@ -47,7 +47,7 @@ Called during `mng schedule add` to collect files for baking into scheduled depl
 
 | Hook                         | Description                                                                                                    |
 |------------------------------|----------------------------------------------------------------------------------------------------------------|
-| `get_files_for_deploy`       | Return files to include in scheduled deployment images (e.g., config files, settings). Destination paths must start with `~`. [experimental] |
+| `get_files_for_deploy`       | Return files to include in scheduled deployment images (e.g., config files, settings). Paths starting with `~` go to the user's home directory; relative paths go to the project working directory. [experimental] |
 
 ### Program lifecycle hooks
 

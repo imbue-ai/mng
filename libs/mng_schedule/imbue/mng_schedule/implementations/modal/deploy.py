@@ -167,13 +167,21 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
 
 
 def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
-    """Collect all files for deployment by calling the get_files_for_deploy hook."""
+    """Collect all files for deployment by calling the get_files_for_deploy hook.
+
+    Destination paths must either start with "~" (user home files) or be
+    relative paths (project files copied to the image WORKDIR).  Absolute
+    paths that do not start with "~" are rejected.
+    """
     all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
     merged: dict[Path, Path | str] = {}
     for result in all_results:
         for dest_path, source in result.items():
-            if not str(dest_path).startswith("~"):
-                raise ScheduleDeployError(f"Deploy file destination path must start with '~', got: {dest_path}")
+            dest_str = str(dest_path)
+            if dest_str.startswith("/"):
+                raise ScheduleDeployError(
+                    f"Deploy file destination path must be relative or start with '~', got: {dest_path}"
+                )
             if dest_path in merged:
                 logger.warning(
                     "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
@@ -187,13 +195,21 @@ def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) 
     """Stage files for deployment into a directory for baking into the Modal image.
 
     Collects files from all plugins via the get_files_for_deploy hook and stages
-    them into a directory structure that mirrors their destination layout. All
-    destination paths start with "~", so they are placed under a "home/"
-    subdirectory with the "~/" prefix stripped (e.g. "~/.claude.json" becomes
-    "home/.claude.json"). Also stages the secrets .env file if present.
+    them into a directory structure that mirrors their destination layout:
+
+    - Paths starting with "~" are user home files, placed under "home/" with
+      the "~/" prefix stripped (e.g. "~/.claude.json" -> "home/.claude.json").
+    - Relative paths (no "~" prefix) are project files, placed under "project/"
+      (e.g. "config/settings.toml" -> "project/config/settings.toml").
+
+    These are then baked into their final locations during the image build via
+    dockerfile_commands (home/ -> $HOME, project/ -> WORKDIR).
+
+    Also stages the secrets .env file if present.
 
     Stages:
-    - home/: Files destined for the user's home directory, mirroring their paths
+    - home/: Files destined for the user's home directory
+    - project/: Files destined for the project working directory
     - secrets/.env (if exists, from repo root)
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -201,14 +217,22 @@ def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) 
     # Collect files from all plugins via the hook
     deploy_files = _collect_deploy_files(mng_ctx)
 
-    # Stage files into home/ with their natural path structure
+    # Create both staging subdirectories unconditionally
     home_dir = staging_dir / "home"
     home_dir.mkdir()
+    project_dir = staging_dir / "project"
+    project_dir.mkdir()
 
     for dest_path, source in deploy_files.items():
-        # Strip the "~/" prefix to get the relative path within home
-        relative_path = str(dest_path).removeprefix("~/")
-        staged_path = home_dir / relative_path
+        dest_str = str(dest_path)
+        if dest_str.startswith("~"):
+            # User home file: strip "~/" prefix
+            relative_path = dest_str.removeprefix("~/")
+            staged_path = home_dir / relative_path
+        else:
+            # Project file: use path as-is under project/
+            staged_path = project_dir / dest_str
+
         staged_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(source, Path):
             shutil.copy2(source, staged_path)
