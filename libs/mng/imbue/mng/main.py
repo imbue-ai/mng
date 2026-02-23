@@ -15,7 +15,6 @@ from imbue.mng.cli.common_opts import create_group_title_option
 from imbue.mng.cli.common_opts import find_last_option_index_in_group
 from imbue.mng.cli.common_opts import find_option_group
 from imbue.mng.cli.completion import read_cached_commands
-from imbue.mng.cli.completion_writer import write_cli_completions_cache
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
@@ -187,8 +186,6 @@ def cli(ctx: click.Context) -> None:
     # This uses the singleton that was already created during command registration
     pm = get_or_create_plugin_manager()
     ctx.obj = pm
-
-    write_cli_completions_cache(cli)
 
     pm.hook.on_startup()
     ctx.call_on_close(lambda: pm.hook.on_shutdown())
