@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -9,13 +8,8 @@ from loguru import logger
 
 from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.cli.completion import get_host_dir
 from imbue.mng.utils.file_utils import atomic_write
-
-
-def _get_host_dir() -> Path:
-    """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
 
 
 def write_cli_completions_cache(cli_group: click.Group) -> None:
@@ -43,7 +37,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             "subcommand_by_command": subcommand_by_command,
         }
 
-        cache_path = _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write CLI completions cache")

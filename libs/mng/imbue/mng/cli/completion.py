@@ -14,7 +14,7 @@ COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
-def _get_host_dir() -> Path:
+def get_host_dir() -> Path:
     """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
     env_host_dir = os.environ.get("MNG_HOST_DIR")
     return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
@@ -35,7 +35,7 @@ def _read_agent_names_from_cache() -> list[str]:
     This function is designed to never raise -- shell completion must not crash.
     """
     try:
-        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if not cache_path.is_file():
             return []
 
@@ -61,7 +61,7 @@ def _trigger_background_cache_refresh() -> None:
     every TAB press, and log output on stderr can interfere with shell completion.
     """
     try:
-        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if cache_path.is_file():
             age = time.time() - cache_path.stat().st_mtime
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
@@ -119,7 +119,7 @@ def complete_agent_name(
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
-    return _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+    return get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
 
 
 def _read_cli_completions_file() -> dict | None:
