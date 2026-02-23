@@ -85,3 +85,34 @@ def validate_package_graph() -> None:
                 f"expected internal deps {sorted(expected_internal)}, "
                 f"got {sorted(actual_internal)}"
             )
+
+
+def verify_pin_consistency() -> list[str]:
+    """Check that all internal dep pins use == and match the depended-on package's version.
+
+    Returns a list of error strings. Empty list means everything is consistent.
+    """
+    internal_names = {pkg.pypi_name for pkg in PACKAGES}
+    versions = get_package_versions()
+    errors: list[str] = []
+
+    for pkg in PACKAGES:
+        data = tomllib.loads(pkg.pyproject_path.read_text())
+        raw_deps: list[str] = data["project"].get("dependencies", [])
+        for dep_str in raw_deps:
+            dep_name = normalize_pypi_name(parse_dep_name(dep_str))
+            if dep_name not in internal_names:
+                continue
+            pin_match = re.search(r"==(.+)$", dep_str)
+            if pin_match is None:
+                errors.append(f"{pkg.pypi_name}: internal dep {dep_name} not pinned: {dep_str!r}")
+                continue
+            pinned_version = pin_match.group(1)
+            expected_version = versions[dep_name]
+            if pinned_version != expected_version:
+                errors.append(
+                    f"{pkg.pypi_name}: pin for {dep_name} is {pinned_version} "
+                    f"but {dep_name} is at version {expected_version}"
+                )
+
+    return errors
