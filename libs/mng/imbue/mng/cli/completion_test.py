@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from imbue.mng.cli.snapshot import snapshot as snapshot_group
 from imbue.mng.cli.test_plugin_cli_commands import _PluginWithSimpleCommand
 from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
+from imbue.mng.utils.polling import wait_for
 
 
 def _shutil_which_without_mng(name: str, *args: Any, **kwargs: Any) -> str | None:
@@ -200,6 +202,53 @@ def test_trigger_background_cache_refresh_does_not_raise_with_no_cache(
     no_background_cache_refresh: None,
 ) -> None:
     _trigger_background_cache_refresh()
+
+
+@pytest.mark.timeout(30)
+def test_trigger_background_cache_refresh_throttles_spawning(
+    temp_host_dir: Path,
+    mng_test_root_name: str,
+) -> None:
+    """Stale cache triggers a refresh that updates the file; fresh cache does not."""
+    if shutil.which("mng") is None:
+        pytest.skip("mng not on PATH")
+
+    # The spawned subprocess inherits our env, including MNG_ROOT_NAME. Write a
+    # local settings file that disables Modal so `mng list` can succeed without
+    # real provider credentials. The config loader walks up to the git worktree
+    # root, so the file must be placed there (not in the pytest CWD).
+    git_root = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+    config_dir = git_root / f".{mng_test_root_name}"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = config_dir / "settings.local.toml"
+    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+
+    try:
+        cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+
+        # -- Stale cache: the spawned `mng list` should rewrite the cache file --
+        _write_cache(temp_host_dir, ["agent"])
+        old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
+        os.utime(cache_path, (old_time, old_time))
+        stale_mtime = cache_path.stat().st_mtime
+
+        _trigger_background_cache_refresh()
+
+        wait_for(
+            lambda: cache_path.stat().st_mtime != stale_mtime,
+            timeout=15.0,
+            error_message="Stale cache should trigger a background refresh that updates the file",
+        )
+
+        # -- Fresh cache: calling again immediately should be throttled --
+        fresh_mtime = cache_path.stat().st_mtime
+
+        _trigger_background_cache_refresh()
+
+        assert cache_path.stat().st_mtime == fresh_mtime, "Fresh cache should prevent spawning"
+    finally:
+        settings_path.unlink(missing_ok=True)
+        config_dir.rmdir()
 
 
 # =============================================================================
