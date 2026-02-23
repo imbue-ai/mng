@@ -144,6 +144,81 @@ def test_schedule_add_with_verification() -> None:
         _cleanup_modal_app(app_name, env)
 
 
+@pytest.mark.release
+@pytest.mark.timeout(600)
+def test_schedule_list_shows_deployed_schedule() -> None:
+    """Test that schedule list shows a schedule after it has been deployed.
+
+    This end-to-end test verifies:
+    1. schedule add deploys and saves a creation record
+    2. schedule list --json reads and returns the saved record
+    3. The record contains the expected trigger data
+    """
+    trigger_name = "test-schedule-list"
+    app_name = get_modal_app_name(trigger_name)
+    env = _build_subprocess_env()
+
+    try:
+        # Deploy a schedule
+        add_result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "mng",
+                "schedule",
+                "add",
+                trigger_name,
+                "--command",
+                "create",
+                "--args",
+                "test-agent echo --no-connect --await-ready --no-ensure-clean -- hello-list-test",
+                "--schedule",
+                "0 4 * * *",
+                "--provider",
+                "modal",
+                "--git-image-hash",
+                "HEAD",
+                "--verify",
+                "none",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            env=env,
+        )
+        assert add_result.returncode == 0, (
+            f"schedule add failed\nstdout: {add_result.stdout}\nstderr: {add_result.stderr}"
+        )
+
+        # List schedules and verify the deployed schedule appears
+        list_result = subprocess.run(
+            ["uv", "run", "mng", "schedule", "list", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        assert list_result.returncode == 0, (
+            f"schedule list failed\nstdout: {list_result.stdout}\nstderr: {list_result.stderr}"
+        )
+
+        list_data = json.loads(list_result.stdout)
+        schedules = list_data.get("schedules", [])
+        matching = [s for s in schedules if s["trigger"]["name"] == trigger_name]
+        assert len(matching) == 1, f"Expected 1 schedule named '{trigger_name}', found {len(matching)} in {schedules}"
+
+        record = matching[0]
+        assert record["trigger"]["command"] == "CREATE"
+        assert record["trigger"]["schedule_cron"] == "0 4 * * *"
+        assert record["trigger"]["provider"] == "modal"
+        assert record["modal_app_name"] == app_name
+        assert record["hostname"] != ""
+        assert record["working_directory"] != ""
+        assert record["full_commandline"] != ""
+    finally:
+        _cleanup_modal_app(app_name, env)
+
+
 def _cleanup_modal_app(app_name: str, env: dict[str, str]) -> None:
     """Stop and clean up a Modal app created during testing."""
     try:
