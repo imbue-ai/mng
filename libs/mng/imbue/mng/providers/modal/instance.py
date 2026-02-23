@@ -623,7 +623,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # =========================================================================
 
     def get_state_volume(self) -> ModalVolume:
-        """Get the state volume for persisting host records, agent data, and schedule records.
+        """Get the state volume for persisting host records and agent data.
 
         This volume is used to persist host records (including snapshots) across
         sandbox termination. It is NOT the same as the host volume (which is
