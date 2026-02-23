@@ -1,4 +1,5 @@
 import os
+import stat
 import tempfile
 from pathlib import Path
 
@@ -10,14 +11,20 @@ def atomic_write(path: Path, content: str) -> None:
     fsync, then atomically replaces the target file. This ensures readers
     never see a partially-written file, even after power loss.
 
-    Note: NamedTemporaryFile creates files with 0600 permissions, and
-    os.replace preserves those, so the target file may end up with different
-    permissions than the original. 0600 is reasonable for most files, but
-    could be an issue if something expects group/other-readable permissions.
+    If the target file already exists, its permissions are preserved on the
+    new file. Otherwise the file is created with default permissions (0600).
 
     The caller is responsible for catching OSError if the write fails.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Capture existing permissions before overwriting
+    existing_mode: int | None = None
+    try:
+        existing_mode = path.stat().st_mode
+    except OSError:
+        pass
+
     with tempfile.NamedTemporaryFile(
         mode="w",
         dir=path.parent,
@@ -30,6 +37,8 @@ def atomic_write(path: Path, content: str) -> None:
         tmp_path = Path(tmp_file.name)
 
     try:
+        if existing_mode is not None:
+            os.chmod(tmp_path, stat.S_IMODE(existing_mode))
         os.replace(tmp_path, path)
     except OSError:
         try:
