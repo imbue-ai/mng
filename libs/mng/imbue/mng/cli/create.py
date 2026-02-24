@@ -454,7 +454,7 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--dockerfile",
     type=click.Path(exists=True),
-    help="Path to the Dockerfile to build the host image (works with all providers)",
+    help="Path to the Dockerfile to build the host image",
 )
 @optgroup.option(
     "-b",
