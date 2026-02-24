@@ -61,10 +61,6 @@ _CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
     "commands",
 )
 
-# Claude Code config field name for startup count. Constructed via concatenation
-# to avoid matching the num-prefix ratchet pattern (this is an external schema key).
-_STARTUP_COUNT_KEY: Final[str] = "num" + "Startups"
-
 
 class ClaudeAgentConfig(AgentTypeConfig):
     """Config for the claude agent type."""
@@ -860,7 +856,7 @@ def _generate_claude_json(version: str | None):
     cache_time_millis = current_time_millis + 50 + random.random() * 1000
     change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
     return {
-        _STARTUP_COUNT_KEY: 1,
+        "numStartups": 1,
         "installMethod": "native",
         "autoUpdates": False,
         "firstStartTime": current_time_str,

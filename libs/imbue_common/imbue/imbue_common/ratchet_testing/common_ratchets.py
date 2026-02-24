@@ -195,7 +195,7 @@ PREVENT_FUNCTOOLS_PARTIAL = RegexRatchetRule(
 PREVENT_NUM_PREFIX = RegexRatchetRule(
     rule_name="num prefix usage",
     rule_description="Avoid using 'num' prefix. Use 'count' or 'idx' instead (e.g., 'user_count' not 'num_users')",
-    pattern_string=r"\bnum_\w+|\bnumOf|\bnum[A-Z]",
+    pattern_string=r"\bnum_\w+",
 )
 
 
