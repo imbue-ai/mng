@@ -231,15 +231,7 @@ def test_trigger_background_cache_refresh_throttles_spawning(
         error_message="Stale cache should trigger a background refresh that updates the file",
     )
 
-    # -- Fresh cache: calling again immediately should be throttled --
-    fresh_mtime = cache_path.stat().st_mtime
-
-    _trigger_background_cache_refresh()
-
-    assert cache_path.stat().st_mtime == fresh_mtime, "Fresh cache should prevent spawning"
-
-    # Wait for the background process to exit so the conftest teardown doesn't
-    # report it as a leaked child process.
+    # Wait for the stale-cache process to exit before testing the fresh-cache path.
     def _no_mng_list_children() -> bool:
         for child in psutil.Process().children(recursive=True):
             try:
@@ -250,6 +242,17 @@ def test_trigger_background_cache_refresh_throttles_spawning(
         return True
 
     wait_for(_no_mng_list_children, timeout=10.0, error_message="Spawned mng list process did not exit")
+
+    # -- Fresh cache: calling again immediately should be throttled --
+    # _trigger_background_cache_refresh is synchronous up to the Popen call,
+    # so if throttling fails, the child process exists immediately after return.
+    children_before = set(p.pid for p in psutil.Process().children(recursive=True))
+
+    _trigger_background_cache_refresh()
+
+    children_after = set(p.pid for p in psutil.Process().children(recursive=True))
+    new_children = children_after - children_before
+    assert new_children == set(), "Fresh cache should prevent spawning"
 
 
 # =============================================================================
