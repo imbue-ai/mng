@@ -1520,10 +1520,6 @@ def list_todos(
 
 Always use `pytest` for testing
 
-## Test infrastructure
-
-Test infrastructure lives in `conftest.py` (pytest fixtures and hooks, scoped to the directory), `testing.py` (non-fixture utilities, explicitly imported), and `mock_*_test.py` (mock implementations, explicitly imported). Fixtures are scoped to the narrowest directory that covers their users.
-
 ## High quality tests
 
 Always write tests carefully to avoid race conditions and flaky tests. This means:
