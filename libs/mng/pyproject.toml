@@ -17,11 +17,11 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 dependencies = [
-    "imbue-common",
+    "imbue-common==0.1.4",
     "cel-python>=0.1.5",
     "click>=8.0",
     "click-option-group>=0.5.6",
-    "concurrency-group",
+    "concurrency-group==0.1.4",
     "coolname>=3.0.0",
     "cryptography>=42.0",
     "docker>=7.0",
@@ -66,6 +66,8 @@ concurrency-group = { workspace = true }
 # before any hooks run: addopts, coverage.run, inline-snapshot, timeout_func_only.
 [tool.pytest.ini_options]
 timeout_func_only = true
+# Use xunit1 format to enable record_xml_attribute fixture for consistent classnames
+junit_family = "xunit1"
 testpaths = ["."]
 addopts = [
   "-n 4",
