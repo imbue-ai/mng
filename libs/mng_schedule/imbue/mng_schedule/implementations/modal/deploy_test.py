@@ -55,6 +55,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
         trigger=trigger,
         cron_schedule="0 3 * * *",
         cron_timezone="America/Los_Angeles",
+        mng_install_commands=["RUN uv pip install --system mng mng-schedule"],
     )
     assert result["app_name"] == "test-app"
     assert result["cron_schedule"] == "0 3 * * *"
@@ -62,6 +63,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
     assert result["trigger"]["name"] == "test"
     assert result["trigger"]["command"] == "CREATE"
     assert result["trigger"]["args"] == "--message hello"
+    assert result["mng_install_commands"] == ["RUN uv pip install --system mng mng-schedule"]
 
 
 def test_resolve_timezone_reads_etc_timezone(tmp_path: Path) -> None:

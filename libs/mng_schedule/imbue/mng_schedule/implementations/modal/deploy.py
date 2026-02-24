@@ -442,6 +442,7 @@ def build_deploy_config(
     trigger: ScheduleTriggerDefinition,
     cron_schedule: str,
     cron_timezone: str,
+    mng_install_commands: list[str],
 ) -> dict[str, Any]:
     """Build the deploy configuration dict that gets baked into the Modal image."""
     return {
@@ -449,6 +450,7 @@ def build_deploy_config(
         "trigger": json.loads(trigger.model_dump_json()),
         "cron_schedule": cron_schedule,
         "cron_timezone": cron_timezone,
+        "mng_install_commands": mng_install_commands,
     }
 
 
@@ -587,11 +589,13 @@ def deploy_schedule(
             )
 
         # Write deploy config as a single JSON file into the staging dir
+        mng_install_cmds = build_mng_install_commands(resolved_install_mode)
         deploy_config = build_deploy_config(
             app_name=app_name,
             trigger=trigger,
             cron_schedule=trigger.schedule_cron,
             cron_timezone=cron_timezone,
+            mng_install_commands=mng_install_cmds,
         )
         deploy_config_json = json.dumps(deploy_config)
         (staging_dir / "deploy_config.json").write_text(deploy_config_json)
@@ -610,7 +614,6 @@ def deploy_schedule(
         env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
         env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
         env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
-        env["SCHEDULE_MNG_INSTALL_MODE"] = resolved_install_mode.value
 
         cron_runner_path = Path(__file__).parent / "cron_runner.py"
         cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
