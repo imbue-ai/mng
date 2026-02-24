@@ -1,5 +1,4 @@
 import json
-import os
 import subprocess
 import sys
 import time
@@ -9,16 +8,22 @@ from typing import Final
 import click
 from click.shell_completion import CompletionItem
 
+from imbue.mng.config.pre_readers import read_default_host_dir
+
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
-DEFAULT_HOST_DIR: Final[Path] = Path("~/.mng")
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
 def get_host_dir() -> Path:
-    """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    return Path(env_host_dir) if env_host_dir else DEFAULT_HOST_DIR.expanduser()
+    """Resolve the host directory using the full config precedence.
+
+    Delegates to the lightweight pre-reader which checks (highest to lowest):
+    1. MNG_HOST_DIR environment variable
+    2. default_host_dir from config files
+    3. ~/.{MNG_ROOT_NAME} fallback (defaults to ~/.mng)
+    """
+    return read_default_host_dir()
 
 
 # =============================================================================
