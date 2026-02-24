@@ -190,8 +190,8 @@ def detect_mng_install_mode() -> MngInstallMode:
             direct_url = json.loads(direct_url_text)
             if direct_url.get("dir_info", {}).get("editable", False):
                 return MngInstallMode.EDITABLE
-        except (json.JSONDecodeError, AttributeError):
-            pass
+        except (json.JSONDecodeError, AttributeError) as exc:
+            logger.debug("Could not parse direct_url.json for mng-schedule: {}", exc)
 
     return MngInstallMode.PACKAGE
 
@@ -382,11 +382,24 @@ def stage_deploy_files(
     _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
 
     # For editable installs, stage the mng-schedule source tree so it can be
-    # pip-installed inside the deployed image.
+    # pip-installed inside the deployed image. Only source code and
+    # pyproject.toml are needed; skip build artifacts and test caches.
     if mng_install_mode == MngInstallMode.EDITABLE:
         mng_schedule_src = _get_mng_schedule_source_dir()
         staged_src = staging_dir / "mng_schedule_src"
-        shutil.copytree(mng_schedule_src, staged_src, dirs_exist_ok=True)
+        shutil.copytree(
+            mng_schedule_src,
+            staged_src,
+            dirs_exist_ok=True,
+            ignore=shutil.ignore_patterns(
+                "__pycache__",
+                "*.pyc",
+                ".pytest_cache",
+                "*.egg-info",
+                ".test_output",
+                "htmlcov",
+            ),
+        )
         logger.info("Staged mng-schedule source from {} for editable install", mng_schedule_src)
 
 
