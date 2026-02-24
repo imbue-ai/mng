@@ -36,6 +36,27 @@ REQUIRED_HOST_PACKAGES: Final[tuple[RequiredHostPackage, ...]] = (
     RequiredHostPackage(package="jq", binary="jq"),
 )
 
+# Base image used by the default Dockerfile when no image or Dockerfile is specified.
+DEFAULT_BASE_IMAGE: Final[str] = "debian:bookworm-slim"
+
+
+def _build_default_dockerfile() -> str:
+    """Build the default Dockerfile contents from REQUIRED_HOST_PACKAGES."""
+    packages = " \\\n    ".join(sorted(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
+    return f"""\
+FROM {DEFAULT_BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+# Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
+
 
 @pure
 def get_user_ssh_dir(user: str) -> Path:
