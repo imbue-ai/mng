@@ -179,7 +179,7 @@ def parse_upload_spec(spec: str) -> tuple[Path, str]:
     if not source_path.exists():
         raise ValueError(f"Upload source does not exist: {source_str}")
     dest_str = str(dest)
-    if dest_str.startswith("/") and not dest_str.startswith("~"):
+    if dest_str.startswith("/"):
         raise ValueError(f"Upload destination must be relative or start with '~', got: {dest}")
     return source_path, dest
 
@@ -263,16 +263,14 @@ def stage_deploy_files(
     project_dir = staging_dir / "project"
     project_dir.mkdir()
 
-    for dest_path, source in deploy_files.items():
-        dest_str = str(dest_path)
+    def resolve_staged_path(dest_str: str) -> Path:
+        """Resolve a destination string to a staged path under home/ or project/."""
         if dest_str.startswith("~"):
-            # User home file: strip "~/" prefix
-            relative_path = dest_str.removeprefix("~/")
-            staged_path = home_dir / relative_path
-        else:
-            # Project file: use path as-is under project/
-            staged_path = project_dir / dest_str
+            return home_dir / dest_str.removeprefix("~/")
+        return project_dir / dest_str
 
+    for dest_path, source in deploy_files.items():
+        staged_path = resolve_staged_path(str(dest_path))
         staged_path.parent.mkdir(parents=True, exist_ok=True)
         if isinstance(source, Path):
             shutil.copy2(source, staged_path)
@@ -284,13 +282,7 @@ def stage_deploy_files(
 
     # Stage user-specified uploads
     for source_path, dest in uploads:
-        dest_str = str(dest)
-        if dest_str.startswith("~"):
-            relative_path = dest_str.removeprefix("~/")
-            staged_path = home_dir / relative_path
-        else:
-            staged_path = project_dir / dest_str
-
+        staged_path = resolve_staged_path(str(dest))
         staged_path.parent.mkdir(parents=True, exist_ok=True)
         if source_path.is_dir():
             shutil.copytree(source_path, staged_path, dirs_exist_ok=True)
@@ -345,7 +337,8 @@ def _stage_consolidated_env(
 
     if env_lines:
         (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
-        logger.info("Staged consolidated env file with {} entries", len(env_lines))
+        var_count = sum(1 for line in env_lines if line.strip() and not line.strip().startswith("#") and "=" in line)
+        logger.info("Staged consolidated env file with {} variable entries", var_count)
     else:
         logger.warning(
             "No secrets file found at {} and no env vars specified; agents may not have required API keys",

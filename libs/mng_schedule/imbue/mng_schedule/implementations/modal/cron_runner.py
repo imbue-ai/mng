@@ -146,8 +146,10 @@ def _load_env_file(env_file_path: Path) -> None:
     """Load environment variables from a .env file into os.environ.
 
     Lines starting with '#' are treated as comments. Empty lines are skipped.
-    Lines without '=' are skipped. Values are not shell-unquoted (quotes are
-    kept as-is to match dotenv conventions for the subprocess environment).
+    Lines without '=' are skipped. The 'export ' prefix is stripped if present
+    (to support shell-compatible env files). Values are not shell-unquoted
+    (quotes are kept as-is to match dotenv conventions for the subprocess
+    environment).
     """
     if not env_file_path.exists():
         return
@@ -155,6 +157,9 @@ def _load_env_file(env_file_path: Path) -> None:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        # Strip optional 'export ' prefix for shell-compatible env files
+        if stripped.startswith("export "):
+            stripped = stripped[len("export ") :]
         if "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)

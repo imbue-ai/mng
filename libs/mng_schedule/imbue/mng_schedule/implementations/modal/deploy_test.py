@@ -387,14 +387,13 @@ def test_parse_upload_spec_rejects_nonexistent_source() -> None:
         parse_upload_spec("/nonexistent/file:dest")
 
 
-def test_parse_upload_spec_rejects_absolute_dest() -> None:
+def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
     """parse_upload_spec should reject absolute destinations."""
-    with pytest.raises(ValueError, match="must be relative or start with '~'"):
-        # Need a source that exists
-        import tempfile
+    source = tmp_path / "exists.txt"
+    source.write_text("content")
 
-        with tempfile.NamedTemporaryFile() as f:
-            parse_upload_spec(f"{f.name}:/absolute/path")
+    with pytest.raises(ValueError, match="must be relative or start with '~'"):
+        parse_upload_spec(f"{source}:/absolute/path")
 
 
 # =============================================================================
