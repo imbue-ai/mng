@@ -38,7 +38,7 @@ _FALLBACK_TIMEZONE: Final[str] = "UTC"
 _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
 
 # Path prefix on the state volume for schedule records
-_SCHEDULE_RECORDS_PREFIX: Final[str] = "/scheduled_functions"
+_SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugins/schedule"
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
@@ -383,6 +383,11 @@ def stage_deploy_files(
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
     _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
+
+    # FIXME: this next block is just doing this wrong. We should be using the "make_tar_of_repo" approach instead (since that already properly ensures that the exact commit is packaged without any extra files)
+    #  Also, right now we end up putting the mng source into the same staging directory as the other files--we should *not* do this, as it will invalidate caching for the earlier layers (when we're iterating on mng code)
+    #  Instead, put it into it's own, separate folder in this mode (that is added as late as possible in the build process)
+    #  Then make sure that it gets properly extracted into the right place, and ends up being editable tool installed (eg, call something like "uv tool install -e /path/to/code/libs/mng")
 
     # For editable installs, stage the mng-schedule source tree so it can be
     # pip-installed inside the deployed image. Only source code and
