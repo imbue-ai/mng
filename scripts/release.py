@@ -4,13 +4,17 @@ Only packages that changed since the last release (or their dependents) are bump
 The tag is always based on the mng version, so mng is always bumped to ensure a
 unique tag. This cascades to mng's dependents (they must update their pin).
 
+Bump levels cascade upward through the dependency DAG: if a package is bumped at
+a given level, all its dependents must be bumped at at least that level (because
+their pinned dependency changed). Use --minor/--major to override specific packages
+above the base level.
+
 Usage:
-    uv run scripts/release.py patch      # bump changed packages by patch
-    uv run scripts/release.py minor      # bump changed packages by minor
-    uv run scripts/release.py major      # bump changed packages by major
-    uv run scripts/release.py patch --dry-run  # preview without changes
-    uv run scripts/release.py --watch    # watch the publish workflow for the current version
-    uv run scripts/release.py --retry    # rerun failed jobs and watch
+    uv run scripts/release.py patch                    # all get patch
+    uv run scripts/release.py patch --minor mng        # mng+ get minor, rest get patch
+    uv run scripts/release.py patch --dry-run          # preview without changes
+    uv run scripts/release.py --watch                  # watch publish workflow
+    uv run scripts/release.py --retry                  # rerun failed jobs and watch
 """
 
 import argparse
@@ -33,6 +37,7 @@ from utils import parse_dep_name
 from imbue.mng.utils.polling import poll_for_value
 
 BUMP_KINDS: Final[tuple[str, ...]] = ("major", "minor", "patch")
+BUMP_LEVEL_ORDER: Final[dict[str, int]] = {"patch": 0, "minor": 1, "major": 2}
 PUBLISH_WORKFLOW: Final[str] = "publish.yml"
 ACTIONS_URL: Final[str] = "https://github.com/imbue-ai/mng/actions/workflows/publish.yml"
 POLL_INTERVAL_SECONDS: Final[int] = 10
@@ -115,14 +120,48 @@ def _compute_bump_set(directly_changed: set[str]) -> dict[str, str]:
     return to_bump
 
 
-def bump_package_versions(
+def _max_bump_kind(a: str, b: str) -> str:
+    """Return the higher of two bump kinds (major > minor > patch)."""
+    if BUMP_LEVEL_ORDER[a] >= BUMP_LEVEL_ORDER[b]:
+        return a
+    else:
+        return b
+
+
+def _compute_bump_levels(
     to_bump: dict[str, str],
-    bump_kind: str,
+    base_kind: str,
+    overrides: dict[str, str],
+) -> dict[str, str]:
+    """Compute per-package bump levels with upward cascade through the DAG.
+
+    Each package starts at base_kind (or its override if specified). Then, in
+    topological order, each package's level is raised to at least the max level
+    of its bumped internal dependencies.
+    """
+    levels: dict[str, str] = {}
+    for name in to_bump:
+        levels[name] = overrides.get(name, base_kind)
+
+    # PACKAGES is already in topological order (deps before dependents)
+    for pkg in PACKAGES:
+        if pkg.pypi_name not in levels:
+            continue
+        # Cascade: this package's level must be >= max level of its bumped deps
+        for dep_name in pkg.internal_deps:
+            if dep_name in levels:
+                levels[pkg.pypi_name] = _max_bump_kind(levels[pkg.pypi_name], levels[dep_name])
+
+    return levels
+
+
+def bump_package_versions(
+    bump_levels: dict[str, str],
     current_versions: dict[str, str],
 ) -> dict[str, str]:
-    """Apply bump_kind to each package in to_bump. Returns {pypi_name: new_version}."""
+    """Apply per-package bump levels. Returns {pypi_name: new_version}."""
     new_versions: dict[str, str] = {}
-    for name in to_bump:
+    for name, bump_kind in bump_levels.items():
         current = semver.Version.parse(current_versions[name])
         new_versions[name] = str(current.next_version(bump_kind))
     return new_versions
@@ -281,6 +320,7 @@ def watch_publish_workflow(run_id: str, after_workflow_attempt: int = 0) -> None
 def _print_bump_summary(
     directly_changed: set[str],
     to_bump: dict[str, str],
+    bump_levels: dict[str, str],
     current_versions: dict[str, str],
     new_versions: dict[str, str],
 ) -> None:
@@ -296,10 +336,12 @@ def _print_bump_summary(
     print("Packages to bump:")
     for pkg in PACKAGES:
         if pkg.pypi_name in to_bump:
-            reason = to_bump[pkg.pypi_name]
-            old_v = current_versions[pkg.pypi_name]
-            new_v = new_versions[pkg.pypi_name]
-            print(f"  {pkg.pypi_name}: {old_v} -> {new_v} ({reason})")
+            name = pkg.pypi_name
+            reason = to_bump[name]
+            level = bump_levels[name]
+            old_v = current_versions[name]
+            new_v = new_versions[name]
+            print(f"  {name}: {old_v} -> {new_v} ({level}, {reason})")
 
     print()
     print("Packages unchanged:")
@@ -317,7 +359,21 @@ def main() -> None:
         "bump_kind",
         nargs="?",
         choices=BUMP_KINDS,
-        help="Bump kind: major, minor, or patch",
+        help="Base bump kind: major, minor, or patch",
+    )
+    parser.add_argument(
+        "--minor",
+        action="append",
+        default=[],
+        metavar="PACKAGE",
+        help="Override a package to minor bump (repeatable)",
+    )
+    parser.add_argument(
+        "--major",
+        action="append",
+        default=[],
+        metavar="PACKAGE",
+        help="Override a package to major bump (repeatable)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Show what would happen without making changes")
     parser.add_argument(
@@ -351,7 +407,26 @@ def main() -> None:
     if args.bump_kind is None:
         parser.error("bump_kind is required: patch, minor, or major")
 
-    bump_kind: str = args.bump_kind
+    base_kind: str = args.bump_kind
+
+    # Build overrides from --minor and --major flags
+    overrides: dict[str, str] = {}
+    for pkg_name in args.minor:
+        if pkg_name not in PACKAGE_BY_PYPI_NAME:
+            parser.error(f"Unknown package: {pkg_name}")
+        overrides[pkg_name] = "minor"
+    for pkg_name in args.major:
+        if pkg_name not in PACKAGE_BY_PYPI_NAME:
+            parser.error(f"Unknown package: {pkg_name}")
+        overrides[pkg_name] = "major"
+
+    # Validate overrides are >= base level
+    for pkg_name, override_kind in overrides.items():
+        if BUMP_LEVEL_ORDER[override_kind] < BUMP_LEVEL_ORDER[base_kind]:
+            parser.error(
+                f"Override for {pkg_name} ({override_kind}) is lower than base level ({base_kind}). "
+                f"Use a lower base level instead."
+            )
 
     # Detect what changed since the last release
     last_tag = _find_last_release_tag()
@@ -364,8 +439,17 @@ def main() -> None:
 
     # Compute the full bump set (includes cascades and mng-always rule)
     to_bump = _compute_bump_set(directly_changed)
+
+    # Warn if any overrides target packages not in the bump set
+    for pkg_name in overrides:
+        if pkg_name not in to_bump:
+            print(f"WARNING: --{overrides[pkg_name]} {pkg_name} ignored (package is not being bumped)")
+    overrides = {k: v for k, v in overrides.items() if k in to_bump}
+
+    # Compute per-package bump levels with DAG cascade
+    bump_levels = _compute_bump_levels(to_bump, base_kind, overrides)
     current_versions = get_package_versions()
-    new_versions = bump_package_versions(to_bump, bump_kind, current_versions)
+    new_versions = bump_package_versions(bump_levels, current_versions)
 
     # Compute what the full version map will look like after bumping
     all_versions_after = dict(current_versions)
@@ -375,7 +459,7 @@ def main() -> None:
     tag = f"v{new_mng_version}"
 
     # Show summary
-    _print_bump_summary(directly_changed, to_bump, current_versions, new_versions)
+    _print_bump_summary(directly_changed, to_bump, bump_levels, current_versions, new_versions)
     print()
     print(f"Tag: {tag}")
 
