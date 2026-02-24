@@ -147,6 +147,7 @@ def test_read_agent_names_from_cache_uses_default_host_dir(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MNG_HOST_DIR", raising=False)
+    monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
 
     host_dir = tmp_path / ".mng"
