@@ -31,7 +31,6 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.backend import ModalProviderBackend
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
-from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.testing import assert_home_is_temp_directory
 from imbue.mng.utils.testing import cleanup_tmux_session
 from imbue.mng.utils.testing import delete_modal_apps_in_environment
@@ -305,31 +304,23 @@ def project_config_dir(temp_git_repo: Path, mng_test_root_name: str) -> Path:
 
 
 @pytest.fixture
-def disable_modal_for_subprocesses(mng_test_root_name: str, cg: ConcurrencyGroup) -> Generator[Path, None, None]:
+def disable_modal_for_subprocesses(
+    project_config_dir: Path, monkeypatch: pytest.MonkeyPatch, temp_git_repo: Path
+) -> Path:
     """Disable the Modal provider for subprocesses spawned during a test.
 
-    Writes a settings.local.toml at the real git worktree root (under the
-    test's MNG_ROOT_NAME directory) so that any subprocess that inherits the
-    test environment will find it via the config loader's upward directory walk.
+    Writes a settings.local.toml inside a temporary git repo's config directory
+    and chdir's into that repo. Spawned subprocesses inherit the CWD, so the
+    config loader's upward directory walk finds the settings file.
 
     Use this when a test spawns a child process that runs ``mng`` commands
     and would otherwise fail because Modal credentials are not available in
     the test environment.
     """
-    git_root = find_git_worktree_root(None, cg)
-    assert git_root is not None, "disable_modal_for_subprocesses requires a git worktree"
-    config_dir = git_root / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = config_dir / "settings.local.toml"
+    settings_path = project_config_dir / "settings.local.toml"
     settings_path.write_text("[providers.modal]\nis_enabled = false\n")
-    try:
-        yield config_dir
-    finally:
-        settings_path.unlink(missing_ok=True)
-        try:
-            config_dir.rmdir()
-        except OSError:
-            pass
+    monkeypatch.chdir(temp_git_repo)
+    return project_config_dir
 
 
 @pytest.fixture
