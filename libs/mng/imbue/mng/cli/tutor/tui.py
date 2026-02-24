@@ -16,9 +16,9 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mng.cli.tutor.checks import run_check
+from imbue.mng.cli.tutor.data_types import Lesson
 from imbue.mng.config.data_types import MngContext
-from imbue.mng_tutor.checks import run_check
-from imbue.mng_tutor.data_types import Lesson
 
 PALETTE = [
     ("header", "white", "dark blue"),
@@ -192,6 +192,11 @@ def _refresh_display(state: _LessonRunnerState) -> None:
     state.frame.body = Filler(body_pile, valign="top")
 
 
+def _schedule_next_check(loop: MainLoop, state: _LessonRunnerState) -> None:
+    """Schedule the next check alarm."""
+    loop.set_alarm_in(CHECK_INTERVAL_SECONDS, _on_check_alarm, state)
+
+
 def _on_check_alarm(loop: MainLoop, state: _LessonRunnerState) -> None:
     """Alarm callback that runs the check for the current step."""
     current_idx = _get_current_step_index(state.step_completed)
@@ -212,7 +217,7 @@ def _on_check_alarm(loop: MainLoop, state: _LessonRunnerState) -> None:
     new_current = _get_current_step_index(state.step_completed)
     if new_current is not None:
         state.status_text.set_text(f"  Checking step {new_current + 1}/{len(state.lesson.steps)}... (q to quit)")
-        loop.set_alarm_in(CHECK_INTERVAL_SECONDS, lambda l, _: _on_check_alarm(l, state))
+        _schedule_next_check(loop, state)
     else:
         state.status_text.set_text("  Lesson complete! Press q to exit.")
         _refresh_display(state)
@@ -261,7 +266,7 @@ def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> None:
     loop = MainLoop(frame, palette=PALETTE, unhandled_input=input_handler, screen=screen)
 
     # Schedule the first check
-    loop.set_alarm_in(CHECK_INTERVAL_SECONDS, lambda l, _: _on_check_alarm(l, state))
+    _schedule_next_check(loop, state)
 
     # Suppress logging while the TUI is running to avoid display corruption
     logger.disable("imbue")

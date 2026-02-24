@@ -1,11 +1,11 @@
+from imbue.mng.cli.tutor.checks import run_check
+from imbue.mng.cli.tutor.data_types import AgentExistsCheck
+from imbue.mng.cli.tutor.data_types import AgentInStateCheck
+from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
+from imbue.mng.cli.tutor.data_types import FileExistsInAgentWorkDirCheck
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
-from imbue.mng_tutor.checks import run_check
-from imbue.mng_tutor.data_types import AgentExistsCheck
-from imbue.mng_tutor.data_types import AgentInStateCheck
-from imbue.mng_tutor.data_types import AgentNotExistsCheck
-from imbue.mng_tutor.data_types import FileExistsInAgentWorkDirCheck
 
 
 def test_agent_exists_check_returns_false_when_no_agents(temp_mng_ctx: MngContext) -> None:

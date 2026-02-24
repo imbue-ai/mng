@@ -1,8 +1,8 @@
-from imbue.mng_tutor.data_types import AgentExistsCheck
-from imbue.mng_tutor.data_types import AgentNotExistsCheck
-from imbue.mng_tutor.lessons import ALL_LESSONS
-from imbue.mng_tutor.lessons import LESSON_GETTING_STARTED
-from imbue.mng_tutor.lessons import LESSON_MANAGING_MULTIPLE_AGENTS
+from imbue.mng.cli.tutor.data_types import AgentExistsCheck
+from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
+from imbue.mng.cli.tutor.lessons import ALL_LESSONS
+from imbue.mng.cli.tutor.lessons import LESSON_GETTING_STARTED
+from imbue.mng.cli.tutor.lessons import LESSON_MANAGING_MULTIPLE_AGENTS
 
 
 def test_all_lessons_tuple_contains_all_defined_lessons() -> None:

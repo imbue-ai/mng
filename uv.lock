@@ -17,7 +17,6 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
-    "mng-tutor",
     "sculptor-web",
 ]
 
@@ -1851,23 +1850,6 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "click-option-group", specifier = ">=0.5.6" },
-    { name = "mng", editable = "libs/mng" },
-]
-
-[[package]]
-name = "mng-tutor"
-version = "0.1.0"
-source = { editable = "libs/mng_tutor" }
-dependencies = [
-    { name = "click" },
-    { name = "click-option-group" },
-    { name = "mng" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "click", specifier = ">=8.0" },
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]

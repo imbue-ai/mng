@@ -3,16 +3,17 @@ from typing import assert_never
 from loguru import logger
 
 from imbue.mng.api.list import list_agents
+from imbue.mng.cli.tutor.data_types import AgentExistsCheck
+from imbue.mng.cli.tutor.data_types import AgentInStateCheck
+from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
+from imbue.mng.cli.tutor.data_types import FileExistsInAgentWorkDirCheck
+from imbue.mng.cli.tutor.data_types import StepCheck
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import BaseMngError
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
-from imbue.mng_tutor.data_types import AgentExistsCheck
-from imbue.mng_tutor.data_types import AgentInStateCheck
-from imbue.mng_tutor.data_types import AgentNotExistsCheck
-from imbue.mng_tutor.data_types import FileExistsInAgentWorkDirCheck
-from imbue.mng_tutor.data_types import StepCheck
 
 
 def _find_agent_by_name(agent_name: AgentName, mng_ctx: MngContext) -> AgentInfo | None:
@@ -72,6 +73,6 @@ def run_check(check: StepCheck, mng_ctx: MngContext) -> bool:
     """Execute a step check and return whether it passes."""
     try:
         return _execute_check(check, mng_ctx)
-    except Exception:
+    except (BaseMngError, OSError):
         logger.debug("Check failed with exception for check type: {}", type(check).__name__)
         return False
