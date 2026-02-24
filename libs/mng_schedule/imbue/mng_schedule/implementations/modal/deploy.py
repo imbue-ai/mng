@@ -99,20 +99,8 @@ def detect_local_timezone() -> str:
     )
 
 
-def resolve_git_ref(ref: str, cwd: Path | None = None) -> str:
-    """Resolve a git ref (e.g. HEAD, branch name) to a full commit SHA.
-
-    Raises ScheduleDeployError if the ref cannot be resolved.
-    """
-    with ConcurrencyGroup(name="git-rev-parse") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", ref],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(f"Could not resolve git ref '{ref}': {result.stderr.strip()}") from None
-    return result.stdout.strip()
+from imbue.mng_schedule.git import get_current_mng_git_hash
+from imbue.mng_schedule.git import resolve_git_ref
 
 
 def get_repo_root() -> Path:
@@ -517,13 +505,7 @@ def build_deploy_config(
     }
 
 
-def _get_current_mng_git_hash() -> str:
-    """Get the git commit hash of the current mng codebase."""
-    try:
-        return resolve_git_ref("HEAD")
-    except ScheduleDeployError:
-        logger.warning("Could not determine mng git hash (not in a git repository?)")
-        return "unknown"
+_get_current_mng_git_hash = get_current_mng_git_hash
 
 
 def _save_schedule_creation_record(

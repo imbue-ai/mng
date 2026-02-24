@@ -6,9 +6,7 @@ from pathlib import Path
 import pluggy
 import pytest
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng import hookimpl
-from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
@@ -134,26 +132,6 @@ def test_build_full_commandline_shell_escapes_spaces_in_arguments() -> None:
 # =============================================================================
 
 
-def _make_test_mng_ctx(
-    plugin_manager: pluggy.PluginManager,
-    tmp_path: Path,
-) -> MngContext:
-    """Create a MngContext for testing with the given plugin manager.
-
-    Uses a bare ConcurrencyGroup (not as a context manager) since these tests
-    only exercise hook calls, not process execution.
-    """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir(exist_ok=True)
-    config = MngConfig(default_host_dir=tmp_path / ".mng_host")
-    return MngContext(
-        config=config,
-        pm=plugin_manager,
-        profile_dir=profile_dir,
-        concurrency_group=ConcurrencyGroup(name="test"),
-    )
-
-
 # =============================================================================
 # stage_deploy_files Tests
 # =============================================================================
@@ -163,6 +141,7 @@ def _make_test_mng_ctx(
 def run_staging(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> Callable[[Path | None], Path]:
     """Return a callable that runs stage_deploy_files and returns the staging dir.
 
@@ -175,7 +154,7 @@ def run_staging(
             repo_root = tmp_path / "repo"
             repo_root.mkdir(exist_ok=True)
         staging_dir = tmp_path / "staging"
-        mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+        mng_ctx = temp_mng_ctx
         stage_deploy_files(staging_dir, mng_ctx, repo_root)
         return staging_dir
 
@@ -233,12 +212,13 @@ def test_stage_deploy_files_creates_secrets_dir(
 def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
     home_dir = staging_dir / "home"
@@ -253,6 +233,7 @@ def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
 def test_stage_deploy_files_stages_project_files(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage relative paths under project/."""
 
@@ -266,7 +247,7 @@ def test_stage_deploy_files_stages_project_files(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
     staged_file = staging_dir / "project" / "config" / "settings.toml"
@@ -286,6 +267,7 @@ def _make_mng_ctx_with_hook_returning(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     files: dict[Path, Path | str],
+    temp_mng_ctx: MngContext,
 ) -> MngContext:
     """Create a MngContext with an extra plugin that returns the given files."""
 
@@ -296,18 +278,20 @@ def _make_mng_ctx_with_hook_returning(
             return files
 
     plugin_manager.register(_TestPlugin())
-    return _make_test_mng_ctx(plugin_manager, tmp_path)
+    return temp_mng_ctx
 
 
 def test_collect_deploy_files_accepts_relative_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should accept relative paths as project files."""
     mng_ctx = _make_mng_ctx_with_hook_returning(
         plugin_manager,
         tmp_path,
         {Path("relative/config.toml"): "content"},
+        temp_mng_ctx,
     )
 
     result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
@@ -317,12 +301,14 @@ def test_collect_deploy_files_accepts_relative_path(
 def test_collect_deploy_files_rejects_absolute_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should raise ScheduleDeployError for absolute paths."""
     mng_ctx = _make_mng_ctx_with_hook_returning(
         plugin_manager,
         tmp_path,
         {Path("/etc/config.toml"): "content"},
+        temp_mng_ctx,
     )
 
     with pytest.raises(ScheduleDeployError, match="must be relative or start with '~'"):
@@ -332,6 +318,7 @@ def test_collect_deploy_files_rejects_absolute_path(
 def test_collect_deploy_files_resolves_collision(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should resolve collisions when two plugins register the same path."""
 
@@ -350,7 +337,7 @@ def test_collect_deploy_files_resolves_collision(
     plugin_manager.register(_PluginA())
     plugin_manager.register(_PluginB())
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
 
     # Should still succeed, with one entry (last one wins)
@@ -489,6 +476,7 @@ def test_stage_consolidated_env_creates_no_file_when_empty(tmp_path: Path) -> No
 def test_stage_deploy_files_stages_upload_file(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage uploaded files to the correct destination."""
     source_file = tmp_path / "local_config.toml"
@@ -497,7 +485,7 @@ def test_stage_deploy_files_stages_upload_file(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -514,6 +502,7 @@ def test_stage_deploy_files_stages_upload_file(
 def test_stage_deploy_files_stages_upload_directory(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage uploaded directories recursively."""
     source_dir = tmp_path / "my_configs"
@@ -526,7 +515,7 @@ def test_stage_deploy_files_stages_upload_directory(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -544,6 +533,7 @@ def test_stage_deploy_files_with_pass_env(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should include --pass-env vars in the consolidated env file."""
     monkeypatch.setenv("TEST_API_KEY", "sk-test-123")
@@ -551,7 +541,7 @@ def test_stage_deploy_files_with_pass_env(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -568,6 +558,7 @@ def test_stage_deploy_files_with_pass_env(
 def test_stage_deploy_files_with_exclude_user_settings(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files with include_user_settings=False should skip home dir files."""
     # Create a home file that would normally be included
@@ -579,7 +570,7 @@ def test_stage_deploy_files_with_exclude_user_settings(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -678,6 +669,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should not stage mng source (it is handled separately)."""
     monkeypatch.chdir(tmp_path)
@@ -685,7 +677,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,

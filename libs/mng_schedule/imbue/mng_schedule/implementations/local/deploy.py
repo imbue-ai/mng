@@ -25,11 +25,10 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
-from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import get_current_mng_git_hash
 from imbue.mng_schedule.implementations.local.crontab import add_crontab_entry
 from imbue.mng_schedule.implementations.local.crontab import read_system_crontab
 from imbue.mng_schedule.implementations.local.crontab import write_system_crontab
-from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 _SCHEDULE_DIR_NAME: Final[str] = "schedule"
 _RECORDS_DIR_NAME: Final[str] = "records"
@@ -175,15 +174,6 @@ def list_local_schedule_creation_records(
     return records
 
 
-def _get_current_mng_git_hash() -> str:
-    """Get the git commit hash of the current mng codebase."""
-    try:
-        return resolve_git_ref("HEAD")
-    except ScheduleDeployError:
-        logger.warning("Could not determine mng git hash (not in a git repository?)")
-        return "unknown"
-
-
 def deploy_local_schedule(
     trigger: ScheduleTriggerDefinition,
     mng_ctx: MngContext,
@@ -245,7 +235,7 @@ def deploy_local_schedule(
         full_commandline=shlex.join(effective_sys_argv),
         hostname=platform.node(),
         working_directory=working_directory,
-        mng_git_hash=_get_current_mng_git_hash(),
+        mng_git_hash=get_current_mng_git_hash(),
         created_at=datetime.now(timezone.utc),
     )
     _save_creation_record(creation_record, mng_ctx)

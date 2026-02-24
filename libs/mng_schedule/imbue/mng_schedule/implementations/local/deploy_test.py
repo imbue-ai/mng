@@ -4,11 +4,8 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
-import pluggy
 import pytest
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
@@ -18,22 +15,6 @@ from imbue.mng_schedule.implementations.local.deploy import _stage_env_file
 from imbue.mng_schedule.implementations.local.deploy import build_wrapper_script
 from imbue.mng_schedule.implementations.local.deploy import deploy_local_schedule
 from imbue.mng_schedule.implementations.local.deploy import list_local_schedule_creation_records
-
-
-def _make_test_mng_ctx(
-    plugin_manager: pluggy.PluginManager,
-    tmp_path: Path,
-) -> MngContext:
-    """Create a MngContext for testing with default_host_dir pointing to tmp_path."""
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir(exist_ok=True)
-    config = MngConfig(default_host_dir=tmp_path / ".mng")
-    return MngContext(
-        config=config,
-        pm=plugin_manager,
-        profile_dir=profile_dir,
-        concurrency_group=ConcurrencyGroup(name="test"),
-    )
 
 
 def _make_test_trigger(name: str = "test-trigger") -> ScheduleTriggerDefinition:
@@ -206,7 +187,7 @@ def test_stage_env_file_skips_missing_env_vars(
 def test_deploy_local_schedule_creates_files_and_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test the full deploy flow with crontab and git hash monkeypatched."""
     captured_crontab: list[str] = []
@@ -220,13 +201,12 @@ def test_deploy_local_schedule_creates_files_and_record(
         lambda content: captured_crontab.append(content),
     )
     monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy._get_current_mng_git_hash",
+        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
         lambda: "fakehash123",
     )
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
     trigger = _make_test_trigger()
-    deploy_local_schedule(trigger, mng_ctx, sys_argv=["mng", "schedule", "add"])
+    deploy_local_schedule(trigger, temp_mng_ctx, sys_argv=["mng", "schedule", "add"])
 
     # Verify crontab was written with the trigger
     assert len(captured_crontab) == 1
@@ -239,7 +219,7 @@ def test_deploy_local_schedule_creates_files_and_record(
     assert wrapper_script.stat().st_mode & 0o100  # executable
 
     # Verify creation record was saved
-    records = list_local_schedule_creation_records(mng_ctx)
+    records = list_local_schedule_creation_records(temp_mng_ctx)
     assert len(records) == 1
     assert records[0].trigger.name == "test-trigger"
     assert records[0].mng_git_hash == "fakehash123"
@@ -248,7 +228,7 @@ def test_deploy_local_schedule_creates_files_and_record(
 def test_deploy_local_schedule_with_env_vars(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test that pass-env vars are included in the wrapper script."""
     monkeypatch.setattr(
@@ -260,14 +240,13 @@ def test_deploy_local_schedule_with_env_vars(
         lambda content: None,
     )
     monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy._get_current_mng_git_hash",
+        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
         lambda: "fakehash",
     )
     monkeypatch.setenv("MY_API_KEY", "sk-test-123")
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
     trigger = _make_test_trigger()
-    deploy_local_schedule(trigger, mng_ctx, pass_env=["MY_API_KEY"])
+    deploy_local_schedule(trigger, temp_mng_ctx, pass_env=["MY_API_KEY"])
 
     # Verify env file was created
     env_file = tmp_path / ".mng" / "schedule" / "test-trigger" / ".env"
@@ -280,9 +259,8 @@ def test_deploy_local_schedule_with_env_vars(
 
 
 def test_deploy_local_schedule_update_replaces_crontab_entry(
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test that deploying the same trigger name replaces the crontab entry."""
     captured_crontab: list[str] = []
@@ -303,11 +281,9 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         lambda content: captured_crontab.append(content),
     )
     monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy._get_current_mng_git_hash",
+        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
         lambda: "fakehash",
     )
-
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     # Deploy first time
     trigger1 = ScheduleTriggerDefinition(
@@ -318,7 +294,7 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         provider="local",
         git_image_hash="abc123",
     )
-    deploy_local_schedule(trigger1, mng_ctx)
+    deploy_local_schedule(trigger1, temp_mng_ctx)
 
     # Deploy second time with different schedule
     trigger2 = ScheduleTriggerDefinition(
@@ -329,7 +305,7 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         provider="local",
         git_image_hash="abc123",
     )
-    deploy_local_schedule(trigger2, mng_ctx)
+    deploy_local_schedule(trigger2, temp_mng_ctx)
 
     # Only the latest schedule should be in crontab
     final_crontab = captured_crontab[-1]
@@ -343,21 +319,16 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
 
 
 def test_list_local_schedule_creation_records_empty(
-    tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    records = list_local_schedule_creation_records(mng_ctx)
+    records = list_local_schedule_creation_records(temp_mng_ctx)
     assert records == []
 
 
 def test_list_local_schedule_creation_records_round_trip(
-    tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test that saved records can be read back."""
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-
     trigger = _make_test_trigger("my-schedule")
     record = ScheduleCreationRecord(
         trigger=trigger,
@@ -367,9 +338,9 @@ def test_list_local_schedule_creation_records_round_trip(
         mng_git_hash="abc123",
         created_at=datetime(2025, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
     )
-    _save_creation_record(record, mng_ctx)
+    _save_creation_record(record, temp_mng_ctx)
 
-    records = list_local_schedule_creation_records(mng_ctx)
+    records = list_local_schedule_creation_records(temp_mng_ctx)
     assert len(records) == 1
     assert records[0].trigger.name == "my-schedule"
     assert records[0].hostname == "testhost"
@@ -377,12 +348,9 @@ def test_list_local_schedule_creation_records_round_trip(
 
 
 def test_list_local_schedule_creation_records_multiple(
-    tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test listing multiple records."""
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-
     for name in ["alpha", "beta", "gamma"]:
         trigger = _make_test_trigger(name)
         record = ScheduleCreationRecord(
@@ -393,9 +361,9 @@ def test_list_local_schedule_creation_records_multiple(
             mng_git_hash="abc123",
             created_at=datetime(2025, 6, 15, 10, 0, 0, tzinfo=timezone.utc),
         )
-        _save_creation_record(record, mng_ctx)
+        _save_creation_record(record, temp_mng_ctx)
 
-    records = list_local_schedule_creation_records(mng_ctx)
+    records = list_local_schedule_creation_records(temp_mng_ctx)
     assert len(records) == 3
     names = [r.trigger.name for r in records]
     assert "alpha" in names
@@ -405,14 +373,12 @@ def test_list_local_schedule_creation_records_multiple(
 
 def test_list_local_schedule_creation_records_skips_invalid_json(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Test that invalid JSON files are skipped with a warning."""
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-
     records_dir = tmp_path / ".mng" / "schedule" / "records"
     records_dir.mkdir(parents=True)
     (records_dir / "bad.json").write_text("not valid json")
 
-    records = list_local_schedule_creation_records(mng_ctx)
+    records = list_local_schedule_creation_records(temp_mng_ctx)
     assert records == []

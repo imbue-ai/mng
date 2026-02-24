@@ -10,6 +10,7 @@ from loguru import logger
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.instance import ModalProviderInstance
@@ -125,7 +126,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
 
 def _deploy_local(
     trigger: ScheduleTriggerDefinition,
-    mng_ctx: Any,
+    mng_ctx: MngContext,
     opts: ScheduleAddCliOptions,
 ) -> None:
     """Deploy a schedule to the local provider using crontab."""
@@ -146,7 +147,7 @@ def _deploy_local(
 
 def _deploy_modal(
     trigger: ScheduleTriggerDefinition,
-    mng_ctx: Any,
+    mng_ctx: MngContext,
     opts: ScheduleAddCliOptions,
     provider: ModalProviderInstance,
 ) -> None:
