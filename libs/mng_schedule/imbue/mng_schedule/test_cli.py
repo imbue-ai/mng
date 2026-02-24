@@ -53,7 +53,7 @@ def test_schedule_add_rejects_unsupported_provider(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add rejects non-Modal providers."""
+    """Test that schedule add rejects providers that are not local or modal."""
     result = cli_runner.invoke(
         schedule,
         [
@@ -63,14 +63,14 @@ def test_schedule_add_rejects_unsupported_provider(
             "--schedule",
             "0 2 * * *",
             "--provider",
-            "local",
+            "ssh",
             "--git-image-hash",
             "HEAD",
         ],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
-    assert "not a Modal provider" in result.output
+    assert "not supported for schedules" in result.output
 
 
 def test_schedule_add_requires_git_image_hash_for_modal(

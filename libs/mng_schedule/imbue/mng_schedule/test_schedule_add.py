@@ -192,7 +192,7 @@ def test_schedule_list_shows_deployed_schedule() -> None:
 
         # List schedules and verify the deployed schedule appears
         list_result = subprocess.run(
-            ["uv", "run", "mng", "schedule", "list", "--json"],
+            ["uv", "run", "mng", "schedule", "list", "--provider", "modal", "--json"],
             capture_output=True,
             text=True,
             timeout=60,
@@ -211,7 +211,7 @@ def test_schedule_list_shows_deployed_schedule() -> None:
         assert record["trigger"]["command"] == "CREATE"
         assert record["trigger"]["schedule_cron"] == "0 4 * * *"
         assert record["trigger"]["provider"] == "modal"
-        assert record["modal_app_name"] == app_name
+        assert record["app_name"] == app_name
         assert record["hostname"] != ""
         assert record["working_directory"] != ""
         assert record["full_commandline"] != ""

@@ -52,7 +52,11 @@ class ScheduleTriggerDefinition(FrozenModel):
 
 
 class ScheduleCreationRecord(FrozenModel):
-    """Metadata about how a scheduled trigger was created, persisted on the Modal state volume."""
+    """Metadata about how a scheduled trigger was created.
+
+    Base class for all providers. Provider-specific subclasses (e.g.
+    ModalScheduleCreationRecord) add additional fields.
+    """
 
     trigger: ScheduleTriggerDefinition = Field(description="The trigger definition that was deployed")
     full_commandline: str = Field(description="The full command line used to create this schedule")
@@ -60,5 +64,10 @@ class ScheduleCreationRecord(FrozenModel):
     working_directory: str = Field(description="The directory from which the schedule was created")
     mng_git_hash: str = Field(description="Git commit hash of the mng codebase at creation time")
     created_at: datetime = Field(description="UTC timestamp of when the schedule was created")
-    modal_app_name: str = Field(description="The Modal app name for this schedule")
-    modal_environment: str = Field(description="The Modal environment name")
+
+
+class ModalScheduleCreationRecord(ScheduleCreationRecord):
+    """Schedule creation record with Modal-specific metadata."""
+
+    app_name: str = Field(description="The Modal app name for this schedule")
+    environment: str = Field(description="The Modal environment name")

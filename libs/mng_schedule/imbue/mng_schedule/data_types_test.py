@@ -5,13 +5,14 @@ from datetime import timezone
 
 from inline_snapshot import snapshot
 
+from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 
 
-def test_schedule_creation_record_round_trips_through_json() -> None:
-    """Test that ScheduleCreationRecord serializes and deserializes correctly."""
+def test_modal_schedule_creation_record_round_trips_through_json() -> None:
+    """Test that ModalScheduleCreationRecord serializes and deserializes correctly."""
     trigger = ScheduleTriggerDefinition(
         name="nightly-create",
         command=ScheduledMngCommand.CREATE,
@@ -21,19 +22,19 @@ def test_schedule_creation_record_round_trips_through_json() -> None:
         is_enabled=True,
         git_image_hash="abc123def456",
     )
-    record = ScheduleCreationRecord(
+    record = ModalScheduleCreationRecord(
         trigger=trigger,
         full_commandline="uv run mng schedule add --command create --schedule '0 2 * * *'",
         hostname="dev-machine",
         working_directory="/home/user/project",
         mng_git_hash="fedcba654321",
         created_at=datetime(2025, 6, 15, 10, 30, 0, tzinfo=timezone.utc),
-        modal_app_name="mng-schedule-nightly-create",
-        modal_environment="mng-user1",
+        app_name="mng-schedule-nightly-create",
+        environment="mng-user1",
     )
 
     json_data = record.model_dump_json()
-    restored = ScheduleCreationRecord.model_validate_json(json_data)
+    restored = ModalScheduleCreationRecord.model_validate_json(json_data)
 
     assert restored.trigger.name == "nightly-create"
     assert restored.trigger.command == ScheduledMngCommand.CREATE
@@ -41,8 +42,59 @@ def test_schedule_creation_record_round_trips_through_json() -> None:
     assert restored.hostname == "dev-machine"
     assert restored.working_directory == "/home/user/project"
     assert restored.mng_git_hash == "fedcba654321"
-    assert restored.modal_app_name == "mng-schedule-nightly-create"
-    assert restored.modal_environment == "mng-user1"
+    assert restored.app_name == "mng-schedule-nightly-create"
+    assert restored.environment == "mng-user1"
+
+
+def test_base_schedule_creation_record_round_trips_through_json() -> None:
+    """Test that the base ScheduleCreationRecord (for local provider) works."""
+    trigger = ScheduleTriggerDefinition(
+        name="local-trigger",
+        command=ScheduledMngCommand.CREATE,
+        args="--type claude",
+        schedule_cron="0 2 * * *",
+        provider="local",
+        is_enabled=True,
+        git_image_hash="abc123",
+    )
+    record = ScheduleCreationRecord(
+        trigger=trigger,
+        full_commandline="mng schedule add --command create --provider local",
+        hostname="dev-machine",
+        working_directory="/home/user/project",
+        mng_git_hash="fedcba654321",
+        created_at=datetime(2025, 6, 15, 10, 30, 0, tzinfo=timezone.utc),
+    )
+
+    json_data = record.model_dump_json()
+    restored = ScheduleCreationRecord.model_validate_json(json_data)
+
+    assert restored.trigger.name == "local-trigger"
+    assert restored.trigger.provider == "local"
+    assert restored.hostname == "dev-machine"
+
+
+def test_modal_record_is_instance_of_base() -> None:
+    """Test that ModalScheduleCreationRecord is a subclass of ScheduleCreationRecord."""
+    trigger = ScheduleTriggerDefinition(
+        name="test",
+        command=ScheduledMngCommand.CREATE,
+        args="",
+        schedule_cron="0 2 * * *",
+        provider="modal",
+        git_image_hash="abc123",
+    )
+    record = ModalScheduleCreationRecord(
+        trigger=trigger,
+        full_commandline="mng schedule add",
+        hostname="laptop",
+        working_directory="/tmp",
+        mng_git_hash="abc123",
+        created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+        app_name="mng-schedule-test",
+        environment="mng-user1",
+    )
+    assert isinstance(record, ScheduleCreationRecord)
 
 
 def test_schedule_creation_record_includes_all_trigger_fields() -> None:
@@ -56,15 +108,15 @@ def test_schedule_creation_record_includes_all_trigger_fields() -> None:
         is_enabled=False,
         git_image_hash="deadbeef",
     )
-    record = ScheduleCreationRecord(
+    record = ModalScheduleCreationRecord(
         trigger=trigger,
         full_commandline="mng schedule add --name test-trigger",
         hostname="laptop",
         working_directory="/tmp",
         mng_git_hash="1234abcd",
         created_at=datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
-        modal_app_name="mng-schedule-test-trigger",
-        modal_environment="mng-testuser",
+        app_name="mng-schedule-test-trigger",
+        environment="mng-testuser",
     )
 
     assert record.trigger.is_enabled is False

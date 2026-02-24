@@ -26,7 +26,7 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
-from imbue.mng_schedule.data_types import ScheduleCreationRecord
+from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
@@ -527,7 +527,7 @@ def _get_current_mng_git_hash() -> str:
 
 
 def _save_schedule_creation_record(
-    record: ScheduleCreationRecord,
+    record: ModalScheduleCreationRecord,
     provider: ModalProviderInstance,
 ) -> None:
     """Save a schedule creation record to the provider's state volume."""
@@ -540,7 +540,7 @@ def _save_schedule_creation_record(
 
 def list_schedule_creation_records(
     provider: ModalProviderInstance,
-) -> list[ScheduleCreationRecord]:
+) -> list[ModalScheduleCreationRecord]:
     """Read all schedule creation records from the provider's state volume.
 
     Returns an empty list if no schedules directory exists on the volume.
@@ -552,7 +552,7 @@ def list_schedule_creation_records(
     except (modal.exception.NotFoundError, FileNotFoundError):
         return []
 
-    records: list[ScheduleCreationRecord] = []
+    records: list[ModalScheduleCreationRecord] = []
     for entry in entries:
         if not entry.path.endswith(".json"):
             continue
@@ -563,7 +563,7 @@ def list_schedule_creation_records(
             logger.warning("Skipped unreadable schedule record at {}: {}", file_path, exc)
             continue
         try:
-            record = ScheduleCreationRecord.model_validate_json(data)
+            record = ModalScheduleCreationRecord.model_validate_json(data)
         except (ValidationError, ValueError) as exc:
             logger.warning("Skipped invalid schedule record at {}: {}", file_path, exc)
             continue
@@ -735,15 +735,15 @@ def deploy_schedule(
     # should not cause the command to report failure.
     effective_sys_argv = sys_argv if sys_argv is not None else []
     with log_span("Saving schedule creation record"):
-        creation_record = ScheduleCreationRecord(
+        creation_record = ModalScheduleCreationRecord(
             trigger=trigger,
             full_commandline=_build_full_commandline(effective_sys_argv),
             hostname=platform.node(),
             working_directory=str(Path.cwd()),
             mng_git_hash=_get_current_mng_git_hash(),
             created_at=datetime.now(timezone.utc),
-            modal_app_name=app_name,
-            modal_environment=modal_env_name,
+            app_name=app_name,
+            environment=modal_env_name,
         )
         try:
             _save_schedule_creation_record(creation_record, provider)
