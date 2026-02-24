@@ -468,7 +468,7 @@ def _save_schedule_creation_record(
     provider: ModalProviderInstance,
 ) -> None:
     """Save a schedule creation record to the provider's state volume."""
-    volume = provider._get_state_volume()
+    volume = provider.get_state_volume()
     path = f"{_SCHEDULE_RECORDS_PREFIX}/{record.trigger.name}.json"
     data = record.model_dump_json(indent=2).encode("utf-8")
     volume.write_files({path: data})
@@ -482,7 +482,7 @@ def list_schedule_creation_records(
 
     Returns an empty list if no schedules directory exists on the volume.
     """
-    volume = provider._get_state_volume()
+    volume = provider.get_state_volume()
 
     try:
         entries = volume.listdir(_SCHEDULE_RECORDS_PREFIX)

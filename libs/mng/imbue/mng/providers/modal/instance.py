@@ -652,15 +652,19 @@ class ModalProviderInstance(BaseProviderInstance):
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def _get_state_volume(self) -> ModalVolume:
-        """Get the state volume for persisting host records and agent data.
+    def get_state_volume(self) -> ModalVolume:
+        """Get the state volume for persisting data on the Modal provider.
 
-        This volume is used to persist host records (including snapshots) across
-        sandbox termination. It is NOT the same as the host volume (which is
-        mounted inside sandboxes and writable by untrusted code). The state
-        volume is only accessed by mng itself and contains trusted data.
+        This volume is used to persist host records, agent data, and plugin
+        state (e.g. schedule creation records) across sandbox termination.
+        It is NOT the same as the host volume (which is mounted inside
+        sandboxes and writable by untrusted code). The state volume is only
+        accessed by mng itself and contains trusted data.
         """
         return ModalVolume.model_construct(modal_volume=self.modal_app.volume)
+
+    def _get_state_volume(self) -> ModalVolume:
+        return self.get_state_volume()
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
