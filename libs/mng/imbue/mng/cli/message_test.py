@@ -3,6 +3,7 @@ import pytest
 
 from imbue.mng.api.message import MessageResult
 from imbue.mng.cli.message import MessageCliOptions
+from imbue.mng.cli.message import _build_retry_hint
 from imbue.mng.cli.message import _emit_human_output
 from imbue.mng.cli.message import _emit_json_output
 from imbue.mng.cli.message import _get_message_content
@@ -48,7 +49,7 @@ def test_emit_human_output_logs_successful_agents(capsys: pytest.CaptureFixture)
     result = MessageResult()
     result.successful_agents = ["agent1", "agent2"]
 
-    _emit_human_output(result)
+    _emit_human_output(result, "test message")
 
     # The output is logged via loguru, not printed directly
     # We can't easily capture it here, but we can verify no exception is raised
@@ -59,7 +60,7 @@ def test_emit_human_output_logs_failed_agents(capsys: pytest.CaptureFixture) -> 
     result = MessageResult()
     result.failed_agents = [("agent1", "error1"), ("agent2", "error2")]
 
-    _emit_human_output(result)
+    _emit_human_output(result, "test message")
 
     # The output is logged via loguru
 
@@ -69,7 +70,7 @@ def test_emit_human_output_handles_no_agents() -> None:
     result = MessageResult()
 
     # Should not raise
-    _emit_human_output(result)
+    _emit_human_output(result, "test message")
 
 
 def test_emit_json_output_formats_successful_agents(capsys: pytest.CaptureFixture) -> None:
@@ -107,3 +108,44 @@ def test_emit_json_output_includes_counts(capsys: pytest.CaptureFixture) -> None
     captured = capsys.readouterr()
     assert '"total_sent": 3' in captured.out
     assert '"total_failed": 1' in captured.out
+
+
+def test_build_retry_hint_includes_failed_agent_names_and_message() -> None:
+    """Test that _build_retry_hint builds a command with agent names and message."""
+    failed = [("agent1", "some error"), ("agent3", "another error")]
+
+    hint = _build_retry_hint(failed, "hello world")
+
+    assert hint == "mng message agent1 agent3 -m 'hello world'"
+
+
+def test_build_retry_hint_shell_quotes_special_characters() -> None:
+    """Test that _build_retry_hint shell-quotes agent names and message with special chars."""
+    failed = [("my-agent", "error")]
+
+    hint = _build_retry_hint(failed, "it's a test")
+
+    assert "my-agent" in hint
+    assert "-m" in hint
+    # shlex.quote should handle the apostrophe
+    assert "it" in hint
+    assert "test" in hint
+
+
+def test_build_retry_hint_omits_message_when_too_long() -> None:
+    """Test that _build_retry_hint uses placeholder for long messages."""
+    failed = [("agent1", "error")]
+    long_message = "x" * 201
+
+    hint = _build_retry_hint(failed, long_message)
+
+    assert hint == "mng message agent1 -m <MESSAGE>"
+
+
+def test_build_retry_hint_omits_message_when_multiline() -> None:
+    """Test that _build_retry_hint uses placeholder for multiline messages."""
+    failed = [("agent1", "error")]
+
+    hint = _build_retry_hint(failed, "line one\nline two")
+
+    assert hint == "mng message agent1 -m <MESSAGE>"
