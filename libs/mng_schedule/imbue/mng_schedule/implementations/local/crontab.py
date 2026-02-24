@@ -95,7 +95,8 @@ def read_system_crontab() -> str:
     """Read the current user's crontab.
 
     Returns the crontab content as a string, or an empty string if
-    no crontab exists.
+    no crontab exists. Raises ScheduleDeployError for unexpected errors
+    (e.g. permission denied) to prevent silent data loss.
     """
     result = subprocess.run(
         ["crontab", "-l"],
@@ -103,8 +104,9 @@ def read_system_crontab() -> str:
         text=True,
     )
     if result.returncode != 0:
-        # "no crontab for user" is a normal condition
-        return ""
+        if "no crontab" in result.stderr.lower():
+            return ""
+        raise ScheduleDeployError(f"Failed to read crontab: {result.stderr.strip()}")
     return result.stdout
 
 

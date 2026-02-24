@@ -368,3 +368,48 @@ def test_list_local_schedule_creation_records_skips_invalid_json(
 
     records = list_local_schedule_creation_records(temp_mng_ctx)
     assert records == []
+
+
+# =============================================================================
+# Integration test: deploy then list round-trip
+# =============================================================================
+
+
+def test_deploy_then_list_round_trip_preserves_all_fields(
+    temp_mng_ctx: MngContext,
+) -> None:
+    """Test that deploying a schedule and then listing it preserves all record fields."""
+    trigger = ScheduleTriggerDefinition(
+        name="integration-test",
+        command=ScheduledMngCommand.CREATE,
+        args="--type claude --message 'hello world'",
+        schedule_cron="30 3 * * 1-5",
+        provider="local",
+        is_enabled=True,
+        git_image_hash="abc123def456",
+    )
+
+    deploy_local_schedule(
+        trigger,
+        temp_mng_ctx,
+        sys_argv=["uv", "run", "mng", "schedule", "add", "--provider", "local"],
+        crontab_reader=lambda: "",
+        crontab_writer=lambda _: None,
+        git_hash_resolver=lambda: "mng-hash-789",
+    )
+
+    records = list_local_schedule_creation_records(temp_mng_ctx)
+    assert len(records) == 1
+
+    record = records[0]
+    assert record.trigger.name == "integration-test"
+    assert record.trigger.command == ScheduledMngCommand.CREATE
+    assert record.trigger.args == "--type claude --message 'hello world'"
+    assert record.trigger.schedule_cron == "30 3 * * 1-5"
+    assert record.trigger.provider == "local"
+    assert record.trigger.is_enabled is True
+    assert record.trigger.git_image_hash == "abc123def456"
+    assert record.mng_git_hash == "mng-hash-789"
+    assert record.hostname != ""
+    assert record.working_directory != ""
+    assert "uv run mng schedule add" in record.full_commandline
