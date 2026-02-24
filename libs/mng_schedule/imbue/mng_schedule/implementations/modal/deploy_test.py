@@ -10,7 +10,6 @@ from dotenv import dotenv_values
 
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.plugins import hookspecs
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
@@ -28,14 +27,6 @@ from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
-
-
-@pytest.fixture()
-def bare_plugin_manager() -> pluggy.PluginManager:
-    """Create a plugin manager with hookspecs only, no plugins registered."""
-    pm = pluggy.PluginManager("mng")
-    pm.add_hookspecs(hookspecs)
-    return pm
 
 
 def test_get_modal_app_name() -> None:
@@ -411,7 +402,7 @@ def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
 
 def test_stage_consolidated_env_includes_env_files(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include vars from --env-file."""
     env_file = tmp_path / "custom.env"
@@ -419,7 +410,7 @@ def test_stage_consolidated_env_includes_env_files(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, env_files=[env_file])
 
     result = (output_dir / ".env").read_text()
@@ -428,15 +419,15 @@ def test_stage_consolidated_env_includes_env_files(
 
 def test_stage_consolidated_env_includes_pass_env(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include vars from --pass-env."""
     monkeypatch.setenv("MY_PASS_VAR", "passed_value")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
@@ -445,8 +436,8 @@ def test_stage_consolidated_env_includes_pass_env(
 
 def test_stage_consolidated_env_merges_env_files_and_pass_env(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should merge env files and pass-env vars."""
     env_file = tmp_path / "extra.env"
@@ -456,7 +447,7 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(
         output_dir,
         mng_ctx=mng_ctx,
@@ -471,15 +462,15 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
 def test_stage_consolidated_env_skips_missing_pass_env(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should skip pass-env vars not in the environment."""
     monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["NONEXISTENT_VAR"])
 
     # No .env file should be created since no env vars were found and no plugins registered
@@ -488,12 +479,12 @@ def test_stage_consolidated_env_skips_missing_pass_env(
 
 def test_stage_consolidated_env_creates_no_file_when_empty(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should not create .env when no env vars are available and no plugins contribute."""
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
 
     assert not (output_dir / ".env").exists()
@@ -501,15 +492,15 @@ def test_stage_consolidated_env_creates_no_file_when_empty(
 
 def test_stage_consolidated_env_preserves_values_with_hash(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should preserve values containing ' # ' (potential inline comments)."""
     monkeypatch.setenv("PASSWORD", "abc # def")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["PASSWORD"])
 
     # Verify the written .env file can be parsed back correctly
@@ -525,6 +516,7 @@ def test_stage_consolidated_env_preserves_values_with_hash(
 def test_modify_env_vars_for_deploy_plugin_adds_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """modify_env_vars_for_deploy plugin can add env vars by mutating the dict."""
 
@@ -535,7 +527,7 @@ def test_modify_env_vars_for_deploy_plugin_adds_vars(
             env_vars["MY_PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars: dict[str, str] = {}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert env_vars["MY_PLUGIN_VAR"] == "plugin_value"
@@ -544,6 +536,7 @@ def test_modify_env_vars_for_deploy_plugin_adds_vars(
 def test_modify_env_vars_for_deploy_plugin_removes_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """modify_env_vars_for_deploy plugin can remove env vars via pop/del."""
 
@@ -554,7 +547,7 @@ def test_modify_env_vars_for_deploy_plugin_removes_vars(
             env_vars.pop("REMOVE_ME", None)
 
     plugin_manager.register(_RemovalPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars = {"REMOVE_ME": "old_value", "KEEP_ME": "kept"}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert "REMOVE_ME" not in env_vars
@@ -564,6 +557,7 @@ def test_modify_env_vars_for_deploy_plugin_removes_vars(
 def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Plugins called later see mutations made by earlier plugins.
 
@@ -587,7 +581,7 @@ def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
 
     plugin_manager.register(_PluginA())
     plugin_manager.register(_PluginB())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars: dict[str, str] = {}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert env_vars["FROM_A"] == "value_a"
@@ -602,6 +596,7 @@ def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
 def test_stage_consolidated_env_includes_plugin_env_vars(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include env vars contributed by plugins."""
 
@@ -612,7 +607,7 @@ def test_stage_consolidated_env_includes_plugin_env_vars(
             env_vars["PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
@@ -626,6 +621,7 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should remove env vars when plugin deletes keys."""
 
@@ -638,7 +634,7 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     plugin_manager.register(_RemovalPlugin())
     monkeypatch.setenv("REMOVE_ME", "should_be_removed")
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["REMOVE_ME"])
@@ -653,6 +649,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env plugin env vars should override pass-env and env-file vars."""
     env_file = tmp_path / "base.env"
@@ -667,7 +664,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
             env_vars["MY_VAR"] = "from_plugin"
 
     plugin_manager.register(_OverridePlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
