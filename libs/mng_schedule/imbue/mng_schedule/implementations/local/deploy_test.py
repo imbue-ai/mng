@@ -180,33 +180,26 @@ def test_stage_env_file_skips_missing_env_vars(
 
 
 # =============================================================================
-# deploy_local_schedule integration tests (with monkeypatched crontab)
+# deploy_local_schedule integration tests (with injected crontab/git stubs)
 # =============================================================================
 
 
 def test_deploy_local_schedule_creates_files_and_record(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """Test the full deploy flow with crontab and git hash monkeypatched."""
+    """Test the full deploy flow with injected crontab and git hash stubs."""
     captured_crontab: list[str] = []
 
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.read_system_crontab",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.write_system_crontab",
-        lambda content: captured_crontab.append(content),
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
-        lambda: "fakehash123",
-    )
-
     trigger = _make_test_trigger()
-    deploy_local_schedule(trigger, temp_mng_ctx, sys_argv=["mng", "schedule", "add"])
+    deploy_local_schedule(
+        trigger,
+        temp_mng_ctx,
+        sys_argv=["mng", "schedule", "add"],
+        crontab_reader=lambda: "",
+        crontab_writer=captured_crontab.append,
+        git_hash_resolver=lambda: "fakehash123",
+    )
 
     # Verify crontab was written with the trigger
     assert len(captured_crontab) == 1
@@ -231,22 +224,17 @@ def test_deploy_local_schedule_with_env_vars(
     temp_mng_ctx: MngContext,
 ) -> None:
     """Test that pass-env vars are included in the wrapper script."""
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.read_system_crontab",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.write_system_crontab",
-        lambda content: None,
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
-        lambda: "fakehash",
-    )
     monkeypatch.setenv("MY_API_KEY", "sk-test-123")
 
     trigger = _make_test_trigger()
-    deploy_local_schedule(trigger, temp_mng_ctx, pass_env=["MY_API_KEY"])
+    deploy_local_schedule(
+        trigger,
+        temp_mng_ctx,
+        pass_env=["MY_API_KEY"],
+        crontab_reader=lambda: "",
+        crontab_writer=lambda content: None,
+        git_hash_resolver=lambda: "fakehash",
+    )
 
     # Verify env file was created
     env_file = tmp_path / ".mng" / "schedule" / "test-trigger" / ".env"
@@ -259,31 +247,17 @@ def test_deploy_local_schedule_with_env_vars(
 
 
 def test_deploy_local_schedule_update_replaces_crontab_entry(
-    monkeypatch: pytest.MonkeyPatch,
     temp_mng_ctx: MngContext,
 ) -> None:
     """Test that deploying the same trigger name replaces the crontab entry."""
     captured_crontab: list[str] = []
     call_count = {"read": 0}
 
-    def mock_read() -> str:
+    def crontab_reader() -> str:
         call_count["read"] += 1
         if call_count["read"] == 1:
             return ""
         return captured_crontab[-1] if captured_crontab else ""
-
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.read_system_crontab",
-        mock_read,
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.write_system_crontab",
-        lambda content: captured_crontab.append(content),
-    )
-    monkeypatch.setattr(
-        "imbue.mng_schedule.implementations.local.deploy.get_current_mng_git_hash",
-        lambda: "fakehash",
-    )
 
     # Deploy first time
     trigger1 = ScheduleTriggerDefinition(
@@ -294,7 +268,13 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         provider="local",
         git_image_hash="abc123",
     )
-    deploy_local_schedule(trigger1, temp_mng_ctx)
+    deploy_local_schedule(
+        trigger1,
+        temp_mng_ctx,
+        crontab_reader=crontab_reader,
+        crontab_writer=captured_crontab.append,
+        git_hash_resolver=lambda: "fakehash",
+    )
 
     # Deploy second time with different schedule
     trigger2 = ScheduleTriggerDefinition(
@@ -305,7 +285,13 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         provider="local",
         git_image_hash="abc123",
     )
-    deploy_local_schedule(trigger2, temp_mng_ctx)
+    deploy_local_schedule(
+        trigger2,
+        temp_mng_ctx,
+        crontab_reader=crontab_reader,
+        crontab_writer=captured_crontab.append,
+        git_hash_resolver=lambda: "fakehash",
+    )
 
     # Only the latest schedule should be in crontab
     final_crontab = captured_crontab[-1]

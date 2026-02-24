@@ -12,6 +12,7 @@ import os
 import platform
 import shlex
 import stat
+from collections.abc import Callable
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -163,12 +164,20 @@ def list_local_schedule_creation_records(
     return records
 
 
+CrontabReader = Callable[[], str]
+CrontabWriter = Callable[[str], None]
+GitHashResolver = Callable[[], str]
+
+
 def deploy_local_schedule(
     trigger: ScheduleTriggerDefinition,
     mng_ctx: MngContext,
     sys_argv: Sequence[str] | None = None,
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
+    crontab_reader: CrontabReader = read_system_crontab,
+    crontab_writer: CrontabWriter = write_system_crontab,
+    git_hash_resolver: GitHashResolver = get_current_mng_git_hash,
 ) -> None:
     """Deploy a scheduled trigger to the local system crontab.
 
@@ -178,6 +187,10 @@ def deploy_local_schedule(
     3. Build and write the wrapper script (run.sh)
     4. Read existing crontab, add/update entry, write back
     5. Save creation record
+
+    The crontab_reader, crontab_writer, and git_hash_resolver parameters
+    allow substituting test implementations for the system crontab and
+    git operations.
 
     Raises ScheduleDeployError if any step fails.
     """
@@ -205,7 +218,7 @@ def deploy_local_schedule(
 
     # Update crontab
     prefix = mng_ctx.config.prefix
-    existing_crontab = read_system_crontab()
+    existing_crontab = crontab_reader()
     updated_crontab = add_crontab_entry(
         existing_content=existing_crontab,
         prefix=prefix,
@@ -213,7 +226,7 @@ def deploy_local_schedule(
         cron_expression=trigger.schedule_cron,
         command=str(run_script),
     )
-    write_system_crontab(updated_crontab)
+    crontab_writer(updated_crontab)
 
     logger.info("Installed crontab entry for schedule '{}'", trigger.name)
 
@@ -224,7 +237,7 @@ def deploy_local_schedule(
         full_commandline=shlex.join(effective_sys_argv),
         hostname=platform.node(),
         working_directory=working_directory,
-        mng_git_hash=get_current_mng_git_hash(),
+        mng_git_hash=git_hash_resolver(),
         created_at=datetime.now(timezone.utc),
     )
     _save_creation_record(creation_record, mng_ctx)
