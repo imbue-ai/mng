@@ -8,6 +8,7 @@ from typing import Any
 from typing import Callable
 from typing import Final
 from typing import Mapping
+from typing import NoReturn
 from typing import Sequence
 from uuid import uuid4
 
@@ -307,6 +308,15 @@ class BaseAgent(AgentInterface):
                 )
                 raise DialogDetectedError(str(self.name), dialog_description)
 
+    def _raise_send_timeout(self, session_name: str, timeout_reason: str) -> NoReturn:
+        """Check for a blocking dialog before raising a generic send timeout.
+
+        If a dialog is detected, raises DialogDetectedError (more actionable).
+        Otherwise raises SendMessageError with the provided timeout reason.
+        """
+        self._check_for_blocking_dialog(session_name)
+        raise SendMessageError(str(self.name), timeout_reason)
+
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
     ) -> None:
@@ -453,10 +463,8 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, marker),
                 timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
             ):
-                # Check if a dialog appeared (provides a more specific error)
-                self._check_for_blocking_dialog(session_name)
-                raise SendMessageError(
-                    str(self.name),
+                self._raise_send_timeout(
+                    session_name,
                     f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
                 )
 
@@ -476,10 +484,8 @@ class BaseAgent(AgentInterface):
             lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
         ):
-            # Check if a dialog appeared (provides a more specific error)
-            self._check_for_blocking_dialog(session_name)
-            raise SendMessageError(
-                str(self.name),
+            self._raise_send_timeout(
+                session_name,
                 f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
         logger.trace("Verified marker removed and expected content visible in pane")
@@ -504,11 +510,8 @@ class BaseAgent(AgentInterface):
             logger.trace("Submitted message successfully")
             return
 
-        # Check if a dialog appeared after submitting (provides a more specific error)
-        self._check_for_blocking_dialog(session_name)
-
-        raise SendMessageError(
-            str(self.name),
+        self._raise_send_timeout(
+            session_name,
             f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
         )
 
