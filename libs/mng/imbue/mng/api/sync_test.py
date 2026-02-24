@@ -13,7 +13,7 @@ from imbue.mng.api.sync import RemoteGitContext
 from imbue.mng.api.sync import SyncFilesResult
 from imbue.mng.api.sync import SyncGitResult
 from imbue.mng.api.sync import UncommittedChangesError
-from imbue.mng.api.test_fixtures import FakeHost
+from imbue.mng.api.testing import FakeHost
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import SyncMode
