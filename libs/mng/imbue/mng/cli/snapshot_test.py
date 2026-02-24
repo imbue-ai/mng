@@ -15,6 +15,7 @@ from imbue.mng.cli.snapshot import _emit_destroy_result
 from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.main import cli
 from imbue.mng.primitives import OutputFormat
 
 # =============================================================================
@@ -152,8 +153,12 @@ def test_snapshot_explicit_create_still_works(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot create --help` should still work."""
-    result = cli_runner.invoke(snapshot, ["create", "--help"], obj=plugin_manager)
+    """Running `mng snapshot create --help` should still work.
+
+    Must invoke through the root cli group so that _build_help_key produces
+    the correct qualified key ("snapshot.create") for metadata resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "create", "--help"])
     assert result.exit_code == 0
     assert "Create a snapshot" in result.output
 
@@ -162,8 +167,11 @@ def test_snapshot_list_subcommand_not_forwarded(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot list` should NOT be forwarded to create."""
-    result = cli_runner.invoke(snapshot, ["list", "--help"], obj=plugin_manager)
+    """Running `mng snapshot list` should NOT be forwarded to create.
+
+    Must invoke through the root cli group for correct help key resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "list", "--help"])
     assert result.exit_code == 0
     assert "List snapshots" in result.output
 
@@ -172,8 +180,11 @@ def test_snapshot_destroy_subcommand_not_forwarded(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Running `mng snapshot destroy` should NOT be forwarded to create."""
-    result = cli_runner.invoke(snapshot, ["destroy", "--help"], obj=plugin_manager)
+    """Running `mng snapshot destroy` should NOT be forwarded to create.
+
+    Must invoke through the root cli group for correct help key resolution.
+    """
+    result = cli_runner.invoke(cli, ["snapshot", "destroy", "--help"])
     assert result.exit_code == 0
     assert "Destroy snapshots" in result.output
 

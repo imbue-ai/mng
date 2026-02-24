@@ -15,11 +15,23 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
     [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
-
 Create and run an agent.
 
-Sets up the agent's work_dir, optionally provisions a new host (or uses
-an existing one), runs the specified agent, and connects to it (by default).
+This command sets up an agent's working directory, optionally provisions a
+new host (or uses an existing one), runs the specified agent process, and
+connects to it by default.
+
+By default, agents run locally in a new git worktree (for git repositories)
+or a copy of the current directory. Use --in to create a new remote host,
+or --host to use an existing host.
+
+The agent type defaults to 'claude' if not specified. Any command in your
+PATH can also be used as an agent type. Arguments after -- are passed
+directly to the agent command.
+
+For local agents, mng creates a git worktree that shares objects with your
+original repository, allowing efficient branch management. For remote agents,
+the working directory is copied to the remote host.
 
 Alias: c
 
@@ -28,7 +40,6 @@ Alias: c
 ```text
 mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 ```
-
 ## Arguments
 
 - `NAME`: Name for the agent (auto-generated if not provided)
@@ -203,11 +214,6 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Agent Limits
