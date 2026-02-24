@@ -1,8 +1,12 @@
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Generator
 
+import pluggy
 import pytest
+from click.testing import CliRunner
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.connect import ConnectCliOptions
@@ -17,6 +21,8 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.testing import cleanup_tmux_session
+from imbue.mng.utils.testing import create_test_agent_via_cli
 
 
 def make_test_agent_info(
@@ -237,3 +243,46 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
         )
 
     return venv_dir
+
+
+def _create_and_track_test_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+    created_sessions: list[str],
+    agent_name: str,
+    agent_cmd: str = "sleep 482917",
+) -> str:
+    """Create a test agent via CLI and track its session for cleanup."""
+    session_name = create_test_agent_via_cli(
+        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd
+    )
+    created_sessions.append(session_name)
+    return session_name
+
+
+@pytest.fixture
+def create_test_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> Generator[Callable[..., str], None, None]:
+    """Factory fixture that creates test agents via CLI and cleans up automatically.
+
+    Usage:
+        def test_something(create_test_agent):
+            session_name = create_test_agent("my-agent")
+            # ... test logic ...
+            # cleanup happens automatically on fixture teardown
+
+    Supports creating multiple agents per test -- all are cleaned up.
+    """
+    created_sessions: list[str] = []
+    yield lambda agent_name, agent_cmd="sleep 482917": _create_and_track_test_agent(
+        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, created_sessions, agent_name, agent_cmd
+    )
+
+    for session_name in created_sessions:
+        cleanup_tmux_session(session_name)
