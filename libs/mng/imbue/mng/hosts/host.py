@@ -931,15 +931,20 @@ class Host(BaseHost, OnlineHostInterface):
         # Check if source and target are on the same host
         source_is_same_host = source_host.id == self.id
 
-        # If target path is specified, use it; otherwise use source path
+        # If target path is specified, use it; otherwise derive one
         if options.target_path:
             target_path = options.target_path
             # If target equals source and same host, it's in-place
             is_generated_work_dir = not (source_is_same_host and source_path == target_path)
-        else:
-            # No target path specified, use source path directly (in-place if same host)
+        elif source_is_same_host:
+            # Same host, no target path: run in-place at source path
             target_path = source_path
-            is_generated_work_dir = not source_is_same_host
+            is_generated_work_dir = False
+        else:
+            # Different host (remote copy): generate a unique work directory so that
+            # multiple agents sharing the same host each get their own directory.
+            target_path = self.host_dir / "projects" / str(AgentId.generate())
+            is_generated_work_dir = True
 
         self._mkdir(target_path)
 
