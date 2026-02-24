@@ -1,9 +1,12 @@
 from collections.abc import Callable
+from concurrent.futures import Future
+from threading import Lock
 from typing import Any
 
 from loguru import logger
 from pydantic import Field
 
+from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
@@ -53,8 +56,13 @@ def send_message_to_agents(
     # Optional callback invoked when message fails (agent_name, error)
     on_error: Callable[[str, str], None] | None = None,
 ) -> MessageResult:
-    """Send a message to agents matching the specified criteria."""
+    """Send a message to agents matching the specified criteria.
+
+    Messages are sent concurrently so that one agent's failure does not block or kill
+    messages to other agents.
+    """
     result = MessageResult()
+    result_lock = Lock()
 
     # Compile CEL filters if provided
     compiled_include_filters: list[Any] = []
@@ -69,7 +77,9 @@ def send_message_to_agents(
     provider_map = {provider.name: provider for provider in providers}
     logger.trace("Found {} hosts with agents", len(agents_by_host))
 
-    # Process each host and its agents
+    # Phase 1: Resolve hosts and filter agents (sequential -- this is fast)
+    agents_to_message: list[tuple[AgentInterface, OnlineHostInterface]] = []
+
     for host_ref, agent_refs in agents_by_host.items():
         try:
             provider = provider_map.get(host_ref.provider_name)
@@ -132,17 +142,7 @@ def send_message_to_agents(
                         if not is_included:
                             continue
 
-                    # Send the message
-                    _send_message_to_agent(
-                        agent=agent,
-                        host=host,
-                        message_content=message_content,
-                        result=result,
-                        error_behavior=error_behavior,
-                        is_start_desired=is_start_desired,
-                        on_success=on_success,
-                        on_error=on_error,
-                    )
+                    agents_to_message.append((agent, host))
 
                 except MngError as e:
                     if error_behavior == ErrorBehavior.ABORT:
@@ -157,6 +157,39 @@ def send_message_to_agents(
                 raise
             logger.warning("Error accessing host {}: {}", host_ref.host_id, e)
 
+    # Phase 2: Send messages concurrently
+    agent_names_by_future: dict[Future[None], str] = {}
+    with ConcurrencyGroupExecutor(
+        parent_cg=mng_ctx.concurrency_group, name="send_message_to_agents", max_workers=32
+    ) as executor:
+        for agent, host in agents_to_message:
+            future = executor.submit(
+                _send_message_to_agent,
+                agent=agent,
+                host=host,
+                message_content=message_content,
+                result=result,
+                result_lock=result_lock,
+                is_start_desired=is_start_desired,
+                on_success=on_success,
+                on_error=on_error,
+            )
+            agent_names_by_future[future] = str(agent.name)
+
+    # Record any unexpected (non-MngError) exceptions from futures
+    for future, agent_name in agent_names_by_future.items():
+        exc = future.exception()
+        if exc is not None:
+            error_msg = str(exc)
+            result.failed_agents.append((agent_name, error_msg))
+            if on_error:
+                on_error(agent_name, error_msg)
+
+    # In ABORT mode, raise if any agent failed
+    if error_behavior == ErrorBehavior.ABORT and result.failed_agents:
+        first_agent_name, first_error = result.failed_agents[0]
+        raise MngError(f"Failed to send message to {first_agent_name}: {first_error}")
+
     return result
 
 
@@ -165,12 +198,16 @@ def _send_message_to_agent(
     host: OnlineHostInterface,
     message_content: str,
     result: MessageResult,
-    error_behavior: ErrorBehavior,
+    result_lock: Lock,
     is_start_desired: bool,
     on_success: Callable[[str], None] | None,
     on_error: Callable[[str, str], None] | None,
 ) -> None:
-    """Send a message to a single agent."""
+    """Send a message to a single agent.
+
+    Called from a worker thread. Known errors (MngError) are recorded in `result`;
+    unexpected exceptions propagate to the future for the caller to handle.
+    """
     agent_name = str(agent.name)
 
     # Check if agent has a tmux session (only STOPPED agents cannot receive messages)
@@ -180,9 +217,8 @@ def _send_message_to_agent(
             ensure_agent_started(agent, host, is_start_desired=True)
         else:
             error_msg = f"Agent has no tmux session (state: {lifecycle_state.value})"
-            if error_behavior == ErrorBehavior.ABORT:
-                raise MngError(f"Cannot send message to {agent_name}: {error_msg}")
-            result.failed_agents.append((agent_name, error_msg))
+            with result_lock:
+                result.failed_agents.append((agent_name, error_msg))
             if on_error:
                 on_error(agent_name, error_msg)
             return
@@ -190,14 +226,14 @@ def _send_message_to_agent(
     try:
         with log_span("Sending message to agent {}", agent_name):
             agent.send_message(message_content)
-        result.successful_agents.append(agent_name)
+        with result_lock:
+            result.successful_agents.append(agent_name)
         if on_success:
             on_success(agent_name)
     except MngError as e:
         error_msg = str(e)
-        if error_behavior == ErrorBehavior.ABORT:
-            raise
-        result.failed_agents.append((agent_name, error_msg))
+        with result_lock:
+            result.failed_agents.append((agent_name, error_msg))
         if on_error:
             on_error(agent_name, error_msg)
 
