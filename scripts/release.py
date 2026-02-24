@@ -66,6 +66,18 @@ def _find_last_release_tag() -> str:
         sys.exit(1)
 
 
+def _get_pypi_version() -> str | None:
+    """Query PyPI for the latest published version of mng. Returns None if the query fails."""
+    import httpx
+
+    try:
+        response = httpx.get("https://pypi.org/pypi/mng/json", timeout=10)
+        response.raise_for_status()
+        return response.json()["info"]["version"]
+    except Exception:
+        return None
+
+
 def _detect_changed_packages(since_tag: str) -> set[str]:
     """Return the set of pypi names for packages whose source changed since the given tag."""
     changed: set[str] = set()
@@ -428,13 +440,36 @@ def main() -> None:
                 f"Use a lower base level instead."
             )
 
-    # Detect what changed since the last release
+    # Check release state: last git tag and latest version on PyPI
     last_tag = _find_last_release_tag()
+    tag_version = last_tag.lstrip("v")
+    pypi_version = _get_pypi_version()
+
     print(f"Last release tag: {last_tag}")
+    if pypi_version is not None:
+        print(f"Latest on PyPI:   v{pypi_version}")
+    else:
+        print("Latest on PyPI:   (could not check)")
+
+    is_unpublished = (
+        pypi_version is not None
+        and tag_version != pypi_version
+        and semver.Version.parse(tag_version) > semver.Version.parse(pypi_version)
+    )
+    if is_unpublished:
+        print(f"\nWARNING: {last_tag} appears unpublished (PyPI is at v{pypi_version}).")
+        print("To publish the existing release:")
+        print("  uv run scripts/release.py --retry")
+
+    # Detect what changed since the last release
     directly_changed = _detect_changed_packages(last_tag)
 
     if not directly_changed:
-        print("\nNo packages changed since the last release. Nothing to do.")
+        if is_unpublished:
+            print("\nNo packages changed since the last release, and it was not published.")
+            print("Use --retry to publish it, or fix the issue and try again.")
+        else:
+            print("\nNo packages changed since the last release. Nothing to do.")
         return
 
     # Compute the full bump set (includes cascades and mng-always rule)
