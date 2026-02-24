@@ -12,7 +12,7 @@ def test_all_lessons_tuple_contains_all_defined_lessons() -> None:
 
 
 def test_getting_started_lesson_has_expected_structure() -> None:
-    assert LESSON_GETTING_STARTED.title == "Getting Started"
+    assert LESSON_GETTING_STARTED.title == "Basic Local Agent"
     assert len(LESSON_GETTING_STARTED.steps) == 5
 
     # First step creates an agent
@@ -23,7 +23,7 @@ def test_getting_started_lesson_has_expected_structure() -> None:
 
 
 def test_remote_agents_lesson_has_expected_structure() -> None:
-    assert LESSON_REMOTE_AGENTS.title == "Remote Agents on Modal"
+    assert LESSON_REMOTE_AGENTS.title == "Remote Agents on Modal (WIP)"
     assert len(LESSON_REMOTE_AGENTS.steps) == 5
 
     # First step creates a remote agent

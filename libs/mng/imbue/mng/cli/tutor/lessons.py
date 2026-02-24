@@ -64,15 +64,18 @@ LESSON_GETTING_STARTED = Lesson(
             heading="Restart the agent",
             details=dedent("""\
                 Let's restart the agent:
-                    mng start agent-smith
                     mng connect agent-smith
 
+                The `connect` subcommand automatically restarts stopped agents.
                 This should drop you back into a tmux window with a resumed Claude Code,
                 just like before it was stopped!
 
                 Tip: you can actually skip the first `start` command,
                 because the `connect` command will restart the agent first if it's stopped!\
                 """),
+            # FIXME: This is actually detecting the state of the agent,
+            # not whether there's an active connection to it...
+            # The latter may be a little bit harder and may require doing hacky things with tmux.
             check=AgentInStateCheck(
                 agent_name=AgentName("agent-smith"),
                 expected_states=(AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING),
