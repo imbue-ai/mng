@@ -230,11 +230,11 @@ def test_stage_deploy_files_creates_secrets_dir(
     assert secrets_dir.is_dir()
 
 
-def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
+def test_stage_deploy_files_creates_subdirs_with_claude_defaults(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
+    """stage_deploy_files should always stage generated claude defaults in home/."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
@@ -243,7 +243,9 @@ def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
 
     home_dir = staging_dir / "home"
     assert home_dir.exists()
-    assert not any(home_dir.iterdir())
+    # Claude plugin always ships generated defaults
+    assert (home_dir / ".claude" / "settings.json").exists()
+    assert (home_dir / ".claude.json").exists()
 
     project_dir = staging_dir / "project"
     assert project_dir.exists()
@@ -272,9 +274,6 @@ def test_stage_deploy_files_stages_project_files(
     staged_file = staging_dir / "project" / "config" / "settings.toml"
     assert staged_file.exists()
     assert staged_file.read_text() == "[settings]\nkey = 1\n"
-
-    # home/ should be empty since no home files were registered
-    assert not any((staging_dir / "home").iterdir())
 
 
 # =============================================================================
@@ -569,7 +568,7 @@ def test_stage_deploy_files_with_exclude_user_settings(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """stage_deploy_files with include_user_settings=False should skip home dir files."""
+    """stage_deploy_files with include_user_settings=False should skip mng home files but still include claude defaults."""
     # Create a home file that would normally be included
     mng_dir = Path.home() / ".mng"
     mng_dir.mkdir(parents=True, exist_ok=True)
@@ -588,8 +587,12 @@ def test_stage_deploy_files_with_exclude_user_settings(
         include_user_settings=False,
     )
 
-    # home/ should be empty because we excluded user settings
-    assert not any((staging_dir / "home").iterdir())
+    home_dir = staging_dir / "home"
+    # mng config should NOT be included when user settings are excluded
+    assert not (home_dir / ".mng" / "config.toml").exists()
+    # But claude defaults are always shipped
+    assert (home_dir / ".claude" / "settings.json").exists()
+    assert (home_dir / ".claude.json").exists()
 
 
 # =============================================================================

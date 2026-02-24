@@ -1581,16 +1581,26 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
 # =============================================================================
 
 
-def test_get_files_for_deploy_returns_empty_dict_when_no_claude_files(
+def test_get_files_for_deploy_returns_generated_defaults_when_no_claude_files(
     temp_mng_ctx: MngContext, tmp_path: Path
 ) -> None:
-    """get_files_for_deploy returns empty dict when no claude config files exist."""
+    """get_files_for_deploy returns generated defaults when no local claude config files exist."""
     # Exclude project settings since the test repo_root may contain .claude/ files
     result = get_files_for_deploy(
         mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
     )
 
-    assert result == {}
+    # Always ships generated defaults for settings.json and claude.json
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data["hasCompletedOnboarding"] is True
 
 
 def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
@@ -1607,7 +1617,7 @@ def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp
 
 
 def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
-    """get_files_for_deploy includes ~/.claude/settings.json when it exists."""
+    """get_files_for_deploy includes ~/.claude/settings.json with skipDangerousModePermissionPrompt when it exists."""
     claude_dir = Path.home() / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
     settings = claude_dir / "settings.json"
@@ -1618,7 +1628,11 @@ def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext,
     )
 
     assert Path("~/.claude/settings.json") in result
-    assert result[Path("~/.claude/settings.json")] == settings
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["settings"] is True
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
 
 
 def test_get_files_for_deploy_includes_claude_json_and_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
@@ -1640,11 +1654,11 @@ def test_get_files_for_deploy_includes_claude_json_and_settings(temp_mng_ctx: Mn
     assert Path("~/.claude/settings.json") in result
 
 
-def test_get_files_for_deploy_returns_empty_when_user_settings_excluded(
+def test_get_files_for_deploy_ships_defaults_when_user_settings_excluded(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """get_files_for_deploy returns empty dict when include_user_settings is False."""
+    """get_files_for_deploy ships generated defaults even when include_user_settings is False."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"test": true}')
 
@@ -1652,7 +1666,15 @@ def test_get_files_for_deploy_returns_empty_when_user_settings_excluded(
         mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True, repo_root=tmp_path
     )
 
-    assert result == {}
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But the local ~/.claude.json should NOT be used (generated defaults instead)
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data.get("test") is None
+    assert claude_json_data["hasCompletedOnboarding"] is True
 
 
 def test_get_files_for_deploy_includes_project_local_settings(
@@ -1677,7 +1699,7 @@ def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
     temp_mng_ctx: MngContext,
     tmp_path: Path,
 ) -> None:
-    """get_files_for_deploy skips project local files when include_project_settings is False."""
+    """get_files_for_deploy skips project local files when include_project_settings is False, but always ships defaults."""
     project_claude_dir = tmp_path / ".claude"
     project_claude_dir.mkdir(parents=True, exist_ok=True)
     local_settings = project_claude_dir / "settings.local.json"
@@ -1687,7 +1709,11 @@ def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
         mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=False, repo_root=tmp_path
     )
 
-    assert result == {}
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But project local files should NOT be included
+    assert Path(".claude/settings.local.json") not in result
 
 
 def test_get_files_for_deploy_includes_skills_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
