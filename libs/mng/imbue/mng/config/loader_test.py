@@ -230,7 +230,7 @@ def test_all_cli_commands_are_single_word() -> None:
 # =============================================================================
 
 
-def testget_user_config_path_returns_correct_path() -> None:
+def test_get_user_config_path_returns_correct_path() -> None:
     """get_user_config_path should return settings.toml in profile directory."""
     profile_dir = Path("/home/user/.mng/profiles/abc123")
     path = get_user_config_path(profile_dir)
