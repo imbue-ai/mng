@@ -23,7 +23,17 @@ register_conftest_hooks(globals())
 
 @pytest.fixture(autouse=True)
 def set_junit_classname_to_filepath(request, record_xml_attribute):
-    """Set JUnit XML classname to match the file-based test ID from monorepo root."""
+    """Set JUnit XML classname and name to match pytest nodeid exactly.
+
+    This ensures 1-to-1 mapping between pytest discovery and JUnit XML for tools
+    like offload that need to match test IDs with durations.
+
+    Handles:
+    - Simple functions: test_file.py::test_func
+    - Methods in classes: test_file.py::TestClass::test_method
+    - Nested classes: test_file.py::Outer::Inner::test_method
+    - Parameterized tests: test_file.py::TestClass::test_method[param]
+    """
     fspath = str(request.node.fspath)
 
     # Find the monorepo root by looking for libs/ or apps/ or scripts/ directories
@@ -41,3 +51,10 @@ def set_junit_classname_to_filepath(request, record_xml_attribute):
 
     classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
     record_xml_attribute("classname", classname)
+
+    # Set name to include class hierarchy if present
+    # e.g., "TestClass::test_method" or "Outer::Inner::test_method"
+    nodeid_parts = request.node.nodeid.split("::")
+    if len(nodeid_parts) > 2:
+        name = "::".join(nodeid_parts[1:])
+        record_xml_attribute("name", name)

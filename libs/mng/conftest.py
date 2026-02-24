@@ -21,7 +21,7 @@ register_conftest_hooks(globals())
 
 @pytest.fixture(autouse=True)
 def set_junit_classname_to_filepath(request, record_xml_attribute):
-    """Set JUnit XML classname to match the file-based test ID from monorepo root."""
+    """Set JUnit XML classname and name to match pytest nodeid exactly."""
     fspath = str(request.node.fspath)
 
     mng_root = None
@@ -38,3 +38,9 @@ def set_junit_classname_to_filepath(request, record_xml_attribute):
 
     classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
     record_xml_attribute("classname", classname)
+
+    # Set name to include class hierarchy if present
+    nodeid_parts = request.node.nodeid.split("::")
+    if len(nodeid_parts) > 2:
+        name = "::".join(nodeid_parts[1:])
+        record_xml_attribute("name", name)

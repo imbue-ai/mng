@@ -20,7 +20,7 @@ junit_format = "pytest"
 # Discover tests locally using pytest --collect-only, exclude acceptance and release tests
 discover_command = "uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
 # Run tests in the sandbox (source is baked into /app)
-run_command = "cd /code/mng && git apply /offload-upload/patch --allow-empty && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml=/tmp/junit.xml {tests}"
+run_command = "cd /code/mng && git fetch origin fix/junit-classname-nodeid && git checkout fix/junit-classname-nodeid && git apply /offload-upload/patch --allow-empty && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml=/tmp/junit.xml {tests}"
 
 [report]
 output_dir = "test-results"
