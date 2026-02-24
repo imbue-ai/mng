@@ -41,7 +41,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -93,7 +92,6 @@ from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
-from imbue.mng.utils.name_generator import generate_host_name
 from imbue.mng.utils.polling import wait_for
 
 
@@ -524,14 +522,6 @@ class CreateCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
-    """Create and run an agent.
-
-    Sets up the agent's work_dir, optionally provisions a new host (or uses
-    an existing one), runs the specified agent, and connects to it (by default).
-
-    \b
-    Alias: c
-    """
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mng_ctx, output_opts, opts = setup_command_context(
@@ -1447,13 +1437,6 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        parsed_host_name: HostName
-        if opts.host_name:
-            parsed_host_name = HostName(opts.host_name)
-        else:
-            parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
-            parsed_host_name = generate_host_name(parsed_host_name_style)
-
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
@@ -1486,9 +1469,11 @@ def _parse_target_host(
             start_args=tuple(combined_start_args),
         )
 
+        parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
         parsed_target_host = NewHostOptions(
             provider=ProviderInstanceName(opts.new_host),
-            name=parsed_host_name,
+            name=HostName(opts.host_name) if opts.host_name else None,
+            name_style=parsed_host_name_style,
             tags=tags,
             build=build_options,
             environment=HostEnvironmentOptions(
@@ -1615,7 +1600,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 
 # Register help metadata for git-style help formatting
 _CREATE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-create",
+    key="create",
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
@@ -1628,9 +1613,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
 - `AGENT_ARGS`: Additional arguments passed to the agent""",
-    description="""Create a new agent and optionally connect to it.
-
-This command sets up an agent's working directory, optionally provisions a
+    description="""This command sets up an agent's working directory, optionally provisions a
 new host (or uses an existing one), runs the specified agent process, and
 connects to it by default.
 
@@ -1687,10 +1670,7 @@ the working directory is copied to the remote host.""",
     ),
 )
 
-register_help_metadata("create", _CREATE_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CREATE_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CREATE_HELP_METADATA)
+_CREATE_HELP_METADATA.register()
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

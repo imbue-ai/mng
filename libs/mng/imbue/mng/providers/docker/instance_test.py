@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.docker.instance import CONTAINER_SSH_PORT
+from imbue.mng.providers.docker.instance import DockerProviderInstance
 from imbue.mng.providers.docker.instance import LABEL_HOST_ID
 from imbue.mng.providers.docker.instance import LABEL_HOST_NAME
 from imbue.mng.providers.docker.instance import LABEL_PROVIDER
@@ -16,6 +18,7 @@ from imbue.mng.providers.docker.instance import _get_ssh_host_from_docker_config
 from imbue.mng.providers.docker.instance import build_container_labels
 from imbue.mng.providers.docker.instance import parse_container_labels
 from imbue.mng.providers.docker.testing import make_docker_provider
+from imbue.mng.providers.docker.testing import make_docker_provider_with_local_volume
 
 HOST_ID_A = "host-00000000000000000000000000000001"
 HOST_ID_B = "host-00000000000000000000000000000002"
@@ -243,3 +246,74 @@ def test_remove_tags_from_host_raises_mng_error(temp_mng_ctx: MngContext) -> Non
     provider = make_docker_provider(temp_mng_ctx)
     with pytest.raises(MngError, match="does not support mutable tags"):
         provider.remove_tags_from_host(HostId(HOST_ID_A), ["key"])
+
+
+# =========================================================================
+# Volume Methods
+# =========================================================================
+
+
+def test_list_volumes_returns_empty_when_no_volumes_dir(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
+    assert provider.list_volumes() == []
+
+
+def test_list_volumes_discovers_vol_directories(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """list_volumes returns VolumeInfo for vol-* directories."""
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
+    vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    (tmp_path / "volumes" / str(vol_id)).mkdir(parents=True)
+
+    volumes = provider.list_volumes()
+    assert len(volumes) == 1
+    assert volumes[0].volume_id == vol_id
+    assert volumes[0].host_id == HostId(HOST_ID_A)
+
+
+def test_list_volumes_discovers_multiple(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """list_volumes returns all vol-* directories."""
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
+    vol_a = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    vol_b = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_B))
+    (tmp_path / "volumes" / str(vol_a)).mkdir(parents=True)
+    (tmp_path / "volumes" / str(vol_b)).mkdir(parents=True)
+
+    volumes = provider.list_volumes()
+    assert len(volumes) == 2
+    assert {v.volume_id for v in volumes} == {vol_a, vol_b}
+
+
+def test_delete_volume_removes_directory(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """delete_volume removes a volume directory."""
+    provider = make_docker_provider_with_local_volume(temp_mng_ctx, tmp_path)
+    vol_id = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    vol_dir = tmp_path / "volumes" / str(vol_id)
+    vol_dir.mkdir(parents=True)
+
+    provider.delete_volume(vol_id)
+    assert not vol_dir.exists()
+
+
+def test_volume_id_for_host_is_deterministic() -> None:
+    """_volume_id_for_host returns the same VolumeId for the same HostId."""
+    host_id = HostId(HOST_ID_A)
+    assert DockerProviderInstance._volume_id_for_host(host_id) == DockerProviderInstance._volume_id_for_host(host_id)
+
+
+def test_volume_id_for_host_differs_for_different_hosts() -> None:
+    """_volume_id_for_host returns different VolumeIds for different HostIds."""
+    id1 = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_A))
+    id2 = DockerProviderInstance._volume_id_for_host(HostId(HOST_ID_B))
+    assert id1 != id2

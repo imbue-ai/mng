@@ -22,7 +22,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import get_all_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_info
@@ -324,7 +323,7 @@ def _build_ask_context() -> str:
         parts.append("")
         parts.append(f"Synopsis: {metadata.synopsis}")
         parts.append("")
-        parts.append(metadata.description.strip())
+        parts.append(metadata.full_description.strip())
         parts.append("")
         if metadata.examples:
             parts.append("Examples:")
@@ -372,19 +371,6 @@ class AskCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def ask(ctx: click.Context, **kwargs: Any) -> None:
-    """Chat with mng for help. [experimental]
-
-    Ask mng a question and it will generate the appropriate CLI command.
-    If no query is provided, shows general help.
-
-    Examples:
-
-      mng ask "how do I create an agent?"
-
-      mng ask start a container with claude code
-
-      mng ask --execute forward port 8080 to the public internet
-    """
     try:
         _ask_impl(ctx, **kwargs)
     except AbortError as e:
@@ -463,13 +449,11 @@ def _execute_response(response: str, output_format: OutputFormat) -> None:
 
 
 # Register help metadata for git-style help formatting
-_ASK_HELP_METADATA: Final[CommandHelpMetadata] = CommandHelpMetadata(
-    name="mng-ask",
+CommandHelpMetadata(
+    key="ask",
     one_line_description="Chat with mng for help [experimental]",
     synopsis="mng ask [--execute] QUERY...",
-    description="""Chat directly with mng for help -- it can create the
-necessary CLI call for pretty much anything you want to do.
-
+    description="""Ask a question and mng will generate the appropriate CLI command.
 If no query is provided, shows general help about available commands
 and common workflows.
 
@@ -485,9 +469,7 @@ directly instead of being printed.""",
         ("list", "List existing agents"),
         ("connect", "Connect to an agent"),
     ),
-)
-
-register_help_metadata("ask", _ASK_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the ask command
 add_pager_help_option(ask)

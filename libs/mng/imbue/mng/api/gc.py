@@ -4,7 +4,6 @@ from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from typing import Any
 from typing import assert_never
 
 from loguru import logger
@@ -27,8 +26,6 @@ from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.utils.cel_utils import apply_cel_filters_to_context
-from imbue.mng.utils.cel_utils import compile_cel_filters
 
 
 @log_call
@@ -36,10 +33,6 @@ def gc(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
     resource_types: GcResourceTypes,
-    # CEL expressions - only include resources matching these
-    include_filters: tuple[str, ...],
-    # CEL expressions - exclude resources matching these
-    exclude_filters: tuple[str, ...],
     # If True, identify but don't destroy resources
     dry_run: bool,
     # Whether to abort or continue on errors
@@ -63,8 +56,6 @@ def gc(
             gc_work_dirs(
                 mng_ctx=mng_ctx,
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -75,8 +66,6 @@ def gc(
             gc_machines(
                 mng_ctx=mng_ctx,
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -86,8 +75,6 @@ def gc(
         with log_span("Garbage collecting orphaned snapshots"):
             gc_snapshots(
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -97,8 +84,6 @@ def gc(
         with log_span("Garbage collecting orphaned volumes"):
             gc_volumes(
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -109,8 +94,6 @@ def gc(
             gc_logs(
                 mng_ctx=mng_ctx,
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -121,8 +104,6 @@ def gc(
             gc_build_cache(
                 mng_ctx=mng_ctx,
                 providers=providers,
-                include_filters=include_filters,
-                exclude_filters=exclude_filters,
                 dry_run=dry_run,
                 error_behavior=error_behavior,
                 result=result,
@@ -134,15 +115,11 @@ def gc(
 def gc_work_dirs(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect orphaned work directories."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     for provider_instance in providers:
         for host in provider_instance.list_hosts(cg=mng_ctx.concurrency_group):
             if not isinstance(host, OnlineHostInterface):
@@ -156,15 +133,7 @@ def gc_work_dirs(
                     logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
                     continue
 
-                # Apply CEL filtering
-                filtered_dirs = [
-                    d
-                    for d in orphaned_dirs
-                    if (not compiled_include_filters or _apply_cel_filters(d, compiled_include_filters, []))
-                    and (not compiled_exclude_filters or _apply_cel_filters(d, [], compiled_exclude_filters))
-                ]
-
-                for work_dir_info in filtered_dirs:
+                for work_dir_info in orphaned_dirs:
                     try:
                         if not dry_run:
                             _clean_work_dir(host=host, work_dir_path=work_dir_info.path, dry_run=False)
@@ -178,15 +147,11 @@ def gc_work_dirs(
 def gc_machines(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect idle machines and delete old offline host records."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     for provider in providers:
         try:
             hosts = provider.list_hosts(include_destroyed=True, cg=provider.mng_ctx.concurrency_group)
@@ -198,20 +163,6 @@ def gc_machines(
                         name=str(host.id),
                         provider_name=provider.name,
                     )
-
-                    # Apply CEL filtering
-                    if compiled_include_filters or compiled_exclude_filters:
-                        if not (
-                            (
-                                not compiled_include_filters
-                                or _apply_cel_filters(host_info, compiled_include_filters, [])
-                            )
-                            and (
-                                not compiled_exclude_filters
-                                or _apply_cel_filters(host_info, [], compiled_exclude_filters)
-                            )
-                        ):
-                            continue
 
                     # Handle offline hosts
                     # all we care about is that they have no agents (or is failed/crashed/destroyed),
@@ -269,15 +220,11 @@ def gc_machines(
 
 def gc_snapshots(
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect orphaned snapshots."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     for provider in providers:
         if not provider.supports_snapshots:
             logger.trace("Skipped provider {} (does not support snapshots)", provider.name)
@@ -290,26 +237,7 @@ def gc_snapshots(
                 try:
                     snapshots = provider.list_snapshots(host)
 
-                    # Sort by creation time (newest first) and assign recency_idx
-                    sorted_snapshots = sorted(snapshots, key=lambda s: s.created_at, reverse=True)
-                    snapshots_with_recency = [
-                        snapshot.model_copy_update(
-                            to_update(snapshot.field_ref().recency_idx, idx),
-                        )
-                        for idx, snapshot in enumerate(sorted_snapshots)
-                    ]
-
-                    # Apply CEL filtering
-                    filtered_snapshots = snapshots_with_recency
-                    if compiled_include_filters or compiled_exclude_filters:
-                        filtered_snapshots = [
-                            s
-                            for s in snapshots_with_recency
-                            if (not compiled_include_filters or _apply_cel_filters(s, compiled_include_filters, []))
-                            and (not compiled_exclude_filters or _apply_cel_filters(s, [], compiled_exclude_filters))
-                        ]
-
-                    for snapshot in filtered_snapshots:
+                    for snapshot in snapshots:
                         if not dry_run:
                             provider.delete_snapshot(host, snapshot.id)
 
@@ -328,15 +256,11 @@ def gc_snapshots(
 
 def gc_volumes(
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect orphaned volumes."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     for provider in providers:
         if not provider.supports_volumes:
             logger.trace("Skipped provider {} (does not support volumes)", provider.name)
@@ -356,17 +280,7 @@ def gc_volumes(
             # Identify orphaned volumes
             orphaned_volumes = [v for v in all_volumes if v.volume_id not in active_volume_ids]
 
-            # Apply CEL filtering
-            filtered_volumes = orphaned_volumes
-            if compiled_include_filters or compiled_exclude_filters:
-                filtered_volumes = [
-                    v
-                    for v in filtered_volumes
-                    if (not compiled_include_filters or _apply_cel_filters(v, compiled_include_filters, []))
-                    and (not compiled_exclude_filters or _apply_cel_filters(v, [], compiled_exclude_filters))
-                ]
-
-            for volume in filtered_volumes:
+            for volume in orphaned_volumes:
                 try:
                     if not dry_run:
                         provider.delete_volume(volume.volume_id)
@@ -387,15 +301,11 @@ def gc_volumes(
 def gc_logs(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect old log files."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     # Construct logs directory from config
     log_dir = mng_ctx.config.logging.log_dir
     if not log_dir.is_absolute():
@@ -418,16 +328,6 @@ def gc_logs(
             created_at = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc)
             log_file_info = LogFileInfo(path=log_file, size_bytes=file_size, created_at=created_at)
 
-            # Apply CEL filtering
-            if compiled_include_filters or compiled_exclude_filters:
-                if not (
-                    (not compiled_include_filters or _apply_cel_filters(log_file_info, compiled_include_filters, []))
-                    and (
-                        not compiled_exclude_filters or _apply_cel_filters(log_file_info, [], compiled_exclude_filters)
-                    )
-                ):
-                    continue
-
             if not dry_run:
                 log_file.unlink()
 
@@ -442,15 +342,11 @@ def gc_logs(
 def gc_build_cache(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
-    include_filters: tuple[str, ...],
-    exclude_filters: tuple[str, ...],
     dry_run: bool,
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
     """Garbage collect build cache entries."""
-    compiled_include_filters, compiled_exclude_filters = compile_cel_filters(include_filters, exclude_filters)
-
     # Construct providers directory from profile
     base_cache_dir = mng_ctx.profile_dir / "providers"
 
@@ -477,20 +373,6 @@ def gc_build_cache(
                 # Get creation time
                 created_at = datetime.fromtimestamp(cache_entry.stat().st_ctime, tz=timezone.utc)
                 build_cache_info = BuildCacheInfo(path=cache_entry, size_bytes=cache_entry_size, created_at=created_at)
-
-                # Apply CEL filtering
-                if compiled_include_filters or compiled_exclude_filters:
-                    if not (
-                        (
-                            not compiled_include_filters
-                            or _apply_cel_filters(build_cache_info, compiled_include_filters, [])
-                        )
-                        and (
-                            not compiled_exclude_filters
-                            or _apply_cel_filters(build_cache_info, [], compiled_exclude_filters)
-                        )
-                    ):
-                        continue
 
                 if not dry_run:
                     # Remove the cache entry directory
@@ -610,67 +492,6 @@ def _remove_directory(host: OnlineHostInterface, path: Path) -> None:
             raise MngError(f"Failed to remove directory {path}: {result.stderr}")
 
         logger.debug("Removed directory: {}", path)
-
-
-def _resource_to_cel_context(resource: Any) -> dict[str, Any]:
-    """Convert a resource object to a CEL-friendly dict.
-
-    Supports converting pydantic models (SnapshotInfo, VolumeInfo, WorkDirInfo, LogFileInfo, BuildCacheInfo)
-    into a flat dictionary suitable for CEL evaluation.
-    """
-    if hasattr(resource, "model_dump"):
-        result = resource.model_dump(mode="json")
-
-        # Add type field based on the class name
-        result["type"] = type(resource).__name__.replace("Info", "").lower()
-
-        # Add computed fields for size
-        if "size_bytes" in result and result["size_bytes"] is not None:
-            result["size"] = result["size_bytes"]
-
-        # For path-based resources, add name and age from the path
-        if "path" in result and isinstance(result["path"], str):
-            path = Path(result["path"])
-            result["name"] = path.name
-            if path.exists():
-                stat = path.stat()
-                age_seconds = datetime.now(timezone.utc).timestamp() - stat.st_mtime
-                result["age"] = age_seconds
-            else:
-                result["age"] = 0
-
-        # Calculate age from created_at or updated_at
-        for date_field in ["created_at", "updated_at"]:
-            if date_field in result and result[date_field] is not None:
-                if isinstance(result[date_field], str):
-                    created_dt = datetime.fromisoformat(result[date_field].replace("Z", "+00:00"))
-                else:
-                    created_dt = result[date_field]
-                result["age"] = (datetime.now(timezone.utc) - created_dt).total_seconds()
-                break
-
-        return result
-
-    raise MngError(f"Cannot convert resource type {type(resource)} to CEL context")
-
-
-def _apply_cel_filters(
-    resource: Any,
-    include_filters: Sequence[Any],
-    exclude_filters: Sequence[Any],
-) -> bool:
-    """Apply CEL filters to a resource.
-
-    Returns True if the resource should be included (matches all include filters
-    and doesn't match any exclude filters).
-    """
-    context = _resource_to_cel_context(resource)
-    return apply_cel_filters_to_context(
-        context=context,
-        include_filters=include_filters,
-        exclude_filters=exclude_filters,
-        error_context_description=str(context),
-    )
 
 
 def _handle_error(error_msg: str, error_behavior: ErrorBehavior, exc: Exception | None = None) -> None:

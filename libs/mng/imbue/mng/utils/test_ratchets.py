@@ -20,6 +20,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EVAL
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_EXEC
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FSTRING_LOGGING
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_FUNCTOOLS_PARTIAL
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_GLOBAL_KEYWORD
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IF_ELIF_WITHOUT_ELSE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_IMPORTLIB_IMPORT_MODULE
@@ -38,6 +39,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_POSITIONA
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RETURNS_IN_DOCSTRINGS
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_SHORT_UUID_IDS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TEST_CONTAINER_CLASSES
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_TIME_SLEEP
@@ -353,18 +355,28 @@ def test_prevent_importlib_import_module() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_IMPORTLIB_IMPORT_MODULE.format_failure(chunks)
 
 
+def test_prevent_getattr() -> None:
+    chunks = check_ratchet_rule(PREVENT_GETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(8), PREVENT_GETATTR.format_failure(chunks)
+
+
+def test_prevent_setattr() -> None:
+    chunks = check_ratchet_rule(PREVENT_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(1), PREVENT_SETATTR.format_failure(chunks)
+
+
 _PREVENT_OLD_MNGR_NAME = RegexRatchetRule(
     rule_name="'mngr' occurrences",
-    rule_description="The old 'mngr' name should not be reintroduced. Remaining occurrences are because of the GitHub URL.",
+    rule_description="The old 'mngr' name should not be reintroduced.",
     pattern_string=r"mngr",
 )
 
 
 def test_prevent_old_mngr_name_in_file_contents() -> None:
-    """Ensure the old 'mngr' name is not reintroduced in file contents (remaining uses are because of the GitHub URL)."""
+    """Ensure the old 'mngr' name is not reintroduced in file contents."""
     repo_root = Path(__file__).parent.parent.parent.parent.parent.parent
     chunks = check_ratchet_rule_all_files(_PREVENT_OLD_MNGR_NAME, repo_root, _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(21), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), _PREVENT_OLD_MNGR_NAME.format_failure(chunks)
 
 
 def test_prevent_old_mngr_name_in_file_paths() -> None:

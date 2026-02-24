@@ -1,6 +1,6 @@
 [project]
 name = "mng"
-version = "0.1.1"
+version = "0.1.4"
 description = "Library for managing AI coding agents across different hosts"
 requires-python = ">=3.11"
 license = "MIT"
@@ -26,7 +26,7 @@ dependencies = [
     "cryptography>=42.0",
     "docker>=7.0",
     "dockerfile-parse>=2.0.0",
-    # pinning for now because more recent versions break how we gather build logs. See here for an attempt to fix, but it is not confirmed working: https://github.com/imbue-ai/mngr/pull/325
+    # pinning for now because more recent versions break how we gather build logs. See here for an attempt to fix, but it is not confirmed working: https://github.com/imbue-ai/mng/pull/325
     "modal==1.3.1",
     "packaging>=21.0",
     "pydantic>=2.0",
@@ -41,8 +41,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/imbue-ai/mngr"
-Repository = "https://github.com/imbue-ai/mngr"
+Homepage = "https://github.com/imbue-ai/mng"
+Repository = "https://github.com/imbue-ai/mng"
 
 [project.scripts]
 mng = "imbue.mng.main:cli"

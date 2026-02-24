@@ -14,6 +14,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mng.cli.common_opts import find_option_group
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.utils.interactive_subprocess import popen_interactive_subprocess
 
@@ -25,10 +26,10 @@ class CommandHelpMetadata(FrozenModel):
     that isn't available from click's standard help machinery.
     """
 
-    name: str = Field(description="Command name (e.g., 'mng-create')")
+    key: str = Field(description="Dot-separated registry key (e.g., 'create', 'snapshot.create')")
     one_line_description: str = Field(description="Brief one-line description of the command")
     synopsis: str = Field(description="Usage synopsis showing command patterns")
-    description: str = Field(description="Detailed description of the command")
+    description: str = Field(description="Extended description (paragraphs after the one-line summary)")
     aliases: tuple[str, ...] = Field(default=(), description="Command aliases (e.g., ('c',) for 'create')")
     arguments_description: str | None = Field(
         default=None,
@@ -52,19 +53,74 @@ class CommandHelpMetadata(FrozenModel):
         "Command name is just the subcommand (e.g., 'create' not 'mng create').",
     )
 
+    @property
+    def name(self) -> str:
+        """Display name derived from key (e.g., key='snapshot.create' -> 'mng snapshot create')."""
+        return "mng " + self.key.replace(".", " ")
+
+    @property
+    def full_description(self) -> str:
+        """One-line description (with period) + extended description, separated by a blank line."""
+        one_line = self.one_line_description
+        if not one_line.endswith("."):
+            one_line += "."
+        if self.description:
+            return one_line + "\n\n" + self.description
+        return one_line
+
+    def register(self) -> None:
+        """Register this metadata in the global help registry, keyed by self.key."""
+        _help_metadata_registry[self.key] = self
+
 
 # Registry of help metadata for commands that have been configured
 _help_metadata_registry: dict[str, CommandHelpMetadata] = {}
 
 
-def register_help_metadata(command_name: str, metadata: CommandHelpMetadata) -> None:
-    """Register help metadata for a command."""
-    _help_metadata_registry[command_name] = metadata
-
-
 def get_help_metadata(command_name: str) -> CommandHelpMetadata | None:
     """Get help metadata for a command, if registered."""
     return _help_metadata_registry.get(command_name)
+
+
+def _build_help_key(ctx: click.Context) -> str | None:
+    """Build a dot-separated registry key from the context chain using canonical names.
+
+    Walks from the current context up to (but not including) the root CLI group.
+    Uses ``ctx.command.name`` (the canonical name) rather than ``ctx.info_name``
+    (which reflects whichever alias was used at invocation).  This means
+    ``mng snap create --help`` produces key ``"snapshot.create"`` -- the same key
+    used by the registration call -- so aliases resolve correctly with no
+    duplicate registry entries.
+
+    Note: this function requires the full context chain from the root CLI group.
+    Tests that invoke a subgroup directly (e.g., ``cli_runner.invoke(snapshot, ...)``)
+    will produce incorrect keys because the subgroup becomes the root.  Always use
+    ``cli_runner.invoke(cli, ["snapshot", ...])`` when testing help output.
+    """
+    parts: list[str] = []
+    current: click.Context | None = ctx
+    while current is not None and current.parent is not None:
+        name = current.command.name if current.command.name is not None else current.info_name
+        if name is not None:
+            parts.append(name)
+        current = current.parent
+    if not parts:
+        return None
+    parts.reverse()
+    return ".".join(parts)
+
+
+def _resolve_help_metadata(ctx: click.Context) -> CommandHelpMetadata | None:
+    """Get help metadata for a command from its click context.
+
+    Uses ``_build_help_key`` to construct a canonical dot-separated key
+    (e.g., ``"snapshot.create"``) and performs a single registry lookup --
+    no fallback, no alias variants.
+    """
+    key = _build_help_key(ctx)
+    if key is None:
+        return None
+    return _help_metadata_registry.get(key)
 
 
 def get_all_help_metadata() -> dict[str, CommandHelpMetadata]:
@@ -223,7 +279,7 @@ def _write_git_style_help(
 
     # DESCRIPTION section
     output.write(f"{_format_section_title('Description')}\n")
-    for paragraph in metadata.description.strip().split("\n\n"):
+    for paragraph in metadata.full_description.strip().split("\n\n"):
         wrapped = _wrap_text(paragraph.strip(), width - 7, "       ", None)
         output.write(f"{wrapped}\n\n")
 
@@ -296,13 +352,14 @@ def _write_options_section(
 
     for group_name in ordered_group_names:
         options = options_by_group[group_name]
+        visible_options = [o for o in options if not o.hidden]
+        if not visible_options:
+            continue
         # Display "Ungrouped" for options without a group
         display_name = group_name if group_name is not None else "Ungrouped"
         output.write(f"\n   {display_name}\n")
 
-        for option in options:
-            if option.hidden:
-                continue
+        for option in visible_options:
             _write_option(output, ctx, option, width)
 
 
@@ -357,15 +414,14 @@ class GitStyleHelpMixin:
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format help using git-style formatting if metadata is available."""
-        command_name = ctx.info_name
-        if command_name is None:
+        if ctx.info_name is None:
             # Fall back to standard formatting - cast self to click.Command for type checker
             parent_format_help = getattr(super(), "format_help", None)
             if parent_format_help is not None:
                 parent_format_help(ctx, formatter)
             return
 
-        metadata = get_help_metadata(command_name)
+        metadata = _resolve_help_metadata(ctx)
         # Cast self to click.Command since this mixin is only used with Command subclasses
         command = cast(click.Command, self)
         help_text = format_git_style_help(ctx, command, metadata)
@@ -383,8 +439,7 @@ def show_help_with_pager(
 
     This is the main entry point for displaying help with pager support.
     """
-    command_name = ctx.info_name
-    metadata = get_help_metadata(command_name) if command_name else None
+    metadata = _resolve_help_metadata(ctx)
 
     help_text = format_git_style_help(ctx, command, metadata)
     run_pager(help_text, config)
@@ -418,20 +473,36 @@ def help_option_callback(
 def add_pager_help_option(command: click.Command) -> click.Command:
     """Replace the default --help option with one that uses a pager.
 
+    The new option is placed in the Common option group (if one exists on the
+    command) so it appears alongside other shared options rather than under
+    "Ungrouped".
+
     This modifies the command in-place and returns it for chaining.
     """
     # Remove existing help option
     command.params = [p for p in command.params if not (isinstance(p, click.Option) and p.name == "help")]
 
-    # Add new help option with pager callback
-    help_option = click.Option(
-        ["-h", "--help"],
-        is_flag=True,
-        expose_value=False,
-        is_eager=True,
-        callback=help_option_callback,
-        help="Show this message and exit.",
-    )
+    # Add new help option with pager callback, in the Common group if available
+    common_group = find_option_group(command, COMMON_OPTIONS_GROUP_NAME)
+    if common_group is not None:
+        help_option: click.Option = GroupedOption(
+            ["-h", "--help"],
+            group=common_group,
+            is_flag=True,
+            expose_value=False,
+            is_eager=True,
+            callback=help_option_callback,
+            help="Show this message and exit.",
+        )
+    else:
+        help_option = click.Option(
+            ["-h", "--help"],
+            is_flag=True,
+            expose_value=False,
+            is_eager=True,
+            callback=help_option_callback,
+            help="Show this message and exit.",
+        )
     command.params.append(help_option)
 
     return command
