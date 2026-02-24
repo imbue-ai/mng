@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import random
 import shlex
 from collections.abc import Sequence
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -131,6 +132,42 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
         else:
             files[Path(f"~/.claude/{item_name}")] = item_path
     return files
+
+
+def _build_settings_json_content(sync_local: bool) -> str:
+    """Build ~/.claude/settings.json content for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always forces skipDangerousModePermissionPrompt=True.
+    """
+    local_path = Path.home() / ".claude" / "settings.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+    else:
+        data = _generate_claude_home_settings()
+    data["skipDangerousModePermissionPrompt"] = True
+    return json.dumps(data, indent=2) + "\n"
+
+
+def _build_claude_json_for_remote(sync_local: bool, version: str | None) -> dict[str, Any]:
+    """Build ~/.claude.json data for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always sets dialog-suppression fields
+    (bypassPermissionsModeAccepted and effortCalloutDismissed) to prevent
+    startup dialogs from intercepting automated input via tmux send-keys.
+
+    Returns the dict so callers can do further modifications (e.g. keychain merge)
+    before serializing.
+    """
+    local_path = Path.home() / ".claude.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+    else:
+        data = _generate_claude_json(version)
+    data["bypassPermissionsModeAccepted"] = True
+    data["effortCalloutDismissed"] = True
+    return data
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -732,48 +769,44 @@ class ClaudeAgent(BaseAgent):
                 _install_claude(host, config.version)
                 logger.info("Claude installed successfully")
 
-        # transfer some extra files to remote hosts (if configured):
+        # transfer files to remote hosts:
         if not host.is_local:
             # Warn about version consistency when syncing local files
             if config.sync_home_settings or config.sync_claude_json or config.sync_claude_credentials:
                 _warn_about_version_consistency(config, mng_ctx.concurrency_group)
 
+            # Always ship ~/.claude/settings.json
+            host.write_text_file(
+                Path(".claude/settings.json"), _build_settings_json_content(config.sync_home_settings)
+            )
+
+            # Transfer other home dir files (skills, agents, commands) if syncing is enabled
             if config.sync_home_settings:
                 logger.info("Transferring claude home directory settings to remote host...")
                 local_claude_dir = Path.home() / ".claude"
                 for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
-                    # dest_path is like Path("~/.claude/settings.json"); strip the ~/ prefix
+                    # settings.json is handled separately above
+                    if dest_path == Path("~/.claude/settings.json"):
+                        continue
+                    # dest_path is like Path("~/.claude/skills/foo"); strip the ~/ prefix
                     # to get a path relative to the user's home directory on the remote host
                     remote_path = Path(str(dest_path).removeprefix("~/"))
                     host.write_text_file(remote_path, source_path.read_text())
 
-            if config.sync_claude_json:
-                claude_json_path = Path.home() / ".claude.json"
-                if claude_json_path.exists():
-                    logger.info("Transferring ~/.claude.json to remote host...")
-                    # Set global fields that prevent startup dialogs from intercepting
-                    # automated input via tmux send-keys:
-                    claude_json_data = json.loads(claude_json_path.read_text())
-                    claude_json_data["bypassPermissionsModeAccepted"] = True
-                    claude_json_data["effortCalloutDismissed"] = True
-                    # Add trust for the remote work_dir so Claude doesn't show the
-                    # trust dialog (which would intercept tmux send-keys input):
-                    projects = claude_json_data.setdefault("projects", {})
-                    projects.setdefault(str(self.work_dir), {})["hasTrustDialogAccepted"] = True
-                    # If the local file lacks primaryApiKey, try the macOS keychain
-                    if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-                        keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
-                        if keychain_api_key is not None:
-                            logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
-                            claude_json_data["primaryApiKey"] = keychain_api_key
-                    # FIXME: this particular write must be atomic!
-                    #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
-                    #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
-                    #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
-                    #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
-                    host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
-                else:
-                    logger.debug("Skipped ~/.claude.json (file does not exist)")
+            # Always ship ~/.claude.json
+            claude_json_data = _build_claude_json_for_remote(config.sync_claude_json, config.version)
+            # If the local file lacks primaryApiKey, try the macOS keychain
+            if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
+                keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
+                if keychain_api_key is not None:
+                    logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
+                    claude_json_data["primaryApiKey"] = keychain_api_key
+            # FIXME: this particular write must be atomic!
+            #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
+            #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
+            #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
+            #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
+            host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
 
             if config.sync_claude_credentials:
                 credentials_path = Path.home() / ".claude" / ".credentials.json"
@@ -817,7 +850,7 @@ def _generate_claude_json(version: str | None):
     # ~/.claude.json
     if version is None:
         version = "2.1.50"
-    current_time = datetime.datetime.now(datetime.UTC)
+    current_time = datetime.now(timezone.utc)
     current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     current_time_millis = int(current_time.timestamp() * 1000)
     cache_time_millis = current_time_millis + 50 + random.random() * 1000
@@ -836,6 +869,7 @@ def _generate_claude_json(version: str | None):
         "lastOnboardingVersion": version,
         "lastReleaseNotesSeen": version,
         "effortCalloutDismissed": True,
+        "bypassPermissionsModeAccepted": True,
         "officialMarketplaceAutoInstallAttempted": True,
         "officialMarketplaceAutoInstalled": True,
         "autoUpdatesProtectedForNative": True,
@@ -857,23 +891,26 @@ def get_files_for_deploy(
 ) -> dict[Path, Path | str]:
     """Register claude-specific files for scheduled deployments.
 
-    Includes the same set of home directory files that provision() transfers
-    to remote hosts: settings.json, skills/, agents/, commands/ (via
-    _CLAUDE_HOME_SYNC_ITEMS), plus ~/.claude.json and credentials.
+    Always includes ~/.claude/settings.json and ~/.claude.json (using generated
+    defaults when local files are unavailable or user settings are excluded).
+    When include_user_settings is True, also includes skills/, agents/,
+    commands/, and credentials from the local ~/.claude/ directory.
     """
     files: dict[Path, Path | str] = {}
 
+    local_claude_dir = Path.home() / ".claude"
+
+    # Always ship ~/.claude/settings.json and ~/.claude.json
+    files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
+    claude_json_data = _build_claude_json_for_remote(include_user_settings, None)
+    files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
+
     if include_user_settings:
-        user_home = Path.home()
-        local_claude_dir = user_home / ".claude"
-
-        # ~/.claude.json (global Claude config including API keys)
-        claude_json = user_home / ".claude.json"
-        if claude_json.exists():
-            files[Path("~/.claude.json")] = claude_json
-
-        # Settings, skills, agents, commands (same items as provision())
-        files.update(_collect_claude_home_dir_files(local_claude_dir))
+        # Skills, agents, commands (skip settings.json, handled above)
+        for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
+            if dest_path == Path("~/.claude/settings.json"):
+                continue
+            files[dest_path] = source_path
 
         # ~/.claude/.credentials.json (OAuth tokens)
         credentials = local_claude_dir / ".credentials.json"
@@ -892,3 +929,12 @@ def get_files_for_deploy(
                     files[Path(str(relative_path))] = file_path
 
     return files
+
+
+@hookimpl
+def modify_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: dict[str, str],
+) -> None:
+    """Set IS_SANDBOX=1 for Claude agent deployments."""
+    env_vars["IS_SANDBOX"] = "1"

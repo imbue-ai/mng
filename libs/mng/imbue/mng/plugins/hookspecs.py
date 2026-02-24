@@ -303,6 +303,24 @@ def get_files_for_deploy(
 
 
 @hookspec
+def modify_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: dict[str, str],
+) -> None:
+    """[experimental] Mutate the env vars dict for scheduled command deployment.
+
+    Called during schedule deployment after the initial environment variables
+    have been assembled from --pass-env and --env-file sources. Each plugin
+    can add, update, or remove environment variables needed for its operation
+    in the remote environment.
+
+    Plugins mutate env_vars in place: set keys to add or update variables,
+    delete keys (via pop/del) to remove them. Plugins are called in
+    registration order, so later plugins see changes made by earlier ones.
+    """
+
+
+@hookspec
 def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
     """Called at the start of create(), before any work is done.
 

@@ -1,13 +1,16 @@
 """Unit tests for deploy.py and verification.py pure functions."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
 import pluggy
 import pytest
+from dotenv import dotenv_values
 
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.plugins import hookspecs
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
@@ -25,6 +28,14 @@ from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
+
+
+@pytest.fixture()
+def bare_plugin_manager() -> pluggy.PluginManager:
+    """Create a plugin manager with hookspecs only, no plugins registered."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+    return pm
 
 
 def test_get_modal_app_name() -> None:
@@ -170,10 +181,13 @@ def test_stage_deploy_files_creates_home_directory_structure(
 
     staging_dir = run_staging(None)
 
-    # Files should be staged under home/ with their natural paths
+    # Files should be staged under home/ with their natural paths,
+    # and claude.json should have dialog-suppression fields injected
     staged_file = staging_dir / "home" / ".claude.json"
     assert staged_file.exists()
-    assert staged_file.read_text() == '{"staged": true}'
+    staged_data = json.loads(staged_file.read_text())
+    assert staged_data["staged"] is True
+    assert staged_data["bypassPermissionsModeAccepted"] is True
 
 
 def test_stage_deploy_files_stages_multiple_home_files(
@@ -189,10 +203,13 @@ def test_stage_deploy_files_stages_multiple_home_files(
 
     staging_dir = run_staging(None)
 
-    # Both files should be staged under home/ with their natural paths
+    # Both files should be staged under home/ with their natural paths,
+    # and claude.json should have dialog-suppression fields injected
     staged_claude = staging_dir / "home" / ".claude.json"
     assert staged_claude.exists()
-    assert staged_claude.read_text() == '{"roundtrip": true}'
+    staged_claude_data = json.loads(staged_claude.read_text())
+    assert staged_claude_data["roundtrip"] is True
+    assert staged_claude_data["bypassPermissionsModeAccepted"] is True
     staged_config = staging_dir / "home" / ".mng" / "config.toml"
     assert staged_config.exists()
     assert staged_config.read_text() == "[test]\nroundtrip = true\n"
@@ -209,12 +226,12 @@ def test_stage_deploy_files_creates_secrets_dir(
     assert secrets_dir.is_dir()
 
 
-def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
+def test_stage_deploy_files_creates_subdirs_with_claude_defaults(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
+    """stage_deploy_files should always stage generated claude defaults in home/."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
@@ -223,7 +240,9 @@ def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
 
     home_dir = staging_dir / "home"
     assert home_dir.exists()
-    assert not any(home_dir.iterdir())
+    # Claude plugin always ships generated defaults
+    assert (home_dir / ".claude" / "settings.json").exists()
+    assert (home_dir / ".claude.json").exists()
 
     project_dir = staging_dir / "project"
     assert project_dir.exists()
@@ -253,9 +272,6 @@ def test_stage_deploy_files_stages_project_files(
     staged_file = staging_dir / "project" / "config" / "settings.toml"
     assert staged_file.exists()
     assert staged_file.read_text() == "[settings]\nkey = 1\n"
-
-    # home/ should be empty since no home files were registered
-    assert not any((staging_dir / "home").iterdir())
 
 
 # =============================================================================
@@ -393,21 +409,26 @@ def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_stage_consolidated_env_includes_env_files(tmp_path: Path) -> None:
+def test_stage_consolidated_env_includes_env_files(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
     """_stage_consolidated_env should include vars from --env-file."""
     env_file = tmp_path / "custom.env"
     env_file.write_text("CUSTOM_VAR=hello\n")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, env_files=[env_file])
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, env_files=[env_file])
 
     result = (output_dir / ".env").read_text()
-    assert "CUSTOM_VAR=hello" in result
+    assert 'CUSTOM_VAR="hello"' in result
 
 
 def test_stage_consolidated_env_includes_pass_env(
     tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should include vars from --pass-env."""
@@ -415,14 +436,16 @@ def test_stage_consolidated_env_includes_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, pass_env=["MY_PASS_VAR"])
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
-    assert "MY_PASS_VAR=passed_value" in result
+    assert 'MY_PASS_VAR="passed_value"' in result
 
 
 def test_stage_consolidated_env_merges_env_files_and_pass_env(
     tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should merge env files and pass-env vars."""
@@ -433,19 +456,22 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
     _stage_consolidated_env(
         output_dir,
+        mng_ctx=mng_ctx,
         pass_env=["SHELL_KEY"],
         env_files=[env_file],
     )
 
     result = (output_dir / ".env").read_text()
-    assert "FILE_KEY=from_file" in result
-    assert "SHELL_KEY=from_shell" in result
+    assert 'FILE_KEY="from_file"' in result
+    assert 'SHELL_KEY="from_shell"' in result
 
 
 def test_stage_consolidated_env_skips_missing_pass_env(
     tmp_path: Path,
+    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should skip pass-env vars not in the environment."""
@@ -453,19 +479,209 @@ def test_stage_consolidated_env_skips_missing_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, pass_env=["NONEXISTENT_VAR"])
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["NONEXISTENT_VAR"])
 
-    # No .env file should be created since there are no entries
+    # No .env file should be created since no env vars were found and no plugins registered
     assert not (output_dir / ".env").exists()
 
 
-def test_stage_consolidated_env_creates_no_file_when_empty(tmp_path: Path) -> None:
-    """_stage_consolidated_env should not create .env when no env vars are available."""
+def test_stage_consolidated_env_creates_no_file_when_empty(
+    tmp_path: Path,
+    bare_plugin_manager: pluggy.PluginManager,
+) -> None:
+    """_stage_consolidated_env should not create .env when no env vars are available and no plugins contribute."""
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir)
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
 
     assert not (output_dir / ".env").exists()
+
+
+def test_stage_consolidated_env_preserves_values_with_hash(
+    tmp_path: Path,
+    bare_plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should preserve values containing ' # ' (potential inline comments)."""
+    monkeypatch.setenv("PASSWORD", "abc # def")
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["PASSWORD"])
+
+    # Verify the written .env file can be parsed back correctly
+    parsed = dotenv_values(output_dir / ".env")
+    assert parsed["PASSWORD"] == "abc # def"
+
+
+# =============================================================================
+# modify_env_vars_for_deploy hook Tests
+# =============================================================================
+
+
+def test_modify_env_vars_for_deploy_plugin_adds_vars(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """modify_env_vars_for_deploy plugin can add env vars by mutating the dict."""
+
+    class _EnvPlugin:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["MY_PLUGIN_VAR"] = "plugin_value"
+
+    plugin_manager.register(_EnvPlugin())
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    env_vars: dict[str, str] = {}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert env_vars["MY_PLUGIN_VAR"] == "plugin_value"
+
+
+def test_modify_env_vars_for_deploy_plugin_removes_vars(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """modify_env_vars_for_deploy plugin can remove env vars via pop/del."""
+
+    class _RemovalPlugin:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars.pop("REMOVE_ME", None)
+
+    plugin_manager.register(_RemovalPlugin())
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    env_vars = {"REMOVE_ME": "old_value", "KEEP_ME": "kept"}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert "REMOVE_ME" not in env_vars
+    assert env_vars["KEEP_ME"] == "kept"
+
+
+def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
+    plugin_manager: pluggy.PluginManager,
+    tmp_path: Path,
+) -> None:
+    """Plugins called later see mutations made by earlier plugins.
+
+    Uses tryfirst to ensure _PluginA runs before _PluginB, demonstrating
+    that plugins can control ordering via pluggy's tryfirst/trylast.
+    """
+
+    class _PluginA:
+        @staticmethod
+        @hookimpl(tryfirst=True)
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["FROM_A"] = "value_a"
+
+    class _PluginB:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            # B runs after A and can see A's addition
+            if "FROM_A" in env_vars:
+                env_vars["SAW_A"] = "true"
+
+    plugin_manager.register(_PluginA())
+    plugin_manager.register(_PluginB())
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    env_vars: dict[str, str] = {}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert env_vars["FROM_A"] == "value_a"
+    assert env_vars["SAW_A"] == "true"
+
+
+# =============================================================================
+# _stage_consolidated_env with plugin env vars Tests
+# =============================================================================
+
+
+def test_stage_consolidated_env_includes_plugin_env_vars(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """_stage_consolidated_env should include env vars contributed by plugins."""
+
+    class _EnvPlugin:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["PLUGIN_VAR"] = "plugin_value"
+
+    plugin_manager.register(_EnvPlugin())
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
+
+    result = (output_dir / ".env").read_text()
+    assert 'PLUGIN_VAR="plugin_value"' in result
+
+
+def test_stage_consolidated_env_plugin_can_remove_env_vars(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should remove env vars when plugin deletes keys."""
+
+    class _RemovalPlugin:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars.pop("REMOVE_ME", None)
+
+    plugin_manager.register(_RemovalPlugin())
+    monkeypatch.setenv("REMOVE_ME", "should_be_removed")
+
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["REMOVE_ME"])
+
+    # The .env file may or may not exist depending on whether other plugins
+    # contribute env vars. If it exists, REMOVE_ME must not be in it.
+    env_file_path = output_dir / ".env"
+    assert not env_file_path.exists() or "REMOVE_ME" not in env_file_path.read_text()
+
+
+def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env plugin env vars should override pass-env and env-file vars."""
+    env_file = tmp_path / "base.env"
+    env_file.write_text("MY_VAR=from_file\n")
+
+    monkeypatch.setenv("MY_VAR", "from_env")
+
+    class _OverridePlugin:
+        @staticmethod
+        @hookimpl
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["MY_VAR"] = "from_plugin"
+
+    plugin_manager.register(_OverridePlugin())
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(
+        output_dir,
+        mng_ctx=mng_ctx,
+        pass_env=["MY_VAR"],
+        env_files=[env_file],
+    )
+
+    result = (output_dir / ".env").read_text()
+    assert 'MY_VAR="from_plugin"' in result
+    # Should only appear once (plugin value replaces env/file values)
+    assert result.count("MY_VAR=") == 1
 
 
 # =============================================================================
@@ -552,7 +768,7 @@ def test_stage_deploy_files_with_pass_env(
 
     staged_env = staging_dir / "secrets" / ".env"
     assert staged_env.exists()
-    assert "TEST_API_KEY=sk-test-123" in staged_env.read_text()
+    assert 'TEST_API_KEY="sk-test-123"' in staged_env.read_text()
 
 
 def test_stage_deploy_files_with_exclude_user_settings(
@@ -560,7 +776,7 @@ def test_stage_deploy_files_with_exclude_user_settings(
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """stage_deploy_files with include_user_settings=False should skip home dir files."""
+    """stage_deploy_files with include_user_settings=False should skip mng home files but still include claude defaults."""
     # Create a home file that would normally be included
     mng_dir = Path.home() / ".mng"
     mng_dir.mkdir(parents=True, exist_ok=True)
@@ -579,8 +795,12 @@ def test_stage_deploy_files_with_exclude_user_settings(
         include_user_settings=False,
     )
 
-    # home/ should be empty because we excluded user settings
-    assert not any((staging_dir / "home").iterdir())
+    home_dir = staging_dir / "home"
+    # mng config should NOT be included when user settings are excluded
+    assert not (home_dir / ".mng" / "config.toml").exists()
+    # But claude defaults are always shipped
+    assert (home_dir / ".claude" / "settings.json").exists()
+    assert (home_dir / ".claude.json").exists()
 
 
 # =============================================================================
