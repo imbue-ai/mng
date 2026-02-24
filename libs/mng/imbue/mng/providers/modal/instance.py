@@ -1,7 +1,6 @@
 import argparse
 import json
 import os
-import re
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -38,6 +37,7 @@ from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostConnectionError
+from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ModalAuthError
@@ -88,6 +88,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_host_keypair
 from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -421,10 +422,6 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
     )
-    docker_build_args: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description="Docker build args as KEY=VALUE pairs to substitute into Dockerfile ARG defaults",
-    )
 
     @property
     def effective_cidr_allowlist(self) -> list[str] | None:
@@ -445,7 +442,7 @@ class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
     This record contains all information needed to connect to and restore a host.
-    It is stored at /hosts/<host_id>.json on the volume.
+    It is stored at /<host_id>.json on the volume.
 
     For failed hosts (those that failed during creation), only certified_host_data
     is required. The SSH fields and config will be None since the host never started.
@@ -494,6 +491,34 @@ class ModalProviderApp(FrozenModel):
 
     def close(self) -> None:
         self.close_callback()
+
+
+@pure
+def check_host_name_is_unique(
+    name: HostName,
+    host_records: Sequence[HostRecord],
+    running_host_ids: set[HostId],
+) -> None:
+    """Check that no non-destroyed host already uses the given name.
+
+    Skips destroyed hosts (no snapshots, no failure_reason, not running) since
+    their names should be reusable.
+
+    Raises HostNameConflictError if a non-destroyed host with the same name exists.
+    """
+    for host_record in host_records:
+        if HostName(host_record.certified_host_data.host_name) != name:
+            continue
+
+        # Skip destroyed hosts (not running, no snapshots, not failed)
+        host_id = HostId(host_record.certified_host_data.host_id)
+        is_running = host_id in running_host_ids
+        has_snapshots = len(host_record.certified_host_data.snapshots) > 0
+        is_failed = host_record.certified_host_data.failure_reason is not None
+        if not is_running and not has_snapshots and not is_failed:
+            continue
+
+        raise HostNameConflictError(name)
 
 
 class ModalProviderInstance(BaseProviderInstance):
@@ -627,7 +652,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def get_state_volume(self) -> ModalVolume:
+    def _get_state_volume(self) -> ModalVolume:
         """Get the state volume for persisting host records and agent data.
 
         This volume is used to persist host records (including snapshots) across
@@ -639,11 +664,11 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
-        return f"/hosts/{host_id}.json"
+        return f"/{host_id}.json"
 
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the state volume."""
-        volume = self.get_state_volume()
+        volume = self._get_state_volume()
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
@@ -698,7 +723,7 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
-        volume = self.get_state_volume()
+        volume = self._get_state_volume()
         path = self._get_host_record_path(host_id)
 
         try:
@@ -713,10 +738,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _destroy_agents_on_host(self, host_id: HostId) -> None:
         """Remove the agents for this host from the state volume."""
-        volume = self.get_state_volume()
+        volume = self._get_state_volume()
 
         # delete all agent records for this host
-        host_dir = f"/hosts/{host_id}"
+        host_dir = f"/{host_id}"
         try:
             volume.remove_file(host_dir, recursive=True)
         except (NotFoundError, FileNotFoundError):
@@ -729,7 +754,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the state volume and clear caches."""
-        volume = self.get_state_volume()
+        volume = self._get_state_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
@@ -772,7 +797,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """List all host records stored on the state volume.
 
         Returns a list of all HostRecord objects found on the volume.
-        Host records are stored at /hosts/<host_id>.json.
+        Host records are stored at /<host_id>.json.
         """
         host_records, _agent_record_by_host_id = self._list_all_host_and_agent_records(cg, is_including_agents=False)
         return host_records
@@ -784,26 +809,20 @@ class ModalProviderInstance(BaseProviderInstance):
         self, cg: ConcurrencyGroup, is_including_agents: bool = True
     ) -> tuple[list[HostRecord], dict[str, Any]]:
         with trace_span("  _list_all_host_and_agent_records", _is_trace_span_enabled=False):
-            volume = self.get_state_volume()
+            volume = self._get_state_volume()
 
             futures: list[Future[HostRecord | None]] = []
             future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
             with ConcurrencyGroupExecutor(
                 parent_cg=cg, name="modal_list_all_host_records", max_workers=32
             ) as executor:
-                # List files in the /hosts/ directory on the volume
-                try:
-                    entries = volume.listdir("/hosts/")
-                except (NotFoundError, FileNotFoundError):
-                    entries = []
-
-                for entry in entries:
+                # List files at the root of the volume
+                for entry in volume.listdir("/"):
                     filename = entry.path
-                    # Host records are stored as hosts/<host_id>.json
+                    # Host records are stored as <host_id>.json
                     if filename.endswith(".json"):
-                        # Extract host_id from path like "hosts/host-abc.json"
-                        basename = filename.rsplit("/", 1)[-1]
-                        host_id_str = basename.removesuffix(".json")
+                        # Remove .json suffix (and any leading / if present)
+                        host_id_str = filename.lstrip("/")[:-5]
                         host_id = HostId(host_id_str)
                         futures.append(executor.submit(self._read_host_record, host_id))
                         if is_including_agents:
@@ -820,14 +839,14 @@ class ModalProviderInstance(BaseProviderInstance):
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
-        Agent records are stored at /hosts/{host_id}/{agent_id}.json on the state volume.
+        Agent records are stored at /{host_id}/{agent_id}.json on the state volume.
         These are persisted when a host shuts down so that mng list can
         show agents on stopped hosts.
         """
-        volume = self.get_state_volume()
+        volume = self._get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
-        host_dir = f"/hosts/{host_id}"
+        host_dir = f"/{host_id}"
         try:
             entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
@@ -860,15 +879,15 @@ class ModalProviderInstance(BaseProviderInstance):
         """Persist agent data to the state volume.
 
         Called when an agent is created or its data.json is updated. Writes
-        the agent data to /hosts/{host_id}/{agent_id}.json on the state volume.
+        the agent data to /{host_id}/{agent_id}.json on the state volume.
         """
         agent_id = agent_data.get("id")
         if not agent_id:
             logger.warning("Cannot persist agent data without id field")
             return
 
-        volume = self.get_state_volume()
-        host_dir = f"/hosts/{host_id}"
+        volume = self._get_state_volume()
+        host_dir = f"/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
         # Serialize the agent data to JSON
@@ -881,10 +900,10 @@ class ModalProviderInstance(BaseProviderInstance):
         """Remove persisted agent data from the state volume.
 
         Called when an agent is destroyed. Removes the agent data file from
-        /hosts/{host_id}/{agent_id}.json on the state volume.
+        /{host_id}/{agent_id}.json on the state volume.
         """
-        volume = self.get_state_volume()
-        agent_path = f"/hosts/{host_id}/{agent_id}.json"
+        volume = self._get_state_volume()
+        agent_path = f"/{host_id}/{agent_id}.json"
 
         try:
             volume.remove_file(agent_path)
@@ -918,7 +937,6 @@ class ModalProviderInstance(BaseProviderInstance):
         dockerfile: Path | None = None,
         context_dir: Path | None = None,
         secrets: Sequence[str] = (),
-        docker_build_args: Sequence[str] = (),
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -936,10 +954,6 @@ class ModalProviderInstance(BaseProviderInstance):
         will be read from the current environment and passed to the Modal image build
         process. These are available during Dockerfile RUN commands via --mount=type=secret.
 
-        The docker_build_args parameter is a sequence of KEY=VALUE strings that override
-        ARG defaults in the Dockerfile. For example, passing 'CLAUDE_CODE_VERSION=2.1.50'
-        substitutes the default value of ARG CLAUDE_CODE_VERSION in the Dockerfile.
-
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
@@ -948,9 +962,6 @@ class ModalProviderInstance(BaseProviderInstance):
 
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
-            # Substitute docker build args into ARG defaults
-            if docker_build_args:
-                dockerfile_contents = _substitute_dockerfile_build_args(dockerfile_contents, docker_build_args)
             effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
@@ -961,7 +972,7 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            image = modal.Image.debian_slim()
+            image = modal.Image.debian_slim().apt_install(*(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
 
         return image
 
@@ -1324,7 +1335,6 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
         parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
-        parser.add_argument("--docker-build-arg", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1347,7 +1357,6 @@ log "=== Shutdown script completed ==="
             cidr_allowlist=tuple(parsed.cidr_allowlist),
             offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
-            docker_build_args=tuple(parsed.docker_build_arg),
         )
 
     # =========================================================================
@@ -1594,6 +1603,20 @@ log "=== Shutdown script completed ==="
         )
 
     # =========================================================================
+    # Name Uniqueness
+    # =========================================================================
+
+    def _check_host_name_is_unique(self, name: HostName) -> None:
+        """Check that no non-destroyed host on this provider already uses the given name."""
+        with log_span("Checking host name uniqueness for {}", name):
+            host_records, _agent_data = self._list_all_host_and_agent_records(
+                cg=self.mng_ctx.concurrency_group, is_including_agents=False
+            )
+            running_host_ids = self._list_running_host_ids(cg=self.mng_ctx.concurrency_group)
+
+        check_host_name_is_unique(name, host_records, running_host_ids)
+
+    # =========================================================================
     # Core Lifecycle Methods
     # =========================================================================
 
@@ -1607,8 +1630,13 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> Host:
-        """Create a new Modal sandbox host."""
+        """Create a new Modal sandbox host.
+
+        If snapshot is provided, the host is created from the snapshot image
+        instead of building a new one.
+        """
         # Generate host ID
         host_id = HostId.generate()
 
@@ -1620,6 +1648,12 @@ log "=== Shutdown script completed ==="
                 "separate start_args are not yet supported for Modal provider: use build_args instead"
             )
 
+        # Check that no existing host already uses this name
+        # FOLLOWUP: this check is not atomic -- a race condition exists where two concurrent
+        # create_host calls could both pass the check and create hosts with the same name.
+        # We will need some kind of locking (e.g. a volume-based lock file) to prevent this.
+        self._check_host_name_is_unique(name)
+
         logger.info("Creating host {} in {} ...", name, self.name)
 
         # Parse build arguments (including --dockerfile if specified)
@@ -1628,12 +1662,24 @@ log "=== Shutdown script completed ==="
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
+        if not base_image and not dockerfile_path:
+            logger.warning(
+                "No image or Dockerfile specified -- building from mng default Dockerfile. "
+                "Consider using your own Dockerfile (-b --dockerfile=<path>) to include "
+                "your project's dependencies for faster startup.",
+            )
+
         try:
-            # Build the Modal image
-            with log_span("Building Modal image..."):
-                modal_image = self._build_modal_image(
-                    base_image, dockerfile_path, context_dir_path, config.secrets, config.docker_build_args
-                )
+            if snapshot is not None:
+                # Use the snapshot image instead of building
+                with log_span("Loading Modal image from snapshot {}", str(snapshot)):
+                    modal_image: modal.Image = modal.Image.from_id(str(snapshot))  # ty: ignore[invalid-assignment]
+            else:
+                # Build the Modal image
+                with log_span("Building Modal image..."):
+                    modal_image = self._build_modal_image(
+                        base_image, dockerfile_path, context_dir_path, config.secrets
+                    )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
             with log_span("Getting Modal app", app_name=self.app_name):
@@ -3001,41 +3047,6 @@ def _build_modal_secrets_from_env(
 
     with log_span("Creating Modal secrets from environment variables", count=len(secret_dict)):
         return [modal.Secret.from_dict(secret_dict)]
-
-
-@pure
-def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequence[str]) -> str:
-    """Substitute Docker build arg defaults in Dockerfile contents.
-
-    Parses KEY=VALUE pairs from build_args and replaces the default values of
-    matching ARG instructions in the Dockerfile. For example, if build_args
-    contains 'CLAUDE_CODE_VERSION=2.1.50', then 'ARG CLAUDE_CODE_VERSION=""'
-    becomes 'ARG CLAUDE_CODE_VERSION="2.1.50"'.
-
-    Raises MngError if a build arg is not in KEY=VALUE format or if the ARG
-    is not found in the Dockerfile.
-    """
-    result = dockerfile_contents
-    for arg_spec in build_args:
-        if "=" not in arg_spec:
-            raise MngError(f"Docker build arg must be in KEY=VALUE format, got: {arg_spec}")
-        key, value = arg_spec.split("=", 1)
-        # Replace ARG <key>=<anything> or ARG <key> (no default) with ARG <key>="<value>"
-        # Use a lambda replacement to avoid re.sub interpreting backslash sequences in value.
-        # Bind value via default arg to avoid B023 (closure over loop variable).
-        new_result = re.sub(
-            rf"^(ARG\s+{re.escape(key)})\b.*$",
-            lambda m, v=value: f'{m.group(1)}="{v}"',
-            result,
-            flags=re.MULTILINE,
-        )
-        if new_result == result:
-            raise MngError(
-                f"Docker build arg {key!r} not found as an ARG instruction in the Dockerfile. "
-                "Ensure the Dockerfile contains a matching ARG instruction."
-            )
-        result = new_result
-    return result
 
 
 def _build_image_from_dockerfile_contents(

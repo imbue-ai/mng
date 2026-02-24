@@ -7,15 +7,19 @@ Usage:
 This script generates markdown documentation for all CLI commands
 and writes them to libs/mng/docs/commands/. It preserves option
 groups defined via click_option_group in the generated markdown.
+
+All content comes from two sources:
+- Click command introspection (usage line, options, arguments)
+- CommandHelpMetadata (description, synopsis, examples, see also, etc.)
 """
 
 from pathlib import Path
 
 import click
 from click_option_group import GroupedOption
-from mkdocs_click._docs import make_command_docs
 
 from imbue.mng.cli.common_opts import COMMON_OPTIONS_GROUP_NAME
+from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import get_help_metadata
 from imbue.mng.main import BUILTIN_COMMANDS
 from imbue.mng.main import PLUGIN_COMMANDS
@@ -54,11 +58,7 @@ ALIAS_COMMANDS = {
 
 
 def fix_sentinel_defaults(content: str) -> str:
-    """Replace Click's internal Sentinel.UNSET with user-friendly text.
-
-    Click uses Sentinel.UNSET internally to distinguish between "no default"
-    and "default is None". We replace it with "None" for cleaner docs.
-    """
+    """Replace Click's internal Sentinel.UNSET with user-friendly text."""
     return content.replace("`Sentinel.UNSET`", "None")
 
 
@@ -175,12 +175,7 @@ def generate_grouped_options_markdown(
     command: click.Command,
     group_intros: dict[str, str] | None = None,
 ) -> str:
-    """Generate markdown for options organized by groups.
-
-    Args:
-        command: The click command to document.
-        group_intros: Optional dict mapping group names to intro text (markdown).
-    """
+    """Generate markdown for options organized by groups."""
     options_by_group = _collect_options_by_group(command)
     ordered_groups = _order_option_groups(options_by_group)
 
@@ -219,10 +214,7 @@ def generate_grouped_options_markdown(
 
 
 def generate_arguments_section(command: click.Command, command_name: str) -> str:
-    """Generate markdown for the Arguments section.
-
-    Shows positional arguments with their descriptions.
-    """
+    """Generate markdown for the Arguments section."""
     # Check if metadata provides a custom arguments description
     metadata = get_help_metadata(command_name)
     if metadata is not None and metadata.arguments_description is not None:
@@ -268,15 +260,49 @@ def _infer_argument_description(arg: click.Argument) -> str:
     return f"The {name.replace('_', ' ')} (optional)"
 
 
-def format_synopsis(command_name: str) -> str:
-    """Format synopsis section from CommandHelpMetadata if available.
+# ---------------------------------------------------------------------------
+# Click usage extraction
+# ---------------------------------------------------------------------------
 
-    The synopsis shows the command usage pattern with common options,
-    matching what's shown at the top of --help output. Aliases are
-    included in the synopsis (e.g., "mng [create|c]").
-    """
-    metadata = get_help_metadata(command_name)
-    if metadata is None or not metadata.synopsis:
+
+def _format_usage_line(command: click.Command, prog_name: str) -> str:
+    """Get the click-generated usage line for a command."""
+    ctx = click.Context(command, info_name=prog_name)
+    pieces = command.collect_usage_pieces(ctx)
+    if pieces:
+        return f"{prog_name} {' '.join(pieces)}"
+    return prog_name
+
+
+def _format_usage_block(command: click.Command, prog_name: str) -> str:
+    """Generate the **Usage:** markdown block for a command."""
+    usage_line = _format_usage_line(command, prog_name)
+    return f"**Usage:**\n\n```text\n{usage_line}\n```"
+
+
+# ---------------------------------------------------------------------------
+# Metadata formatting
+# ---------------------------------------------------------------------------
+
+
+def _format_description_block(metadata: CommandHelpMetadata) -> str:
+    """Format a description + alias block from metadata for markdown docs."""
+    lines: list[str] = []
+    for paragraph in metadata.full_description.strip().split("\n\n"):
+        lines.append(paragraph.strip())
+        lines.append("")
+
+    if metadata.aliases:
+        alias_str = ", ".join(metadata.aliases)
+        lines.append(f"Alias: {alias_str}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_synopsis(metadata: CommandHelpMetadata) -> str:
+    """Format synopsis section from metadata."""
+    if not metadata.synopsis:
         return ""
 
     lines = ["", "**Synopsis:**", "", "```text"]
@@ -288,10 +314,9 @@ def format_synopsis(command_name: str) -> str:
     return "\n".join(lines)
 
 
-def format_examples(command_name: str) -> str:
-    """Format examples section from CommandHelpMetadata if available."""
-    metadata = get_help_metadata(command_name)
-    if metadata is None or not metadata.examples:
+def format_examples(metadata: CommandHelpMetadata) -> str:
+    """Format examples section from metadata."""
+    if not metadata.examples:
         return ""
 
     lines = ["", "## Examples", ""]
@@ -306,20 +331,11 @@ def format_examples(command_name: str) -> str:
     return "\n".join(lines)
 
 
-def format_additional_sections(command_name: str) -> str:
-    """Format additional documentation sections from CommandHelpMetadata.
-
-    Note: "See Also" sections are handled separately by format_see_also_section,
-    so they are excluded here.
-    """
-    metadata = get_help_metadata(command_name)
-    if metadata is None:
-        return ""
-
+def format_additional_sections(metadata: CommandHelpMetadata) -> str:
+    """Format additional documentation sections from metadata."""
     sections = []
 
-    # Add additional_sections if present (excluding "See Also" which is handled separately)
-    if hasattr(metadata, "additional_sections") and metadata.additional_sections:
+    if metadata.additional_sections:
         for title, content in metadata.additional_sections:
             if title == "See Also":
                 continue
@@ -342,18 +358,11 @@ def get_command_category(command_name: str) -> str | None:
 
 
 def get_relative_link(from_command: str, to_command: str) -> str:
-    """Get the relative markdown link path from one command's doc to another.
-
-    Examples:
-        get_relative_link("connect", "create") -> "./create.md" (both in primary)
-        get_relative_link("connect", "gc") -> "../secondary/gc.md" (primary to secondary)
-        get_relative_link("gc", "destroy") -> "../primary/destroy.md" (secondary to primary)
-    """
+    """Get the relative markdown link path from one command's doc to another."""
     from_category = get_command_category(from_command)
     to_category = get_command_category(to_command)
 
     if to_category is None:
-        # Target command doesn't have docs, just return the command name
         return f"mng {to_command}"
 
     if from_category == to_category:
@@ -362,10 +371,9 @@ def get_relative_link(from_command: str, to_command: str) -> str:
         return f"../{to_category}/{to_command}.md"
 
 
-def format_see_also_section(command_name: str) -> str:
-    """Format the See Also section from CommandHelpMetadata with markdown links."""
-    metadata = get_help_metadata(command_name)
-    if metadata is None or not metadata.see_also:
+def format_see_also_section(command_name: str, metadata: CommandHelpMetadata) -> str:
+    """Format the See Also section from metadata with markdown links."""
+    if not metadata.see_also:
         return ""
 
     lines = ["", "## See Also", ""]
@@ -385,16 +393,12 @@ def get_output_dir(command_name: str, base_dir: Path) -> Path | None:
     return None
 
 
-def _extract_header_before_options(lines: list[str]) -> str:
-    """Extract content before **Options:** from mkdocs-click output."""
-    for i, line in enumerate(lines):
-        if line.strip() == "**Options:**":
-            return "\n".join(lines[:i])
-    # No options section found, return everything
-    return "\n".join(lines)
+# ---------------------------------------------------------------------------
+# Subcommand docs
+# ---------------------------------------------------------------------------
 
 
-def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
+def generate_subcommand_docs(command: click.Group, prog_name: str, parent_key: str) -> str:
     """Generate documentation for all subcommands with grouped options."""
     if not hasattr(command, "commands") or not command.commands:
         return ""
@@ -402,32 +406,42 @@ def generate_subcommand_docs(command: click.Group, prog_name: str) -> str:
     lines: list[str] = []
 
     for subcmd_name, subcmd in command.commands.items():
-        # Generate mkdocs-click output for this subcommand
-        subcmd_lines = list(
-            make_command_docs(
-                prog_name=f"{prog_name} {subcmd_name}",
-                command=subcmd,
-                depth=1,  # depth=1 for subcommands (## heading)
-                style="table",
-            )
-        )
+        subcmd_key = f"{parent_key}.{subcmd_name}"
+        subcmd_prog = f"{prog_name} {subcmd_name}"
+        subcmd_metadata = get_help_metadata(subcmd_key)
 
-        # Extract header (everything before **Options:**)
-        header = _extract_header_before_options(subcmd_lines)
-        lines.append(header)
+        # Title (## level for subcommands)
+        lines.append(f"## {subcmd_prog}")
+        lines.append("")
 
-        # Add grouped options
+        # Description from metadata
+        if subcmd_metadata is not None and subcmd_metadata.full_description:
+            lines.append(_format_description_block(subcmd_metadata))
+
+        # Usage
+        lines.append(_format_usage_block(subcmd, subcmd_prog))
+
+        # Options
         lines.append("**Options:**")
         lines.append("")
         lines.append(generate_grouped_options_markdown(subcmd))
 
-        # If this subcommand has its own subcommands, recurse
+        # Examples from metadata
+        if subcmd_metadata is not None and subcmd_metadata.examples:
+            lines.append(format_examples(subcmd_metadata))
+
+        # Recurse for nested subcommands
         if isinstance(subcmd, click.Group) and subcmd.commands:
-            nested_docs = generate_subcommand_docs(subcmd, f"{prog_name} {subcmd_name}")
+            nested_docs = generate_subcommand_docs(subcmd, subcmd_prog, parent_key=subcmd_key)
             if nested_docs:
                 lines.append(nested_docs)
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Top-level command doc generation
+# ---------------------------------------------------------------------------
 
 
 def generate_command_doc(command_name: str, base_dir: Path) -> None:
@@ -437,49 +451,51 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
         print(f"Skipping: {command_name} (not in PRIMARY_COMMANDS or SECONDARY_COMMANDS)")
         return
 
-    # Get the command from the CLI group
     cmd = cli.commands.get(command_name)
     if cmd is None:
         print(f"Warning: Command '{command_name}' not found")
         return
 
     prog_name = f"mng {command_name}"
+    metadata = get_help_metadata(command_name)
 
-    # Generate markdown using mkdocs-click for header/usage/description
-    mkdocs_lines = list(
-        make_command_docs(
-            prog_name=prog_name,
-            command=cmd,
-            depth=0,
-            style="table",
-        )
-    )
+    # Build content parts
+    content_parts: list[str] = []
 
-    # Extract header (everything before **Options:**)
-    header_content = _extract_header_before_options(mkdocs_lines)
+    # Title
+    content_parts.append(f"# {prog_name}")
 
-    # Build the final content
-    content_parts = [header_content]
+    # Synopsis from metadata
+    if metadata is not None:
+        synopsis = format_synopsis(metadata)
+        if synopsis:
+            content_parts.append(synopsis)
 
-    # Add Arguments section if the command has positional arguments
+    # Description from metadata
+    if metadata is not None:
+        content_parts.append(_format_description_block(metadata))
+
+    # Usage from click
+    content_parts.append(_format_usage_block(cmd, prog_name))
+
+    # Arguments section
     arguments_section = generate_arguments_section(cmd, command_name)
     if arguments_section:
         content_parts.append(arguments_section)
 
-    # Get group intros from metadata
-    metadata = get_help_metadata(command_name)
+    # Group intros from metadata
     group_intros: dict[str, str] = {}
     if metadata is not None and metadata.group_intros:
         group_intros = dict(metadata.group_intros)
 
-    # Add grouped options section
+    # Options
     content_parts.append("**Options:**")
     content_parts.append("")
     content_parts.append(generate_grouped_options_markdown(cmd, group_intros))
 
-    # Add subcommand documentation with grouped options
+    # Subcommand documentation
     if isinstance(cmd, click.Group) and cmd.commands:
-        subcommand_docs = generate_subcommand_docs(cmd, prog_name)
+        subcommand_docs = generate_subcommand_docs(cmd, prog_name, parent_key=command_name)
         if subcommand_docs:
             content_parts.append(subcommand_docs)
 
@@ -487,21 +503,11 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     content = "\n".join(content_parts)
     content = fix_sentinel_defaults(content)
 
-    # Insert synopsis after the title line (first line starting with #)
-    synopsis = format_synopsis(command_name)
-    if synopsis:
-        content_lines = content.split("\n")
-        # Find the title line and insert synopsis after it
-        for i, line in enumerate(content_lines):
-            if line.startswith("# "):
-                content_lines.insert(i + 1, synopsis)
-                break
-        content = "\n".join(content_lines)
-
-    # Add additional sections from metadata
-    content += format_additional_sections(command_name)
-    content += format_see_also_section(command_name)
-    content += format_examples(command_name)
+    # Additional sections, see also, examples from metadata
+    if metadata is not None:
+        content += format_additional_sections(metadata)
+        content += format_see_also_section(command_name, metadata)
+        content += format_examples(metadata)
 
     # Add generation comment at the top
     generation_comment = (
@@ -523,8 +529,7 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
     """Generate markdown documentation for an alias command.
 
     Alias commands (like clone, migrate) use UNPROCESSED args and delegate to
-    other commands. Their docs are built entirely from CommandHelpMetadata
-    rather than Click option introspection.
+    other commands. Their docs are built entirely from CommandHelpMetadata.
     """
     output_dir = get_output_dir(command_name, base_dir)
     if output_dir is None:
@@ -542,27 +547,26 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
     content_parts.append(f"# mng {command_name}")
 
     # Synopsis
-    synopsis = format_synopsis(command_name)
+    synopsis = format_synopsis(metadata)
     if synopsis:
         content_parts.append(synopsis)
 
     # Description
-    if metadata.description:
-        content_parts.append(metadata.description)
-        content_parts.append("")
+    content_parts.append(metadata.full_description)
+    content_parts.append("")
 
     # Additional sections
-    additional = format_additional_sections(command_name)
+    additional = format_additional_sections(metadata)
     if additional:
         content_parts.append(additional)
 
     # See Also
-    see_also = format_see_also_section(command_name)
+    see_also = format_see_also_section(command_name, metadata)
     if see_also:
         content_parts.append(see_also)
 
     # Examples
-    examples = format_examples(command_name)
+    examples = format_examples(metadata)
     if examples:
         content_parts.append(examples)
 

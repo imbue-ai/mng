@@ -196,6 +196,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
 
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -239,6 +244,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
+
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

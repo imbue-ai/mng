@@ -6,11 +6,10 @@ import imbue.mng_schedule.cli.run as _run  # noqa: F401
 import imbue.mng_schedule.cli.update as _update  # noqa: F401
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng_schedule.cli.group import schedule
 
-_SCHEDULE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-schedule",
+CommandHelpMetadata(
+    key="schedule",
     one_line_description="Schedule remote invocations of mng commands",
     synopsis="mng schedule [add|remove|update|list|run] [OPTIONS]",
     description="""Schedule remote invocations of mng commands.
@@ -20,7 +19,7 @@ exec) on a specified provider at regular intervals. This is useful for setting
 up autonomous agents that run on a recurring schedule.""",
     examples=(
         ("Add a nightly scheduled agent", "mng schedule add --command create --schedule '0 2 * * *' --provider modal"),
-        ("List all schedules", "mng schedule list"),
+        ("List all schedules", "mng schedule list --provider local"),
         ("Remove a trigger", "mng schedule remove my-trigger"),
         ("Disable a trigger", "mng schedule update my-trigger --disabled"),
         ("Test a trigger immediately", "mng schedule run my-trigger"),
@@ -30,8 +29,6 @@ up autonomous agents that run on a recurring schedule.""",
         ("start", "Start an existing agent"),
         ("exec", "Execute a command on an agent"),
     ),
-)
-
-register_help_metadata("schedule", _SCHEDULE_HELP_METADATA)
+).register()
 
 add_pager_help_option(schedule)

@@ -27,6 +27,7 @@ from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
+from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
 from imbue.mng.config.data_types import MngConfig
@@ -1467,6 +1468,69 @@ def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
 
     with pytest.raises(ClaudeEffortCalloutNotDismissedError):
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
+
+
+# =============================================================================
+# Remote Trust Tests
+# =============================================================================
+
+
+def test_provision_adds_trust_for_remote_work_dir(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should add hasTrustDialogAccepted for work_dir in the claude.json synced to remote hosts."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    assert transferred_config["projects"][str(temp_work_dir)]["hasTrustDialogAccepted"] is True
+
+
+def test_provision_preserves_existing_remote_project_config(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should preserve existing project config when adding trust for remote work_dir."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    # Write trust with extra fields that should be preserved
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    project_entry = transferred_config["projects"][str(temp_work_dir)]
+    assert project_entry["hasTrustDialogAccepted"] is True
+    # Existing fields from _write_claude_trust should be preserved
+    assert project_entry["allowedTools"] == []
 
 
 # =============================================================================

@@ -2,11 +2,60 @@ import importlib.resources
 from pathlib import Path
 from typing import Final
 
+from pydantic import Field
+
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mng import resources
 
 # Prefix used in shell output to identify warnings that should be shown to the user
 WARNING_PREFIX: Final[str] = "MNG_WARN:"
+
+
+class RequiredHostPackage(FrozenModel):
+    """An apt package that must be present on remote hosts for mng to function."""
+
+    package: str = Field(description="Apt package name (e.g. 'openssh-server')")
+    binary: str = Field(description="Binary name used when checking whether the package is installed")
+    check_cmd: str | None = Field(
+        default=None,
+        description="Custom shell command to check for the package, or None to use 'command -v <binary>'",
+    )
+
+
+# Packages that must be present on any remote host for mng to function.
+# Providers that build a default image should pre-install these; the runtime
+# check in build_check_and_install_packages_command will still install any
+# that are missing (with a warning).
+REQUIRED_HOST_PACKAGES: Final[tuple[RequiredHostPackage, ...]] = (
+    RequiredHostPackage(package="openssh-server", binary="sshd", check_cmd="test -x /usr/sbin/sshd"),
+    RequiredHostPackage(package="tmux", binary="tmux"),
+    RequiredHostPackage(package="curl", binary="curl"),
+    RequiredHostPackage(package="rsync", binary="rsync"),
+    RequiredHostPackage(package="git", binary="git"),
+    RequiredHostPackage(package="jq", binary="jq"),
+)
+
+# Base image used by the default Dockerfile when no image or Dockerfile is specified.
+DEFAULT_BASE_IMAGE: Final[str] = "debian:bookworm-slim"
+
+
+def _build_default_dockerfile() -> str:
+    """Build the default Dockerfile contents from REQUIRED_HOST_PACKAGES."""
+    packages = " \\\n    ".join(sorted(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
+    return f"""\
+FROM {DEFAULT_BASE_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+# Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
 
 
 @pure
@@ -22,18 +71,14 @@ def get_user_ssh_dir(user: str) -> Path:
 
 
 @pure
-def _build_package_check_snippet(binary: str, package: str, check_cmd: str | None) -> str:
-    """Build a shell snippet that checks for a binary and adds its package to the install list.
-
-    If check_cmd is provided, it is used as the existence check (e.g. "test -x /usr/sbin/sshd").
-    Otherwise, "command -v <binary> >/dev/null 2>&1" is used.
-    """
-    check = check_cmd if check_cmd is not None else f"command -v {binary} >/dev/null 2>&1"
+def _build_package_check_snippet(pkg: RequiredHostPackage) -> str:
+    """Build a shell snippet that checks for a package and adds it to the install list."""
+    check = pkg.check_cmd if pkg.check_cmd is not None else f"command -v {pkg.binary} >/dev/null 2>&1"
     return (
         f"if ! {check}; then "
-        f"echo '{WARNING_PREFIX}{package} is not pre-installed in the base image. "
-        f"Installing at runtime. For faster startup, consider using an image with {package} pre-installed.'; "
-        f'PKGS_TO_INSTALL="$PKGS_TO_INSTALL {package}"; '
+        f"echo '{WARNING_PREFIX}{pkg.package} is not pre-installed in the base image. "
+        f"Installing at runtime. For faster startup, consider using an image with {pkg.package} pre-installed.'; "
+        f'PKGS_TO_INSTALL="$PKGS_TO_INSTALL {pkg.package}"; '
         "fi"
     )
 
@@ -60,12 +105,7 @@ def build_check_and_install_packages_command(
     """
     script_lines = [
         "PKGS_TO_INSTALL=''",
-        _build_package_check_snippet(binary="sshd", package="openssh-server", check_cmd="test -x /usr/sbin/sshd"),
-        _build_package_check_snippet(binary="tmux", package="tmux", check_cmd=None),
-        _build_package_check_snippet(binary="curl", package="curl", check_cmd=None),
-        _build_package_check_snippet(binary="rsync", package="rsync", check_cmd=None),
-        _build_package_check_snippet(binary="git", package="git", check_cmd=None),
-        _build_package_check_snippet(binary="jq", package="jq", check_cmd=None),
+        *(_build_package_check_snippet(pkg) for pkg in REQUIRED_HOST_PACKAGES),
         # Install missing packages if any
         'if [ -n "$PKGS_TO_INSTALL" ]; then apt-get update -qq && apt-get install -y -qq $PKGS_TO_INSTALL; fi',
         # Create sshd run directory (required for sshd to start)
