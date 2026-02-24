@@ -18,7 +18,7 @@
 # which installs system deps, uv, claude code, extracts the repo tarball, and
 # runs `uv sync --all-packages`. The code lives at /code/mng/ in the image.
 #
-# A staging directory is added as the last image layer, containing:
+# A staging directory is added as an image layer, containing:
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
 # - /staging/home/: Files destined for ~/  (mirrors home directory structure)
 # - /staging/project/: Files destined for the project working directory
@@ -28,11 +28,19 @@
 # locations ($HOME and WORKDIR respectively) during the image build via
 # dockerfile_commands, so no runtime file installation is needed.
 #
+# For editable installs, a separate mng source layer is added after the staging
+# layer (at /mng_src/) to avoid invalidating the staging layer cache when
+# iterating on mng code.
+#
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
 # - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
 # - SCHEDULE_STAGING_DIR: Local path to staging directory (deploy files + secrets)
 # - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
+#
+# Optional environment variables at deploy time:
+# - SCHEDULE_MNG_SRC_DIR: Local path to mng source tarball directory (for editable installs).
+#   When set, the mng source is added as a separate Docker layer for better cache isolation.
 
 import json
 import os
@@ -70,12 +78,15 @@ if modal.is_local():
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
     _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
+    # Optional: path to mng source tarball directory (for editable installs)
+    _MNG_SRC_DIR: str = os.environ.get("SCHEDULE_MNG_SRC_DIR", "")
 else:
     _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
 
     _BUILD_CONTEXT_DIR = ""
     _STAGING_DIR = ""
     _DOCKERFILE = ""
+    _MNG_SRC_DIR = ""
 
 # Extract config values used by both deploy-time image building and runtime scheduling
 _APP_NAME: str = _deploy_config["app_name"]
@@ -99,6 +110,11 @@ _MNG_INSTALL_COMMANDS: list[str] = _deploy_config.get("mng_install_commands", []
 # If mng_install_commands is non-empty, additional dockerfile commands are
 # appended to install mng and mng-schedule into the image (so that
 # `uv run mng` works at runtime even if the base image does not include mng).
+#
+# For editable installs, the mng source tarball is added as a separate layer
+# (after the staging layer) so that changes to mng code don't invalidate
+# the cached staging layer. The install commands then extract and install
+# from /mng_src/.
 
 if modal.is_local():
     _image = (
@@ -116,9 +132,19 @@ if modal.is_local():
                 "RUN cp -a /staging/home/. $HOME/",
                 "RUN cp -a /staging/project/. .",
             ]
-            + _MNG_INSTALL_COMMANDS
         )
     )
+    # Add mng source as a separate layer for editable installs. This is
+    # intentionally a separate layer so that iterating on mng code only
+    # invalidates this layer, not the staging layer above.
+    if _MNG_SRC_DIR:
+        _image = _image.add_local_dir(
+            _MNG_SRC_DIR,
+            "/mng_src",
+            copy=True,
+        )
+    if _MNG_INSTALL_COMMANDS:
+        _image = _image.dockerfile_commands(_MNG_INSTALL_COMMANDS)
 else:
     # At runtime, the image is already built
     _image = modal.Image.debian_slim()
