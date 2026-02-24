@@ -7,11 +7,3 @@ The following files are injected into the system prompt so you do not need to re
 - @README.md
 - @docs/design.md
 
-## Core source files
-
-- @imbue/changelings/primitives.py
-- @imbue/changelings/errors.py
-- @imbue/changelings/data_types.py
-- @imbue/changelings/config.py
-- @imbue/changelings/main.py
-- @imbue/changelings/mng_commands.py

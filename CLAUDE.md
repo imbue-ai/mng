@@ -13,9 +13,10 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 The following files are automatically injected into the system prompt via CLAUDE.md files in each project directory (you do NOT need to read them manually):
 - User-facing documentation (docs/)
 - README.md files
-- Core source files (primitives, errors, interfaces, utils, data_types)
 
-When working on a task, take a look at the code directories beyond what is already injected, and based on the task, determine which files are most relevant to read in depth. Be sure to read the full contents from those files.
+If you will be writing code, read all `.py` files at the root of the project you are working on (ex: `primitives.py`, `errors.py`, etc.). Also read everything in data_types, interfaces, and utils to ensure you understand the core abstractions.
+
+Then take a look at the other code directories, and based on the task, determine which files are most relevant to read in depth. Be sure to read the full contents from those files.
 
 Do NOT read files that end with "_test.py" during this first pass as they contain unit tests (unless you are explicitly instructed to read the unit tests).
 
