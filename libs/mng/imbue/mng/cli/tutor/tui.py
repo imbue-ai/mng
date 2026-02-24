@@ -91,7 +91,8 @@ def run_lesson_selector(lessons: tuple[Lesson, ...]) -> Lesson | None:
                 and select a lesson below.
 
                 (To tmux users: mng itself uses tmux, so to keep things simple,
-                we suggest that you also open a separate terminal window for now.)""")
+                we suggest that you also open a separate terminal window for now.
+                Running the tutor itself in tmux is fine, though.)""")
             ),
             Divider(),
         ]
