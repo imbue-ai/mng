@@ -186,7 +186,7 @@ def test_prevent_num_prefix() -> None:
 
 
 def test_prevent_builtin_exception_raises() -> None:
-    chunks = check_ratchet_rule(PREVENT_BUILTIN_EXCEPTION_RAISES, _get_mng_source_dir(), _SELF_EXCLUSION)
+    chunks = check_ratchet_rule(PREVENT_BUILTIN_EXCEPTION_RAISES, _get_mng_source_dir(), TEST_FILE_PATTERNS)
     assert len(chunks) <= snapshot(0), PREVENT_BUILTIN_EXCEPTION_RAISES.format_failure(chunks)
 
 

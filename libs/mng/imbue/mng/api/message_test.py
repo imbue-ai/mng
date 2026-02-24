@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.api.create import CreateAgentOptions
 from imbue.mng.api.message import MessageResult
 from imbue.mng.api.message import _agent_to_cel_context
@@ -242,49 +245,58 @@ def test_send_message_to_agents_with_include_filter(
     assert "filter-test-2" not in result.successful_agents
 
 
-def test_send_message_one_stopped_agent_does_not_prevent_other_from_receiving(
+def test_send_message_non_mng_error_does_not_prevent_other_agents(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
     local_provider: LocalProviderInstance,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One agent's failure must not prevent other agents from receiving their message."""
+    """A non-MngError exception in one agent's send_message must not kill the broadcast."""
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
-    stopped_agent = host.create_agent_state(
+    agent1 = host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
-            name=AgentName("will-fail"),
+            name=AgentName("will-explode"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 847270"),
+            command=CommandString("sleep 847280"),
         ),
     )
-    running_agent = host.create_agent_state(
+    agent2 = host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("will-succeed"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 847271"),
+            command=CommandString("sleep 847281"),
         ),
     )
 
-    # Only start the second agent -- the first stays stopped and will fail
-    host.start_agents([running_agent.id])
+    host.start_agents([agent1.id, agent2.id])
+
+    original_send = BaseAgent.send_message
+
+    def exploding_send(self: BaseAgent, message: str) -> None:
+        if str(self.name) == "will-explode":
+            raise RuntimeError("unexpected failure")
+        original_send(self, message)
+
+    monkeypatch.setattr(BaseAgent, "send_message", exploding_send)
 
     result = send_message_to_agents(
         mng_ctx=temp_mng_ctx,
-        message_content="Hello everyone",
+        message_content="Hello",
         all_agents=True,
         error_behavior=ErrorBehavior.CONTINUE,
     )
 
     # Clean up
-    host.destroy_agent(stopped_agent)
-    host.destroy_agent(running_agent)
+    host.destroy_agent(agent1)
+    host.destroy_agent(agent2)
 
-    # The stopped agent should have failed
+    # The exploding agent should be recorded as failed
     failed_names = [name for name, _err in result.failed_agents]
-    assert "will-fail" in failed_names
+    assert "will-explode" in failed_names
 
-    # The running agent must still have succeeded despite the other's failure
+    # The other agent must still have succeeded
     assert "will-succeed" in result.successful_agents
