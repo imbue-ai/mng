@@ -547,28 +547,25 @@ def _print_test_durations_for_ci(
 
 
 @pytest.fixture(autouse=True)
-def _set_junit_classname_to_filepath(request: pytest.FixtureRequest, record_xml_attribute) -> None:
-    """Set JUnit XML classname to path relative to project root.
+def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML name to the full test ID for exact matching with offload.
 
     Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
-    otherwise falls back to pytest's nodeid.
+    otherwise falls back to pytest's nodeid directly.
     """
     offload_root = os.environ.get("OFFLOAD_ROOT")
 
     if offload_root:
+        # Build full test ID: relative_path::class::method or relative_path::method
         fspath = str(request.node.fspath)
         rel_path = os.path.relpath(fspath, offload_root)
+        nodeid_parts = request.node.nodeid.split("::")
+        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        test_id = "::".join([rel_path] + nodeid_parts[1:])
     else:
-        rel_path = request.node.nodeid.split("::")[0]
+        test_id = request.node.nodeid
 
-    classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
-    record_xml_attribute("classname", classname)
-
-    # Set name to include class hierarchy if present
-    nodeid_parts = request.node.nodeid.split("::")
-    if len(nodeid_parts) > 2:
-        name = "::".join(nodeid_parts[1:])
-        record_xml_attribute("name", name)
+    record_xml_attribute("name", test_id)
 
 
 # ---------------------------------------------------------------------------
@@ -597,5 +594,5 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
-    # Register the JUnit classname fixture (with public name for pytest discovery)
-    namespace["set_junit_classname_to_filepath"] = _set_junit_classname_to_filepath
+    # Register the JUnit test ID fixture (with public name for pytest discovery)
+    namespace["set_junit_test_id"] = _set_junit_test_id
