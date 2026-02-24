@@ -97,6 +97,20 @@ def test_modal_record_is_instance_of_base() -> None:
     assert isinstance(record, ScheduleCreationRecord)
 
 
+def test_modal_record_deserializes_old_field_names() -> None:
+    """Test that ModalScheduleCreationRecord can deserialize JSON with old field names."""
+    old_json = (
+        '{"trigger":{"name":"old","command":"CREATE","args":"","schedule_cron":"0 2 * * *",'
+        '"provider":"modal","is_enabled":true,"git_image_hash":"abc123"},'
+        '"full_commandline":"mng schedule add","hostname":"laptop","working_directory":"/tmp",'
+        '"mng_git_hash":"abc123","created_at":"2025-06-15T10:00:00Z",'
+        '"modal_app_name":"mng-schedule-old","modal_environment":"mng-user1"}'
+    )
+    record = ModalScheduleCreationRecord.model_validate_json(old_json)
+    assert record.app_name == "mng-schedule-old"
+    assert record.environment == "mng-user1"
+
+
 def test_schedule_creation_record_includes_all_trigger_fields() -> None:
     """Test that the nested trigger definition is fully preserved."""
     trigger = ScheduleTriggerDefinition(

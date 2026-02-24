@@ -21,9 +21,7 @@ from pydantic import ValidationError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
-from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
@@ -53,26 +51,6 @@ def _forward_output(line: str, is_stdout: bool) -> None:
 @pure
 def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
-
-
-def load_modal_provider_instance(
-    provider_instance_name: str,
-    mng_ctx: MngContext,
-) -> ModalProviderInstance:
-    """Load a provider instance and verify it is a Modal provider.
-
-    Raises ScheduleDeployError if the provider cannot be loaded or is not a Modal provider.
-    """
-    try:
-        provider = get_provider_instance(ProviderInstanceName(provider_instance_name), mng_ctx)
-    except Exception as exc:
-        raise ScheduleDeployError(f"Failed to load provider '{provider_instance_name}': {exc}") from exc
-    if not isinstance(provider, ModalProviderInstance):
-        raise ScheduleDeployError(
-            f"Provider '{provider_instance_name}' is not a Modal provider. "
-            "Only Modal providers are currently supported for schedules."
-        ) from None
-    return provider
 
 
 @pure

@@ -1,6 +1,7 @@
 from datetime import datetime
 from enum import auto
 
+from pydantic import AliasChoices
 from pydantic import Field
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
@@ -69,5 +70,11 @@ class ScheduleCreationRecord(FrozenModel):
 class ModalScheduleCreationRecord(ScheduleCreationRecord):
     """Schedule creation record with Modal-specific metadata."""
 
-    app_name: str = Field(description="The Modal app name for this schedule")
-    environment: str = Field(description="The Modal environment name")
+    app_name: str = Field(
+        description="The Modal app name for this schedule",
+        validation_alias=AliasChoices("app_name", "modal_app_name"),
+    )
+    environment: str = Field(
+        description="The Modal environment name",
+        validation_alias=AliasChoices("environment", "modal_environment"),
+    )
