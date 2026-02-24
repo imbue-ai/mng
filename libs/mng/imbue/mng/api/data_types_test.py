@@ -4,6 +4,7 @@ from pathlib import Path
 
 from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.api.data_types import SourceLocation
+from imbue.mng.api.data_types import get_dockerfile_context_dir
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
@@ -146,3 +147,25 @@ def test_host_lifecycle_options_to_activity_config_different_partial_override() 
     assert config.idle_mode == IdleMode.DISABLED
     # activity_sources is derived from idle_mode (DISABLED = empty tuple)
     assert config.activity_sources == ()
+
+
+# get_dockerfile_context_dir tests
+
+
+def test_get_dockerfile_context_dir_defaults_to_dockerfile_parent() -> None:
+    """When context_dir is None, should return the Dockerfile's parent directory."""
+    dockerfile = Path("/project/docker/Dockerfile")
+    assert get_dockerfile_context_dir(None, dockerfile) == Path("/project/docker")
+
+
+def test_get_dockerfile_context_dir_uses_explicit_context() -> None:
+    """When context_dir is provided, should return it instead of the Dockerfile's parent."""
+    dockerfile = Path("/project/docker/Dockerfile")
+    context = Path("/project")
+    assert get_dockerfile_context_dir(context, dockerfile) == Path("/project")
+
+
+def test_get_dockerfile_context_dir_same_directory() -> None:
+    """When Dockerfile is in the project root, parent is the project root."""
+    dockerfile = Path("/project/Dockerfile")
+    assert get_dockerfile_context_dir(None, dockerfile) == Path("/project")
