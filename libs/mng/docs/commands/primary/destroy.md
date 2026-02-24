@@ -9,35 +9,26 @@
 mng [destroy|rm] [AGENTS...] [--agent <AGENT>] [--all] [--session <SESSION>] [-f|--force] [--dry-run] [-b|--remove-branch]
 ```
 
-
 Destroy agent(s) and clean up resources.
 
-When the last agent on a host is destroyed, the host itself is also destroyed.
+When the last agent on a host is destroyed, the host itself is also destroyed
+(including containers, volumes, snapshots, and any remote infrastructure).
 
 Use with caution! This operation is irreversible.
 
+By default, running agents cannot be destroyed. Use --force to stop and destroy
+running agents. The command will prompt for confirmation before destroying
+agents unless --force is specified.
+
 Supports custom format templates via --format. Available fields: name.
 
-Examples:
-
-  mng destroy my-agent
-
-  mng destroy agent1 agent2 agent3
-
-  mng destroy --agent my-agent --agent another-agent
-
-  mng destroy --session mng-my-agent
-
-  mng destroy --all --force
-
-  mng destroy --all --force --format '{name}'
+Alias: rm
 
 **Usage:**
 
 ```text
 mng destroy [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)
@@ -80,11 +71,6 @@ mng destroy [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Related Documentation
@@ -122,4 +108,22 @@ $ mng destroy --all --force
 
 ```bash
 $ mng destroy my-agent --dry-run
+```
+
+**Destroy using --agent flag (repeatable)**
+
+```bash
+$ mng destroy --agent my-agent --agent another-agent
+```
+
+**Destroy by tmux session name**
+
+```bash
+$ mng destroy --session mng-my-agent
+```
+
+**Custom format template output**
+
+```bash
+$ mng destroy --all --force --format '{name}'
 ```

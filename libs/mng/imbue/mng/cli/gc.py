@@ -16,7 +16,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -52,8 +51,6 @@ class GcCliOptions(CommonCliOptions):
     logs: bool
     build_cache: bool
     machine_cache: bool
-    include: tuple[str, ...]
-    exclude: tuple[str, ...]
     dry_run: bool
     on_error: str
     all_providers: bool
@@ -104,22 +101,6 @@ class GcCliOptions(CommonCliOptions):
     is_flag=True,
     help="Remove machine cache entries (per-provider) [future]",
 )
-@optgroup.group("Filtering")
-# FIXME: --include and --exclude logically make no sense for gc, and thus should be removed
-#  Conceptually, when doing garbage collection, it's just too complex to be trying to filter
-#  Instead, looking at an API like python's built-in gc module, the only "filtering" you can do is which generation to collect (0, 1, or 2)
-#  Here, the only effective control is which providers/resource types to target, but more complex filters don't really make sense
-#  Please remove these options (--include/--exclude) both from the CLI and from the gc API
-@optgroup.option(
-    "--include",
-    multiple=True,
-    help="Only clean resources matching CEL filter (repeatable)",
-)
-@optgroup.option(
-    "--exclude",
-    multiple=True,
-    help="Exclude resources matching CEL filter (repeatable)",
-)
 @optgroup.group("Scope")
 @optgroup.option(
     "--all-providers",
@@ -152,20 +133,6 @@ class GcCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def gc(ctx: click.Context, **kwargs) -> None:
-    """Garbage collect unused resources.
-
-    Automatically removes unused resources from providers and mng itself.
-
-    Examples:
-
-      mng gc --work-dirs --dry-run
-
-      mng gc --all-agent-resources
-
-      mng gc --machines --snapshots --provider docker
-
-      mng gc --logs --build-cache
-    """
     try:
         _gc_impl(ctx, **kwargs)
     except AbortError as e:
@@ -268,8 +235,6 @@ def _run_gc_iteration(mng_ctx: MngContext, opts: GcCliOptions, output_opts: Outp
         mng_ctx=mng_ctx,
         providers=providers,
         resource_types=resource_types,
-        include_filters=opts.include,
-        exclude_filters=opts.exclude,
         dry_run=opts.dry_run,
         error_behavior=error_behavior,
     )
@@ -473,13 +438,11 @@ def _get_selected_providers(mng_ctx: MngContext, opts: GcCliOptions) -> list[Pro
 
 
 # Register help metadata for git-style help formatting
-_GC_HELP_METADATA = CommandHelpMetadata(
-    name="mng-gc",
+CommandHelpMetadata(
+    key="gc",
     one_line_description="Garbage collect unused resources",
     synopsis="mng gc [OPTIONS]",
-    description="""Garbage collect unused resources.
-
-Automatically removes containers, old snapshots, unused hosts, cached images,
+    description="""Automatically removes containers, old snapshots, unused hosts, cached images,
 and any resources that are associated with destroyed hosts and agents.
 
 `mng destroy` automatically cleans up resources when an agent is deleted.
@@ -490,32 +453,13 @@ resources at any time.""",
         ("Clean all agent resources", "mng gc --all-agent-resources"),
         ("Clean machines and snapshots for Docker", "mng gc --machines --snapshots --provider docker"),
         ("Clean logs and build cache", "mng gc --logs --build-cache"),
-        ("Keep only the 5 most recent snapshots", 'mng gc --snapshots --exclude "recency_idx < 5"'),
-    ),
-    additional_sections=(
-        (
-            "CEL Filter Examples",
-            """CEL filters let you control which resources are cleaned.
-
-**For snapshots, use `recency_idx` to filter by age:**
-- `recency_idx == 0` - the most recent snapshot
-- `recency_idx < 5` - the 5 most recent snapshots
-- To keep only the 5 most recent: `--exclude "recency_idx < 5"`
-
-**Filter by resource properties:**
-- `name.contains("test")` - resources with "test" in the name
-- `provider_name == "docker"` - Docker resources only
-""",
-        ),
     ),
     see_also=(
         ("cleanup", "Interactive cleanup of agents and hosts"),
         ("destroy", "Destroy agents (includes automatic GC)"),
         ("list", "List agents to find unused resources"),
     ),
-)
-
-register_help_metadata("gc", _GC_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the gc command
 add_pager_help_option(gc)

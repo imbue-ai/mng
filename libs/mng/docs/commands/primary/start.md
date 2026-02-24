@@ -9,33 +9,22 @@
 mng start [AGENTS...] [--agent <AGENT>] [--all] [--host <HOST>] [--connect] [--dry-run] [--snapshot <SNAPSHOT>]
 ```
 
-
 Start stopped agent(s).
 
 For remote hosts, this restores from the most recent snapshot and starts
 the container/instance. For local agents, this starts the agent's tmux
 session.
 
+If multiple agents share a host, they will all be started together when
+the host starts.
+
 Supports custom format templates via --format. Available fields: name.
-
-Examples:
-
-  mng start my-agent
-
-  mng start agent1 agent2
-
-  mng start --agent my-agent --connect
-
-  mng start --all
-
-  mng start --all --format '{name}'
 
 **Usage:**
 
 ```text
 mng start [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)
@@ -84,11 +73,6 @@ mng start [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## See Also
@@ -127,4 +111,10 @@ $ mng start --all
 
 ```bash
 $ mng start --all --dry-run
+```
+
+**Custom format template output**
+
+```bash
+$ mng start --all --format '{name}'
 ```
