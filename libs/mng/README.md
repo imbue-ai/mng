@@ -258,7 +258,7 @@ See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`libs/mng/docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details on our security model.
+See our [security model](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details.
 
 <!--
 ## Learning more

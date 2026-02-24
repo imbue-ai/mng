@@ -254,7 +254,7 @@ See [`architecture.md`](libs/mng/docs/architecture.md) for an in-depth overview 
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`libs/mng/docs/security_model.md`](libs/mng/docs/security_model.md) for more details on our security model.
+See our [security model](libs/mng/docs/security_model.md) for more details.
 
 <!--
 ## Learning more
