@@ -1,3 +1,31 @@
+# For tmux Users
+
+## Isolating mng's tmux sessions
+
+By default, `mng` creates tmux sessions on your default tmux server. This means `mng`'s sessions will show up alongside your personal sessions in `tmux ls`, and could interfere with your own tmux workflow.
+
+To keep `mng`'s tmux sessions isolated from your own, set `TMUX_TMPDIR` to give `mng` its own tmux server:
+
+```bash
+TMUX_TMPDIR="/tmp/mng-tmux" mng create my-agent
+```
+
+Your normal `tmux ls` will no longer show `mng`'s sessions, and you won't run into nested tmux issues.
+
+Note: the directory must already exist:
+
+```bash
+mkdir -p /tmp/mng-tmux
+```
+
+To inspect `mng`'s isolated sessions:
+
+```bash
+TMUX_TMPDIR=/tmp/mng-tmux tmux ls
+```
+
+## Nested tmux
+
 Mng runs your agents in tmux sessions.
 If you already use tmux to run `mng` itself,
 by default, `mng` won't be able to drop you into the agents' tmux sessions,
