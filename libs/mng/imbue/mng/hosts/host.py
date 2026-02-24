@@ -1071,7 +1071,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Copy .git/info/exclude from source to target if requested.
             # This file is not transferred by git push --mirror since it lives
             # outside the git object store.
-            copy_git_info_exclude = options.git.copy_git_info_exclude if options.git else True
+            copy_git_info_exclude = options.git.copy_git_info_exclude if options.git else False
             if copy_git_info_exclude:
                 self._transfer_git_info_exclude(source_host, source_path, target_path)
 
