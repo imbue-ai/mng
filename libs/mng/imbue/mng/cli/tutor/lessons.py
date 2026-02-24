@@ -93,7 +93,7 @@ LESSON_GETTING_STARTED = Lesson(
 
 
 LESSON_REMOTE_AGENTS = Lesson(
-    title="Remote Agents on Modal",
+    title="Remote Agents on Modal (WIP)",
     description="Learn to launch and manage agents running on Modal's cloud infrastructure.",
     steps=(
         LessonStep(
