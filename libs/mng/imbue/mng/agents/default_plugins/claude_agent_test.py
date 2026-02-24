@@ -1583,7 +1583,8 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
 
 def test_get_files_for_deploy_returns_empty_dict_when_no_claude_files(temp_mng_ctx: MngContext) -> None:
     """get_files_for_deploy returns empty dict when no claude config files exist."""
-    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True)
+    # Exclude project settings since the test CWD may contain .claude/ files
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False)
 
     assert result == {}
 
@@ -1593,7 +1594,7 @@ def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext) -> 
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"test": true}')
 
-    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True)
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False)
 
     assert Path("~/.claude.json") in result
     assert result[Path("~/.claude.json")] == claude_json
@@ -1606,7 +1607,7 @@ def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext)
     settings = claude_dir / "settings.json"
     settings.write_text('{"settings": true}')
 
-    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True)
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False)
 
     assert Path("~/.claude/settings.json") in result
     assert result[Path("~/.claude/settings.json")] == settings
@@ -1622,19 +1623,60 @@ def test_get_files_for_deploy_includes_both_files(temp_mng_ctx: MngContext) -> N
     settings = claude_dir / "settings.json"
     settings.write_text('{"settings": true}')
 
-    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True)
+    # Exclude project settings to avoid picking up .claude/*.local.* from the real CWD
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False)
 
     assert len(result) == 2
     assert Path("~/.claude.json") in result
     assert Path("~/.claude/settings.json") in result
 
 
-def test_get_files_for_deploy_returns_empty_when_user_settings_excluded(temp_mng_ctx: MngContext) -> None:
+def test_get_files_for_deploy_returns_empty_when_user_settings_excluded(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """get_files_for_deploy returns empty dict when include_user_settings is False."""
+    monkeypatch.chdir(tmp_path)
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"test": true}')
 
-    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=False)
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True)
+
+    assert result == {}
+
+
+def test_get_files_for_deploy_includes_project_local_settings(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_files_for_deploy includes .claude/settings.local.json from the project dir."""
+    monkeypatch.chdir(tmp_path)
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True)
+
+    assert Path(".claude/settings.local.json") in result
+    assert result[Path(".claude/settings.local.json")] == local_settings
+
+
+def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_files_for_deploy skips project local files when include_project_settings is False."""
+    monkeypatch.chdir(tmp_path)
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=False)
 
     assert result == {}
 

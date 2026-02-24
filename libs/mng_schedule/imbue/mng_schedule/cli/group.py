@@ -85,6 +85,18 @@ def add_trigger_options(command: Any) -> Any:
 
     # Code Packaging group
     command = optgroup.option(
+        "--mng-install-mode",
+        "mng_install_mode",
+        type=click.Choice(["auto", "package", "editable", "skip"], case_sensitive=False),
+        default="auto",
+        show_default=True,
+        help="How to make mng available in the deployed image: "
+        "'auto' detects based on current install, "
+        "'package' installs from PyPI, "
+        "'editable' packages local source, "
+        "'skip' assumes mng is already in the base image.",
+    )(command)
+    command = optgroup.option(
         "--git-image-hash",
         "git_image_hash",
         default=None,

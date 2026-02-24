@@ -1,3 +1,4 @@
+import importlib.metadata
 import json
 import os
 import platform
@@ -23,6 +24,7 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.modal.instance import ModalProviderInstance
+from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
@@ -167,6 +169,85 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
         ) from None
 
 
+def detect_mng_install_mode() -> MngInstallMode:
+    """Detect how mng-schedule is currently installed.
+
+    Returns EDITABLE if the package is installed in editable (development) mode,
+    PACKAGE if installed as a normal package, or raises ScheduleDeployError if
+    the package is not installed at all.
+    """
+    try:
+        dist = importlib.metadata.distribution("mng-schedule")
+    except importlib.metadata.PackageNotFoundError:
+        raise ScheduleDeployError("mng-schedule package is not installed. Cannot determine install mode.") from None
+
+    # Check if the package is installed in editable mode by looking for a
+    # direct_url.json with "editable": true, which is the standard way PEP 610
+    # marks editable installs.
+    direct_url_text = dist.read_text("direct_url.json")
+    if direct_url_text is not None:
+        try:
+            direct_url = json.loads(direct_url_text)
+            if direct_url.get("dir_info", {}).get("editable", False):
+                return MngInstallMode.EDITABLE
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    return MngInstallMode.PACKAGE
+
+
+def resolve_mng_install_mode(mode: MngInstallMode) -> MngInstallMode:
+    """Resolve AUTO mode to a concrete install mode, or pass through others."""
+    if mode == MngInstallMode.AUTO:
+        resolved = detect_mng_install_mode()
+        logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
+        return resolved
+    return mode
+
+
+def _get_mng_schedule_source_dir() -> Path:
+    """Get the source directory for an editable install of mng-schedule.
+
+    Returns the directory containing pyproject.toml for mng-schedule.
+    Raises ScheduleDeployError if it cannot be determined.
+    """
+    # In editable mode, the source files are at their original location.
+    # We can find the package root by walking up from the plugin module file.
+    plugin_file = Path(__file__).resolve()
+    # __file__ is at: .../libs/mng_schedule/imbue/mng_schedule/implementations/modal/deploy.py
+    # We need: .../libs/mng_schedule/
+    candidate = plugin_file.parent.parent.parent.parent
+    if (candidate / "pyproject.toml").exists():
+        return candidate
+    raise ScheduleDeployError(f"Could not find mng-schedule source directory (tried {candidate})") from None
+
+
+@pure
+def build_mng_install_commands(mode: MngInstallMode) -> list[str]:
+    """Build Dockerfile RUN commands to install mng in the deployed image.
+
+    Returns an empty list for SKIP mode (mng is already available).
+    """
+    match mode:
+        case MngInstallMode.SKIP:
+            return []
+        case MngInstallMode.PACKAGE:
+            # Install mng and mng-schedule from the configured package index.
+            # Uses the uv already present in the base image.
+            return [
+                "RUN uv pip install --system mng mng-schedule",
+            ]
+        case MngInstallMode.EDITABLE:
+            # The local source is staged under /staging/mng_schedule_src/ by
+            # the deploy flow. Install both mng (as a dependency) and
+            # mng-schedule from the staged source.
+            return [
+                "RUN uv pip install --system /staging/mng_schedule_src/",
+            ]
+        case _:
+            raise ScheduleDeployError(f"Unexpected mng install mode: {mode}")
+
+
 def parse_upload_spec(spec: str) -> tuple[Path, str]:
     """Parse an upload spec in SOURCE:DEST format.
 
@@ -226,6 +307,7 @@ def stage_deploy_files(
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
     uploads: Sequence[tuple[Path, str]] = (),
+    mng_install_mode: MngInstallMode = MngInstallMode.SKIP,
 ) -> None:
     """Stage files for deployment into a directory for baking into the Modal image.
 
@@ -294,39 +376,39 @@ def stage_deploy_files(
         logger.info("Staged {} user-specified uploads", len(uploads))
 
     # Consolidate environment variables from all sources into a single .env file.
-    # Precedence (lowest to highest): project secrets < --env-file < --pass-env
+    # Precedence (lowest to highest): --env-file < --pass-env
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
-    _stage_consolidated_env(secrets_dir, repo_root, pass_env=pass_env, env_files=env_files)
+    _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
+
+    # For editable installs, stage the mng-schedule source tree so it can be
+    # pip-installed inside the deployed image.
+    if mng_install_mode == MngInstallMode.EDITABLE:
+        mng_schedule_src = _get_mng_schedule_source_dir()
+        staged_src = staging_dir / "mng_schedule_src"
+        shutil.copytree(mng_schedule_src, staged_src, dirs_exist_ok=True)
+        logger.info("Staged mng-schedule source from {} for editable install", mng_schedule_src)
 
 
 def _stage_consolidated_env(
     secrets_dir: Path,
-    repo_root: Path,
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
 ) -> None:
     """Consolidate env vars from multiple sources into secrets/.env.
 
     Sources are merged in order of increasing precedence:
-    1. Project secrets file (.mng/dev/secrets/.env)
-    2. User-specified --env-file entries
-    3. User-specified --pass-env variables from the current process environment
+    1. User-specified --env-file entries (in order)
+    2. User-specified --pass-env variables from the current process environment
     """
     env_lines: list[str] = []
 
-    # 1. Project secrets (lowest precedence)
-    project_secrets = repo_root / ".mng" / "dev" / "secrets" / ".env"
-    if project_secrets.exists():
-        env_lines.extend(project_secrets.read_text().splitlines())
-        logger.info("Including project secrets from {}", project_secrets)
-
-    # 2. User-specified env files
+    # 1. User-specified env files
     for env_file_path in env_files:
         env_lines.extend(env_file_path.read_text().splitlines())
         logger.info("Including env file {}", env_file_path)
 
-    # 3. Pass-through env vars from current process
+    # 2. Pass-through env vars from current process
     for var_name in pass_env:
         value = os.environ.get(var_name)
         if value is not None:
@@ -339,11 +421,6 @@ def _stage_consolidated_env(
         (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
         var_count = sum(1 for line in env_lines if line.strip() and not line.strip().startswith("#") and "=" in line)
         logger.info("Staged consolidated env file with {} variable entries", var_count)
-    else:
-        logger.warning(
-            "No secrets file found at {} and no env vars specified; agents may not have required API keys",
-            project_secrets,
-        )
 
 
 @pure
@@ -433,18 +510,20 @@ def deploy_schedule(
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
     uploads: Sequence[tuple[Path, str]] = (),
+    mng_install_mode: MngInstallMode = MngInstallMode.AUTO,
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
     Full deployment flow:
     1. Find repo root and derive Modal environment name
-    2. Package repo at the specified commit into a tarball
-    3. Stage deploy files (collected from plugins via hook) and secrets
-    4. Write deploy config as a single JSON file
-    5. Run modal deploy cron_runner.py with --env for the correct Modal environment
-    6. If verify_mode is not NONE, invoke the function once via modal run to verify
-    7. Save creation record to the provider's state volume
-    8. Return the Modal app name
+    2. Resolve mng install mode (auto-detect if needed)
+    3. Package repo at the specified commit into a tarball
+    4. Stage deploy files (collected from plugins via hook), env vars, and mng source
+    5. Write deploy config as a single JSON file
+    6. Run modal deploy cron_runner.py with --env for the correct Modal environment
+    7. If verify_mode is not NONE, invoke the function once via modal run to verify
+    8. Save creation record to the provider's state volume
+    9. Return the Modal app name
 
     Verification must happen inside this function (before the temp directory is
     cleaned up) because modal run requires the same build-time env vars that
@@ -456,6 +535,10 @@ def deploy_schedule(
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
     modal_env_name = provider.environment_name
+
+    # Resolve mng install mode (auto-detect if needed)
+    resolved_install_mode = resolve_mng_install_mode(mng_install_mode)
+    logger.info("mng install mode: {}", resolved_install_mode.value.lower())
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
     logger.info("Using commit {} for code packaging", trigger.git_image_hash)
@@ -487,6 +570,7 @@ def deploy_schedule(
                 pass_env=pass_env,
                 env_files=env_files,
                 uploads=uploads,
+                mng_install_mode=resolved_install_mode,
             )
 
         # Write deploy config as a single JSON file into the staging dir
@@ -513,6 +597,7 @@ def deploy_schedule(
         env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
         env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
         env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
+        env["SCHEDULE_MNG_INSTALL_MODE"] = resolved_install_mode.value
 
         cron_runner_path = Path(__file__).parent / "cron_runner.py"
         cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]

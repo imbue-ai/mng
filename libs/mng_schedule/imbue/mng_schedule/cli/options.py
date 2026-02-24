@@ -13,6 +13,7 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     enabled: bool | None
     verify: str
     git_image_hash: str | None
+    mng_install_mode: str
     include_user_settings: bool | None
     include_project_settings: bool | None
     pass_env: tuple[str, ...]

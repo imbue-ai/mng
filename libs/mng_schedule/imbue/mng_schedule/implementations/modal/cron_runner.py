@@ -20,7 +20,7 @@
 # - /staging/deploy_config.json: All deploy-time configuration as a single JSON
 # - /staging/home/: Files destined for ~/  (mirrors home directory structure)
 # - /staging/project/: Files destined for the project working directory
-# - /staging/secrets/.env: Secrets env file (GH_TOKEN, etc.)
+# - /staging/secrets/.env: Consolidated env vars (from --pass-env and --env-file)
 #
 # Files from /staging/home/ and /staging/project/ are baked into their final
 # locations ($HOME and WORKDIR respectively) during the image build via
@@ -66,12 +66,14 @@ if modal.is_local():
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
     _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
+    _MNG_INSTALL_MODE: str = os.environ.get("SCHEDULE_MNG_INSTALL_MODE", "SKIP")
 else:
     _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
 
     _BUILD_CONTEXT_DIR = ""
     _STAGING_DIR = ""
     _DOCKERFILE = ""
+    _MNG_INSTALL_MODE = "SKIP"
 
 # Extract config values used by both deploy-time image building and runtime scheduling
 _APP_NAME: str = _deploy_config["app_name"]
@@ -86,8 +88,25 @@ _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
 # bake user/project files into their final locations via dockerfile_commands.
 # The Dockerfile's WORKDIR must be set to the project directory (e.g.
 # /code/mng/) so that project files are copied to the correct location.
+#
+# If the mng install mode is PACKAGE or EDITABLE, additional dockerfile
+# commands are added to install mng and mng-schedule into the image (so
+# that `uv run mng` works at runtime even if the base image does not
+# include mng). For SKIP mode, mng is assumed to already be available.
+
+
+def _build_mng_install_commands() -> list[str]:
+    """Build Dockerfile RUN commands for installing mng based on the install mode."""
+    if _MNG_INSTALL_MODE == "PACKAGE":
+        return ["RUN uv pip install --system mng mng-schedule"]
+    if _MNG_INSTALL_MODE == "EDITABLE":
+        return ["RUN uv pip install --system /staging/mng_schedule_src/"]
+    return []
+
 
 if modal.is_local():
+    _mng_install_cmds = _build_mng_install_commands()
+
     _image = (
         modal.Image.from_dockerfile(
             _DOCKERFILE,
@@ -103,6 +122,7 @@ if modal.is_local():
                 "RUN cp -a /staging/home/. $HOME/",
                 "RUN cp -a /staging/project/. .",
             ]
+            + _mng_install_cmds
         )
     )
 else:

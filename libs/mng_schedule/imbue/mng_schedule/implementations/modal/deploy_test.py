@@ -10,6 +10,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
+from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.errors import ScheduleDeployError
@@ -18,6 +19,8 @@ from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_file
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import _stage_consolidated_env
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
+from imbue.mng_schedule.implementations.modal.deploy import build_mng_install_commands
+from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
@@ -212,29 +215,33 @@ def test_stage_deploy_files_stages_multiple_home_files(
     assert staged_config.read_text() == "[test]\nroundtrip = true\n"
 
 
-def test_stage_deploy_files_stages_secrets_env(
-    tmp_path: Path,
+def test_stage_deploy_files_creates_secrets_dir(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
-    """stage_deploy_files should stage the secrets .env file when present."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(exist_ok=True)
-    secrets_dir = repo_root / ".mng" / "dev" / "secrets"
-    secrets_dir.mkdir(parents=True)
-    (secrets_dir / ".env").write_text("GH_TOKEN=test123\n")
+    """stage_deploy_files should always create the secrets/ directory."""
+    staging_dir = run_staging(None)
 
-    staging_dir = run_staging(repo_root)
-
-    staged_secrets = staging_dir / "secrets" / ".env"
-    assert staged_secrets.exists()
-    assert "GH_TOKEN=test123" in staged_secrets.read_text()
+    secrets_dir = staging_dir / "secrets"
+    assert secrets_dir.exists()
+    assert secrets_dir.is_dir()
 
 
 def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
-    run_staging: Callable[[Path | None], Path],
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
-    staging_dir = run_staging(None)
+    # Use a clean temp CWD so that plugins don't pick up any existing project files
+    clean_project = tmp_path / "empty_project"
+    clean_project.mkdir()
+    monkeypatch.chdir(clean_project)
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
     home_dir = staging_dir / "home"
     assert home_dir.exists()
@@ -401,33 +408,14 @@ def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
 # =============================================================================
 
 
-def test_stage_consolidated_env_merges_project_secrets(tmp_path: Path) -> None:
-    """_stage_consolidated_env should include project secrets from .mng/dev/secrets/.env."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    secrets_dir = repo_root / ".mng" / "dev" / "secrets"
-    secrets_dir.mkdir(parents=True)
-    (secrets_dir / ".env").write_text("PROJECT_SECRET=abc\n")
-
-    output_dir = tmp_path / "secrets"
-    output_dir.mkdir()
-    _stage_consolidated_env(output_dir, repo_root)
-
-    result = (output_dir / ".env").read_text()
-    assert "PROJECT_SECRET=abc" in result
-
-
 def test_stage_consolidated_env_includes_env_files(tmp_path: Path) -> None:
     """_stage_consolidated_env should include vars from --env-file."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
     env_file = tmp_path / "custom.env"
     env_file.write_text("CUSTOM_VAR=hello\n")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, repo_root, env_files=[env_file])
+    _stage_consolidated_env(output_dir, env_files=[env_file])
 
     result = (output_dir / ".env").read_text()
     assert "CUSTOM_VAR=hello" in result
@@ -438,30 +426,21 @@ def test_stage_consolidated_env_includes_pass_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should include vars from --pass-env."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
     monkeypatch.setenv("MY_PASS_VAR", "passed_value")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, repo_root, pass_env=["MY_PASS_VAR"])
+    _stage_consolidated_env(output_dir, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
     assert "MY_PASS_VAR=passed_value" in result
 
 
-def test_stage_consolidated_env_merges_all_sources(
+def test_stage_consolidated_env_merges_env_files_and_pass_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_stage_consolidated_env should merge project secrets, env files, and pass-env vars."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    secrets_dir = repo_root / ".mng" / "dev" / "secrets"
-    secrets_dir.mkdir(parents=True)
-    (secrets_dir / ".env").write_text("PROJECT_KEY=proj\n")
-
+    """_stage_consolidated_env should merge env files and pass-env vars."""
     env_file = tmp_path / "extra.env"
     env_file.write_text("FILE_KEY=from_file\n")
 
@@ -471,13 +450,11 @@ def test_stage_consolidated_env_merges_all_sources(
     output_dir.mkdir()
     _stage_consolidated_env(
         output_dir,
-        repo_root,
         pass_env=["SHELL_KEY"],
         env_files=[env_file],
     )
 
     result = (output_dir / ".env").read_text()
-    assert "PROJECT_KEY=proj" in result
     assert "FILE_KEY=from_file" in result
     assert "SHELL_KEY=from_shell" in result
 
@@ -487,14 +464,11 @@ def test_stage_consolidated_env_skips_missing_pass_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should skip pass-env vars not in the environment."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
     monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, repo_root, pass_env=["NONEXISTENT_VAR"])
+    _stage_consolidated_env(output_dir, pass_env=["NONEXISTENT_VAR"])
 
     # No .env file should be created since there are no entries
     assert not (output_dir / ".env").exists()
@@ -502,12 +476,9 @@ def test_stage_consolidated_env_skips_missing_pass_env(
 
 def test_stage_consolidated_env_creates_no_file_when_empty(tmp_path: Path) -> None:
     """_stage_consolidated_env should not create .env when no env vars are available."""
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    _stage_consolidated_env(output_dir, repo_root)
+    _stage_consolidated_env(output_dir)
 
     assert not (output_dir / ".env").exists()
 
@@ -621,3 +592,34 @@ def test_stage_deploy_files_with_exclude_user_settings(
 
     # home/ should be empty because we excluded user settings
     assert not any((staging_dir / "home").iterdir())
+
+
+# =============================================================================
+# mng install mode Tests
+# =============================================================================
+
+
+def test_build_mng_install_commands_skip() -> None:
+    """build_mng_install_commands returns empty list for SKIP mode."""
+    result = build_mng_install_commands(MngInstallMode.SKIP)
+    assert result == []
+
+
+def test_build_mng_install_commands_package() -> None:
+    """build_mng_install_commands returns pip install from PyPI for PACKAGE mode."""
+    result = build_mng_install_commands(MngInstallMode.PACKAGE)
+    assert len(result) == 1
+    assert "uv pip install --system mng mng-schedule" in result[0]
+
+
+def test_build_mng_install_commands_editable() -> None:
+    """build_mng_install_commands returns pip install from local source for EDITABLE mode."""
+    result = build_mng_install_commands(MngInstallMode.EDITABLE)
+    assert len(result) == 1
+    assert "/staging/mng_schedule_src/" in result[0]
+
+
+def test_detect_mng_install_mode_returns_valid_mode() -> None:
+    """detect_mng_install_mode should return either PACKAGE or EDITABLE."""
+    result = detect_mng_install_mode()
+    assert result in (MngInstallMode.PACKAGE, MngInstallMode.EDITABLE)

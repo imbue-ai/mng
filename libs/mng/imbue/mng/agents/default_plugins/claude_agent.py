@@ -785,20 +785,34 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentT
 
 
 @hookimpl
-def get_files_for_deploy(mng_ctx: MngContext, include_user_settings: bool) -> dict[Path, Path | str]:
+def get_files_for_deploy(
+    mng_ctx: MngContext,
+    include_user_settings: bool,
+    include_project_settings: bool,
+) -> dict[Path, Path | str]:
     """Register claude-specific files for scheduled deployments."""
-    if not include_user_settings:
-        return {}
-
     files: dict[Path, Path | str] = {}
-    user_home = Path.home()
 
-    claude_json = user_home / ".claude.json"
-    if claude_json.exists():
-        files[Path("~/.claude.json")] = claude_json
+    if include_user_settings:
+        user_home = Path.home()
 
-    claude_settings = user_home / ".claude" / "settings.json"
-    if claude_settings.exists():
-        files[Path("~/.claude/settings.json")] = claude_settings
+        claude_json = user_home / ".claude.json"
+        if claude_json.exists():
+            files[Path("~/.claude.json")] = claude_json
+
+        claude_settings = user_home / ".claude" / "settings.json"
+        if claude_settings.exists():
+            files[Path("~/.claude/settings.json")] = claude_settings
+
+    if include_project_settings:
+        # Include unversioned project-specific claude settings (e.g.
+        # .claude/settings.local.json) from the current working directory.
+        # These are typically gitignored and contain project-specific config.
+        project_claude_dir = Path.cwd() / ".claude"
+        if project_claude_dir.is_dir():
+            for file_path in project_claude_dir.rglob("*.local.*"):
+                if file_path.is_file():
+                    relative_path = file_path.relative_to(Path.cwd())
+                    files[Path(str(relative_path))] = file_path
 
     return files

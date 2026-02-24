@@ -13,6 +13,7 @@ from imbue.mng_schedule.cli.group import add_trigger_options
 from imbue.mng_schedule.cli.group import resolve_positional_name
 from imbue.mng_schedule.cli.group import schedule
 from imbue.mng_schedule.cli.options import ScheduleAddCliOptions
+from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.data_types import VerifyMode
@@ -122,6 +123,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
             pass_env=opts.pass_env,
             env_files=tuple(Path(f) for f in opts.env_files),
             uploads=parsed_uploads,
+            mng_install_mode=MngInstallMode(opts.mng_install_mode.upper()),
         )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
