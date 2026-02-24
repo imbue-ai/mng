@@ -13,33 +13,20 @@ PROFILES_DIRNAME: Final[str] = "profiles"
 ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
 
 
-class _TomlParseError(ValueError):
-    """TOML parsing failed.
-
-    Lightweight alternative to ConfigParseError for use in pre-readers,
-    which cannot import from errors.py (it pulls in click and primitives).
-    """
-
-
 # =============================================================================
 # Config File Discovery
 # =============================================================================
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file.
-
-    Raises FileNotFoundError if the file does not exist, or _TomlParseError
-    if the TOML content is malformed.
-    """
+def _load_toml(path: Path) -> dict[str, Any] | None:
+    """Load and parse a TOML file, returning None if the file is missing or malformed."""
     if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
+        return None
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise _TomlParseError(f"Failed to parse {path}: {e}") from e
+    except tomllib.TOMLDecodeError:
+        return None
 
 
 def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
@@ -183,9 +170,8 @@ def read_default_command(command_name: str) -> str:
 
 def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract default_subcommand entries from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (FileNotFoundError, _TomlParseError):
+    raw = _load_toml(path)
+    if raw is None:
         return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
@@ -217,9 +203,8 @@ def read_disabled_plugins() -> frozenset[str]:
 
 def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (FileNotFoundError, _TomlParseError):
+    raw = _load_toml(path)
+    if raw is None:
         return {}
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
@@ -253,9 +238,8 @@ def read_default_host_dir() -> Path:
     # Later values override earlier ones.
     host_dir: str | None = None
     for path in _resolve_config_file_paths():
-        try:
-            raw = _load_toml(path)
-        except (FileNotFoundError, _TomlParseError):
+        raw = _load_toml(path)
+        if raw is None:
             continue
         value = raw.get("default_host_dir")
         if value is not None:
