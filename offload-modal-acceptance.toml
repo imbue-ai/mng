@@ -1,6 +1,6 @@
 # offload configuration for running mngr acceptance tests on Modal
 [offload]
-max_parallel = 100
+max_parallel = 200
 test_timeout_secs = 60
 retry_count = 4
 stream_output = true
@@ -8,7 +8,7 @@ stream_output = true
 [provider]
 type = "default"
 prepare_command = "uv run @modal_sandbox.py prepare --cached libs/mngr/imbue/mngr/resources/Dockerfile"
-create_command = "uv run @modal_sandbox.py create {image_id}" #g Image Id gets injected, also --copy-dirs
+create_command = "uv run @modal_sandbox.py create {image_id}" #Image Id gets injected, also --copy-dirs
 exec_command = "uv run @modal_sandbox.py exec {sandbox_id} {command}"
 destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
 download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"

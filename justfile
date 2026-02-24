@@ -63,32 +63,7 @@ test-offload-acceptance:
     trap "rm -f current.tar.gz" EXIT
 
     # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal-acceptance.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
-
-# Run release tests on Modal via Offload
-test-offload-release:
-    #!/bin/bash
-    set -ueo pipefail
-    # If not set, default LAST_COMMIT_SHA to the current HEAD
-    export LAST_COMMIT_SHA=${LAST_COMMIT_SHA:-$(git rev-parse HEAD)}
-    tmpdir=$(mktemp -d)
-    trap "rm -rf $tmpdir" EXIT
-
-    ./scripts/make_tar_of_repo.sh $LAST_COMMIT_SHA $tmpdir
-    export OFFLOAD_PATCH_UUID=`uv run python -c"import uuid;print(uuid.uuid4())"`
-    mkdir -p /tmp/$OFFLOAD_PATCH_UUID
-    trap "rm -rf /tmp/$OFFLOAD_PATCH_UUID" EXIT
-
-    ./scripts/generate_patch_for_offload.sh $LAST_COMMIT_SHA > /tmp/$OFFLOAD_PATCH_UUID/patch
-    cp $tmpdir/current.tar.gz .
-    trap "rm -f current.tar.gz" EXIT
-
-    # Read Modal auth from ~/.modal.toml if env vars not already set
-    export MODAL_TOKEN_ID=${MODAL_TOKEN_ID:-$(grep -A2 '^\[imbue\]' ~/.modal.toml | grep token_id | cut -d'"' -f2)}
-    export MODAL_TOKEN_SECRET=${MODAL_TOKEN_SECRET:-$(grep -A3 '^\[imbue\]' ~/.modal.toml | grep token_secret | cut -d'"' -f2)}
-
-    # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal-release.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" --env "MODAL_TOKEN_ID=$MODAL_TOKEN_ID" --env "MODAL_TOKEN_SECRET=$MODAL_TOKEN_SECRET" || [[ $? -eq 2 ]]
+    offload -c offload-modal-acceptance.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" --env "MODAL_TOKEN_ID=$MODAL_TOKEN_ID" --env "MODAL_TOKEN_SECRET=$MODAL_TOKEN_SECRET" || [[ $? -eq 2 ]]
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
