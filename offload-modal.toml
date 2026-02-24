@@ -1,6 +1,6 @@
 # offload configuration for running mng tests on Modal
 [offload]
-max_parallel = 100
+max_parallel = 50
 test_timeout_secs = 60
 retry_count = 4
 stream_output = true
@@ -16,6 +16,7 @@ timeout_secs = 600
 
 [groups.all]
 type = "default"
+junit_format = "pytest"
 # Discover tests locally using pytest --collect-only, exclude acceptance and release tests
 discover_command = "uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
 # Run tests in the sandbox (source is baked into /app)
