@@ -23,7 +23,6 @@ from imbue.mng.cli.destroy import destroy
 from imbue.mng.cli.exec import exec_command
 from imbue.mng.cli.gc import gc
 from imbue.mng.cli.help_formatter import get_help_metadata
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.issue_reporting import handle_not_implemented_error
 from imbue.mng.cli.issue_reporting import handle_unexpected_error
 from imbue.mng.cli.limit import limit
@@ -40,7 +39,7 @@ from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
-from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
@@ -150,7 +149,8 @@ class AliasAwareGroup(DefaultCommandGroup):
 
         rows: list[tuple[str, str]] = []
         for subcommand, cmd in commands:
-            help_text = cmd.get_short_help_str(limit=limit)
+            meta = get_help_metadata(subcommand)
+            help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
             aliases = COMMAND_ALIASES.get(subcommand, [])
             if aliases:
@@ -392,17 +392,16 @@ def _update_create_help_with_provider_args() -> None:
     are registered and their help text is available.
     """
     provider_sections = get_all_provider_args_help_sections()
-    for command_name in ("create", "c"):
-        existing_metadata = get_help_metadata(command_name)
-        if existing_metadata is None:
-            continue
-        updated_metadata = existing_metadata.model_copy_update(
-            to_update(
-                existing_metadata.field_ref().additional_sections,
-                existing_metadata.additional_sections + provider_sections,
-            ),
-        )
-        register_help_metadata(command_name, updated_metadata)
+    existing_metadata = get_help_metadata("create")
+    if existing_metadata is None:
+        return
+    updated_metadata = existing_metadata.model_copy_update(
+        to_update(
+            existing_metadata.field_ref().additional_sections,
+            existing_metadata.additional_sections + provider_sections,
+        ),
+    )
+    updated_metadata.register()
 
 
 _update_create_help_with_provider_args()

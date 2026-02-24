@@ -14,7 +14,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.config.data_types import OutputOptions
@@ -157,40 +156,6 @@ def _output_result(agent_name: str, output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def provision(ctx: click.Context, **kwargs: Any) -> None:
-    """Re-run provisioning on an existing agent. [experimental]
-
-    This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
-    user commands, env vars) on an agent that has already been created. Useful for
-    syncing config, auth, and installing additional packages. Most provisioning
-    steps are specified via plugins, but custom steps can also be defined using the
-    options below.
-
-    The agent's existing environment variables are preserved. New env vars from
-    --env, --env-file, and --pass-env override existing ones with the same key.
-
-    By default, if the agent is running, it is stopped before provisioning and
-    restarted after. This ensures config and env var changes take effect. Use
-    --no-restart to skip the restart for non-disruptive changes like installing
-    packages.
-
-    Provisioning is done per agent, but changes are visible to other agents on the
-    same host. Be careful to avoid conflicts when provisioning multiple agents on
-    the same host.
-
-    \b
-    Alias: prov
-
-    \b
-    Examples:
-
-      mng provision my-agent
-
-      mng provision my-agent --user-command "pip install pandas" --no-restart
-
-      mng provision my-agent --env "NEW_VAR=value"
-
-      mng provision my-agent --upload-file ./config.json:/app/config.json
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="provision",
@@ -266,13 +231,11 @@ def provision(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PROVISION_HELP_METADATA = CommandHelpMetadata(
-    name="mng-provision",
+CommandHelpMetadata(
+    key="provision",
     one_line_description="Re-run provisioning on an existing agent [experimental]",
     synopsis="mng [provision|prov] [AGENT] [--agent <AGENT>] [--user-command <CMD>] [--upload-file <LOCAL:REMOTE>] [--env <KEY=VALUE>]",
-    description="""Re-run provisioning on an existing agent.
-
-This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
+    description="""This re-runs the provisioning steps (plugin lifecycle hooks, file transfers,
 user commands, env vars) on an agent that has already been created. Useful for
 syncing configuration, authentication, and installing additional packages. Most
 provisioning steps are specified via plugins, but custom steps can also be
@@ -306,10 +269,6 @@ the same host.""",
         ("connect", "Connect to an agent"),
         ("list", "List existing agents"),
     ),
-)
-
-register_help_metadata("provision", _PROVISION_HELP_METADATA)
-for alias in _PROVISION_HELP_METADATA.aliases:
-    register_help_metadata(alias, _PROVISION_HELP_METADATA)
+).register()
 
 add_pager_help_option(provision)

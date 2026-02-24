@@ -9,12 +9,20 @@
 mng [snapshot|snap] [create|list|destroy] [AGENTS...] [OPTIONS]
 ```
 
+Create, list, and destroy host snapshots [experimental].
 
-Create, list, and destroy host snapshots. [experimental]
+Snapshots capture the complete filesystem state of a host, allowing it to be
+restored later. Because the snapshot is at the host level, the state of all
+agents on the host is saved.
 
-Snapshots capture the complete state of an agent's host, allowing it
-to be restored later. Because the snapshot is at the host level, the
-state of all agents on the host is saved.
+Positional arguments to 'create' can be agent names/IDs or host names/IDs.
+Each identifier is automatically resolved: if it matches a known agent, that
+agent's host is used; otherwise it is treated as a host identifier.
+
+When no subcommand is given, defaults to 'create'. For example,
+``mng snapshot my-agent`` is equivalent to ``mng snapshot create my-agent``.
+
+Useful for checkpointing work, creating restore points, or managing disk space.
 
 Alias: snap
 
@@ -23,7 +31,6 @@ Alias: snap
 ```text
 mng snapshot [OPTIONS] COMMAND [ARGS]...
 ```
-
 **Options:**
 
 ## Common
@@ -42,16 +49,11 @@ mng snapshot [OPTIONS] COMMAND [ARGS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## mng snapshot create
 
-Create a snapshot of agent host(s). [experimental]
+Create a snapshot of agent host(s) [experimental].
 
 Positional arguments can be agent names/IDs or host names/IDs. Each
 identifier is automatically resolved: if it matches a known agent, that
@@ -61,24 +63,11 @@ Multiple identifiers that resolve to the same host are deduplicated.
 Supports custom format templates via --format. Available fields:
 snapshot_id, host_id, provider, agent_names.
 
-Examples:
-
-  mng snapshot create my-agent
-
-  mng snapshot create my-agent --name before-refactor
-
-  mng snapshot create --all --dry-run
-
-  mng snapshot create agent1 agent2 --on-error continue
-
-  mng snapshot create my-agent --format '{snapshot_id}'
-
 **Usage:**
 
 ```text
 mng snapshot create [OPTIONS] [IDENTIFIERS]...
 ```
-
 **Options:**
 
 ## Target Selection
@@ -126,10 +115,44 @@ mng snapshot create [OPTIONS] [IDENTIFIERS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+
+## Examples
+
+**Snapshot an agent's host**
+
+```bash
+$ mng snapshot create my-agent
+```
+
+**Create a named snapshot**
+
+```bash
+$ mng snapshot create my-agent --name before-refactor
+```
+
+**Snapshot all running agents (dry run)**
+
+```bash
+$ mng snapshot create --all --dry-run
+```
+
+**Snapshot multiple agents**
+
+```bash
+$ mng snapshot create agent1 agent2 --on-error continue
+```
+
+**Custom format template output**
+
+```bash
+$ mng snapshot create my-agent --format '{snapshot_id}'
+```
 
 ## mng snapshot list
 
-List snapshots for agent host(s). [experimental]
+List snapshots for agent host(s) [experimental].
 
 Shows snapshot ID, name, creation time, size, and host for each snapshot.
 
@@ -140,24 +163,11 @@ agent's host is used; otherwise it is treated as a host identifier.
 Supports custom format templates via --format. Available fields:
 id, name, created_at, size, size_bytes, host_id.
 
-Examples:
-
-  mng snapshot list my-agent
-
-  mng snapshot list --all
-
-  mng snapshot list my-agent --limit 5
-
-  mng snapshot list my-agent --format json
-
-  mng snapshot list my-agent --format '{name}\t{size}\t{host_id}'
-
 **Usage:**
 
 ```text
 mng snapshot list [OPTIONS] [IDENTIFIERS]...
 ```
-
 **Options:**
 
 ## Target Selection
@@ -194,10 +204,44 @@ mng snapshot list [OPTIONS] [IDENTIFIERS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+
+## Examples
+
+**List snapshots for an agent**
+
+```bash
+$ mng snapshot list my-agent
+```
+
+**List snapshots for all running agents**
+
+```bash
+$ mng snapshot list --all
+```
+
+**Limit number of results**
+
+```bash
+$ mng snapshot list my-agent --limit 5
+```
+
+**Output as JSON**
+
+```bash
+$ mng snapshot list my-agent --format json
+```
+
+**Custom format template**
+
+```bash
+$ mng snapshot list my-agent --format '{name}\t{size}\t{host_id}'
+```
 
 ## mng snapshot destroy
 
-Destroy snapshots for agent host(s). [experimental]
+Destroy snapshots for agent host(s) [experimental].
 
 Requires either --snapshot (to delete specific snapshots) or --all-snapshots
 (to delete all snapshots for the resolved hosts). A confirmation prompt is
@@ -206,20 +250,11 @@ shown unless --force is specified.
 Supports custom format templates via --format. Available fields:
 snapshot_id, host_id, provider.
 
-Examples:
-
-  mng snapshot destroy my-agent --snapshot snap-abc123 --force
-
-  mng snapshot destroy my-agent --all-snapshots --force
-
-  mng snapshot destroy my-agent --all-snapshots --dry-run
-
 **Usage:**
 
 ```text
 mng snapshot destroy [OPTIONS] [AGENTS]...
 ```
-
 **Options:**
 
 ## Target Selection
@@ -256,6 +291,28 @@ mng snapshot destroy [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
+| `-h`, `--help` | boolean | Show this message and exit. | `False` |
+
+
+## Examples
+
+**Destroy a specific snapshot**
+
+```bash
+$ mng snapshot destroy my-agent --snapshot snap-abc123 --force
+```
+
+**Destroy all snapshots for an agent**
+
+```bash
+$ mng snapshot destroy my-agent --all-snapshots --force
+```
+
+**Preview what would be destroyed**
+
+```bash
+$ mng snapshot destroy my-agent --all-snapshots --dry-run
+```
 
 ## See Also
 
