@@ -134,6 +134,42 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
     return files
 
 
+def _build_settings_json_content(sync_local: bool) -> str:
+    """Build ~/.claude/settings.json content for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always forces skipDangerousModePermissionPrompt=True.
+    """
+    local_path = Path.home() / ".claude" / "settings.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+    else:
+        data = _generate_claude_home_settings()
+    data["skipDangerousModePermissionPrompt"] = True
+    return json.dumps(data, indent=2) + "\n"
+
+
+def _build_claude_json_for_remote(sync_local: bool, version: str | None) -> dict[str, Any]:
+    """Build ~/.claude.json data for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always sets dialog-suppression fields
+    (bypassPermissionsModeAccepted and effortCalloutDismissed) to prevent
+    startup dialogs from intercepting automated input via tmux send-keys.
+
+    Returns the dict so callers can do further modifications (e.g. keychain merge)
+    before serializing.
+    """
+    local_path = Path.home() / ".claude.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+    else:
+        data = _generate_claude_json(version)
+    data["bypassPermissionsModeAccepted"] = True
+    data["effortCalloutDismissed"] = True
+    return data
+
+
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
     """Check if claude is installed on the host."""
     result = host.execute_command("command -v claude", timeout_seconds=10.0)
@@ -739,15 +775,10 @@ class ClaudeAgent(BaseAgent):
             if config.sync_home_settings or config.sync_claude_json or config.sync_claude_credentials:
                 _warn_about_version_consistency(config, mng_ctx.concurrency_group)
 
-            # Always ship ~/.claude/settings.json. Use local file (with skipDangerousModePermissionPrompt
-            # forced to True) when syncing is enabled and the file exists, otherwise use generated defaults.
-            local_settings_path = Path.home() / ".claude" / "settings.json"
-            if config.sync_home_settings and local_settings_path.exists():
-                settings_data: dict[str, Any] = json.loads(local_settings_path.read_text())
-            else:
-                settings_data = _generate_claude_home_settings()
-            settings_data["skipDangerousModePermissionPrompt"] = True
-            host.write_text_file(Path(".claude/settings.json"), json.dumps(settings_data, indent=2) + "\n")
+            # Always ship ~/.claude/settings.json
+            host.write_text_file(
+                Path(".claude/settings.json"), _build_settings_json_content(config.sync_home_settings)
+            )
 
             # Transfer other home dir files (skills, agents, commands) if syncing is enabled
             if config.sync_home_settings:
@@ -762,24 +793,14 @@ class ClaudeAgent(BaseAgent):
                     remote_path = Path(str(dest_path).removeprefix("~/"))
                     host.write_text_file(remote_path, source_path.read_text())
 
-            # Always ship ~/.claude.json. Use local file (with dialog-suppression fields)
-            # when syncing is enabled and the file exists, otherwise use generated defaults.
-            claude_json_path = Path.home() / ".claude.json"
-            if config.sync_claude_json and claude_json_path.exists():
-                logger.info("Transferring ~/.claude.json to remote host...")
-                # Set global fields that prevent startup dialogs from intercepting
-                # automated input via tmux send-keys:
-                claude_json_data: dict[str, Any] = json.loads(claude_json_path.read_text())
-                claude_json_data["bypassPermissionsModeAccepted"] = True
-                claude_json_data["effortCalloutDismissed"] = True
-                # If the local file lacks primaryApiKey, try the macOS keychain
-                if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-                    keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
-                    if keychain_api_key is not None:
-                        logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
-                        claude_json_data["primaryApiKey"] = keychain_api_key
-            else:
-                claude_json_data = _generate_claude_json(config.version)
+            # Always ship ~/.claude.json
+            claude_json_data = _build_claude_json_for_remote(config.sync_claude_json, config.version)
+            # If the local file lacks primaryApiKey, try the macOS keychain
+            if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
+                keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
+                if keychain_api_key is not None:
+                    logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
+                    claude_json_data["primaryApiKey"] = keychain_api_key
             # FIXME: this particular write must be atomic!
             #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
             #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
@@ -877,26 +898,12 @@ def get_files_for_deploy(
     """
     files: dict[Path, Path | str] = {}
 
-    user_home = Path.home()
-    local_claude_dir = user_home / ".claude"
+    local_claude_dir = Path.home() / ".claude"
 
-    # Always ship ~/.claude/settings.json. Use local file (with skipDangerousModePermissionPrompt
-    # forced to True) when including user settings and the file exists, otherwise use generated defaults.
-    local_settings_path = local_claude_dir / "settings.json"
-    if include_user_settings and local_settings_path.exists():
-        settings_data: dict[str, Any] = json.loads(local_settings_path.read_text())
-    else:
-        settings_data = _generate_claude_home_settings()
-    settings_data["skipDangerousModePermissionPrompt"] = True
-    files[Path("~/.claude/settings.json")] = json.dumps(settings_data, indent=2) + "\n"
-
-    # Always ship ~/.claude.json. Use local file when including user settings
-    # and the file exists, otherwise use generated defaults.
-    claude_json_path = user_home / ".claude.json"
-    if include_user_settings and claude_json_path.exists():
-        files[Path("~/.claude.json")] = claude_json_path
-    else:
-        files[Path("~/.claude.json")] = json.dumps(_generate_claude_json(None), indent=2) + "\n"
+    # Always ship ~/.claude/settings.json and ~/.claude.json
+    files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
+    claude_json_data = _build_claude_json_for_remote(include_user_settings, None)
+    files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
         # Skills, agents, commands (skip settings.json, handled above)

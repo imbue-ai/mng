@@ -1604,7 +1604,7 @@ def test_get_files_for_deploy_returns_generated_defaults_when_no_claude_files(
 
 
 def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
-    """get_files_for_deploy includes ~/.claude.json when it exists."""
+    """get_files_for_deploy includes ~/.claude.json with dialog-suppression fields when it exists."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"test": true}')
 
@@ -1613,7 +1613,12 @@ def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp
     )
 
     assert Path("~/.claude.json") in result
-    assert result[Path("~/.claude.json")] == claude_json
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data["test"] is True
+    assert claude_json_data["bypassPermissionsModeAccepted"] is True
+    assert claude_json_data["effortCalloutDismissed"] is True
 
 
 def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:

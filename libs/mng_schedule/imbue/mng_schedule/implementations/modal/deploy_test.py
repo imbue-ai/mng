@@ -1,5 +1,6 @@
 """Unit tests for deploy.py and verification.py pure functions."""
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -191,10 +192,13 @@ def test_stage_deploy_files_creates_home_directory_structure(
 
     staging_dir = run_staging(None)
 
-    # Files should be staged under home/ with their natural paths
+    # Files should be staged under home/ with their natural paths,
+    # and claude.json should have dialog-suppression fields injected
     staged_file = staging_dir / "home" / ".claude.json"
     assert staged_file.exists()
-    assert staged_file.read_text() == '{"staged": true}'
+    staged_data = json.loads(staged_file.read_text())
+    assert staged_data["staged"] is True
+    assert staged_data["bypassPermissionsModeAccepted"] is True
 
 
 def test_stage_deploy_files_stages_multiple_home_files(
@@ -210,10 +214,13 @@ def test_stage_deploy_files_stages_multiple_home_files(
 
     staging_dir = run_staging(None)
 
-    # Both files should be staged under home/ with their natural paths
+    # Both files should be staged under home/ with their natural paths,
+    # and claude.json should have dialog-suppression fields injected
     staged_claude = staging_dir / "home" / ".claude.json"
     assert staged_claude.exists()
-    assert staged_claude.read_text() == '{"roundtrip": true}'
+    staged_claude_data = json.loads(staged_claude.read_text())
+    assert staged_claude_data["roundtrip"] is True
+    assert staged_claude_data["bypassPermissionsModeAccepted"] is True
     staged_config = staging_dir / "home" / ".mng" / "config.toml"
     assert staged_config.exists()
     assert staged_config.read_text() == "[test]\nroundtrip = true\n"
