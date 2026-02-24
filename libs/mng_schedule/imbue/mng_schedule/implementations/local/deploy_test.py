@@ -207,7 +207,7 @@ def test_deploy_local_schedule_creates_files_and_record(
     assert "0 2 * * *" in captured_crontab[0]
 
     # Verify wrapper script was created
-    wrapper_script = tmp_path / ".mng" / "schedule" / "test-trigger" / "run.sh"
+    wrapper_script = tmp_path / ".mng" / "schedule" / "triggers" / "test-trigger" / "run.sh"
     assert wrapper_script.exists()
     assert wrapper_script.stat().st_mode & 0o100  # executable
 
@@ -237,12 +237,12 @@ def test_deploy_local_schedule_with_env_vars(
     )
 
     # Verify env file was created
-    env_file = tmp_path / ".mng" / "schedule" / "test-trigger" / ".env"
+    env_file = tmp_path / ".mng" / "schedule" / "triggers" / "test-trigger" / ".env"
     assert env_file.exists()
     assert "MY_API_KEY=sk-test-123" in env_file.read_text()
 
     # Verify wrapper script sources the env file
-    wrapper = tmp_path / ".mng" / "schedule" / "test-trigger" / "run.sh"
+    wrapper = tmp_path / ".mng" / "schedule" / "triggers" / "test-trigger" / "run.sh"
     assert "source" in wrapper.read_text()
 
 

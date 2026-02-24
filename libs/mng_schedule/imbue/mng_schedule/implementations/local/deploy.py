@@ -33,6 +33,7 @@ from imbue.mng_schedule.implementations.local.crontab import read_system_crontab
 from imbue.mng_schedule.implementations.local.crontab import write_system_crontab
 
 _SCHEDULE_DIR_NAME: Final[str] = "schedule"
+_TRIGGERS_DIR_NAME: Final[str] = "triggers"
 _RECORDS_DIR_NAME: Final[str] = "records"
 
 
@@ -46,7 +47,7 @@ def _get_schedule_base_dir(mng_ctx: MngContext) -> Path:
 
 def _get_trigger_dir(mng_ctx: MngContext, trigger_name: str) -> Path:
     """Get the directory for a specific trigger's runtime files."""
-    return _get_schedule_base_dir(mng_ctx) / trigger_name
+    return _get_schedule_base_dir(mng_ctx) / _TRIGGERS_DIR_NAME / trigger_name
 
 
 def _get_records_dir(mng_ctx: MngContext) -> Path:
