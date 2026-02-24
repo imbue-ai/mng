@@ -929,3 +929,12 @@ def get_files_for_deploy(
                     files[Path(str(relative_path))] = file_path
 
     return files
+
+
+@hookimpl
+def modify_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: dict[str, str],
+) -> None:
+    """Set IS_SANDBOX=1 for Claude agent deployments."""
+    env_vars["IS_SANDBOX"] = "1"

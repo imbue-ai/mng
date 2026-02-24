@@ -15,6 +15,7 @@ from typing import Final
 from typing import assert_never
 
 import modal.exception
+from dotenv import dotenv_values
 from loguru import logger
 from pydantic import ValidationError
 
@@ -459,14 +460,28 @@ def stage_deploy_files(
         logger.info("Staged {} user-specified uploads", len(uploads))
 
     # Consolidate environment variables from all sources into a single .env file.
-    # Precedence (lowest to highest): --env-file < --pass-env
+    # Precedence (lowest to highest): --env-file < --pass-env < plugin env vars
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
-    _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
+    _stage_consolidated_env(secrets_dir, mng_ctx=mng_ctx, pass_env=pass_env, env_files=env_files)
+
+
+@pure
+def _format_env_line(key: str, value: str) -> str:
+    """Format a key-value pair as a dotenv line with double-quoted value.
+
+    Double-quoting preserves values that would otherwise be misinterpreted
+    by dotenv parsers (e.g. values containing ' # ' are treated as inline
+    comments when unquoted). Backslashes and double quotes within the value
+    are escaped so they survive a round-trip through dotenv_values().
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{key}="{escaped}"'
 
 
 def _stage_consolidated_env(
     secrets_dir: Path,
+    mng_ctx: MngContext,
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
 ) -> None:
@@ -475,28 +490,42 @@ def _stage_consolidated_env(
     Sources are merged in order of increasing precedence:
     1. User-specified --env-file entries (in order)
     2. User-specified --pass-env variables from the current process environment
+    3. Plugin mutations via the modify_env_vars_for_deploy hook
     """
-    env_lines: list[str] = []
+    env_dict: dict[str, str] = {}
 
-    # 1. User-specified env files
+    # 1. User-specified env files (parsed with dotenv for correct handling
+    # of quoting, comments, 'export' prefix, etc.)
     for env_file_path in env_files:
-        env_lines.extend(env_file_path.read_text().splitlines())
+        parsed = dotenv_values(env_file_path)
+        for key, value in parsed.items():
+            if value is not None:
+                env_dict[key] = value
         logger.info("Including env file {}", env_file_path)
 
-    # 2. Pass-through env vars from current process
+    # 2. Pass-through env vars from current process (highest user precedence,
+    # overrides env file values)
     for var_name in pass_env:
         value = os.environ.get(var_name)
         if value is not None:
-            env_lines.append(f"{var_name}={value}")
+            env_dict[var_name] = value
             logger.debug("Passing through env var {}", var_name)
         else:
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
 
-    if env_lines:
-        # FIXME: should really use a library for all of this stuff, then will get the quoting right. And I think we're already using a dotenv library in here anyway...
-        (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
-        var_count = sum(1 for line in env_lines if line.strip() and not line.strip().startswith("#") and "=" in line)
-        logger.info("Staged consolidated env file with {} variable entries", var_count)
+    # 3. Let plugins mutate the env dict (highest precedence)
+    pre_plugin_keys = set(env_dict)
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_dict)
+    post_plugin_keys = set(env_dict)
+    added = post_plugin_keys - pre_plugin_keys
+    removed = pre_plugin_keys - post_plugin_keys
+    if added or removed:
+        logger.info("Plugins modified env vars (added: {}, removed: {})", len(added), len(removed))
+
+    if env_dict:
+        final_lines = [_format_env_line(key, value) for key, value in env_dict.items()]
+        (secrets_dir / ".env").write_text("\n".join(final_lines) + "\n")
+        logger.info("Staged consolidated env file with {} variable entries", len(env_dict))
 
 
 @pure
