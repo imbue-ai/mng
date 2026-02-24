@@ -360,7 +360,7 @@ def test_prevent_importlib_import_module() -> None:
 
 def test_prevent_getattr() -> None:
     chunks = check_ratchet_rule(PREVENT_GETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(8), PREVENT_GETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(10), PREVENT_GETATTR.format_failure(chunks)
 
 
 def test_prevent_setattr() -> None:

@@ -23,7 +23,7 @@ from imbue.changelings.deploy.deploy import deploy_changeling
 from imbue.changelings.deploy.deploy import get_modal_app_name
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CronSchedule
-from imbue.mng.conftest import ModalSubprocessTestEnv
+from imbue.mng.utils.testing import ModalSubprocessTestEnv
 
 
 @pytest.mark.release
