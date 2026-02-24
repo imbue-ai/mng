@@ -216,10 +216,10 @@ def _get_mng_schedule_source_dir() -> Path:
     plugin_file = Path(__file__).resolve()
     # __file__ is at: .../libs/mng_schedule/imbue/mng_schedule/implementations/modal/deploy.py
     # We need: .../libs/mng_schedule/
-    candidate = plugin_file.parent.parent.parent.parent
+    candidate = plugin_file.parent.parent.parent.parent.parent
     if (candidate / "pyproject.toml").exists():
         return candidate
-    raise ScheduleDeployError(f"Could not find mng-schedule source directory (tried {candidate})") from None
+    raise ScheduleDeployError(f"Could not find mng-schedule source directory (tried {candidate})")
 
 
 @pure

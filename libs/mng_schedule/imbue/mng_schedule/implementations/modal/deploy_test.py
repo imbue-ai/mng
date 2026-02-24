@@ -625,3 +625,30 @@ def test_detect_mng_install_mode_returns_valid_mode() -> None:
     """detect_mng_install_mode should return either PACKAGE or EDITABLE."""
     result = detect_mng_install_mode()
     assert result in (MngInstallMode.PACKAGE, MngInstallMode.EDITABLE)
+
+
+def test_stage_deploy_files_stages_mng_source_for_editable(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stage_deploy_files with EDITABLE mode should stage the mng-schedule source tree."""
+    monkeypatch.chdir(tmp_path)
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    stage_deploy_files(
+        staging_dir,
+        mng_ctx,
+        repo_root,
+        mng_install_mode=MngInstallMode.EDITABLE,
+    )
+
+    staged_src = staging_dir / "mng_schedule_src"
+    assert staged_src.exists()
+    assert (staged_src / "pyproject.toml").exists()
+    # Build artifacts should be excluded
+    assert not (staged_src / "__pycache__").exists()

@@ -7,6 +7,8 @@
 #
 # IMPORTANT: This file must NOT import from imbue.* packages that depend on
 # the mng framework. It runs standalone on Modal via `modal deploy`.
+# Imports from imbue.mng_schedule.implementations.modal.* are allowed
+# since they are part of the same package and have no mng dependencies.
 #
 # Unlike the changelings cron_runner, this version bakes the entire codebase
 # (including mng tooling) into the Docker image at deploy time via the
@@ -41,6 +43,8 @@ from pathlib import Path
 from typing import Any
 
 import modal
+
+from imbue.mng_schedule.implementations.modal.env_file import load_env_file
 
 # --- Deploy-time configuration ---
 # At deploy time (modal.is_local() == True), we read configuration from a
@@ -152,30 +156,6 @@ def _run_and_stream(
     return process.returncode
 
 
-def _load_env_file(env_file_path: Path) -> None:
-    """Load environment variables from a .env file into os.environ.
-
-    Lines starting with '#' are treated as comments. Empty lines are skipped.
-    Lines without '=' are skipped. The 'export ' prefix is stripped if present
-    (to support shell-compatible env files). Values are not shell-unquoted
-    (quotes are kept as-is to match dotenv conventions for the subprocess
-    environment).
-    """
-    if not env_file_path.exists():
-        return
-    for line in env_file_path.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        # Strip optional 'export ' prefix for shell-compatible env files
-        if stripped.startswith("export "):
-            stripped = stripped[len("export ") :]
-        if "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        os.environ[key.strip()] = value.strip()
-
-
 @app.function(
     schedule=modal.Cron(_CRON_SCHEDULE, timezone=_CRON_TIMEZONE),
     timeout=3600,
@@ -203,7 +183,7 @@ def run_scheduled_trigger() -> None:
     secrets_env = Path("/staging/secrets/.env")
     if secrets_env.exists():
         print("Loading environment variables from secrets env file...")
-        _load_env_file(secrets_env)
+        load_env_file(secrets_env)
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")
