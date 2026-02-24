@@ -43,11 +43,11 @@ Plugins implement these to register new capabilities with mng. They are called o
 
 ### Deployment hooks
 
-Called during `mng schedule add` to collect files for baking into scheduled deployment images:
+Called to collect files for baking into deployed images (ex: if you're scheduled a `mng` command to run at a later point in time or creating a deployed service or website that should be able to call `mng`). Similar to provisioning, but for environments that *will* do provisioning:
 
 | Hook                         | Description                                                                                                    |
 |------------------------------|----------------------------------------------------------------------------------------------------------------|
-| `get_files_for_deploy`       | Return files to include in scheduled deployment images (e.g., config files, settings). Paths starting with `~` go to the user's home directory; relative paths go to the project working directory. [experimental] |
+| `get_files_for_deploy`       | Return files to include in deployment images (e.g., config files, settings). Paths starting with `~` go to the user's home directory; relative paths go to the project working directory. [experimental] |
 
 ### Program lifecycle hooks
 

@@ -49,6 +49,15 @@ from imbue.mng.utils.polling import poll_until
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
 
+# Paths within ~/.claude/ to sync to remote hosts for Claude Code operation.
+# Used by both get_files_for_deploy() and provision() to ensure consistency.
+_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
+    "settings.json",
+    "skills",
+    "agents",
+    "commands",
+)
+
 
 class ClaudeAgentConfig(AgentTypeConfig):
     """Config for the claude agent type."""
@@ -86,12 +95,40 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
+    # FIXME: when the version is pinned, we should, during provisioning, ensure that the auto-updates are disabled. This means doing the following:
+    #  - for local, check that "DISABLE_AUTOUPDATER=1" or "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" are set in the local claude settings (~/.claude/settings.json) and warn if not
+    #  - for remote, just automatically add these env vars to the agent environment:
+    #       export DISABLE_AUTOUPDATER=1 && export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 && export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
+    #    this should be done by adding a new callback ("get_provision_env_vars") for agents (like get_provision_file_transfers) that allows us to define additional environment variables
+    #    that function ("get_provision_env_vars") should be defined on our claude agent below, and should be called from Host::_collect_agent_env_vars in order to collect them all
     version: str | None = Field(
         default=None,
         description="Pin the Claude Code version to install (e.g., '2.1.50'). "
         "When set, installation uses this specific version and provisioning verifies the installed version matches. "
         "If None, uses the latest available version.",
     )
+
+
+def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
+    """Collect files from ~/.claude/ directory items for deployment.
+
+    Returns dict mapping deployment destination paths (starting with "~/.claude/")
+    to local source paths. Iterates over _CLAUDE_HOME_SYNC_ITEMS to collect files
+    from both regular files and directories (recursively).
+    """
+    files: dict[Path, Path] = {}
+    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
+        item_path = claude_dir / item_name
+        if not item_path.exists():
+            continue
+        if item_path.is_dir():
+            for file_path in item_path.rglob("*"):
+                if file_path.is_file():
+                    relative = file_path.relative_to(claude_dir)
+                    files[Path(f"~/.claude/{relative}")] = file_path
+        else:
+            files[Path(f"~/.claude/{item_name}")] = item_path
+    return files
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -701,25 +738,12 @@ class ClaudeAgent(BaseAgent):
 
             if config.sync_home_settings:
                 logger.info("Transferring claude home directory settings to remote host...")
-                # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
                 local_claude_dir = Path.home() / ".claude"
-                for local_config_path in [
-                    local_claude_dir / "settings.json",
-                    local_claude_dir / "skills",
-                    local_claude_dir / "agents",
-                    local_claude_dir / "commands",
-                ]:
-                    if local_config_path.exists():
-                        if local_config_path.is_dir():
-                            for file_path in local_config_path.rglob("*"):
-                                if file_path.is_file():
-                                    relative_path = file_path.relative_to(local_claude_dir)
-                                    remote_path = Path(".claude") / relative_path
-                                    host.write_text_file(remote_path, file_path.read_text())
-                        else:
-                            relative_path = local_config_path.relative_to(local_claude_dir)
-                            remote_path = Path(".claude") / relative_path
-                            host.write_text_file(remote_path, local_config_path.read_text())
+                for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
+                    # dest_path is like Path("~/.claude/settings.json"); strip the ~/ prefix
+                    # to get a path relative to the user's home directory on the remote host
+                    remote_path = Path(str(dest_path).removeprefix("~/"))
+                    host.write_text_file(remote_path, source_path.read_text())
 
             if config.sync_claude_json:
                 claude_json_path = Path.home() / ".claude.json"
@@ -791,19 +815,30 @@ def get_files_for_deploy(
     include_project_settings: bool,
     repo_root: Path,
 ) -> dict[Path, Path | str]:
-    """Register claude-specific files for scheduled deployments."""
+    """Register claude-specific files for scheduled deployments.
+
+    Includes the same set of home directory files that provision() transfers
+    to remote hosts: settings.json, skills/, agents/, commands/ (via
+    _CLAUDE_HOME_SYNC_ITEMS), plus ~/.claude.json and credentials.
+    """
     files: dict[Path, Path | str] = {}
 
     if include_user_settings:
         user_home = Path.home()
+        local_claude_dir = user_home / ".claude"
 
+        # ~/.claude.json (global Claude config including API keys)
         claude_json = user_home / ".claude.json"
         if claude_json.exists():
             files[Path("~/.claude.json")] = claude_json
 
-        claude_settings = user_home / ".claude" / "settings.json"
-        if claude_settings.exists():
-            files[Path("~/.claude/settings.json")] = claude_settings
+        # Settings, skills, agents, commands (same items as provision())
+        files.update(_collect_claude_home_dir_files(local_claude_dir))
+
+        # ~/.claude/.credentials.json (OAuth tokens)
+        credentials = local_claude_dir / ".credentials.json"
+        if credentials.exists():
+            files[Path("~/.claude/.credentials.json")] = credentials
 
     if include_project_settings:
         # Include unversioned project-specific claude settings (e.g.

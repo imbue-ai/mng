@@ -1621,7 +1621,7 @@ def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext,
     assert result[Path("~/.claude/settings.json")] == settings
 
 
-def test_get_files_for_deploy_includes_both_files(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+def test_get_files_for_deploy_includes_claude_json_and_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
     """get_files_for_deploy includes both claude.json and settings.json when both exist."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"test": true}')
@@ -1636,7 +1636,6 @@ def test_get_files_for_deploy_includes_both_files(temp_mng_ctx: MngContext, tmp_
         mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
     )
 
-    assert len(result) == 2
     assert Path("~/.claude.json") in result
     assert Path("~/.claude/settings.json") in result
 
@@ -1689,6 +1688,69 @@ def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
     )
 
     assert result == {}
+
+
+def test_get_files_for_deploy_includes_skills_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/skills/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    skills_dir = claude_dir / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("# My Skill")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/skills/my-skill/SKILL.md") in result
+    assert result[Path("~/.claude/skills/my-skill/SKILL.md")] == skill_file
+
+
+def test_get_files_for_deploy_includes_commands_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/commands/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    commands_dir = claude_dir / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    cmd_file = commands_dir / "my-command.md"
+    cmd_file.write_text("# Command")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/commands/my-command.md") in result
+    assert result[Path("~/.claude/commands/my-command.md")] == cmd_file
+
+
+def test_get_files_for_deploy_includes_agents_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/agents/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    agents_dir = claude_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    agent_file = agents_dir / "my-agent.json"
+    agent_file.write_text('{"agent": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/agents/my-agent.json") in result
+    assert result[Path("~/.claude/agents/my-agent.json")] == agent_file
+
+
+def test_get_files_for_deploy_includes_credentials(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude/.credentials.json when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    credentials = claude_dir / ".credentials.json"
+    credentials.write_text('{"oauth_token": "test"}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/.credentials.json") in result
+    assert result[Path("~/.claude/.credentials.json")] == credentials
 
 
 # =============================================================================

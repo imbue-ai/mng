@@ -5,14 +5,10 @@
 # env vars, building the image). The runtime function runs the configured mng
 # command.
 #
-# IMPORTANT: This file must NOT import from imbue.* packages that depend on
-# the mng framework. It runs standalone on Modal via `modal deploy`.
-# Imports from imbue.mng_schedule.implementations.modal.* are allowed
-# since they are part of the same package and have no mng dependencies.
-#
-# Unlike the changelings cron_runner, this version bakes the entire codebase
-# (including mng tooling) into the Docker image at deploy time via the
-# --git-image-hash approach. No runtime repo cloning is needed.
+# IMPORTANT: This file must NOT import from imbue.* or any other 3rd-party packages at the top level
+# Instead, those imports should be inlined into run_scheduled_trigger
+# This is an exception to our usual style of keeping imports at the top level, but it's necessary to ensure that the
+# module runs correctly on modal (without requiring additional packaging commands from modal, which are slower)
 #
 # The image is built from the project's Dockerfile (typically .mng/Dockerfile)
 # which installs system deps, uv, claude code, extracts the repo tarball, and
@@ -51,8 +47,6 @@ from pathlib import Path
 from typing import Any
 
 import modal
-
-from imbue.mng_schedule.implementations.modal.env_file import load_env_file
 
 # --- Deploy-time configuration ---
 # At deploy time (modal.is_local() == True), we read configuration from a
@@ -198,6 +192,8 @@ def run_scheduled_trigger() -> None:
     Deploy files (config, settings, etc.) are already baked into $HOME and
     WORKDIR during the image build via dockerfile_commands.
     """
+    from imbue.mng_schedule.implementations.modal.env_file import load_env_file
+
     trigger = _deploy_config["trigger"]
 
     if not trigger.get("is_enabled", True):
