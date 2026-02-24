@@ -236,13 +236,13 @@ def test_get_user_config_path_returns_correct_path() -> None:
     assert path == profile_dir / "settings.toml"
 
 
-def testget_project_config_name_returns_correct_path() -> None:
+def test_get_project_config_name_returns_correct_path() -> None:
     """get_project_config_name should return correct relative path."""
     path = get_project_config_name("mng")
     assert path == Path(".mng") / "settings.toml"
 
 
-def testget_local_config_name_returns_correct_path() -> None:
+def test_get_local_config_name_returns_correct_path() -> None:
     """get_local_config_name should return correct relative path."""
     path = get_local_config_name("mng")
     assert path == Path(".mng") / "settings.local.toml"
