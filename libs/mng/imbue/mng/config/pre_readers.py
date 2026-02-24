@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any
 from typing import Final
 
+from loguru import logger
+
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ProcessError
+from imbue.mng.utils.git_utils import find_git_worktree_root
 
 # Constants duplicated from data_types.py to avoid importing heavy dependencies
 # (data_types pulls in pydantic, pluggy, and the full config model hierarchy).
@@ -25,7 +27,8 @@ def _load_toml(path: Path) -> dict[str, Any] | None:
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
-    except tomllib.TOMLDecodeError:
+    except tomllib.TOMLDecodeError as e:
+        logger.trace("Skipped malformed config file: {} ({})", path, e)
         return None
 
 
@@ -68,20 +71,8 @@ def _get_local_config_name(root_name: str) -> Path:
 
 
 def _find_project_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
-    """Find the project root by looking for git worktree root.
-
-    Inlined from git_utils.find_git_worktree_root to avoid importing
-    loguru (which git_utils depends on).
-    """
-    cwd = start or Path.cwd()
-    try:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=cwd,
-        )
-        return Path(result.stdout.strip())
-    except ProcessError:
-        return None
+    """Find the project root by looking for git worktree root."""
+    return find_git_worktree_root(start, cg)
 
 
 def find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
@@ -113,7 +104,8 @@ def find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyG
 #
 # Note: logging is not yet configured when these run (setup_logging needs
 # OutputOptions and MngContext, which aren't available until after config
-# loading).
+# loading). Trace-level logs will only be visible with loguru's default
+# stderr sink if someone explicitly lowers the level.
 #
 # _resolve_config_file_paths returns the existing config file paths in
 # precedence order (user, project, local). Each pre-reader calls its own
