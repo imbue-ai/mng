@@ -12,6 +12,7 @@ from imbue.mng.api.find import ensure_host_started
 from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
+from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ProviderInstanceNotFoundError
@@ -193,10 +194,10 @@ def _send_message_to_agent(
         result.successful_agents.append(agent_name)
         if on_success:
             on_success(agent_name)
-    except MngError as e:
+    except BaseMngError as e:
         error_msg = str(e)
         if error_behavior == ErrorBehavior.ABORT:
-            raise
+            raise MngError(error_msg) from e
         result.failed_agents.append((agent_name, error_msg))
         if on_error:
             on_error(agent_name, error_msg)
