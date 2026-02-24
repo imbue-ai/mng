@@ -1,7 +1,7 @@
 import json
 import os
-import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Final
@@ -68,16 +68,12 @@ def _trigger_background_cache_refresh() -> None:
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
                 return
 
-        mng_path = shutil.which("mng")
-        if mng_path is None:
-            return
-
-        # Uses subprocess.Popen directly (not ConcurrencyGroup) because this module
-        # runs in the shell completion context and intentionally avoids importing
-        # mng internals to keep TAB completion fast and lightweight.
+        # Uses subprocess.Popen directly instead of ConcurrencyGroup's
+        # run_background because the child must outlive the parent process
+        # (start_new_session=True). run_background doesn't support detaching.
         devnull = subprocess.DEVNULL
         subprocess.Popen(
-            [mng_path, "list", "--format", "json", "-q"],
+            [sys.executable, "-c", "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])"],
             stdout=devnull,
             stderr=devnull,
             start_new_session=True,
