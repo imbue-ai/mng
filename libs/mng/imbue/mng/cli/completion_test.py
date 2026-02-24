@@ -219,6 +219,8 @@ def test_trigger_background_cache_refresh_throttles_spawning(
     _write_cache(temp_host_dir, ["agent"])
     old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
     os.utime(cache_path, (old_time, old_time))
+    # Read back the mtime rather than using old_time directly, since some
+    # filesystems round or truncate timestamps.
     stale_mtime = cache_path.stat().st_mtime
 
     _trigger_background_cache_refresh()
