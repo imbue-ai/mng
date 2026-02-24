@@ -12,17 +12,8 @@ TMUX_TMPDIR="/tmp/mng-tmux" mng create my-agent
 
 Your normal `tmux ls` will no longer show `mng`'s sessions, and you won't run into nested tmux issues.
 
-Note: the directory must already exist:
+Note: the directory must already exist or tmux will silently connect to the normal server instead.
 
-```bash
-mkdir -p /tmp/mng-tmux
-```
-
-To inspect `mng`'s isolated sessions:
-
-```bash
-TMUX_TMPDIR=/tmp/mng-tmux tmux ls
-```
 
 ## Nested tmux
 
