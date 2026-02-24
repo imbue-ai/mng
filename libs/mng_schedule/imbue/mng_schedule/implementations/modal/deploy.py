@@ -490,7 +490,7 @@ def _stage_consolidated_env(
     Sources are merged in order of increasing precedence:
     1. User-specified --env-file entries (in order)
     2. User-specified --pass-env variables from the current process environment
-    3. Plugin-provided env vars from the get_env_vars_for_deploy hook
+    3. Plugin mutations via the modify_env_vars_for_deploy hook
     """
     env_dict: dict[str, str] = {}
 

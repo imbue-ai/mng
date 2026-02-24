@@ -48,6 +48,7 @@ Called to collect files for baking into deployed images (ex: if you're scheduled
 | Hook                         | Description                                                                                                    |
 |------------------------------|----------------------------------------------------------------------------------------------------------------|
 | `get_files_for_deploy`       | Return files to include in deployment images (e.g., config files, settings). Paths starting with `~` go to the user's home directory; relative paths go to the project working directory. [experimental] |
+| `modify_env_vars_for_deploy` | Mutate the environment variables dict for deployment. Plugins can add, update, or remove env vars in place. Called after env vars are assembled from `--pass-env` and `--env-file` sources. [experimental] |
 
 ### Program lifecycle hooks
 

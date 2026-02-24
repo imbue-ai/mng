@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pluggy
 import pytest
+from dotenv import dotenv_values
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng import hookimpl
@@ -519,8 +520,6 @@ def test_stage_consolidated_env_preserves_values_with_hash(
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["PASSWORD"])
 
     # Verify the written .env file can be parsed back correctly
-    from dotenv import dotenv_values
-
     parsed = dotenv_values(output_dir / ".env")
     assert parsed["PASSWORD"] == "abc # def"
 
