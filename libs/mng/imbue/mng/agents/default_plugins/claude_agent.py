@@ -733,19 +733,11 @@ class ClaudeAgent(BaseAgent):
             if config.sync_home_settings:
                 logger.info("Transferring claude home directory settings to remote host...")
                 local_claude_dir = Path.home() / ".claude"
-                for item_name in _CLAUDE_HOME_SYNC_ITEMS:
-                    local_config_path = local_claude_dir / item_name
-                    if local_config_path.exists():
-                        if local_config_path.is_dir():
-                            for file_path in local_config_path.rglob("*"):
-                                if file_path.is_file():
-                                    relative_path = file_path.relative_to(local_claude_dir)
-                                    remote_path = Path(".claude") / relative_path
-                                    host.write_text_file(remote_path, file_path.read_text())
-                        else:
-                            relative_path = local_config_path.relative_to(local_claude_dir)
-                            remote_path = Path(".claude") / relative_path
-                            host.write_text_file(remote_path, local_config_path.read_text())
+                for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
+                    # dest_path is like Path("~/.claude/settings.json"); strip the ~/ prefix
+                    # to get a path relative to the user's home directory on the remote host
+                    remote_path = Path(str(dest_path).removeprefix("~/"))
+                    host.write_text_file(remote_path, source_path.read_text())
 
             if config.sync_claude_json:
                 claude_json_path = Path.home() / ".claude.json"

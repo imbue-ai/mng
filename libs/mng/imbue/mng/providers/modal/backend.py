@@ -31,6 +31,7 @@ from imbue.mng.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.deploy_utils import collect_provider_profile_files
 from imbue.mng.providers.modal.config import ModalProviderConfig
 from imbue.mng.providers.modal.instance import ModalProviderApp
 from imbue.mng.providers.modal.instance import ModalProviderInstance
@@ -483,16 +484,7 @@ def get_files_for_deploy(
     """
     if not include_user_settings:
         return {}
-
-    files: dict[Path, Path | str] = {}
-    modal_dir = mng_ctx.profile_dir / "providers" / "modal"
-    if modal_dir.is_dir():
-        user_home = Path.home()
-        for file_path in modal_dir.rglob("*"):
-            if file_path.is_file() and file_path.name not in _MODAL_EXCLUDED_PROFILE_FILES:
-                relative = file_path.relative_to(user_home)
-                files[Path(f"~/{relative}")] = file_path
-    return files
+    return collect_provider_profile_files(mng_ctx, "modal", _MODAL_EXCLUDED_PROFILE_FILES)
 
 
 @hookimpl

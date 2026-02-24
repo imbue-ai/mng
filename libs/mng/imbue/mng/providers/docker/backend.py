@@ -9,6 +9,7 @@ from imbue.mng.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.deploy_utils import collect_provider_profile_files
 from imbue.mng.providers.docker.config import DockerProviderConfig
 from imbue.mng.providers.docker.instance import DockerProviderInstance
 
@@ -95,13 +96,4 @@ def get_files_for_deploy(
     """
     if not include_user_settings:
         return {}
-
-    files: dict[Path, Path | str] = {}
-    docker_dir = mng_ctx.profile_dir / "providers" / "docker"
-    if docker_dir.is_dir():
-        user_home = Path.home()
-        for file_path in docker_dir.rglob("*"):
-            if file_path.is_file() and file_path.name not in _DOCKER_EXCLUDED_PROFILE_FILES:
-                relative = file_path.relative_to(user_home)
-                files[Path(f"~/{relative}")] = file_path
-    return files
+    return collect_provider_profile_files(mng_ctx, "docker", _DOCKER_EXCLUDED_PROFILE_FILES)
