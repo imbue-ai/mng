@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import time
 from pathlib import Path
 
@@ -21,18 +20,24 @@ def _write_cache(host_dir: Path, names: list[str]) -> Path:
     return cache_path
 
 
+def _is_completion_refresh_process(proc: psutil.Process) -> bool:
+    """Check if a process is a background completion refresh subprocess."""
+    try:
+        cmdline = " ".join(proc.cmdline())
+        return "imbue.mng.main" in cmdline and "list" in cmdline
+    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        return False
+
+
 @pytest.mark.timeout(30)
 def test_trigger_background_cache_refresh_throttles_spawning(
     temp_host_dir: Path,
     disable_modal_for_subprocesses: Path,
 ) -> None:
     """Stale cache triggers a refresh that updates the file; fresh cache does not."""
-    if shutil.which("mng") is None:
-        pytest.skip("mng not on PATH")
-
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
 
-    # -- Stale cache: the spawned `mng list` should rewrite the cache file --
+    # -- Stale cache: the spawned subprocess should rewrite the cache file --
     _write_cache(temp_host_dir, ["agent"])
     old_time = time.time() - _BACKGROUND_REFRESH_COOLDOWN_SECONDS - 10
     os.utime(cache_path, (old_time, old_time))
@@ -49,16 +54,10 @@ def test_trigger_background_cache_refresh_throttles_spawning(
     )
 
     # Wait for the stale-cache process to exit before testing the fresh-cache path.
-    def _no_mng_list_children() -> bool:
-        for child in psutil.Process().children(recursive=True):
-            try:
-                if "mng" in " ".join(child.cmdline()) and "list" in " ".join(child.cmdline()):
-                    return False
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-        return True
+    def _no_refresh_children() -> bool:
+        return not any(_is_completion_refresh_process(c) for c in psutil.Process().children(recursive=True))
 
-    wait_for(_no_mng_list_children, timeout=10.0, error_message="Spawned mng list process did not exit")
+    wait_for(_no_refresh_children, timeout=10.0, error_message="Background refresh process did not exit")
 
     # -- Fresh cache: calling again immediately should be throttled --
     # _trigger_background_cache_refresh is synchronous up to the Popen call,

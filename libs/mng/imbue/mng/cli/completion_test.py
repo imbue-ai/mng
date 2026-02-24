@@ -1,9 +1,7 @@
 import json
 import os
-import shutil
 import time
 from pathlib import Path
-from typing import Any
 
 import click
 import pytest
@@ -26,16 +24,16 @@ from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
 
 
-def _shutil_which_without_mng(name: str, *args: Any, **kwargs: Any) -> str | None:
-    """Wrapper around shutil.which that returns None for ``mng``.
+def _ensure_fresh_cache(host_dir: Path) -> None:
+    """Write a fresh agent completions cache file if one doesn't already exist.
 
-    Used to prevent _trigger_background_cache_refresh from finding and
-    spawning a real ``mng`` subprocess during tests, without removing
-    entire directories from PATH (which could break other binaries).
+    The freshness check in _trigger_background_cache_refresh compares the
+    cache file's mtime against a cooldown threshold. Writing a file with
+    the current mtime guarantees the check returns early (no subprocess).
     """
-    if name == "mng":
-        return None
-    return shutil.which(name, *args, **kwargs)
+    cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+    if not cache_path.is_file():
+        cache_path.write_text(json.dumps({"names": [], "updated_at": ""}))
 
 
 def _write_cache(host_dir: Path, names: list[str]) -> Path:
@@ -63,14 +61,13 @@ def _write_cli_completions(
 
 
 @pytest.fixture
-def no_background_cache_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+def no_background_cache_refresh(temp_host_dir: Path) -> None:
     """Prevent _trigger_background_cache_refresh from spawning a real subprocess.
 
-    Makes ``shutil.which("mng")`` return None inside the completion module
-    so the refresh function cannot find an ``mng`` binary to invoke.
-    All other ``shutil.which`` lookups are unaffected.
+    Ensures a fresh cache file exists so the mtime-based cooldown check in
+    _trigger_background_cache_refresh returns early before reaching Popen.
     """
-    monkeypatch.setattr("imbue.mng.cli.completion.shutil.which", _shutil_which_without_mng)
+    _ensure_fresh_cache(temp_host_dir)
 
 
 # =============================================================================
