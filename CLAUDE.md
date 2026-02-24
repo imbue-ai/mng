@@ -86,7 +86,7 @@ Key test infrastructure files for the mng project:
 - `libs/mng/imbue/mng/cli/conftest.py` -- CLI test fixtures (default_create_cli_opts, default_connect_cli_opts, project_config_dir, temp_git_repo_cwd, isolated_mng_venv)
 - `libs/mng/imbue/mng/agents/conftest.py` -- agent test fixtures (interactive_mng_ctx)
 - `libs/mng/imbue/mng/providers/modal/conftest.py` -- Modal acceptance test fixtures (real_modal_provider, etc.)
-- `libs/mng/imbue/mng/api/fixtures.py` -- API test doubles (FakeAgent, FakeHost, SyncTestContext)
+- `libs/mng/imbue/mng/api/test_fixtures.py` -- API test doubles (FakeAgent, FakeHost, SyncTestContext)
 - `libs/mng/imbue/mng/utils/testing.py` -- test utilities (init_git_repo, cleanup_tmux_session, make_local_provider, SSH helpers, Modal cleanup, etc.)
 - `libs/mng/imbue/mng/providers/docker/testing.py` -- Docker provider test utilities
 - `libs/mng/imbue/mng/providers/mock_provider_test.py` -- MockProviderInstance for OfflineHost tests
