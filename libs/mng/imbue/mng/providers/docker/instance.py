@@ -730,8 +730,9 @@ kill -TERM 1
         # When --dockerfile is used, translate to docker build's --file flag and
         # always append the context directory. The context is appended unconditionally
         # (even if build_args already contains one) so we don't need fragile heuristics
-        # to detect whether a context path is present. If there's a conflict, docker
-        # build will error clearly.
+        # to detect whether a context path is present. If someone passes both
+        # --dockerfile and a context via -b, docker build will fail with
+        # "'docker buildx build' requires 1 argument".
         effective_build_args: Sequence[str] | None
         if dockerfile is not None:
             context_dir = get_dockerfile_context_dir(None, dockerfile)
