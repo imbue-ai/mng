@@ -548,25 +548,24 @@ def _print_test_durations_for_ci(
 
 @pytest.fixture(autouse=True)
 def _set_junit_classname_to_filepath(request: pytest.FixtureRequest, record_xml_attribute) -> None:
-    """Set JUnit XML classname and name to match pytest nodeid exactly.
+    """Set JUnit XML classname to path relative to project root.
 
-    This ensures 1-to-1 mapping between pytest discovery and JUnit XML for tools
-    like offload that need to match test IDs with durations.
-
-    Handles:
-    - Simple functions: test_file.py::test_func
-    - Methods in classes: test_file.py::TestClass::test_method
-    - Nested classes: test_file.py::Outer::Inner::test_method
-    - Parameterized tests: test_file.py::TestClass::test_method[param]
+    Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
+    otherwise falls back to pytest's nodeid.
     """
-    # Use nodeid which pytest computes relative to rootdir
-    nodeid_parts = request.node.nodeid.split("::")
-    rel_path = nodeid_parts[0]
+    offload_root = os.environ.get("OFFLOAD_ROOT")
+
+    if offload_root:
+        fspath = str(request.node.fspath)
+        rel_path = os.path.relpath(fspath, offload_root)
+    else:
+        rel_path = request.node.nodeid.split("::")[0]
+
     classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
     record_xml_attribute("classname", classname)
 
     # Set name to include class hierarchy if present
-    # e.g., "TestClass::test_method" or "Outer::Inner::test_method"
+    nodeid_parts = request.node.nodeid.split("::")
     if len(nodeid_parts) > 2:
         name = "::".join(nodeid_parts[1:])
         record_xml_attribute("name", name)
