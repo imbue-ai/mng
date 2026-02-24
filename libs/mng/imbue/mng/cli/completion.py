@@ -35,10 +35,10 @@ def _read_agent_names_from_cache() -> list[str]:
     """Read agent names from the completion cache file.
 
     Reads {host_dir}/.agent_completions.json and returns the "names" list.
-    The cache is written by list_agents() in the API layer.
+    The cache is written by write_agent_names_cache() in completion_writer.py.
 
-    Returns an empty list if the cache does not exist, is malformed, or any error occurs.
-    This function is designed to never raise -- shell completion must not crash.
+    Returns an empty list on expected errors (missing file, malformed JSON).
+    Callers are responsible for guarding against unexpected exceptions.
     """
     try:
         cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
@@ -62,9 +62,8 @@ def _trigger_background_cache_refresh() -> None:
     Skips the refresh if the cache was updated within the last N seconds
     to avoid excessive subprocess spawning.
 
-    This function never raises -- background refresh failures are silently ignored.
-    Logging is intentionally omitted: importing loguru would add import latency to
-    every TAB press, and log output on stderr can interfere with shell completion.
+    Catches OSError from subprocess spawning. Callers are responsible for
+    guarding against unexpected exceptions.
     """
     try:
         cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
@@ -84,8 +83,6 @@ def _trigger_background_cache_refresh() -> None:
             start_new_session=True,
         )
     except OSError:
-        # Intentionally silent: importing loguru adds latency to every TAB press,
-        # and stderr output can interfere with the shell completion protocol.
         pass
 
 
@@ -127,9 +124,9 @@ def _get_cli_completions_path() -> Path:
 def _read_cli_completions_file() -> dict | None:
     """Read the CLI completions cache file.
 
-    Returns the parsed JSON data, or None if the file does not exist, is
-    malformed, or any error occurs. This function is designed to never raise --
-    shell completion must not crash.
+    Returns the parsed JSON data, or None on expected errors (missing file,
+    malformed JSON). Callers are responsible for guarding against unexpected
+    exceptions.
     """
     try:
         path = _get_cli_completions_path()
