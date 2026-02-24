@@ -27,12 +27,11 @@ from imbue.mng.config.loader import _parse_providers
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
-from imbue.mng.config.pre_readers import _get_local_config_name
-from imbue.mng.config.pre_readers import _get_project_config_name
+from imbue.mng.config.pre_readers import get_local_config_name
+from imbue.mng.config.pre_readers import get_project_config_name
 from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.config.pre_readers import read_default_command
 from imbue.mng.config.pre_readers import read_disabled_plugins
-from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
 from imbue.mng.plugins import hookspecs
@@ -238,14 +237,14 @@ def test_get_user_config_path_returns_correct_path() -> None:
 
 
 def test_get_project_config_name_returns_correct_path() -> None:
-    """_get_project_config_name should return correct relative path."""
-    path = _get_project_config_name("mng")
+    """get_project_config_name should return correct relative path."""
+    path = get_project_config_name("mng")
     assert path == Path(".mng") / "settings.toml"
 
 
 def test_get_local_config_name_returns_correct_path() -> None:
-    """_get_local_config_name should return correct relative path."""
-    path = _get_local_config_name("mng")
+    """get_local_config_name should return correct relative path."""
+    path = get_local_config_name("mng")
     assert path == Path(".mng") / "settings.local.toml"
 
 
@@ -254,9 +253,9 @@ def test_get_local_config_name_returns_correct_path() -> None:
 # =============================================================================
 
 
-def test_load_toml_raises_config_not_found(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigNotFoundError for missing file."""
-    with pytest.raises(ConfigNotFoundError):
+def test_load_toml_raises_config_parse_error_for_missing_file(tmp_path: Path) -> None:
+    """_load_toml should raise ConfigParseError for missing file."""
+    with pytest.raises(ConfigParseError):
         _load_toml(tmp_path / "nonexistent.toml")
 
 
@@ -690,7 +689,7 @@ def test_on_load_config_hook_can_add_new_fields(
 # =============================================================================
 
 
-def testget_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create a new profile when config.toml doesn't exist."""
     base_dir = tmp_path / "mng"
 
@@ -709,7 +708,7 @@ def testget_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: P
     assert f'profile = "{profile_id}"' in content
 
 
-def testget_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
     """get_or_create_profile_dir should read existing profile from config.toml."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -731,7 +730,7 @@ def testget_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: P
     assert result.name == existing_profile_id
 
 
-def testget_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create profile dir if config.toml specifies it but dir doesn't exist."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -750,7 +749,7 @@ def testget_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(t
     assert result.exists()
 
 
-def testget_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
     """get_or_create_profile_dir should handle invalid config.toml by creating new profile."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -770,7 +769,7 @@ def testget_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) ->
     assert 'profile = "' in new_content
 
 
-def testget_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create new profile if config.toml has no 'profile' key."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -786,7 +785,7 @@ def testget_or_create_profile_dir_handles_config_without_profile_key(tmp_path: P
     assert result.parent == base_dir / "profiles"
 
 
-def testget_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
     """get_or_create_profile_dir should return the same profile on subsequent calls."""
     base_dir = tmp_path / "mng"
 

@@ -2,25 +2,20 @@ import os
 import tomllib
 from pathlib import Path
 from typing import Any
-from typing import Final
 
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.utils.git_utils import find_git_worktree_root
-
-# Constants duplicated from data_types.py to avoid importing heavy dependencies
-# (data_types pulls in pydantic, pluggy, and the full config model hierarchy).
-PROFILES_DIRNAME: Final[str] = "profiles"
-ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
-
 
 # =============================================================================
 # Config File Discovery
 # =============================================================================
 
 
-def _load_toml(path: Path) -> dict[str, Any] | None:
+def load_toml(path: Path) -> dict[str, Any] | None:
     """Load and parse a TOML file, returning None if the file is missing or malformed."""
     if not path.exists():
         return None
@@ -38,20 +33,15 @@ def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
     Returns the profile directory if it can be determined from existing files,
     or None otherwise.
     """
-    config_path = base_dir / ROOT_CONFIG_FILENAME
-    if not config_path.exists():
+    root_config = load_toml(base_dir / ROOT_CONFIG_FILENAME)
+    if root_config is None:
         return None
-    try:
-        with open(config_path, "rb") as f:
-            root_config = tomllib.load(f)
-        profile_id = root_config.get("profile")
-        if not profile_id:
-            return None
-        profile_dir = base_dir / PROFILES_DIRNAME / profile_id
-        if profile_dir.exists() and profile_dir.is_dir():
-            return profile_dir
-    except tomllib.TOMLDecodeError:
-        pass
+    profile_id = root_config.get("profile")
+    if not profile_id:
+        return None
+    profile_dir = base_dir / PROFILES_DIRNAME / profile_id
+    if profile_dir.exists() and profile_dir.is_dir():
+        return profile_dir
     return None
 
 
@@ -60,12 +50,12 @@ def get_user_config_path(profile_dir: Path) -> Path:
     return profile_dir / "settings.toml"
 
 
-def _get_project_config_name(root_name: str) -> Path:
+def get_project_config_name(root_name: str) -> Path:
     """Get the project config relative path based on root name."""
     return Path(f".{root_name}") / "settings.toml"
 
 
-def _get_local_config_name(root_name: str) -> Path:
+def get_local_config_name(root_name: str) -> Path:
     """Get the local config relative path based on root name."""
     return Path(f".{root_name}") / "settings.local.toml"
 
@@ -80,7 +70,7 @@ def find_project_config(context_dir: Path | None, root_name: str, cg: Concurrenc
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
         return None
-    config_path = root / _get_project_config_name(root_name)
+    config_path = root / get_project_config_name(root_name)
     return config_path if config_path.exists() else None
 
 
@@ -89,7 +79,7 @@ def find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyG
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
         return None
-    config_path = root / _get_local_config_name(root_name)
+    config_path = root / get_local_config_name(root_name)
     return config_path if config_path.exists() else None
 
 
@@ -162,7 +152,7 @@ def read_default_command(command_name: str) -> str:
 
 def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract default_subcommand entries from a TOML config file."""
-    raw = _load_toml(path)
+    raw = load_toml(path)
     if raw is None:
         return {}
     raw_commands = raw.get("commands")
@@ -195,7 +185,7 @@ def read_disabled_plugins() -> frozenset[str]:
 
 def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
-    raw = _load_toml(path)
+    raw = load_toml(path)
     if raw is None:
         return {}
     raw_plugins = raw.get("plugins")
@@ -230,7 +220,7 @@ def read_default_host_dir() -> Path:
     # Later values override earlier ones.
     host_dir: str | None = None
     for path in _resolve_config_file_paths():
-        raw = _load_toml(path)
+        raw = load_toml(path)
         if raw is None:
             continue
         value = raw.get("default_host_dir")
