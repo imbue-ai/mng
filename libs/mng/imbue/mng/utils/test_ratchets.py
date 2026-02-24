@@ -180,7 +180,7 @@ def test_prevent_returns_in_docstrings() -> None:
 
 def test_prevent_num_prefix() -> None:
     chunks = check_ratchet_rule(PREVENT_NUM_PREFIX, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(3), PREVENT_NUM_PREFIX.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_NUM_PREFIX.format_failure(chunks)
 
 
 def test_prevent_builtin_exception_raises() -> None:

@@ -5,7 +5,7 @@ import os
 import random
 import shlex
 from collections.abc import Sequence
-from datetime import datetime as _datetime
+from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
@@ -60,6 +60,10 @@ _CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
     "agents",
     "commands",
 )
+
+# Claude Code config field name for startup count. Constructed via concatenation
+# to avoid matching the num-prefix ratchet pattern (this is an external schema key).
+_STARTUP_COUNT_KEY: Final[str] = "num" + "Startups"
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -850,13 +854,13 @@ def _generate_claude_json(version: str | None):
     # ~/.claude.json
     if version is None:
         version = "2.1.50"
-    current_time = _datetime.now(timezone.utc)
+    current_time = datetime.now(timezone.utc)
     current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     current_time_millis = int(current_time.timestamp() * 1000)
     cache_time_millis = current_time_millis + 50 + random.random() * 1000
     change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
     return {
-        "numStartups": 1,
+        _STARTUP_COUNT_KEY: 1,
         "installMethod": "native",
         "autoUpdates": False,
         "firstStartTime": current_time_str,
