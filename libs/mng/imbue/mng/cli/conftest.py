@@ -1,6 +1,4 @@
 from collections.abc import Callable
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 from typing import Generator
 
@@ -11,55 +9,8 @@ from click.testing import CliRunner
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.connect import ConnectCliOptions
 from imbue.mng.cli.create import CreateCliOptions
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
-from imbue.mng.interfaces.data_types import SnapshotInfo
-from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentLifecycleState
-from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import CommandString
-from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostState
-from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.testing import cleanup_tmux_session
 from imbue.mng.utils.testing import create_test_agent_via_cli
-
-
-def make_test_agent_info(
-    name: str = "test-agent",
-    state: AgentLifecycleState = AgentLifecycleState.RUNNING,
-    create_time: datetime | None = None,
-    snapshots: list[SnapshotInfo] | None = None,
-    host_plugin: dict | None = None,
-    host_tags: dict[str, str] | None = None,
-    labels: dict[str, str] | None = None,
-) -> AgentInfo:
-    """Create a real AgentInfo for testing.
-
-    Shared helper used across CLI test files to avoid duplicating AgentInfo
-    construction logic. Accepts optional overrides for commonly varied fields.
-    """
-    host_info = HostInfo(
-        id=HostId.generate(),
-        name="test-host",
-        provider_name=ProviderInstanceName("local"),
-        snapshots=snapshots or [],
-        state=HostState.RUNNING,
-        plugin=host_plugin or {},
-        tags=host_tags or {},
-    )
-    return AgentInfo(
-        id=AgentId.generate(),
-        name=AgentName(name),
-        type="generic",
-        command=CommandString("sleep 100"),
-        work_dir=Path("/tmp/test"),
-        create_time=create_time or datetime.now(timezone.utc),
-        start_on_boot=False,
-        state=state,
-        labels=labels or {},
-        host=host_info,
-    )
 
 
 @pytest.fixture

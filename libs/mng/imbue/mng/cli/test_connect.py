@@ -13,7 +13,6 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.cli.connect import AgentSelectorState
 from imbue.mng.cli.connect import ConnectCliOptions
 from imbue.mng.cli.connect import SelectorInputHandler
@@ -32,6 +31,7 @@ from imbue.mng.main import cli
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.utils.testing import cleanup_tmux_session
+from imbue.mng.utils.testing import make_test_agent_info
 from imbue.mng.utils.testing import tmux_session_exists
 
 # =============================================================================
