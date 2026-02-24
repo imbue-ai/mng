@@ -334,6 +334,7 @@ def stage_deploy_files(
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
 
+    # FIXME: this needs to pass in the repo_root parameter, and the existing hooks need to use that dir as the base for any relative project paths (rather than assuming cwd is the project)
     # Collect files from all plugins via the hook
     deploy_files = _collect_deploy_files(
         mng_ctx,
