@@ -85,13 +85,14 @@ def run_lesson_selector(lessons: tuple[Lesson, ...]) -> Lesson | None:
             Divider(),
             Text(
                 dedent("""\
-                Welcome! This tutor will guide you through learning mng commands.
-                Make sure you have two terminal windows open side by side -- one for
-                this tutor, and one for running mng commands. (Even if you use tmux,
-                keep these as separate windows so the tutor can stay visible.)""")
+                Welcome to mng! Now let's learn how mng works!
+
+                Open another terminal window to run mng commands,
+                and select a lesson below.
+
+                (To tmux users: mng itself uses tmux, so to keep things simple,
+                we suggest that you also open a separate terminal window for now.)""")
             ),
-            Divider(),
-            Text("  Up/Down to navigate, Enter to select, q to quit"),
             Divider(),
         ]
     )
@@ -99,7 +100,7 @@ def run_lesson_selector(lessons: tuple[Lesson, ...]) -> Lesson | None:
     footer = Pile(
         [
             Divider(),
-            AttrMap(Text("  Select a lesson to begin"), "status"),
+            AttrMap(Text("  Up/Down to navigate, Enter to select, q to quit"), "status"),
         ]
     )
 

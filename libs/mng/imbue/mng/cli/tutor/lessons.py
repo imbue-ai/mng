@@ -10,19 +10,33 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 
 LESSON_GETTING_STARTED = Lesson(
-    title="Getting Started",
+    title="Basic Local Agent",
     description="Learn to create, use, and manage your first agent.",
     steps=(
         LessonStep(
             heading="Create your first agent",
-            details="cd into any git repo that you have, and run `mng create agent-smith` from there.",
+            details=dedent("""\
+                Go to any Git repo that you have, and run:
+                    mng create agent-smith
+
+                If you don't have a Git repo lying around, just make a new one:
+                    mkdir learn-mng; cd learn-mng; git init; git commit --allow-empty -m 'Initial commit'\
+                """),
             check=AgentExistsCheck(agent_name=AgentName("agent-smith")),
         ),
         LessonStep(
             heading="Make some changes using your agent",
             details=dedent("""\
-                Connect to the agent with `mng connect agent-smith`, then ask it to
-                create a file called `blue-pill.txt` and make a commit."""),
+                You should now be in a tmux session with Claude Code running in it.
+                Let's ask it to create a file:
+                    Create a blue-pill.txt.
+
+                Alternatively, you can also message the agent using the mng CLI:
+                    mng message agent-smith 'Create a blue-pill.txt'
+
+                (You can run this command in another tmux pane or tab,
+                or if you aren't familiar with tmux yet, just run it in another terminal.)\
+                """),
             check=FileExistsInAgentWorkDirCheck(
                 agent_name=AgentName("agent-smith"),
                 file_path="blue-pill.txt",
@@ -30,7 +44,17 @@ LESSON_GETTING_STARTED = Lesson(
         ),
         LessonStep(
             heading="Stop the agent",
-            details="Run `mng stop agent-smith`, or press Ctrl-T from within the tmux session.",
+            details=dedent("""
+                Let's say we don't need the agent for now. Let's stop it:
+                    mng stop agent-smith
+
+                The tmux window should also be gone.
+                Alternatively, we also provide a shortcut for this command from within tmux:
+                Just press Ctrl-T.
+
+                Stopped agents don't use any resource on your computer,
+                but are remembered by mng and can be restarted any time.
+                """),
             check=AgentInStateCheck(
                 agent_name=AgentName("agent-smith"),
                 expected_states=(AgentLifecycleState.STOPPED,),
@@ -39,8 +63,16 @@ LESSON_GETTING_STARTED = Lesson(
         LessonStep(
             heading="Restart the agent",
             details=dedent("""\
-                Run `mng start agent-smith` and then `mng connect agent-smith` to restart
-                and reconnect to the agent. You can see all its work is still there."""),
+                Let's restart the agent:
+                    mng start agent-smith
+                    mng connect agent-smith
+
+                This should drop you back into a tmux window with a resumed Claude Code,
+                just like before it was stopped!
+
+                Tip: you can actually skip the first `start` command,
+                because the `connect` command will restart the agent first if it's stopped!\
+                """),
             check=AgentInStateCheck(
                 agent_name=AgentName("agent-smith"),
                 expected_states=(AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING),
@@ -48,7 +80,12 @@ LESSON_GETTING_STARTED = Lesson(
         ),
         LessonStep(
             heading="Destroy the agent",
-            details="Run `mng destroy agent-smith` or press Ctrl-Q from within the tmux session.",
+            details=dedent("""\
+                Now we're done with the agent. We can get rid of it:
+                    mng destroy agent-smith
+
+                Alternatively, you can just press Ctrl-Q from tmux.\
+                """),
             check=AgentNotExistsCheck(agent_name=AgentName("agent-smith")),
         ),
     ),
