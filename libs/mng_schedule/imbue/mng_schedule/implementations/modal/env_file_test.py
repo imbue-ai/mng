@@ -73,6 +73,20 @@ def test_load_env_file_handles_values_with_equals(tmp_path: Path, monkeypatch: p
     assert os.environ["CONNECTION"] == "postgres://user:pass@host/db?opt=1"
 
 
+def test_load_env_file_unquotes_values(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_env_file should strip surrounding quotes from values (matching python-dotenv)."""
+    env_file = tmp_path / ".env"
+    env_file.write_text("QUOTED_KEY=\"quoted_value\"\nSINGLE_QUOTED='single'\n")
+
+    monkeypatch.setenv("QUOTED_KEY", "")
+    monkeypatch.setenv("SINGLE_QUOTED", "")
+
+    load_env_file(env_file)
+
+    assert os.environ["QUOTED_KEY"] == "quoted_value"
+    assert os.environ["SINGLE_QUOTED"] == "single"
+
+
 def test_load_env_file_noop_when_file_missing(tmp_path: Path) -> None:
     """load_env_file should do nothing when the file does not exist."""
     env_file = tmp_path / "nonexistent.env"
