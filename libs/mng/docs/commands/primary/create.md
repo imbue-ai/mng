@@ -100,6 +100,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--include-git`, `--no-include-git` | boolean | Include .git directory | `True` |
 | `--include-unclean`, `--exclude-unclean` | boolean | Include uncommitted files [default: include if --no-ensure-clean] | None |
 | `--include-gitignored`, `--no-include-gitignored` | boolean | Include gitignored files | `False` |
+| `--copy-git-info-exclude`, `--no-copy-git-info-exclude` | boolean | Copy .git/info/exclude to the new agent | `True` |
 
 ## Agent Target (where to put the new agent)
 

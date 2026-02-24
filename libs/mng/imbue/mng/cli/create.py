@@ -184,6 +184,7 @@ class CreateCliOptions(CommonCliOptions):
     include_git: bool
     include_unclean: bool | None
     include_gitignored: bool
+    copy_git_info_exclude: bool
     base_branch: str | None
     new_branch: str | None
     new_branch_prefix: str
@@ -361,6 +362,12 @@ class CreateCliOptions(CommonCliOptions):
     default=False,
     show_default=True,
     help="Include gitignored files",
+)
+@optgroup.option(
+    "--copy-git-info-exclude/--no-copy-git-info-exclude",
+    default=True,
+    show_default=True,
+    help="Copy .git/info/exclude to the new agent",
 )
 @optgroup.group("Agent Target (where to put the new agent)")
 @optgroup.option("--target", help="Target [HOST][:PATH]. Defaults to current dir if no other target args are given")
@@ -1283,6 +1290,7 @@ def _parse_agent_opts(
             is_git_synced=opts.include_git,
             is_include_unclean=is_include_unclean,
             is_include_gitignored=opts.include_gitignored,
+            copy_git_info_exclude=opts.copy_git_info_exclude,
         )
 
     # parse source data options
