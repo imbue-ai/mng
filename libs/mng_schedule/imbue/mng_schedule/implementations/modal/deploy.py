@@ -250,28 +250,83 @@ def _get_mng_repo_root() -> Path:
 
 
 @pure
-def build_mng_install_commands(mode: MngInstallMode) -> list[str]:
+def _parse_dockerfile_user(dockerfile_content: str) -> str | None:
+    """Extract the effective USER from Dockerfile content.
+
+    Finds the last USER instruction after the last FROM instruction,
+    returning None if no USER is set (the Docker default is root).
+    FROM instructions reset the user context since each stage starts as root.
+    """
+    last_user: str | None = None
+    for line in dockerfile_content.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        upper = stripped.upper()
+        if upper.startswith("FROM "):
+            last_user = None
+        elif upper.startswith("USER "):
+            parts = stripped.split(None, 1)
+            if len(parts) > 1:
+                last_user = parts[1]
+    return last_user
+
+
+def detect_dockerfile_user(dockerfile_path: Path) -> str | None:
+    """Detect the effective user from a Dockerfile.
+
+    Returns the user string from the last USER instruction (after the last FROM),
+    or None if the Dockerfile doesn't set a USER (meaning root).
+    """
+    return _parse_dockerfile_user(dockerfile_path.read_text())
+
+
+@pure
+def build_mng_install_commands(mode: MngInstallMode, dockerfile_user: str | None = None) -> list[str]:
     """Build Dockerfile RUN commands to install mng in the deployed image.
 
+    Generates commands that:
+    1. Switch to root for system package installation
+    2. Install required system packages (tmux, jq, curl)
+    3. Install uv to /usr/local/bin (requires curl)
+    4. Install mng and mng-schedule (mode-specific)
+    5. Restore the original Dockerfile user if one was set
+
     Returns an empty list for SKIP mode (mng is already available).
+    dockerfile_user is the USER from the base Dockerfile, used to restore
+    the user context after root-only installations complete.
     """
     match mode:
         case MngInstallMode.SKIP:
             return []
         case MngInstallMode.PACKAGE:
-            # Install mng and mng-schedule from the configured package index.
-            # Uses the uv already present in the base image.
-            return [
+            # All commands run as root: system deps, uv, and pip install
+            # all require root privileges.
+            commands = [
+                "USER root",
+                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl && rm -rf /var/lib/apt/lists/*",
+                "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
                 "RUN uv pip install --system mng mng-schedule",
             ]
+            if dockerfile_user is not None:
+                commands.append(f"USER {dockerfile_user}")
+            return commands
         case MngInstallMode.EDITABLE:
             # The mng source tarball is added as a separate layer at /mng_src/
             # (separate from the staging layer for better Docker cache behavior
-            # when iterating on mng code). Extract and install as an editable tool.
-            return [
+            # when iterating on mng code). System deps, uv, and tarball
+            # extraction run as root; tool install runs as the target user
+            # so the tool is accessible at runtime.
+            commands = [
+                "USER root",
+                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl && rm -rf /var/lib/apt/lists/*",
+                "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
                 "RUN mkdir -p /code/mng_editable && tar -xzf /mng_src/current.tar.gz -C /code/mng_editable",
-                "RUN uv tool install -e /code/mng_editable/libs/mng",
             ]
+            if dockerfile_user is not None:
+                commands.append(f"USER {dockerfile_user}")
+            commands.append("RUN uv tool install -e /code/mng_editable/libs/mng")
+            return commands
         case MngInstallMode.AUTO:
             raise ScheduleDeployError("AUTO mode must be resolved before building install commands")
         case _ as unreachable:
@@ -616,7 +671,8 @@ def deploy_schedule(
                 ) from None
 
         # Write deploy config as a single JSON file into the staging dir
-        mng_install_cmds = build_mng_install_commands(resolved_install_mode)
+        dockerfile_user = detect_dockerfile_user(dockerfile_path)
+        mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
         deploy_config = build_deploy_config(
             app_name=app_name,
             trigger=trigger,

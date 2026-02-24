@@ -16,10 +16,12 @@ from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandline
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
+from imbue.mng_schedule.implementations.modal.deploy import _parse_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import _stage_consolidated_env
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import build_mng_install_commands
+from imbue.mng_schedule.implementations.modal.deploy import detect_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
@@ -601,20 +603,69 @@ def test_build_mng_install_commands_skip() -> None:
     assert result == []
 
 
+def test_build_mng_install_commands_skip_ignores_dockerfile_user() -> None:
+    """build_mng_install_commands returns empty list for SKIP mode even with dockerfile_user."""
+    result = build_mng_install_commands(MngInstallMode.SKIP, dockerfile_user="nonroot")
+    assert result == []
+
+
 def test_build_mng_install_commands_package() -> None:
-    """build_mng_install_commands returns pip install from PyPI for PACKAGE mode."""
+    """build_mng_install_commands installs system deps, uv, and mng for PACKAGE mode."""
     result = build_mng_install_commands(MngInstallMode.PACKAGE)
-    assert len(result) == 1
-    assert "uv pip install --system mng mng-schedule" in result[0]
+    assert result[0] == "USER root"
+    assert "apt-get" in result[1]
+    assert "tmux" in result[1] and "jq" in result[1] and "curl" in result[1]
+    assert "uv/install.sh" in result[2]
+    assert "UV_INSTALL_DIR=/usr/local/bin" in result[2]
+    assert "uv pip install --system mng mng-schedule" in result[3]
+    # No user restore when dockerfile_user is None
+    assert len(result) == 4
+
+
+def test_build_mng_install_commands_package_restores_dockerfile_user() -> None:
+    """build_mng_install_commands restores the Dockerfile USER after PACKAGE installation."""
+    result = build_mng_install_commands(MngInstallMode.PACKAGE, dockerfile_user="appuser")
+    assert result[-1] == "USER appuser"
+    assert len(result) == 5
 
 
 def test_build_mng_install_commands_editable() -> None:
-    """build_mng_install_commands extracts tarball and does editable tool install for EDITABLE mode."""
+    """build_mng_install_commands installs system deps, uv, extracts tarball, and does editable tool install."""
     result = build_mng_install_commands(MngInstallMode.EDITABLE)
-    assert len(result) == 2
-    assert "/mng_src/current.tar.gz" in result[0]
-    assert "/code/mng_editable" in result[0]
-    assert "uv tool install -e /code/mng_editable/libs/mng" in result[1]
+    assert result[0] == "USER root"
+    assert "apt-get" in result[1]
+    assert "tmux" in result[1] and "jq" in result[1] and "curl" in result[1]
+    assert "uv/install.sh" in result[2]
+    assert "/mng_src/current.tar.gz" in result[3]
+    assert "/code/mng_editable" in result[3]
+    assert "uv tool install -e /code/mng_editable/libs/mng" in result[4]
+    # No user restore when dockerfile_user is None
+    assert len(result) == 5
+
+
+def test_build_mng_install_commands_editable_restores_user_before_tool_install() -> None:
+    """build_mng_install_commands restores the Dockerfile USER before the tool install for EDITABLE mode."""
+    result = build_mng_install_commands(MngInstallMode.EDITABLE, dockerfile_user="dev")
+    # User restore should come BEFORE tool install so the tool is owned by the runtime user
+    user_restore_idx = result.index("USER dev")
+    tool_install_idx = next(i for i, cmd in enumerate(result) if "uv tool install" in cmd)
+    assert user_restore_idx < tool_install_idx
+
+
+def test_build_mng_install_commands_system_deps_before_uv() -> None:
+    """build_mng_install_commands installs system deps (including curl) before uv."""
+    result = build_mng_install_commands(MngInstallMode.PACKAGE)
+    apt_idx = next(i for i, cmd in enumerate(result) if "apt-get" in cmd)
+    uv_idx = next(i for i, cmd in enumerate(result) if "uv/install.sh" in cmd)
+    assert apt_idx < uv_idx
+
+
+def test_build_mng_install_commands_uv_before_mng() -> None:
+    """build_mng_install_commands installs uv before mng."""
+    result = build_mng_install_commands(MngInstallMode.PACKAGE)
+    uv_idx = next(i for i, cmd in enumerate(result) if "uv/install.sh" in cmd)
+    mng_idx = next(i for i, cmd in enumerate(result) if "uv pip install" in cmd)
+    assert uv_idx < mng_idx
 
 
 def test_detect_mng_install_mode_returns_valid_mode() -> None:
@@ -645,3 +696,64 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     # mng source should NOT be in the staging directory (it is staged
     # separately in deploy_schedule for better Docker layer caching)
     assert not (staging_dir / "mng_schedule_src").exists()
+
+
+# =============================================================================
+# _parse_dockerfile_user / detect_dockerfile_user Tests
+# =============================================================================
+
+
+def test_parse_dockerfile_user_returns_none_when_no_user_set() -> None:
+    """_parse_dockerfile_user returns None when no USER instruction is present."""
+    content = "FROM python:3.12\nRUN echo hello\n"
+    assert _parse_dockerfile_user(content) is None
+
+
+def test_parse_dockerfile_user_returns_last_user() -> None:
+    """_parse_dockerfile_user returns the user from the last USER instruction."""
+    content = "FROM python:3.12\nUSER root\nRUN echo hello\nUSER appuser\n"
+    assert _parse_dockerfile_user(content) == "appuser"
+
+
+def test_parse_dockerfile_user_resets_on_from() -> None:
+    """_parse_dockerfile_user resets user context on FROM (multi-stage builds)."""
+    content = "FROM python:3.12 AS builder\nUSER builduser\nFROM python:3.12\nRUN echo hello\n"
+    assert _parse_dockerfile_user(content) is None
+
+
+def test_parse_dockerfile_user_tracks_user_in_final_stage() -> None:
+    """_parse_dockerfile_user returns the user from the final stage of a multi-stage build."""
+    content = "FROM python:3.12 AS builder\nUSER builduser\nFROM python:3.12\nUSER runner\n"
+    assert _parse_dockerfile_user(content) == "runner"
+
+
+def test_parse_dockerfile_user_ignores_comments() -> None:
+    """_parse_dockerfile_user ignores commented-out USER instructions."""
+    content = "FROM python:3.12\n# USER ignored\nRUN echo hello\n"
+    assert _parse_dockerfile_user(content) is None
+
+
+def test_parse_dockerfile_user_handles_uid_and_gid() -> None:
+    """_parse_dockerfile_user handles numeric USER values with optional group."""
+    content = "FROM python:3.12\nUSER 1000:1000\n"
+    assert _parse_dockerfile_user(content) == "1000:1000"
+
+
+def test_parse_dockerfile_user_case_insensitive() -> None:
+    """_parse_dockerfile_user handles case-insensitive USER and FROM instructions."""
+    content = "from python:3.12\nuser myuser\n"
+    assert _parse_dockerfile_user(content) == "myuser"
+
+
+def test_detect_dockerfile_user_reads_file(tmp_path: Path) -> None:
+    """detect_dockerfile_user reads a Dockerfile and returns the effective user."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12\nUSER webapp\nRUN echo hello\n")
+    assert detect_dockerfile_user(dockerfile) == "webapp"
+
+
+def test_detect_dockerfile_user_returns_none_for_root_default(tmp_path: Path) -> None:
+    """detect_dockerfile_user returns None when no USER is set (root is the default)."""
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text("FROM python:3.12\nRUN echo hello\n")
+    assert detect_dockerfile_user(dockerfile) is None
