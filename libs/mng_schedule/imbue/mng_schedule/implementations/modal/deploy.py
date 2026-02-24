@@ -296,6 +296,7 @@ def parse_upload_spec(spec: str) -> tuple[Path, str]:
 
 def _collect_deploy_files(
     mng_ctx: MngContext,
+    repo_root: Path,
     include_user_settings: bool = True,
     include_project_settings: bool = True,
 ) -> dict[Path, Path | str]:
@@ -309,6 +310,7 @@ def _collect_deploy_files(
         mng_ctx=mng_ctx,
         include_user_settings=include_user_settings,
         include_project_settings=include_project_settings,
+        repo_root=repo_root,
     )
     merged: dict[Path, Path | str] = {}
     for result in all_results:
@@ -363,6 +365,7 @@ def stage_deploy_files(
     # Collect files from all plugins via the hook
     deploy_files = _collect_deploy_files(
         mng_ctx,
+        repo_root,
         include_user_settings=include_user_settings,
         include_project_settings=include_project_settings,
     )

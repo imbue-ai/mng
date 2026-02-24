@@ -231,14 +231,8 @@ def test_stage_deploy_files_creates_secrets_dir(
 def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should create empty home/ and project/ dirs when no plugin returns files."""
-    # Use a clean temp CWD so that plugins don't pick up any existing project files
-    clean_project = tmp_path / "empty_project"
-    clean_project.mkdir()
-    monkeypatch.chdir(clean_project)
-
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
@@ -314,7 +308,7 @@ def test_collect_deploy_files_accepts_relative_path(
         {Path("relative/config.toml"): "content"},
     )
 
-    result = _collect_deploy_files(mng_ctx)
+    result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
     assert Path("relative/config.toml") in result
 
 
@@ -330,7 +324,7 @@ def test_collect_deploy_files_rejects_absolute_path(
     )
 
     with pytest.raises(ScheduleDeployError, match="must be relative or start with '~'"):
-        _collect_deploy_files(mng_ctx)
+        _collect_deploy_files(mng_ctx, repo_root=tmp_path)
 
 
 def test_collect_deploy_files_resolves_collision(
@@ -355,7 +349,7 @@ def test_collect_deploy_files_resolves_collision(
     plugin_manager.register(_PluginB())
 
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    result = _collect_deploy_files(mng_ctx)
+    result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
 
     # Should still succeed, with one entry (last one wins)
     assert Path("~/.config/test.toml") in result
