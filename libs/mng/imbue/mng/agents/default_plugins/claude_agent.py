@@ -848,6 +848,7 @@ def _generate_claude_json(version: str | None):
         "lastOnboardingVersion": version,
         "lastReleaseNotesSeen": version,
         "effortCalloutDismissed": True,
+        "bypassPermissionsModeAccepted": True,
         "officialMarketplaceAutoInstallAttempted": True,
         "officialMarketplaceAutoInstalled": True,
         "autoUpdatesProtectedForNative": True,
