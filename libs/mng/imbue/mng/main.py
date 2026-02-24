@@ -39,6 +39,7 @@ from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.loader import read_explicitly_enabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import connect_in_new_iterms2_tab
 from imbue.mng.plugins import hookspecs
@@ -282,8 +283,9 @@ def create_plugin_manager() -> pluggy.PluginManager:
     # plugin registration so disabled plugins are never registered.
     block_disabled_plugins(pm, read_disabled_plugins())
 
-    # Register built-in plugins that ship with mng (respecting disabled state).
-    _register_builtin_plugins(pm)
+    # Register built-in plugins that ship with mng.  Built-in plugins are
+    # disabled by default and only loaded when explicitly enabled in config.
+    _register_builtin_plugins(pm, read_explicitly_enabled_plugins())
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.
@@ -295,14 +297,14 @@ def create_plugin_manager() -> pluggy.PluginManager:
     return pm
 
 
-def _register_builtin_plugins(pm: pluggy.PluginManager) -> None:
+def _register_builtin_plugins(pm: pluggy.PluginManager, explicitly_enabled: frozenset[str]) -> None:
     """Register plugins that are bundled with mng.
 
-    Each built-in plugin is registered under its canonical name so it can be
-    disabled via the same ``plugins.<name>.enabled = false`` mechanism used
-    for external plugins.
+    Built-in plugins are disabled by default (unlike external plugins which
+    are enabled by default).  They are only registered when the user has
+    explicitly set ``plugins.<name>.enabled = true`` in a config file.
     """
-    if not pm.is_blocked("connect_in_new_iterms2_tab"):
+    if "connect_in_new_iterms2_tab" in explicitly_enabled:
         pm.register(connect_in_new_iterms2_tab, name="connect_in_new_iterms2_tab")
 
 

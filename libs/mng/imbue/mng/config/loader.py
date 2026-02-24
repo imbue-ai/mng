@@ -724,16 +724,35 @@ def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
 # --- Disabled plugins pre-reader ---
 
 
+def _read_plugin_enabled_states() -> dict[str, bool]:
+    """Merge plugin enabled/disabled state from all config layers.
+
+    Returns a dict mapping plugin names to their final ``enabled`` boolean.
+    Later config layers override earlier ones.  Plugins not mentioned in any
+    config file are absent from the returned dict.
+    """
+    return dict(
+        item for path in _resolve_config_file_paths() for item in _load_disabled_plugins_from_file(path).items()
+    )
+
+
 def read_disabled_plugins() -> frozenset[str]:
     """Return the set of plugin names disabled across all config layers.
 
     Reads user, project, and local config files for `[plugins.<name>]`
     sections with `enabled = false`.  Later layers override earlier ones.
     """
-    merged = dict(
-        item for path in _resolve_config_file_paths() for item in _load_disabled_plugins_from_file(path).items()
-    )
-    return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
+    return frozenset(name for name, is_enabled in _read_plugin_enabled_states().items() if not is_enabled)
+
+
+def read_explicitly_enabled_plugins() -> frozenset[str]:
+    """Return the set of plugin names explicitly enabled across all config layers.
+
+    Reads user, project, and local config files for `[plugins.<name>]`
+    sections with `enabled = true`.  Later layers override earlier ones.
+    Plugins not mentioned in any config file are *not* included.
+    """
+    return frozenset(name for name, is_enabled in _read_plugin_enabled_states().items() if is_enabled)
 
 
 def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
