@@ -133,6 +133,18 @@ class SendMessageError(AgentError):
         super().__init__(f"Failed to send message to agent {agent_name}: {reason}")
 
 
+class DialogDetectedError(SendMessageError):
+    """A dialog is blocking the agent's input in the terminal."""
+
+    def __init__(self, agent_name: str, dialog_description: str) -> None:
+        self.dialog_description = dialog_description
+        super().__init__(
+            agent_name,
+            f"A dialog is blocking the agent's input ({dialog_description} detected in terminal). "
+            f"Connect to the agent with 'mng connect {agent_name}' to resolve it.",
+        )
+
+
 class AgentStartError(AgentError):
     """Failed to start an agent's tmux session."""
 

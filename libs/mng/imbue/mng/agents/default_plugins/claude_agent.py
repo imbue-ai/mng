@@ -265,6 +265,15 @@ class ClaudeAgent(BaseAgent):
         """
         return "Claude Code"
 
+    def get_dialog_indicators(self) -> Sequence[tuple[str, str]]:
+        """Return Claude Code dialog indicators for runtime detection.
+
+        Detects permission dialogs that appear mid-session when Claude Code
+        asks for user consent before taking an action. These block automated
+        input via tmux send-keys.
+        """
+        return (("Do you want to proceed?", "permission dialog"),)
+
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
     ) -> None:

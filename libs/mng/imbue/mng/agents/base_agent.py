@@ -16,6 +16,7 @@ from pydantic import Field
 
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.common import determine_lifecycle_state
@@ -234,8 +235,14 @@ class BaseAgent(AgentInterface):
         could be interpreted as a literal newline instead of a submit action.
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
+
+        Before sending, checks for blocking dialogs (e.g., permission prompts)
+        that would intercept the input. Raises DialogDetectedError if found.
         """
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
+            # Check for blocking dialogs before sending any input
+            self._check_for_blocking_dialog(self.session_name)
+
             if self.uses_marker_based_send_message():
                 self._send_message_with_marker(self.session_name, message)
             else:
@@ -262,6 +269,43 @@ class BaseAgent(AgentInterface):
         Returns None by default (no TUI readiness check). Subclasses can override.
         """
         return None
+
+    def get_dialog_indicators(self) -> Sequence[tuple[str, str]]:
+        """Return dialog indicators to check for before sending messages.
+
+        Each indicator is a (text_to_match, description) pair. If the text is
+        found in the tmux pane content, a DialogDetectedError is raised with
+        the description.
+
+        Returns empty by default. Subclasses can override to detect
+        agent-specific dialogs (e.g., permission prompts).
+        """
+        return ()
+
+    def _check_for_blocking_dialog(self, session_name: str) -> None:
+        """Check if a dialog is blocking the agent's input.
+
+        Captures the tmux pane and checks for known dialog indicators.
+        Raises DialogDetectedError if a dialog is found.
+        Silently returns if no indicators are configured or pane capture fails.
+        """
+        indicators = self.get_dialog_indicators()
+        if not indicators:
+            return
+
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return
+
+        for indicator_text, dialog_description in indicators:
+            if indicator_text in content:
+                logger.warning(
+                    "Dialog detected in agent {} pane: {} (matched: {})",
+                    self.name,
+                    dialog_description,
+                    indicator_text,
+                )
+                raise DialogDetectedError(str(self.name), dialog_description)
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
@@ -409,6 +453,8 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, marker),
                 timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
             ):
+                # Check if a dialog appeared (provides a more specific error)
+                self._check_for_blocking_dialog(session_name)
                 raise SendMessageError(
                     str(self.name),
                     f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
@@ -430,6 +476,8 @@ class BaseAgent(AgentInterface):
             lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
         ):
+            # Check if a dialog appeared (provides a more specific error)
+            self._check_for_blocking_dialog(session_name)
             raise SendMessageError(
                 str(self.name),
                 f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
@@ -455,6 +503,9 @@ class BaseAgent(AgentInterface):
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
             logger.trace("Submitted message successfully")
             return
+
+        # Check if a dialog appeared after submitting (provides a more specific error)
+        self._check_for_blocking_dialog(session_name)
 
         raise SendMessageError(
             str(self.name),
