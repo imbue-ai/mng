@@ -2426,3 +2426,77 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
     assert (work_dir / "new_file.txt").read_text() == "new content"
     # Existing file SHOULD be deleted (--delete flag passed)
     assert not (work_dir / "existing_file.txt").exists()
+
+
+def test_create_work_dir_cross_host_generates_unique_paths(
+    host_with_temp_dir: tuple[Host, Path],
+    tmp_path: Path,
+    temp_mng_ctx: MngContext,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that cross-host work dir creation generates unique paths under host_dir/projects/.
+
+    When no target_path is specified and source and target are on different hosts,
+    each call should produce a unique directory so multiple agents on a shared host
+    don't collide.
+    """
+    target_host, _temp_dir = host_with_temp_dir
+
+    # Create a source host with a different default_host_dir so it gets a different host ID
+    source_host_dir = tmp_path / "source_host_dir"
+    source_host_dir.mkdir()
+    source_profile_dir = source_host_dir / "profiles" / "default"
+    source_profile_dir.mkdir(parents=True)
+    source_config = MngConfig(
+        default_host_dir=source_host_dir,
+        prefix=mng_test_prefix,
+        is_error_reporting_enabled=False,
+    )
+    source_mng_ctx = MngContext(
+        config=source_config,
+        pm=plugin_manager,
+        profile_dir=source_profile_dir,
+        concurrency_group=temp_mng_ctx.concurrency_group,
+    )
+    source_provider = LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=source_host_dir,
+        mng_ctx=source_mng_ctx,
+    )
+    source_host = source_provider.create_host(HostName("localhost"))
+
+    # Verify the two hosts have different IDs (cross-host scenario)
+    assert source_host.id != target_host.id
+
+    # Create a source directory with a file
+    source_path = tmp_path / "source_project"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    options = CreateAgentOptions(
+        name=AgentName("agent-one"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options)
+
+    # The generated path should be under host_dir/projects/
+    assert str(work_dir_1).startswith(str(target_host.host_dir / "projects"))
+    assert (work_dir_1 / "file.txt").read_text() == "content"
+
+    # Create a second agent on the same target host - should get a different path
+    options_2 = CreateAgentOptions(
+        name=AgentName("agent-two"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        data_options=AgentDataOptions(is_rsync_enabled=True),
+    )
+
+    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2)
+
+    assert str(work_dir_2).startswith(str(target_host.host_dir / "projects"))
+    assert work_dir_1 != work_dir_2
+    assert (work_dir_2 / "file.txt").read_text() == "content"
