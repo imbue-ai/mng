@@ -38,7 +38,7 @@ _FALLBACK_TIMEZONE: Final[str] = "UTC"
 _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
 
 # Path prefix on the state volume for schedule records
-_SCHEDULE_RECORDS_PREFIX: Final[str] = "/scheduled_functions"
+_SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugin/schedule"
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
