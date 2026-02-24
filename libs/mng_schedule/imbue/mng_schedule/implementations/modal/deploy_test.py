@@ -161,33 +161,29 @@ def _make_test_mng_ctx(
 def run_staging(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
-) -> Callable[[Path | None], Path]:
+) -> Callable[[], Path]:
     """Return a callable that runs stage_deploy_files and returns the staging dir.
 
-    Accepts an optional repo_root (creates an empty one if not provided).
     The caller should create any files they want staged BEFORE calling this.
     """
 
-    def _run(repo_root: Path | None = None) -> Path:
-        if repo_root is None:
-            repo_root = tmp_path / "repo"
-            repo_root.mkdir(exist_ok=True)
+    def _run() -> Path:
         staging_dir = tmp_path / "staging"
         mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-        stage_deploy_files(staging_dir, mng_ctx, repo_root)
+        stage_deploy_files(staging_dir, mng_ctx)
         return staging_dir
 
     return _run
 
 
 def test_stage_deploy_files_creates_home_directory_structure(
-    run_staging: Callable[[Path | None], Path],
+    run_staging: Callable[[], Path],
 ) -> None:
     """stage_deploy_files should stage files into home/ mirroring their destination paths."""
     claude_json = Path.home() / ".claude.json"
     claude_json.write_text('{"staged": true}')
 
-    staging_dir = run_staging(None)
+    staging_dir = run_staging()
 
     # Files should be staged under home/ with their natural paths
     staged_file = staging_dir / "home" / ".claude.json"
@@ -196,7 +192,7 @@ def test_stage_deploy_files_creates_home_directory_structure(
 
 
 def test_stage_deploy_files_stages_multiple_home_files(
-    run_staging: Callable[[Path | None], Path],
+    run_staging: Callable[[], Path],
 ) -> None:
     """stage_deploy_files stages multiple home files preserving directory structure."""
     claude_json = Path.home() / ".claude.json"
@@ -206,7 +202,7 @@ def test_stage_deploy_files_stages_multiple_home_files(
     mng_config = mng_dir / "config.toml"
     mng_config.write_text("[test]\nroundtrip = true\n")
 
-    staging_dir = run_staging(None)
+    staging_dir = run_staging()
 
     # Both files should be staged under home/ with their natural paths
     staged_claude = staging_dir / "home" / ".claude.json"
@@ -218,10 +214,10 @@ def test_stage_deploy_files_stages_multiple_home_files(
 
 
 def test_stage_deploy_files_creates_secrets_dir(
-    run_staging: Callable[[Path | None], Path],
+    run_staging: Callable[[], Path],
 ) -> None:
     """stage_deploy_files should always create the secrets/ directory."""
-    staging_dir = run_staging(None)
+    staging_dir = run_staging()
 
     secrets_dir = staging_dir / "secrets"
     assert secrets_dir.exists()
@@ -239,11 +235,9 @@ def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
     clean_project.mkdir()
     monkeypatch.chdir(clean_project)
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    stage_deploy_files(staging_dir, mng_ctx)
 
     home_dir = staging_dir / "home"
     assert home_dir.exists()
@@ -267,11 +261,9 @@ def test_stage_deploy_files_stages_project_files(
             return {Path("config/settings.toml"): "[settings]\nkey = 1\n"}
 
     plugin_manager.register(_ProjectFilePlugin())
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    stage_deploy_files(staging_dir, mng_ctx, repo_root)
+    stage_deploy_files(staging_dir, mng_ctx)
 
     staged_file = staging_dir / "project" / "config" / "settings.toml"
     assert staged_file.exists()
@@ -427,7 +419,7 @@ def test_stage_consolidated_env_includes_pass_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_stage_consolidated_env should include vars from --pass-env."""
+    """_stage_consolidated_env should include vars from --pass-env (quoted for dotenv safety)."""
     monkeypatch.setenv("MY_PASS_VAR", "passed_value")
 
     output_dir = tmp_path / "secrets"
@@ -435,7 +427,15 @@ def test_stage_consolidated_env_includes_pass_env(
     _stage_consolidated_env(output_dir, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
-    assert "MY_PASS_VAR=passed_value" in result
+    assert 'MY_PASS_VAR="passed_value"' in result
+
+    # Verify the value round-trips through python-dotenv correctly
+    from io import StringIO
+
+    from dotenv import dotenv_values
+
+    parsed = dotenv_values(stream=StringIO(result))
+    assert parsed["MY_PASS_VAR"] == "passed_value"
 
 
 def test_stage_consolidated_env_merges_env_files_and_pass_env(
@@ -458,7 +458,8 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
     result = (output_dir / ".env").read_text()
     assert "FILE_KEY=from_file" in result
-    assert "SHELL_KEY=from_shell" in result
+    assert "SHELL_KEY" in result
+    assert "from_shell" in result
 
 
 def test_stage_consolidated_env_skips_missing_pass_env(
@@ -498,15 +499,12 @@ def test_stage_deploy_files_stages_upload_file(
     source_file = tmp_path / "local_config.toml"
     source_file.write_text("[config]\nkey = true\n")
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     stage_deploy_files(
         staging_dir,
         mng_ctx,
-        repo_root,
         uploads=[(source_file, "~/.config/myapp.toml")],
     )
 
@@ -527,15 +525,12 @@ def test_stage_deploy_files_stages_upload_directory(
     sub_dir.mkdir()
     (sub_dir / "b.txt").write_text("file-b")
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     stage_deploy_files(
         staging_dir,
         mng_ctx,
-        repo_root,
         uploads=[(source_dir, "configs")],
     )
 
@@ -552,21 +547,19 @@ def test_stage_deploy_files_with_pass_env(
     """stage_deploy_files should include --pass-env vars in the consolidated env file."""
     monkeypatch.setenv("TEST_API_KEY", "sk-test-123")
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     stage_deploy_files(
         staging_dir,
         mng_ctx,
-        repo_root,
         pass_env=["TEST_API_KEY"],
     )
 
     staged_env = staging_dir / "secrets" / ".env"
     assert staged_env.exists()
-    assert "TEST_API_KEY=sk-test-123" in staged_env.read_text()
+    assert "TEST_API_KEY" in staged_env.read_text()
+    assert "sk-test-123" in staged_env.read_text()
 
 
 def test_stage_deploy_files_with_exclude_user_settings(
@@ -580,15 +573,12 @@ def test_stage_deploy_files_with_exclude_user_settings(
     mng_config = mng_dir / "config.toml"
     mng_config.write_text("[test]\nvalue = 1\n")
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     stage_deploy_files(
         staging_dir,
         mng_ctx,
-        repo_root,
         include_user_settings=False,
     )
 
@@ -635,15 +625,12 @@ def test_stage_deploy_files_stages_mng_source_for_editable(
     """stage_deploy_files with EDITABLE mode should stage the mng-schedule source tree."""
     monkeypatch.chdir(tmp_path)
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
     staging_dir = tmp_path / "staging"
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
 
     stage_deploy_files(
         staging_dir,
         mng_ctx,
-        repo_root,
         mng_install_mode=MngInstallMode.EDITABLE,
     )
 

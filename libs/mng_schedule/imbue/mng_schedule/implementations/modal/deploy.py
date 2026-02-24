@@ -303,7 +303,6 @@ def _collect_deploy_files(
 def stage_deploy_files(
     staging_dir: Path,
     mng_ctx: MngContext,
-    repo_root: Path,
     include_user_settings: bool = True,
     include_project_settings: bool = True,
     pass_env: Sequence[str] = (),
@@ -423,11 +422,15 @@ def _stage_consolidated_env(
         env_lines.extend(env_file_path.read_text().splitlines())
         logger.info("Including env file {}", env_file_path)
 
-    # 2. Pass-through env vars from current process
+    # 2. Pass-through env vars from current process.
+    # Values are double-quoted and internal double-quotes are escaped so that
+    # python-dotenv (used by load_env_file) round-trips them correctly, even
+    # if a value contains newlines or other special characters.
     for var_name in pass_env:
         value = os.environ.get(var_name)
         if value is not None:
-            env_lines.append(f"{var_name}={value}")
+            escaped_value = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+            env_lines.append(f'{var_name}="{escaped_value}"')
             logger.debug("Passing through env var {}", var_name)
         else:
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
@@ -581,7 +584,6 @@ def deploy_schedule(
             stage_deploy_files(
                 staging_dir,
                 mng_ctx,
-                repo_root,
                 include_user_settings=include_user_settings,
                 include_project_settings=include_project_settings,
                 pass_env=pass_env,
