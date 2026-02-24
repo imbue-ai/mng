@@ -1,7 +1,7 @@
 import json
 import os
-import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Final
@@ -11,13 +11,14 @@ from click.shell_completion import CompletionItem
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
+DEFAULT_HOST_DIR: Final[Path] = Path("~/.mng")
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
-def _get_host_dir() -> Path:
+def get_host_dir() -> Path:
     """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
     env_host_dir = os.environ.get("MNG_HOST_DIR")
-    return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
+    return Path(env_host_dir) if env_host_dir else DEFAULT_HOST_DIR.expanduser()
 
 
 # =============================================================================
@@ -35,7 +36,7 @@ def _read_agent_names_from_cache() -> list[str]:
     This function is designed to never raise -- shell completion must not crash.
     """
     try:
-        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if not cache_path.is_file():
             return []
 
@@ -61,22 +62,18 @@ def _trigger_background_cache_refresh() -> None:
     every TAB press, and log output on stderr can interfere with shell completion.
     """
     try:
-        cache_path = _get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if cache_path.is_file():
             age = time.time() - cache_path.stat().st_mtime
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
                 return
 
-        mng_path = shutil.which("mng")
-        if mng_path is None:
-            return
-
-        # Uses subprocess.Popen directly (not ConcurrencyGroup) because this module
-        # runs in the shell completion context and intentionally avoids importing
-        # mng internals to keep TAB completion fast and lightweight.
+        # Uses subprocess.Popen directly instead of ConcurrencyGroup's
+        # run_background because the child must outlive the parent process
+        # (start_new_session=True). run_background doesn't support detaching.
         devnull = subprocess.DEVNULL
         subprocess.Popen(
-            [mng_path, "list", "--format", "json", "-q"],
+            [sys.executable, "-c", "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])"],
             stdout=devnull,
             stderr=devnull,
             start_new_session=True,
@@ -119,7 +116,7 @@ def complete_agent_name(
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
-    return _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+    return get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
 
 
 def _read_cli_completions_file() -> dict | None:

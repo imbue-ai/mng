@@ -14,9 +14,6 @@ from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
-from imbue.mng.config.loader import _get_local_config_name
-from imbue.mng.config.loader import _get_project_config_name
-from imbue.mng.config.loader import _get_user_config_path
 from imbue.mng.config.loader import _load_toml
 from imbue.mng.config.loader import _merge_command_defaults
 from imbue.mng.config.loader import _parse_agent_types
@@ -30,8 +27,11 @@ from imbue.mng.config.loader import _parse_providers
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
-from imbue.mng.config.loader import read_default_command
-from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.pre_readers import _get_local_config_name
+from imbue.mng.config.pre_readers import _get_project_config_name
+from imbue.mng.config.pre_readers import get_user_config_path
+from imbue.mng.config.pre_readers import read_default_command
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
@@ -230,10 +230,10 @@ def test_all_cli_commands_are_single_word() -> None:
 # =============================================================================
 
 
-def test_get_user_config_path_returns_correct_path() -> None:
-    """_get_user_config_path should return settings.toml in profile directory."""
+def testget_user_config_path_returns_correct_path() -> None:
+    """get_user_config_path should return settings.toml in profile directory."""
     profile_dir = Path("/home/user/.mng/profiles/abc123")
-    path = _get_user_config_path(profile_dir)
+    path = get_user_config_path(profile_dir)
     assert path == profile_dir / "settings.toml"
 
 

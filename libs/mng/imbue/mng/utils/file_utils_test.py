@@ -64,11 +64,13 @@ def test_atomic_write_new_file_gets_default_permissions(tmp_path: Path) -> None:
 
 
 def test_atomic_write_raises_on_unwritable_directory(tmp_path: Path) -> None:
-    target = tmp_path / "nonexistent" / "output.txt"
-    os.chmod(tmp_path, 0o444)
+    locked_dir = tmp_path / "locked"
+    locked_dir.mkdir()
+    os.chmod(locked_dir, 0o555)
 
+    target = locked_dir / "subdir" / "output.txt"
     try:
         with pytest.raises(OSError):
             atomic_write(target, "content")
     finally:
-        os.chmod(tmp_path, 0o755)
+        os.chmod(locked_dir, 0o755)

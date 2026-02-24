@@ -19,6 +19,7 @@ from pydantic_core import core_schema
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
+from imbue.mng.cli.completion import DEFAULT_HOST_DIR
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ParseSpecError
 from imbue.mng.primitives import AgentTypeName
@@ -416,7 +417,7 @@ class MngConfig(FrozenModel):
         description="Prefix for naming resources (tmux sessions, containers, etc.)",
     )
     default_host_dir: Path = Field(
-        default=Path("~/.mng"),
+        default=DEFAULT_HOST_DIR,
         description="Default base directory for mng data on hosts (can be overridden per provider instance)",
     )
     unset_vars: list[str] = Field(

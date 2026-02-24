@@ -1,5 +1,4 @@
 import json
-import os
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -9,13 +8,8 @@ from loguru import logger
 
 from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.cli.completion import get_host_dir
 from imbue.mng.utils.file_utils import atomic_write
-
-
-def _get_host_dir() -> Path:
-    """Resolve the host directory from MNG_HOST_DIR or the default ~/.mng."""
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    return Path(env_host_dir) if env_host_dir else Path.home() / ".mng"
 
 
 def write_cli_completions_cache(cli_group: click.Group) -> None:
@@ -26,7 +20,8 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
     (triggered by background tab completion refresh) to keep the cache up to
     date with installed plugins.
 
-    This function never raises -- cache write failures must not break CLI commands.
+    Catches OSError from cache writes so filesystem failures do not break
+    CLI commands. Other exceptions are allowed to propagate.
     """
     try:
         all_command_names = sorted(cli_group.commands.keys())
@@ -43,7 +38,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             "subcommand_by_command": subcommand_by_command,
         }
 
-        cache_path = _get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write CLI completions cache")
@@ -56,7 +51,8 @@ def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
     without importing the mng config system. The cache file is written to
     {host_dir}/.agent_completions.json.
 
-    This function never raises -- cache write failures must not break the caller.
+    Catches OSError from cache writes so filesystem failures do not break
+    the caller. Other exceptions are allowed to propagate.
     """
     try:
         cache_data = {
