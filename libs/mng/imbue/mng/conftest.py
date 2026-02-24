@@ -90,21 +90,21 @@ _remove_deprecated_urwid_module_aliases()
 # Track test IDs used by this worker/process for cleanup verification.
 # Each xdist worker is a separate process with isolated memory, so this
 # list only contains IDs from tests run by THIS worker.
-worker_test_ids: list[str] = []
+_worker_test_ids: list[str] = []
 
 # Track Modal app names that were created during tests for cleanup verification.
 # This enables detection of leaked apps that weren't properly cleaned up.
-worker_modal_app_names: list[str] = []
+_worker_modal_app_names: list[str] = []
 
 # Track Modal volume names that were created during tests for cleanup verification.
 # Unlike Modal Apps, volumes are global to the account (not app-specific), so they
 # must be tracked and cleaned up separately.
-worker_modal_volume_names: list[str] = []
+_worker_modal_volume_names: list[str] = []
 
 # Track Modal environment names that were created during tests for cleanup verification.
 # Modal environments are used to scope all resources (apps, volumes, sandboxes) to a
 # specific user.
-worker_modal_environment_names: list[str] = []
+_worker_modal_environment_names: list[str] = []
 
 
 def register_modal_test_app(app_name: str) -> None:
@@ -113,8 +113,8 @@ def register_modal_test_app(app_name: str) -> None:
     Call this when creating a Modal app during tests to enable leak detection.
     The app_name should match the name used when creating the Modal app.
     """
-    if app_name not in worker_modal_app_names:
-        worker_modal_app_names.append(app_name)
+    if app_name not in _worker_modal_app_names:
+        _worker_modal_app_names.append(app_name)
 
 
 def register_modal_test_volume(volume_name: str) -> None:
@@ -123,8 +123,8 @@ def register_modal_test_volume(volume_name: str) -> None:
     Call this when creating a Modal volume during tests to enable leak detection.
     The volume_name should match the name used when creating the Modal volume.
     """
-    if volume_name not in worker_modal_volume_names:
-        worker_modal_volume_names.append(volume_name)
+    if volume_name not in _worker_modal_volume_names:
+        _worker_modal_volume_names.append(volume_name)
 
 
 def register_modal_test_environment(environment_name: str) -> None:
@@ -133,8 +133,8 @@ def register_modal_test_environment(environment_name: str) -> None:
     Call this when creating a Modal environment during tests to enable leak detection.
     The environment_name should match the name used when creating resources in that environment.
     """
-    if environment_name not in worker_modal_environment_names:
-        worker_modal_environment_names.append(environment_name)
+    if environment_name not in _worker_modal_environment_names:
+        _worker_modal_environment_names.append(environment_name)
 
 
 # =============================================================================
@@ -157,7 +157,7 @@ def mng_test_id() -> str:
     test isolation and easy cleanup of test resources (e.g., tmux sessions).
     """
     test_id = uuid4().hex
-    worker_test_ids.append(test_id)
+    _worker_test_ids.append(test_id)
     return test_id
 
 
@@ -681,7 +681,7 @@ def _get_leaked_modal_apps() -> list[tuple[str, str]]:
 
     Uses 'uv run modal app list --json' to query the current state of all apps.
     """
-    if not worker_modal_app_names:
+    if not _worker_modal_app_names:
         return []
 
     try:
@@ -703,7 +703,7 @@ def _get_leaked_modal_apps() -> list[tuple[str, str]]:
             state = app.get("State", "")
 
             # Check if this app was created by our tests and is not stopped
-            if app_name in worker_modal_app_names and state != "stopped":
+            if app_name in _worker_modal_app_names and state != "stopped":
                 leaked.append((app_id, app_name))
 
         return leaked
@@ -742,7 +742,7 @@ def _get_leaked_modal_volumes() -> list[str]:
 
     Uses 'uv run modal volume list --json' to query the current state of all volumes.
     """
-    if not worker_modal_volume_names:
+    if not _worker_modal_volume_names:
         return []
 
     try:
@@ -762,7 +762,7 @@ def _get_leaked_modal_volumes() -> list[str]:
             volume_name = volume.get("Name", "")
 
             # Check if this volume was created by our tests
-            if volume_name in worker_modal_volume_names:
+            if volume_name in _worker_modal_volume_names:
                 leaked.append(volume_name)
 
         return leaked
@@ -801,7 +801,7 @@ def _get_leaked_modal_environments() -> list[str]:
 
     Uses 'uv run modal environment list --json' to query the current state of all environments.
     """
-    if not worker_modal_environment_names:
+    if not _worker_modal_environment_names:
         return []
 
     try:
@@ -821,7 +821,7 @@ def _get_leaked_modal_environments() -> list[str]:
             env_name = env.get("name", "")
 
             # Check if this environment was created by our tests
-            if env_name in worker_modal_environment_names:
+            if env_name in _worker_modal_environment_names:
                 leaked.append(env_name)
 
         return leaked
@@ -906,7 +906,7 @@ def session_cleanup() -> Generator[None, None, None]:
     # the default tmux server as a fallback safety net -- it would only
     # catch leaks if a test somehow bypassed the per-test TMUX_TMPDIR.
     leftover_sessions: list[str] = []
-    for test_id in worker_test_ids:
+    for test_id in _worker_test_ids:
         prefix = f"mng_{test_id}-"
         sessions = _get_tmux_sessions_with_prefix(prefix)
         leftover_sessions.extend(sessions)
