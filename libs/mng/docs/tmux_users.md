@@ -1,4 +1,4 @@
-# For tmux Users
+# For tmux users
 
 ## Isolating mng's tmux sessions
 
