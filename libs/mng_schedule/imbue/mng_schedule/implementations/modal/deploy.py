@@ -299,33 +299,30 @@ def build_mng_install_commands(mode: MngInstallMode, dockerfile_user: str | None
     match mode:
         case MngInstallMode.SKIP:
             return []
-        case MngInstallMode.PACKAGE:
-            # All commands run as root: system deps, uv, and pip install
-            # all require root privileges.
+        case MngInstallMode.PACKAGE | MngInstallMode.EDITABLE:
+            # Switch to root and install system deps + uv (shared by both modes).
             commands = [
                 "USER root",
                 "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl && rm -rf /var/lib/apt/lists/*",
                 "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
-                "RUN uv pip install --system mng mng-schedule",
             ]
-            if dockerfile_user is not None:
-                commands.append(f"USER {dockerfile_user}")
-            return commands
-        case MngInstallMode.EDITABLE:
-            # The mng source tarball is added as a separate layer at /mng_src/
-            # (separate from the staging layer for better Docker cache behavior
-            # when iterating on mng code). System deps, uv, and tarball
-            # extraction run as root; tool install runs as the target user
-            # so the tool is accessible at runtime.
-            commands = [
-                "USER root",
-                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl && rm -rf /var/lib/apt/lists/*",
-                "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
-                "RUN mkdir -p /code/mng_editable && tar -xzf /mng_src/current.tar.gz -C /code/mng_editable",
-            ]
-            if dockerfile_user is not None:
-                commands.append(f"USER {dockerfile_user}")
-            commands.append("RUN uv tool install -e /code/mng_editable/libs/mng")
+            if mode == MngInstallMode.PACKAGE:
+                # pip install runs as root (needs write access to system site-packages).
+                commands.append("RUN uv pip install --system mng mng-schedule")
+                if dockerfile_user is not None:
+                    commands.append(f"USER {dockerfile_user}")
+            else:
+                # The mng source tarball is added as a separate layer at /mng_src/
+                # (separate from the staging layer for better Docker cache behavior
+                # when iterating on mng code). Tarball extraction runs as root;
+                # tool install runs as the target user so the tool is accessible
+                # at runtime.
+                commands.append(
+                    "RUN mkdir -p /code/mng_editable && tar -xzf /mng_src/current.tar.gz -C /code/mng_editable"
+                )
+                if dockerfile_user is not None:
+                    commands.append(f"USER {dockerfile_user}")
+                commands.append("RUN uv tool install -e /code/mng_editable/libs/mng")
             return commands
         case MngInstallMode.AUTO:
             raise ScheduleDeployError("AUTO mode must be resolved before building install commands")
@@ -670,6 +667,14 @@ def deploy_schedule(
                     f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
                 ) from None
 
+        # Resolve the Dockerfile path (default: .mng/Dockerfile)
+        dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
+        if not dockerfile_path.exists():
+            raise ScheduleDeployError(
+                f"Dockerfile not found at {dockerfile_path}. "
+                "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
+            ) from None
+
         # Write deploy config as a single JSON file into the staging dir
         dockerfile_user = detect_dockerfile_user(dockerfile_path)
         mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
@@ -682,14 +687,6 @@ def deploy_schedule(
         )
         deploy_config_json = json.dumps(deploy_config)
         (staging_dir / "deploy_config.json").write_text(deploy_config_json)
-
-        # Resolve the Dockerfile path (default: .mng/Dockerfile)
-        dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
-        if not dockerfile_path.exists():
-            raise ScheduleDeployError(
-                f"Dockerfile not found at {dockerfile_path}. "
-                "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
-            ) from None
 
         # Build env vars: deploy config as single JSON + local-only paths for image building
         env = os.environ.copy()
