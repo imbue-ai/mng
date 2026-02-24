@@ -1663,10 +1663,9 @@ log "=== Shutdown script completed ==="
         # Parse build arguments (including --dockerfile if specified via build args)
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
-        # Top-level --dockerfile takes precedence over -b --dockerfile=...
-        dockerfile_path = (
-            dockerfile if dockerfile is not None else (Path(config.dockerfile) if config.dockerfile else None)
-        )
+        if dockerfile is not None and config.dockerfile is not None:
+            raise MngError("Cannot specify --dockerfile and -b --dockerfile at the same time")
+        dockerfile_path = dockerfile or (Path(config.dockerfile) if config.dockerfile else None)
         context_dir_path = Path(config.context_dir) if config.context_dir else None
 
         try:
