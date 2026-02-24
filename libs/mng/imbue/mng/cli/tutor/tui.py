@@ -27,7 +27,6 @@ PALETTE = [
     ("completed", "dark green", ""),
     ("pending", "light gray", ""),
     ("current_heading", "yellow,bold", ""),
-    ("details", "white", ""),
 ]
 
 CHECK_INTERVAL_SECONDS: int = 3
@@ -83,6 +82,13 @@ def run_lesson_selector(lessons: tuple[Lesson, ...]) -> Lesson | None:
     header = Pile(
         [
             AttrMap(Text("mng Tutor - Select a Lesson", align="center"), "header"),
+            Divider(),
+            Text(
+                "  Welcome! This tutor will guide you through learning mng commands.\n"
+                "  Make sure you have two terminal windows open side by side -- one for\n"
+                "  this tutor, and one for running mng commands. (Even if you use tmux,\n"
+                "  keep these as separate windows so the tutor can stay visible.)"
+            ),
             Divider(),
             Text("  Up/Down to navigate, Enter to select, q to quit"),
             Divider(),
@@ -174,7 +180,7 @@ def _build_step_widgets(state: _LessonRunnerState) -> list[Text | Divider]:
         if is_current:
             widgets.append(Text(""))
             for line in step.details.split("\n"):
-                widgets.append(Text(("details", f"        {line}")))
+                widgets.append(Text(f"        {line}"))
             widgets.append(Text(""))
 
     # Show completion message if all steps are done
@@ -223,8 +229,11 @@ def _on_check_alarm(loop: MainLoop, state: _LessonRunnerState) -> None:
         _refresh_display(state)
 
 
-def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> None:
-    """Run the lesson runner TUI with periodic check polling."""
+def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> bool:
+    """Run the lesson runner TUI with periodic check polling.
+
+    Returns True if the lesson was completed, False if the user quit early.
+    """
     status_text = Text("  Starting lesson... (q to quit)")
     status_bar = AttrMap(status_text, "status")
 
@@ -274,3 +283,5 @@ def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> None:
         loop.run()
     finally:
         logger.enable("imbue")
+
+    return all(state.step_completed)

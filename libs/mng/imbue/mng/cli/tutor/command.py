@@ -26,13 +26,13 @@ def tutor(ctx: click.Context, **kwargs: Any) -> None:
         command_class=TutorCliOptions,
     )
 
-    # Show lesson selector
+    # Loop: select a lesson, run it, return to selector on completion
     lesson = run_lesson_selector(ALL_LESSONS)
-    if lesson is None:
-        return
-
-    # Run the selected lesson
-    run_lesson_runner(lesson, mng_ctx)
+    while lesson is not None:
+        is_completed = run_lesson_runner(lesson, mng_ctx)
+        if not is_completed:
+            return
+        lesson = run_lesson_selector(ALL_LESSONS)
 
 
 CommandHelpMetadata(
