@@ -95,6 +95,12 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
+    # FIXME: when the version is pinned, we should, during provisioning, ensure that the auto-updates are disabled. This means doing the following:
+    #  - for local, check that "DISABLE_AUTOUPDATER=1" or "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" are set in the local claude settings (~/.claude/settings.json) and warn if not
+    #  - for remote, just automatically add these env vars to the agent environment:
+    #       export DISABLE_AUTOUPDATER=1 && export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 && export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
+    #    this should be done by adding a new callback ("get_provision_env_vars") for agents (like get_provision_file_transfers) that allows us to define additional environment variables
+    #    that function ("get_provision_env_vars") should be defined on our claude agent below, and should be called from Host::_collect_agent_env_vars in order to collect them all
     version: str | None = Field(
         default=None,
         description="Pin the Claude Code version to install (e.g., '2.1.50'). "

@@ -441,6 +441,7 @@ def _stage_consolidated_env(
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
 
     if env_lines:
+        # FIXME: should really use a library for all of this stuff, then will get the quoting right. And I think we're already using a dotenv library in here anyway...
         (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
         var_count = sum(1 for line in env_lines if line.strip() and not line.strip().startswith("#") and "=" in line)
         logger.info("Staged consolidated env file with {} variable entries", var_count)

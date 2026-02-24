@@ -30,8 +30,7 @@ class MngInstallMode(UpperCaseStrEnum):
     AUTO: Detect automatically based on how mng-schedule is currently installed.
     PACKAGE: Install from PyPI (or configured index) via pip install.
     EDITABLE: Package the local source tree and install it in the image.
-    SKIP: Assume mng is already available in the base image (e.g. because the
-          project IS mng and the code is included via --git-image-hash).
+    SKIP: Assume mng is already available in the base image
     """
 
     AUTO = auto()
