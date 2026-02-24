@@ -719,8 +719,6 @@ kill -TERM 1
         Build args are passed through to 'docker build' (if provided).
         Start args are passed through to 'docker run' for resource limits,
         volumes, ports, network, etc.
-
-        If dockerfile is provided, it is passed as --file=<path> to docker build.
         """
         host_id = HostId.generate()
         logger.info("Creating host {} in {} ...", name, self.name)

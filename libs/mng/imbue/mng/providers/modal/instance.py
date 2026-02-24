@@ -1639,9 +1639,6 @@ log "=== Shutdown script completed ==="
 
         If snapshot is provided, the host is created from the snapshot image
         instead of building a new one.
-
-        If dockerfile is provided, it takes precedence over any --dockerfile
-        passed via build_args.
         """
         # Generate host ID
         host_id = HostId.generate()

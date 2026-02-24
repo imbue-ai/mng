@@ -109,10 +109,6 @@ class ProviderInstanceInterface(MutableModel, ABC):
 
         If snapshot is provided, the host is created from the snapshot image
         instead of building a new one.
-
-        If dockerfile is provided, it specifies the path to the Dockerfile to
-        use for building the host image. Each provider translates this to its
-        native flag (e.g. --file for Docker, --dockerfile for Modal).
         """
         ...
 
