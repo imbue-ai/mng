@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import datetime
 import json
 import os
 import random
 import shlex
+from collections.abc import Mapping
 from collections.abc import Sequence
+from datetime import datetime as dt_datetime
+from datetime import timezone as dt_timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -813,7 +815,7 @@ def _generate_claude_json(version: str | None):
     # ~/.claude.json
     if version is None:
         version = "2.1.50"
-    current_time = datetime.datetime.now(datetime.UTC)
+    current_time = dt_datetime.now(dt_timezone.utc)
     current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     current_time_millis = int(current_time.timestamp() * 1000)
     cache_time_millis = current_time_millis + 50 + random.random() * 1000
@@ -888,3 +890,12 @@ def get_files_for_deploy(
                     files[Path(str(relative_path))] = file_path
 
     return files
+
+
+@hookimpl
+def get_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: Mapping[str, str],
+) -> dict[str, str | None]:
+    """Set IS_SANDBOX=1 for Claude agent deployments."""
+    return {"IS_SANDBOX": "1"}

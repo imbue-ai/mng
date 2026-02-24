@@ -6,15 +6,18 @@ import shlex
 import shutil
 import sys
 import tempfile
+from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
+from io import StringIO
 from pathlib import Path
 from typing import Any
 from typing import Final
 from typing import assert_never
 
 import modal.exception
+from dotenv import dotenv_values
 from loguru import logger
 from pydantic import ValidationError
 
@@ -381,6 +384,46 @@ def _collect_deploy_files(
     return merged
 
 
+@pure
+def _parse_env_lines_to_dict(env_lines: Sequence[str]) -> dict[str, str]:
+    """Parse env file lines into a key-value dict.
+
+    Uses python-dotenv for consistent parsing with the runtime env file
+    loader (env_file.py). Handles comments, blank lines, quoted values,
+    the 'export' prefix, and multiline values.
+    """
+    content = "\n".join(env_lines)
+    parsed = dotenv_values(stream=StringIO(content))
+    return {k: v for k, v in parsed.items() if v is not None}
+
+
+def _collect_deploy_env_vars(
+    mng_ctx: MngContext,
+    env_vars: Mapping[str, str],
+) -> dict[str, str | None]:
+    """Collect env var overrides from plugins via the get_env_vars_for_deploy hook.
+
+    Each plugin can return new variables to add, existing variables to update,
+    or variables to remove (by setting the value to None). Results from
+    multiple plugins are merged, with later plugins overwriting earlier ones
+    on collision (with a warning).
+    """
+    all_results: list[dict[str, str | None]] = mng_ctx.pm.hook.get_env_vars_for_deploy(
+        mng_ctx=mng_ctx,
+        env_vars=env_vars,
+    )
+    merged: dict[str, str | None] = {}
+    for result in all_results:
+        for key, value in result.items():
+            if key in merged:
+                logger.warning(
+                    "Deploy env var collision: {} registered by multiple plugins, overwriting previous value",
+                    key,
+                )
+            merged[key] = value
+    return merged
+
+
 def stage_deploy_files(
     staging_dir: Path,
     mng_ctx: MngContext,
@@ -459,14 +502,15 @@ def stage_deploy_files(
         logger.info("Staged {} user-specified uploads", len(uploads))
 
     # Consolidate environment variables from all sources into a single .env file.
-    # Precedence (lowest to highest): --env-file < --pass-env
+    # Precedence (lowest to highest): --env-file < --pass-env < plugin env vars
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
-    _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
+    _stage_consolidated_env(secrets_dir, mng_ctx=mng_ctx, pass_env=pass_env, env_files=env_files)
 
 
 def _stage_consolidated_env(
     secrets_dir: Path,
+    mng_ctx: MngContext,
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
 ) -> None:
@@ -475,6 +519,7 @@ def _stage_consolidated_env(
     Sources are merged in order of increasing precedence:
     1. User-specified --env-file entries (in order)
     2. User-specified --pass-env variables from the current process environment
+    3. Plugin-provided env vars from the get_env_vars_for_deploy hook
     """
     env_lines: list[str] = []
 
@@ -492,11 +537,28 @@ def _stage_consolidated_env(
         else:
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
 
-    if env_lines:
-        # FIXME: should really use a library for all of this stuff, then will get the quoting right. And I think we're already using a dotenv library in here anyway...
-        (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
-        var_count = sum(1 for line in env_lines if line.strip() and not line.strip().startswith("#") and "=" in line)
-        logger.info("Staged consolidated env file with {} variable entries", var_count)
+    # Parse the assembled env lines into a dict so plugins can inspect them
+    env_dict = _parse_env_lines_to_dict(env_lines)
+
+    # 3. Collect env var overrides from plugins (highest precedence)
+    plugin_overrides = _collect_deploy_env_vars(mng_ctx, env_dict)
+    for key, value in plugin_overrides.items():
+        if value is None:
+            env_dict.pop(key, None)
+            logger.debug("Plugin removed env var {}", key)
+        else:
+            env_dict[key] = value
+            logger.debug("Plugin set env var {}", key)
+
+    if plugin_overrides:
+        additions = sum(1 for v in plugin_overrides.values() if v is not None)
+        removals = sum(1 for v in plugin_overrides.values() if v is None)
+        logger.info("Plugins contributed {} env var additions/updates and {} removals", additions, removals)
+
+    if env_dict:
+        final_lines = [f"{key}={value}" for key, value in env_dict.items()]
+        (secrets_dir / ".env").write_text("\n".join(final_lines) + "\n")
+        logger.info("Staged consolidated env file with {} variable entries", len(env_dict))
 
 
 @pure
