@@ -272,6 +272,7 @@ def get_files_for_deploy(
     mng_ctx: MngContext,
     include_user_settings: bool,
     include_project_settings: bool,
+    repo_root: Path,
 ) -> dict[Path, Path | str]:
     """[experimental] Return files to include when deploying scheduled commands.
 
@@ -284,6 +285,10 @@ def get_files_for_deploy(
     include_user_settings is False, plugins should skip files from the user's
     home directory (paths starting with "~"). When include_project_settings is
     False, plugins should skip unversioned project-specific files.
+
+    When resolving project-relative paths, implementations must use repo_root
+    as the base directory rather than the current working directory. This
+    ensures correct behavior regardless of where the deploy command is invoked.
 
     Return a dict mapping destination paths to sources (empty dict if none):
     - Keys are destination Paths on the remote machine. Paths starting

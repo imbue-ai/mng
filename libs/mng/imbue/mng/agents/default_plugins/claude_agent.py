@@ -789,6 +789,7 @@ def get_files_for_deploy(
     mng_ctx: MngContext,
     include_user_settings: bool,
     include_project_settings: bool,
+    repo_root: Path,
 ) -> dict[Path, Path | str]:
     """Register claude-specific files for scheduled deployments."""
     files: dict[Path, Path | str] = {}
@@ -806,13 +807,13 @@ def get_files_for_deploy(
 
     if include_project_settings:
         # Include unversioned project-specific claude settings (e.g.
-        # .claude/settings.local.json) from the current working directory.
+        # .claude/settings.local.json) from the repo root directory.
         # These are typically gitignored and contain project-specific config.
-        project_claude_dir = Path.cwd() / ".claude"
+        project_claude_dir = repo_root / ".claude"
         if project_claude_dir.is_dir():
             for file_path in project_claude_dir.rglob("*.local.*"):
                 if file_path.is_file():
-                    relative_path = file_path.relative_to(Path.cwd())
+                    relative_path = file_path.relative_to(repo_root)
                     files[Path(str(relative_path))] = file_path
 
     return files
