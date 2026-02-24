@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.agents.agent_registry import get_agent_config_class
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplate
@@ -20,10 +22,8 @@ from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
-from imbue.mng.config.data_types import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import split_cli_args_string
 from imbue.mng.config.plugin_registry import get_plugin_config_class
 from imbue.mng.config.pre_readers import find_local_config

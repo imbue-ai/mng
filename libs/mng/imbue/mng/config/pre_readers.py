@@ -2,18 +2,13 @@ import os
 import tomllib
 from pathlib import Path
 from typing import Any
-from typing import Final
 
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.utils.git_utils import find_git_worktree_root
-
-# Constants duplicated from data_types.py to avoid importing heavy dependencies
-# (data_types pulls in pydantic, pluggy, and the full config model hierarchy).
-PROFILES_DIRNAME: Final[str] = "profiles"
-ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
-
 
 # =============================================================================
 # Config File Discovery
@@ -38,20 +33,15 @@ def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
     Returns the profile directory if it can be determined from existing files,
     or None otherwise.
     """
-    config_path = base_dir / ROOT_CONFIG_FILENAME
-    if not config_path.exists():
+    root_config = _load_toml(base_dir / ROOT_CONFIG_FILENAME)
+    if root_config is None:
         return None
-    try:
-        with open(config_path, "rb") as f:
-            root_config = tomllib.load(f)
-        profile_id = root_config.get("profile")
-        if not profile_id:
-            return None
-        profile_dir = base_dir / PROFILES_DIRNAME / profile_id
-        if profile_dir.exists() and profile_dir.is_dir():
-            return profile_dir
-    except tomllib.TOMLDecodeError:
-        pass
+    profile_id = root_config.get("profile")
+    if not profile_id:
+        return None
+    profile_dir = base_dir / PROFILES_DIRNAME / profile_id
+    if profile_dir.exists() and profile_dir.is_dir():
+        return profile_dir
     return None
 
 
