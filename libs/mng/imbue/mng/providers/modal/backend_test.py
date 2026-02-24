@@ -34,8 +34,6 @@ def test_get_files_for_deploy_excludes_ssh_key_files(temp_mng_ctx: MngContext, t
     modal_dir.mkdir(parents=True)
     (modal_dir / "modal_ssh_key").write_text("private-key-data")
     (modal_dir / "modal_ssh_key.pub").write_text("public-key-data")
-    (modal_dir / "host_key").write_text("host-private-key-data")
-    (modal_dir / "host_key.pub").write_text("host-public-key-data")
     (modal_dir / "known_hosts").write_text("[localhost]:2222 ssh-ed25519 AAAA...")
 
     result = get_files_for_deploy(

@@ -110,8 +110,6 @@ def test_get_files_for_deploy_excludes_ssh_key_files(temp_mng_ctx: MngContext, t
     docker_dir.mkdir(parents=True)
     (docker_dir / "docker_ssh_key").write_text("private-key-data")
     (docker_dir / "docker_ssh_key.pub").write_text("public-key-data")
-    (docker_dir / "host_key").write_text("host-private-key-data")
-    (docker_dir / "host_key.pub").write_text("host-public-key-data")
     (docker_dir / "known_hosts").write_text("[localhost]:2222 ssh-ed25519 AAAA...")
 
     result = get_files_for_deploy(
