@@ -23,11 +23,19 @@ def test_agent_not_exists_check_construction() -> None:
 def test_agent_in_state_check_construction() -> None:
     check = AgentInStateCheck(
         agent_name=AgentName("test-agent"),
-        expected_state=AgentLifecycleState.RUNNING,
+        expected_states=(AgentLifecycleState.RUNNING,),
     )
     assert check.check_type == "agent_in_state"
     assert check.agent_name == AgentName("test-agent")
-    assert check.expected_state == AgentLifecycleState.RUNNING
+    assert check.expected_states == (AgentLifecycleState.RUNNING,)
+
+
+def test_agent_in_state_check_accepts_multiple_states() -> None:
+    check = AgentInStateCheck(
+        agent_name=AgentName("test-agent"),
+        expected_states=(AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING),
+    )
+    assert len(check.expected_states) == 2
 
 
 def test_file_exists_check_construction() -> None:
@@ -56,11 +64,11 @@ def test_lesson_step_with_agent_in_state_check() -> None:
         details="Run `mng stop test-agent`.",
         check=AgentInStateCheck(
             agent_name=AgentName("test-agent"),
-            expected_state=AgentLifecycleState.STOPPED,
+            expected_states=(AgentLifecycleState.STOPPED,),
         ),
     )
     assert isinstance(step.check, AgentInStateCheck)
-    assert step.check.expected_state == AgentLifecycleState.STOPPED
+    assert step.check.expected_states == (AgentLifecycleState.STOPPED,)
 
 
 def test_lesson_construction() -> None:

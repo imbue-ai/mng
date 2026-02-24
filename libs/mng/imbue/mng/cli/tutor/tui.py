@@ -1,3 +1,4 @@
+from textwrap import dedent
 from typing import Any
 
 from loguru import logger
@@ -83,10 +84,11 @@ def run_lesson_selector(lessons: tuple[Lesson, ...]) -> Lesson | None:
             AttrMap(Text("mng Tutor - Select a Lesson", align="center"), "header"),
             Divider(),
             Text(
-                "  Welcome! This tutor will guide you through learning mng commands.\n"
-                "  Make sure you have two terminal windows open side by side -- one for\n"
-                "  this tutor, and one for running mng commands. (Even if you use tmux,\n"
-                "  keep these as separate windows so the tutor can stay visible.)"
+                dedent("""\
+                Welcome! This tutor will guide you through learning mng commands.
+                Make sure you have two terminal windows open side by side -- one for
+                this tutor, and one for running mng commands. (Even if you use tmux,
+                keep these as separate windows so the tutor can stay visible.)""")
             ),
             Divider(),
             Text("  Up/Down to navigate, Enter to select, q to quit"),

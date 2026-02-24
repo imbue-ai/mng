@@ -21,7 +21,7 @@ def test_agent_not_exists_check_returns_true_when_no_agents(temp_mng_ctx: MngCon
 def test_agent_in_state_check_returns_false_when_no_agents(temp_mng_ctx: MngContext) -> None:
     check = AgentInStateCheck(
         agent_name=AgentName("nonexistent"),
-        expected_state=AgentLifecycleState.RUNNING,
+        expected_states=(AgentLifecycleState.RUNNING,),
     )
     assert run_check(check, temp_mng_ctx) is False
 

@@ -24,11 +24,11 @@ class AgentNotExistsCheck(FrozenModel):
 
 
 class AgentInStateCheck(FrozenModel):
-    """Check that an agent is in a specific lifecycle state."""
+    """Check that an agent is in one of the expected lifecycle states."""
 
     check_type: Literal["agent_in_state"] = "agent_in_state"
     agent_name: AgentName = Field(description="Name of the agent to check")
-    expected_state: AgentLifecycleState = Field(description="Expected lifecycle state")
+    expected_states: tuple[AgentLifecycleState, ...] = Field(description="Acceptable lifecycle states")
 
 
 class FileExistsInAgentWorkDirCheck(FrozenModel):

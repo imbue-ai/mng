@@ -32,14 +32,14 @@ def _check_agent_exists(agent_name: AgentName, mng_ctx: MngContext) -> bool:
 
 def _check_agent_in_state(
     agent_name: AgentName,
-    expected_state: AgentLifecycleState,
+    expected_states: tuple[AgentLifecycleState, ...],
     mng_ctx: MngContext,
 ) -> bool:
-    """Check if an agent is in the expected lifecycle state."""
+    """Check if an agent is in one of the expected lifecycle states."""
     agent = _find_agent_by_name(agent_name, mng_ctx)
     if agent is None:
         return False
-    return agent.state == expected_state
+    return agent.state in expected_states
 
 
 def _check_file_exists_in_work_dir(
@@ -62,7 +62,7 @@ def _execute_check(check: StepCheck, mng_ctx: MngContext) -> bool:
     elif isinstance(check, AgentNotExistsCheck):
         return not _check_agent_exists(check.agent_name, mng_ctx)
     elif isinstance(check, AgentInStateCheck):
-        return _check_agent_in_state(check.agent_name, check.expected_state, mng_ctx)
+        return _check_agent_in_state(check.agent_name, check.expected_states, mng_ctx)
     elif isinstance(check, FileExistsInAgentWorkDirCheck):
         return _check_file_exists_in_work_dir(check.agent_name, check.file_path, mng_ctx)
     else:

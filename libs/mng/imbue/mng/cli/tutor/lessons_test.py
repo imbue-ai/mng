@@ -2,13 +2,13 @@ from imbue.mng.cli.tutor.data_types import AgentExistsCheck
 from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
 from imbue.mng.cli.tutor.lessons import ALL_LESSONS
 from imbue.mng.cli.tutor.lessons import LESSON_GETTING_STARTED
-from imbue.mng.cli.tutor.lessons import LESSON_MANAGING_MULTIPLE_AGENTS
+from imbue.mng.cli.tutor.lessons import LESSON_REMOTE_AGENTS
 
 
 def test_all_lessons_tuple_contains_all_defined_lessons() -> None:
     assert len(ALL_LESSONS) == 2
     assert ALL_LESSONS[0] is LESSON_GETTING_STARTED
-    assert ALL_LESSONS[1] is LESSON_MANAGING_MULTIPLE_AGENTS
+    assert ALL_LESSONS[1] is LESSON_REMOTE_AGENTS
 
 
 def test_getting_started_lesson_has_expected_structure() -> None:
@@ -22,15 +22,15 @@ def test_getting_started_lesson_has_expected_structure() -> None:
     assert isinstance(LESSON_GETTING_STARTED.steps[4].check, AgentNotExistsCheck)
 
 
-def test_managing_multiple_agents_lesson_has_expected_structure() -> None:
-    assert LESSON_MANAGING_MULTIPLE_AGENTS.title == "Managing Multiple Agents"
-    assert len(LESSON_MANAGING_MULTIPLE_AGENTS.steps) == 5
+def test_remote_agents_lesson_has_expected_structure() -> None:
+    assert LESSON_REMOTE_AGENTS.title == "Remote Agents on Modal"
+    assert len(LESSON_REMOTE_AGENTS.steps) == 5
 
-    # First step creates an agent
-    assert isinstance(LESSON_MANAGING_MULTIPLE_AGENTS.steps[0].check, AgentExistsCheck)
+    # First step creates a remote agent
+    assert isinstance(LESSON_REMOTE_AGENTS.steps[0].check, AgentExistsCheck)
 
-    # Last step destroys an agent
-    assert isinstance(LESSON_MANAGING_MULTIPLE_AGENTS.steps[4].check, AgentNotExistsCheck)
+    # Last step destroys the agent
+    assert isinstance(LESSON_REMOTE_AGENTS.steps[4].check, AgentNotExistsCheck)
 
 
 def test_all_lessons_have_non_empty_steps() -> None:

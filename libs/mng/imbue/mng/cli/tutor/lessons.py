@@ -1,3 +1,5 @@
+from textwrap import dedent
+
 from imbue.mng.cli.tutor.data_types import AgentExistsCheck
 from imbue.mng.cli.tutor.data_types import AgentInStateCheck
 from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
@@ -18,10 +20,9 @@ LESSON_GETTING_STARTED = Lesson(
         ),
         LessonStep(
             heading="Make some changes using your agent",
-            details=(
-                "Connect to the agent with `mng connect agent-smith`, then ask it to\n"
-                "create a file called `blue-pill.txt` and make a commit."
-            ),
+            details=dedent("""\
+                Connect to the agent with `mng connect agent-smith`, then ask it to
+                create a file called `blue-pill.txt` and make a commit."""),
             check=FileExistsInAgentWorkDirCheck(
                 agent_name=AgentName("agent-smith"),
                 file_path="blue-pill.txt",
@@ -32,18 +33,17 @@ LESSON_GETTING_STARTED = Lesson(
             details="Run `mng stop agent-smith`, or press Ctrl-T from within the tmux session.",
             check=AgentInStateCheck(
                 agent_name=AgentName("agent-smith"),
-                expected_state=AgentLifecycleState.STOPPED,
+                expected_states=(AgentLifecycleState.STOPPED,),
             ),
         ),
         LessonStep(
             heading="Restart the agent",
-            details=(
-                "Run `mng start agent-smith` and then `mng connect agent-smith` to restart\n"
-                "and reconnect to the agent. You can see all its work is still there."
-            ),
+            details=dedent("""\
+                Run `mng start agent-smith` and then `mng connect agent-smith` to restart
+                and reconnect to the agent. You can see all its work is still there."""),
             check=AgentInStateCheck(
                 agent_name=AgentName("agent-smith"),
-                expected_state=AgentLifecycleState.RUNNING,
+                expected_states=(AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING),
             ),
         ),
         LessonStep(
@@ -55,37 +55,50 @@ LESSON_GETTING_STARTED = Lesson(
 )
 
 
-LESSON_MANAGING_MULTIPLE_AGENTS = Lesson(
-    title="Managing Multiple Agents",
-    description="Practice creating and managing multiple agents at once.",
+LESSON_REMOTE_AGENTS = Lesson(
+    title="Remote Agents on Modal",
+    description="Learn to launch and manage agents running on Modal's cloud infrastructure.",
     steps=(
         LessonStep(
-            heading="Create agent neo",
-            details="cd into any git repo and run `mng create neo`.",
-            check=AgentExistsCheck(agent_name=AgentName("neo")),
+            heading="Create a remote agent",
+            details=dedent("""\
+                cd into any git repo and run `mng create morpheus --in modal`.
+                The --in modal flag tells mng to launch the agent on Modal instead of
+                locally. This will take a bit longer as it builds a remote sandbox."""),
+            check=AgentExistsCheck(agent_name=AgentName("morpheus")),
         ),
         LessonStep(
-            heading="Create agent trinity",
-            details="From the same or a different git repo, run `mng create trinity`.",
-            check=AgentExistsCheck(agent_name=AgentName("trinity")),
-        ),
-        LessonStep(
-            heading="Stop agent neo",
-            details="Run `mng stop neo` to stop the first agent.",
-            check=AgentInStateCheck(
-                agent_name=AgentName("neo"),
-                expected_state=AgentLifecycleState.STOPPED,
+            heading="Make some changes using your remote agent",
+            details=dedent("""\
+                Connect to the agent with `mng connect morpheus`, then ask it to
+                create a file called `red-pill.txt` and make a commit."""),
+            check=FileExistsInAgentWorkDirCheck(
+                agent_name=AgentName("morpheus"),
+                file_path="red-pill.txt",
             ),
         ),
         LessonStep(
-            heading="Destroy agent neo",
-            details="Run `mng destroy neo` to permanently remove it.",
-            check=AgentNotExistsCheck(agent_name=AgentName("neo")),
+            heading="Stop the remote agent",
+            details="Run `mng stop morpheus`, or press Ctrl-T from within the tmux session.",
+            check=AgentInStateCheck(
+                agent_name=AgentName("morpheus"),
+                expected_states=(AgentLifecycleState.STOPPED,),
+            ),
         ),
         LessonStep(
-            heading="Destroy agent trinity",
-            details="Run `mng destroy trinity` to clean up the last agent.",
-            check=AgentNotExistsCheck(agent_name=AgentName("trinity")),
+            heading="Restart the remote agent",
+            details=dedent("""\
+                Run `mng start morpheus` and then `mng connect morpheus` to restart
+                and reconnect to the agent. You can see all its work is still there."""),
+            check=AgentInStateCheck(
+                agent_name=AgentName("morpheus"),
+                expected_states=(AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING),
+            ),
+        ),
+        LessonStep(
+            heading="Destroy the remote agent",
+            details="Run `mng destroy morpheus` or press Ctrl-Q from within the tmux session.",
+            check=AgentNotExistsCheck(agent_name=AgentName("morpheus")),
         ),
     ),
 )
@@ -93,5 +106,5 @@ LESSON_MANAGING_MULTIPLE_AGENTS = Lesson(
 
 ALL_LESSONS: tuple[Lesson, ...] = (
     LESSON_GETTING_STARTED,
-    LESSON_MANAGING_MULTIPLE_AGENTS,
+    LESSON_REMOTE_AGENTS,
 )
