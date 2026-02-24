@@ -177,7 +177,7 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
         is_start_desired=opts.start,
     )
 
-    _emit_output(result, output_opts, message_content)
+    _emit_output(result, output_opts, message_content, opts)
 
     if result.failed_agents:
         ctx.exit(1)
@@ -218,11 +218,13 @@ def _emit_jsonl_error(agent_name: str, error: str) -> None:
     )
 
 
-def _emit_output(result: MessageResult, output_opts: OutputOptions, message_content: str) -> None:
+def _emit_output(
+    result: MessageResult, output_opts: OutputOptions, message_content: str, opts: MessageCliOptions
+) -> None:
     """Emit output based on the result and format."""
     match output_opts.output_format:
         case OutputFormat.HUMAN:
-            _emit_human_output(result, message_content)
+            _emit_human_output(result, message_content, opts)
         case OutputFormat.JSON:
             _emit_json_output(result)
         case OutputFormat.JSONL:
@@ -232,7 +234,7 @@ def _emit_output(result: MessageResult, output_opts: OutputOptions, message_cont
             assert_never(unreachable)
 
 
-def _emit_human_output(result: MessageResult, message_content: str) -> None:
+def _emit_human_output(result: MessageResult, message_content: str, opts: MessageCliOptions) -> None:
     """Emit human-readable output."""
     if result.successful_agents:
         for agent_name in result.successful_agents:
@@ -252,24 +254,27 @@ def _emit_human_output(result: MessageResult, message_content: str) -> None:
 
     # Emit a retry hint when some agents failed
     if result.failed_agents:
-        retry_hint = _build_retry_hint(result.failed_agents, message_content)
+        retry_hint = _build_retry_hint(result.failed_agents, message_content, opts)
         write_human_line("To retry: {}", retry_hint)
-
-
-_RETRY_HINT_MESSAGE_MAX_LENGTH: int = 200
 
 
 def _build_retry_hint(
     failed_agents: list[tuple[str, str]],
     message_content: str,
+    opts: MessageCliOptions,
 ) -> str:
     """Build a shell command to retry sending the message to failed agents."""
-    agent_names = " ".join(shlex.quote(name) for name, _error in failed_agents)
-    is_message_short = len(message_content) <= _RETRY_HINT_MESSAGE_MAX_LENGTH and "\n" not in message_content
-    if is_message_short:
-        return f"mng message {agent_names} -m {shlex.quote(message_content)}"
-    else:
-        return f"mng message {agent_names} -m <MESSAGE>"
+    parts = ["mng", "message"]
+    parts.extend(shlex.quote(name) for name, _error in failed_agents)
+    parts.extend(["-m", shlex.quote(message_content)])
+
+    # Pass through behavioral options when non-default
+    if opts.start:
+        parts.append("--start")
+    if opts.on_error != "continue":
+        parts.extend(["--on-error", opts.on_error])
+
+    return " ".join(parts)
 
 
 def _emit_json_output(result: MessageResult) -> None:

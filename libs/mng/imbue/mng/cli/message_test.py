@@ -9,28 +9,40 @@ from imbue.mng.cli.message import _emit_json_output
 from imbue.mng.cli.message import _get_message_content
 
 
+def _make_default_opts(**overrides: object) -> MessageCliOptions:
+    """Build a MessageCliOptions with sensible defaults for testing."""
+    defaults = {
+        "agents": (),
+        "agent_list": (),
+        "all_agents": False,
+        "include": (),
+        "exclude": (),
+        "stdin": False,
+        "message_content": None,
+        "on_error": "continue",
+        "start": False,
+        "output_format": "human",
+        "quiet": False,
+        "verbose": 0,
+        "log_file": None,
+        "log_commands": None,
+        "log_command_output": None,
+        "log_env_vars": None,
+        "project_context_path": None,
+        "plugin": (),
+        "disable_plugin": (),
+    }
+    defaults.update(overrides)
+    return MessageCliOptions(**defaults)
+
+
 def test_message_cli_options_has_expected_fields() -> None:
     """Test that MessageCliOptions has all expected fields."""
-    opts = MessageCliOptions(
+    opts = _make_default_opts(
         agents=("agent1", "agent2"),
         agent_list=("agent3",),
-        all_agents=False,
         include=("name == 'test'",),
-        exclude=(),
-        stdin=False,
         message_content="Hello",
-        on_error="continue",
-        start=False,
-        output_format="human",
-        quiet=False,
-        verbose=0,
-        log_file=None,
-        log_commands=None,
-        log_command_output=None,
-        log_env_vars=None,
-        project_context_path=None,
-        plugin=(),
-        disable_plugin=(),
     )
     assert opts.agents == ("agent1", "agent2")
     assert opts.agent_list == ("agent3",)
@@ -49,7 +61,7 @@ def test_emit_human_output_logs_successful_agents(capsys: pytest.CaptureFixture)
     result = MessageResult()
     result.successful_agents = ["agent1", "agent2"]
 
-    _emit_human_output(result, "test message")
+    _emit_human_output(result, "test message", _make_default_opts())
 
     # The output is logged via loguru, not printed directly
     # We can't easily capture it here, but we can verify no exception is raised
@@ -60,7 +72,7 @@ def test_emit_human_output_logs_failed_agents(capsys: pytest.CaptureFixture) -> 
     result = MessageResult()
     result.failed_agents = [("agent1", "error1"), ("agent2", "error2")]
 
-    _emit_human_output(result, "test message")
+    _emit_human_output(result, "test message", _make_default_opts())
 
     # The output is logged via loguru
 
@@ -70,7 +82,7 @@ def test_emit_human_output_handles_no_agents() -> None:
     result = MessageResult()
 
     # Should not raise
-    _emit_human_output(result, "test message")
+    _emit_human_output(result, "test message", _make_default_opts())
 
 
 def test_emit_json_output_formats_successful_agents(capsys: pytest.CaptureFixture) -> None:
@@ -114,38 +126,51 @@ def test_build_retry_hint_includes_failed_agent_names_and_message() -> None:
     """Test that _build_retry_hint builds a command with agent names and message."""
     failed = [("agent1", "some error"), ("agent3", "another error")]
 
-    hint = _build_retry_hint(failed, "hello world")
+    hint = _build_retry_hint(failed, "hello world", _make_default_opts())
 
     assert hint == "mng message agent1 agent3 -m 'hello world'"
 
 
 def test_build_retry_hint_shell_quotes_special_characters() -> None:
-    """Test that _build_retry_hint shell-quotes agent names and message with special chars."""
+    """Test that _build_retry_hint shell-quotes message with special chars."""
     failed = [("my-agent", "error")]
 
-    hint = _build_retry_hint(failed, "it's a test")
+    hint = _build_retry_hint(failed, "it's a test", _make_default_opts())
 
-    assert "my-agent" in hint
-    assert "-m" in hint
-    # shlex.quote should handle the apostrophe
-    assert "it" in hint
-    assert "test" in hint
+    assert hint == """mng message my-agent -m 'it'"'"'s a test'"""
 
 
-def test_build_retry_hint_omits_message_when_too_long() -> None:
-    """Test that _build_retry_hint uses placeholder for long messages."""
-    failed = [("agent1", "error")]
-    long_message = "x" * 201
-
-    hint = _build_retry_hint(failed, long_message)
-
-    assert hint == "mng message agent1 -m <MESSAGE>"
-
-
-def test_build_retry_hint_omits_message_when_multiline() -> None:
-    """Test that _build_retry_hint uses placeholder for multiline messages."""
+def test_build_retry_hint_includes_multiline_messages() -> None:
+    """Test that _build_retry_hint includes multiline messages via shlex quoting."""
     failed = [("agent1", "error")]
 
-    hint = _build_retry_hint(failed, "line one\nline two")
+    hint = _build_retry_hint(failed, "line one\nline two", _make_default_opts())
 
-    assert hint == "mng message agent1 -m <MESSAGE>"
+    assert hint == "mng message agent1 -m 'line one\nline two'"
+
+
+def test_build_retry_hint_includes_start_flag_when_set() -> None:
+    """Test that _build_retry_hint includes --start when it was used."""
+    failed = [("agent1", "error")]
+
+    hint = _build_retry_hint(failed, "hello", _make_default_opts(start=True))
+
+    assert hint == "mng message agent1 -m hello --start"
+
+
+def test_build_retry_hint_includes_on_error_when_non_default() -> None:
+    """Test that _build_retry_hint includes --on-error when it was set to abort."""
+    failed = [("agent1", "error")]
+
+    hint = _build_retry_hint(failed, "hello", _make_default_opts(on_error="abort"))
+
+    assert hint == "mng message agent1 -m hello --on-error abort"
+
+
+def test_build_retry_hint_includes_all_flags_together() -> None:
+    """Test that _build_retry_hint combines all flags correctly."""
+    failed = [("agent1", "error"), ("agent2", "error")]
+
+    hint = _build_retry_hint(failed, "hello", _make_default_opts(start=True, on_error="abort"))
+
+    assert hint == "mng message agent1 agent2 -m hello --start --on-error abort"
