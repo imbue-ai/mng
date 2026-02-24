@@ -943,7 +943,7 @@ class Host(BaseHost, OnlineHostInterface):
         else:
             # Different host (remote copy): generate a unique work directory so that
             # multiple agents sharing the same host each get their own directory.
-            target_path = self.host_dir / "worktrees" / str(AgentId.generate())
+            target_path = self.host_dir / "projects" / str(AgentId.generate())
             is_generated_work_dir = True
 
         self._mkdir(target_path)

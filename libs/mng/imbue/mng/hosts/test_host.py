@@ -2435,7 +2435,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that cross-host work dir creation generates unique paths under host_dir/worktrees/.
+    """Test that cross-host work dir creation generates unique paths under host_dir/projects/.
 
     When no target_path is specified and source and target are on different hosts,
     each call should produce a unique directory so multiple agents on a shared host
@@ -2483,8 +2483,8 @@ def test_create_work_dir_cross_host_generates_unique_paths(
 
     work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options)
 
-    # The generated path should be under host_dir/worktrees/
-    assert str(work_dir_1).startswith(str(target_host.host_dir / "worktrees"))
+    # The generated path should be under host_dir/projects/
+    assert str(work_dir_1).startswith(str(target_host.host_dir / "projects"))
     assert (work_dir_1 / "file.txt").read_text() == "content"
 
     # Create a second agent on the same target host - should get a different path
@@ -2497,6 +2497,6 @@ def test_create_work_dir_cross_host_generates_unique_paths(
 
     work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2)
 
-    assert str(work_dir_2).startswith(str(target_host.host_dir / "worktrees"))
+    assert str(work_dir_2).startswith(str(target_host.host_dir / "projects"))
     assert work_dir_1 != work_dir_2
     assert (work_dir_2 / "file.txt").read_text() == "content"
