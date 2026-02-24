@@ -77,6 +77,10 @@ mng create --in modal -b cidr-allowlist=203.0.113.0/24
 mng create agent-1 --in modal --host-name shared-host
 mng create agent-2 --host shared-host
 
+# programmatically send messages to your agents and see their chat histories
+mng message agent-1 "Tell me a joke"
+mng logs agent-1 transcript.jsonl | grep '"role":"assistant"' | tail -n 1 | jq ".message.content[0].text"
+
 # run commands directly on an agent's host
 mng exec agent-1 "git log --oneline -5"
 
@@ -88,10 +92,6 @@ mng create new-agent --snapshot $SNAPSHOT
 ```
 
 <!--
-# programmatically send messages to your agents and see their chat histories
-mng message agent-1 "Tell me a joke"
-mng transcript agent-1   # [future]
-
 # [future] schedule agents to run periodically
 mng schedule --template my-daily-hook "look at any flaky tests over the past day and try to fix one of them" --cron "0 * * * *"
 -->

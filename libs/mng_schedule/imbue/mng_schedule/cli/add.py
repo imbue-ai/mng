@@ -40,6 +40,11 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     Creates a new cron-scheduled trigger that will run the specified mng
     command at the specified interval on the specified provider.
 
+    Note that you are responsible for ensuring the correct env vars and files are passed through (this command
+    automatically includes user and project settings for mng and any enabled plugins, but you may need to include
+    additional env vars or files for your specific remote mng command to run correctly). See the options below for
+    how to include env files and uploads in the deployment.
+
     \b
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
