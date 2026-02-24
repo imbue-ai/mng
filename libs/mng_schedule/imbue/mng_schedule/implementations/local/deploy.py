@@ -25,6 +25,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
+from imbue.mng_schedule.env import collect_env_lines
 from imbue.mng_schedule.git import get_current_mng_git_hash
 from imbue.mng_schedule.implementations.local.crontab import add_crontab_entry
 from imbue.mng_schedule.implementations.local.crontab import read_system_crontab
@@ -110,19 +111,7 @@ def _stage_env_file(
 
     Returns the path to the .env file, or None if no env vars were provided.
     """
-    env_lines: list[str] = []
-
-    for env_file_path in env_files:
-        env_lines.extend(env_file_path.read_text().splitlines())
-        logger.info("Including env file {}", env_file_path)
-
-    for var_name in pass_env:
-        value = os.environ.get(var_name)
-        if value is not None:
-            env_lines.append(f"{var_name}={value}")
-            logger.debug("Passing through env var {}", var_name)
-        else:
-            logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
+    env_lines = collect_env_lines(pass_env=pass_env, env_files=env_files)
 
     if not env_lines:
         return None

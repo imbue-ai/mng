@@ -23,10 +23,10 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.local.deploy import deploy_local_schedule
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
-from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 
 @schedule.command(name="add")

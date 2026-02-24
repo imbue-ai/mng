@@ -29,7 +29,10 @@ from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
+from imbue.mng_schedule.env import collect_env_lines
 from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import get_current_mng_git_hash
+from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.modal.verification import verify_schedule_deployment
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
@@ -97,10 +100,6 @@ def detect_local_timezone() -> str:
         etc_timezone_path=Path("/etc/timezone"),
         etc_localtime_path=Path("/etc/localtime"),
     )
-
-
-from imbue.mng_schedule.git import get_current_mng_git_hash
-from imbue.mng_schedule.git import resolve_git_ref
 
 
 def get_repo_root() -> Path:
@@ -458,27 +457,8 @@ def _stage_consolidated_env(
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
 ) -> None:
-    """Consolidate env vars from multiple sources into secrets/.env.
-
-    Sources are merged in order of increasing precedence:
-    1. User-specified --env-file entries (in order)
-    2. User-specified --pass-env variables from the current process environment
-    """
-    env_lines: list[str] = []
-
-    # 1. User-specified env files
-    for env_file_path in env_files:
-        env_lines.extend(env_file_path.read_text().splitlines())
-        logger.info("Including env file {}", env_file_path)
-
-    # 2. Pass-through env vars from current process
-    for var_name in pass_env:
-        value = os.environ.get(var_name)
-        if value is not None:
-            env_lines.append(f"{var_name}={value}")
-            logger.debug("Passing through env var {}", var_name)
-        else:
-            logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
+    """Consolidate env vars from multiple sources into secrets/.env."""
+    env_lines = collect_env_lines(pass_env=pass_env, env_files=env_files)
 
     if env_lines:
         # FIXME: should really use a library for all of this stuff, then will get the quoting right. And I think we're already using a dotenv library in here anyway...
@@ -503,9 +483,6 @@ def build_deploy_config(
         "cron_timezone": cron_timezone,
         "mng_install_commands": mng_install_commands,
     }
-
-
-_get_current_mng_git_hash = get_current_mng_git_hash
 
 
 def _save_schedule_creation_record(
@@ -722,7 +699,7 @@ def deploy_schedule(
             full_commandline=_build_full_commandline(effective_sys_argv),
             hostname=platform.node(),
             working_directory=str(Path.cwd()),
-            mng_git_hash=_get_current_mng_git_hash(),
+            mng_git_hash=get_current_mng_git_hash(),
             created_at=datetime.now(timezone.utc),
             app_name=app_name,
             environment=modal_env_name,
