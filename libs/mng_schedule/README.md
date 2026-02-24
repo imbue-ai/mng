@@ -47,7 +47,7 @@ Run `mng schedule <subcommand> --help` for more details on each subcommand:
 - **`add`** -- Create a new scheduled trigger
 - **`remove`** -- Remove one or more scheduled triggers
 - **`update`** -- Modify fields of an existing trigger
-- **`list`** -- List scheduled triggers (default when no subcommand given)
+- **`list`** -- List scheduled triggers
 - **`run`** -- Execute a trigger immediately for testing
 
 ## Packaging code for remote execution

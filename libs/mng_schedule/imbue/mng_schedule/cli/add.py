@@ -11,6 +11,7 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.instance import ModalProviderInstance
@@ -100,7 +101,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Load the provider instance
     try:
         provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
-    except Exception as e:
+    except MngError as e:
         raise click.ClickException(f"Failed to load provider '{opts.provider}': {e}") from e
 
     trigger = ScheduleTriggerDefinition(

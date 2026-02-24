@@ -13,6 +13,7 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.errors import MngError
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -60,7 +61,7 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
     # Load the provider instance
     try:
         provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
-    except Exception as e:
+    except MngError as e:
         raise click.ClickException(f"Failed to load provider '{opts.provider}': {e}") from e
 
     if isinstance(provider, LocalProviderInstance):
