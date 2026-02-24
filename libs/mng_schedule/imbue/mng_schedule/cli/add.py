@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_instance
+from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import resolve_git_ref
 
 
@@ -96,8 +98,31 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         )
         verify_mode = VerifyMode.NONE
 
+    # Resolve deploy file options (default to True for add)
+    include_user_settings = opts.include_user_settings if opts.include_user_settings is not None else True
+    include_project_settings = opts.include_project_settings if opts.include_project_settings is not None else True
+
+    # Parse upload specs
+    parsed_uploads: list[tuple[Path, str]] = []
+    for upload_spec in opts.uploads:
+        try:
+            parsed_uploads.append(parse_upload_spec(upload_spec))
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+
     try:
-        app_name = deploy_schedule(trigger, mng_ctx, provider=provider, verify_mode=verify_mode, sys_argv=sys.argv)
+        app_name = deploy_schedule(
+            trigger,
+            mng_ctx,
+            provider=provider,
+            verify_mode=verify_mode,
+            sys_argv=sys.argv,
+            include_user_settings=include_user_settings,
+            include_project_settings=include_project_settings,
+            pass_env=opts.pass_env,
+            env_files=tuple(Path(f) for f in opts.env_files),
+            uploads=parsed_uploads,
+        )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
 

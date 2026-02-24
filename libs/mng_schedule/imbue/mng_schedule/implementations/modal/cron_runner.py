@@ -142,6 +142,25 @@ def _run_and_stream(
     return process.returncode
 
 
+def _load_env_file(env_file_path: Path) -> None:
+    """Load environment variables from a .env file into os.environ.
+
+    Lines starting with '#' are treated as comments. Empty lines are skipped.
+    Lines without '=' are skipped. Values are not shell-unquoted (quotes are
+    kept as-is to match dotenv conventions for the subprocess environment).
+    """
+    if not env_file_path.exists():
+        return
+    for line in env_file_path.read_text().splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ[key.strip()] = value.strip()
+
+
 @app.function(
     schedule=modal.Cron(_CRON_SCHEDULE, timezone=_CRON_TIMEZONE),
     timeout=3600,
@@ -151,8 +170,9 @@ def run_scheduled_trigger() -> None:
 
     This function executes on the cron schedule and:
     1. Checks if the trigger is enabled
-    2. Sets up GitHub authentication
-    3. Builds and runs the mng command with secrets env file
+    2. Loads consolidated environment variables from the secrets env file
+    3. Sets up GitHub authentication
+    4. Builds and runs the mng command with secrets env file
 
     Deploy files (config, settings, etc.) are already baked into $HOME and
     WORKDIR during the image build via dockerfile_commands.
@@ -162,6 +182,13 @@ def run_scheduled_trigger() -> None:
     if not trigger.get("is_enabled", True):
         print("Schedule trigger is disabled, skipping")
         return
+
+    # Load consolidated env vars into the process environment so that the
+    # mng CLI and any subprocesses it spawns have access to them.
+    secrets_env = Path("/staging/secrets/.env")
+    if secrets_env.exists():
+        print("Loading environment variables from secrets env file...")
+        _load_env_file(secrets_env)
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")
@@ -179,9 +206,8 @@ def run_scheduled_trigger() -> None:
     if args_str:
         cmd.extend(shlex.split(args_str))
 
-    # Add secrets env file if it exists and the command supports it.
-    # --host-env-file is only valid for create (and start) commands.
-    secrets_env = Path("/staging/secrets/.env")
+    # Also pass the secrets env file via --host-env-file for create/start commands
+    # so the agent host inherits these environment variables.
     if secrets_env.exists() and command in ("create", "start"):
         cmd.extend(["--host-env-file", str(secrets_env)])
 

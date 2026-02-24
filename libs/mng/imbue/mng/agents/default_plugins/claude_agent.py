@@ -785,8 +785,11 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentT
 
 
 @hookimpl
-def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+def get_files_for_deploy(mng_ctx: MngContext, include_user_settings: bool) -> dict[Path, Path | str]:
     """Register claude-specific files for scheduled deployments."""
+    if not include_user_settings:
+        return {}
+
     files: dict[Path, Path | str] = {}
     user_home = Path.home()
 

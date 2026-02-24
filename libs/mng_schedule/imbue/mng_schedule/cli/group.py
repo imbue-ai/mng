@@ -47,6 +47,42 @@ def add_trigger_options(command: Any) -> Any:
     )(command)
     command = optgroup.group("Execution")(command)
 
+    # Deploy Files group
+    command = optgroup.option(
+        "--upload",
+        "uploads",
+        multiple=True,
+        help="Upload a file or directory into the deployed function (SOURCE:DEST format, repeatable). "
+        "DEST paths starting with '~' go to the home directory; relative paths go to the project directory.",
+    )(command)
+    command = optgroup.option(
+        "--env-file",
+        "env_files",
+        multiple=True,
+        type=click.Path(exists=True),
+        help="Include an env file in the deployed function (repeatable). "
+        "Variables are available to both the scheduled runner and the mng command.",
+    )(command)
+    command = optgroup.option(
+        "--pass-env",
+        "pass_env",
+        multiple=True,
+        help="Forward an environment variable from the current shell into the deployed function (repeatable).",
+    )(command)
+    command = optgroup.option(
+        "--include-project-settings/--exclude-project-settings",
+        "include_project_settings",
+        default=None,
+        help="Include or exclude unversioned project-specific settings files. Default: include.",
+    )(command)
+    command = optgroup.option(
+        "--include-user-settings/--exclude-user-settings",
+        "include_user_settings",
+        default=None,
+        help="Include or exclude user home directory settings files (e.g. ~/.mng/, ~/.claude.json). Default: include.",
+    )(command)
+    command = optgroup.group("Deploy Files")(command)
+
     # Code Packaging group
     command = optgroup.option(
         "--git-image-hash",

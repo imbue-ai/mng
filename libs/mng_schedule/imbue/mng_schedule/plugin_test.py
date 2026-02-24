@@ -35,7 +35,7 @@ _UNUSED_MNG_CTX = cast(MngContext, SimpleNamespace())
 
 def test_get_files_for_deploy_returns_empty_dict_when_no_mng_files() -> None:
     """get_files_for_deploy returns empty dict when no mng config files exist."""
-    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
+    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX, include_user_settings=True)
 
     assert result == {}
 
@@ -47,7 +47,7 @@ def test_get_files_for_deploy_includes_mng_config() -> None:
     config_file = mng_dir / "config.toml"
     config_file.write_text("[test]\nkey = 'value'\n")
 
-    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
+    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX, include_user_settings=True)
 
     assert Path("~/.mng/config.toml") in result
     assert result[Path("~/.mng/config.toml")] == config_file
@@ -60,7 +60,7 @@ def test_get_files_for_deploy_includes_mng_profiles() -> None:
     profile_file = profiles_dir / "default"
     profile_file.write_text("profile-data")
 
-    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
+    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX, include_user_settings=True)
 
     assert Path("~/.mng/profiles/default") in result
     assert result[Path("~/.mng/profiles/default")] == profile_file
@@ -73,6 +73,18 @@ def test_get_files_for_deploy_includes_nested_profile_files() -> None:
     nested_file = profiles_dir / "settings.toml"
     nested_file.write_text("nested-data")
 
-    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX)
+    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX, include_user_settings=True)
 
     assert Path("~/.mng/profiles/subdir/settings.toml") in result
+
+
+def test_get_files_for_deploy_returns_empty_when_user_settings_excluded() -> None:
+    """get_files_for_deploy returns empty dict when include_user_settings is False."""
+    mng_dir = Path.home() / ".mng"
+    mng_dir.mkdir(parents=True, exist_ok=True)
+    config_file = mng_dir / "config.toml"
+    config_file.write_text("[test]\nkey = 'value'\n")
+
+    result = get_files_for_deploy(mng_ctx=_UNUSED_MNG_CTX, include_user_settings=False)
+
+    assert result == {}

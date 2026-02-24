@@ -16,8 +16,10 @@ from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandline
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
+from imbue.mng_schedule.implementations.modal.deploy import _stage_consolidated_env
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
 
@@ -219,13 +221,13 @@ def test_stage_deploy_files_stages_secrets_env(
     repo_root.mkdir(exist_ok=True)
     secrets_dir = repo_root / ".mng" / "dev" / "secrets"
     secrets_dir.mkdir(parents=True)
-    (secrets_dir / ".env").write_text("GH_TOKEN=test123")
+    (secrets_dir / ".env").write_text("GH_TOKEN=test123\n")
 
     staging_dir = run_staging(repo_root)
 
     staged_secrets = staging_dir / "secrets" / ".env"
     assert staged_secrets.exists()
-    assert staged_secrets.read_text() == "GH_TOKEN=test123"
+    assert "GH_TOKEN=test123" in staged_secrets.read_text()
 
 
 def test_stage_deploy_files_creates_empty_subdirs_when_no_files(
@@ -348,3 +350,275 @@ def test_collect_deploy_files_resolves_collision(
 
     # Should still succeed, with one entry (last one wins)
     assert Path("~/.config/test.toml") in result
+
+
+# =============================================================================
+# parse_upload_spec Tests
+# =============================================================================
+
+
+def test_parse_upload_spec_valid_file(tmp_path: Path) -> None:
+    """parse_upload_spec should parse a valid SOURCE:DEST spec with an existing file."""
+    source = tmp_path / "myfile.txt"
+    source.write_text("content")
+
+    result = parse_upload_spec(f"{source}:~/.config/myfile.txt")
+    assert result == (source, "~/.config/myfile.txt")
+
+
+def test_parse_upload_spec_valid_directory(tmp_path: Path) -> None:
+    """parse_upload_spec should parse a valid SOURCE:DEST spec with an existing directory."""
+    source_dir = tmp_path / "mydir"
+    source_dir.mkdir()
+
+    result = parse_upload_spec(f"{source_dir}:config/")
+    assert result == (source_dir, "config/")
+
+
+def test_parse_upload_spec_rejects_missing_colon() -> None:
+    """parse_upload_spec should reject specs without a colon."""
+    with pytest.raises(ValueError, match="SOURCE:DEST"):
+        parse_upload_spec("/some/path")
+
+
+def test_parse_upload_spec_rejects_nonexistent_source() -> None:
+    """parse_upload_spec should reject specs where the source does not exist."""
+    with pytest.raises(ValueError, match="does not exist"):
+        parse_upload_spec("/nonexistent/file:dest")
+
+
+def test_parse_upload_spec_rejects_absolute_dest() -> None:
+    """parse_upload_spec should reject absolute destinations."""
+    with pytest.raises(ValueError, match="must be relative or start with '~'"):
+        # Need a source that exists
+        import tempfile
+
+        with tempfile.NamedTemporaryFile() as f:
+            parse_upload_spec(f"{f.name}:/absolute/path")
+
+
+# =============================================================================
+# _stage_consolidated_env Tests
+# =============================================================================
+
+
+def test_stage_consolidated_env_merges_project_secrets(tmp_path: Path) -> None:
+    """_stage_consolidated_env should include project secrets from .mng/dev/secrets/.env."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    secrets_dir = repo_root / ".mng" / "dev" / "secrets"
+    secrets_dir.mkdir(parents=True)
+    (secrets_dir / ".env").write_text("PROJECT_SECRET=abc\n")
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, repo_root)
+
+    result = (output_dir / ".env").read_text()
+    assert "PROJECT_SECRET=abc" in result
+
+
+def test_stage_consolidated_env_includes_env_files(tmp_path: Path) -> None:
+    """_stage_consolidated_env should include vars from --env-file."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    env_file = tmp_path / "custom.env"
+    env_file.write_text("CUSTOM_VAR=hello\n")
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, repo_root, env_files=[env_file])
+
+    result = (output_dir / ".env").read_text()
+    assert "CUSTOM_VAR=hello" in result
+
+
+def test_stage_consolidated_env_includes_pass_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should include vars from --pass-env."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setenv("MY_PASS_VAR", "passed_value")
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, repo_root, pass_env=["MY_PASS_VAR"])
+
+    result = (output_dir / ".env").read_text()
+    assert "MY_PASS_VAR=passed_value" in result
+
+
+def test_stage_consolidated_env_merges_all_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should merge project secrets, env files, and pass-env vars."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    secrets_dir = repo_root / ".mng" / "dev" / "secrets"
+    secrets_dir.mkdir(parents=True)
+    (secrets_dir / ".env").write_text("PROJECT_KEY=proj\n")
+
+    env_file = tmp_path / "extra.env"
+    env_file.write_text("FILE_KEY=from_file\n")
+
+    monkeypatch.setenv("SHELL_KEY", "from_shell")
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(
+        output_dir,
+        repo_root,
+        pass_env=["SHELL_KEY"],
+        env_files=[env_file],
+    )
+
+    result = (output_dir / ".env").read_text()
+    assert "PROJECT_KEY=proj" in result
+    assert "FILE_KEY=from_file" in result
+    assert "SHELL_KEY=from_shell" in result
+
+
+def test_stage_consolidated_env_skips_missing_pass_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should skip pass-env vars not in the environment."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, repo_root, pass_env=["NONEXISTENT_VAR"])
+
+    # No .env file should be created since there are no entries
+    assert not (output_dir / ".env").exists()
+
+
+def test_stage_consolidated_env_creates_no_file_when_empty(tmp_path: Path) -> None:
+    """_stage_consolidated_env should not create .env when no env vars are available."""
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    _stage_consolidated_env(output_dir, repo_root)
+
+    assert not (output_dir / ".env").exists()
+
+
+# =============================================================================
+# stage_deploy_files with uploads Tests
+# =============================================================================
+
+
+def test_stage_deploy_files_stages_upload_file(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """stage_deploy_files should stage uploaded files to the correct destination."""
+    source_file = tmp_path / "local_config.toml"
+    source_file.write_text("[config]\nkey = true\n")
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    stage_deploy_files(
+        staging_dir,
+        mng_ctx,
+        repo_root,
+        uploads=[(source_file, "~/.config/myapp.toml")],
+    )
+
+    staged = staging_dir / "home" / ".config" / "myapp.toml"
+    assert staged.exists()
+    assert staged.read_text() == "[config]\nkey = true\n"
+
+
+def test_stage_deploy_files_stages_upload_directory(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """stage_deploy_files should stage uploaded directories recursively."""
+    source_dir = tmp_path / "my_configs"
+    source_dir.mkdir()
+    (source_dir / "a.txt").write_text("file-a")
+    sub_dir = source_dir / "sub"
+    sub_dir.mkdir()
+    (sub_dir / "b.txt").write_text("file-b")
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    stage_deploy_files(
+        staging_dir,
+        mng_ctx,
+        repo_root,
+        uploads=[(source_dir, "configs")],
+    )
+
+    # Relative dest should go under project/
+    assert (staging_dir / "project" / "configs" / "a.txt").read_text() == "file-a"
+    assert (staging_dir / "project" / "configs" / "sub" / "b.txt").read_text() == "file-b"
+
+
+def test_stage_deploy_files_with_pass_env(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """stage_deploy_files should include --pass-env vars in the consolidated env file."""
+    monkeypatch.setenv("TEST_API_KEY", "sk-test-123")
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    stage_deploy_files(
+        staging_dir,
+        mng_ctx,
+        repo_root,
+        pass_env=["TEST_API_KEY"],
+    )
+
+    staged_env = staging_dir / "secrets" / ".env"
+    assert staged_env.exists()
+    assert "TEST_API_KEY=sk-test-123" in staged_env.read_text()
+
+
+def test_stage_deploy_files_with_exclude_user_settings(
+    tmp_path: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """stage_deploy_files with include_user_settings=False should skip home dir files."""
+    # Create a home file that would normally be included
+    mng_dir = Path.home() / ".mng"
+    mng_dir.mkdir(parents=True, exist_ok=True)
+    mng_config = mng_dir / "config.toml"
+    mng_config.write_text("[test]\nvalue = 1\n")
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    staging_dir = tmp_path / "staging"
+    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+
+    stage_deploy_files(
+        staging_dir,
+        mng_ctx,
+        repo_root,
+        include_user_settings=False,
+    )
+
+    # home/ should be empty because we excluded user settings
+    assert not any((staging_dir / "home").iterdir())

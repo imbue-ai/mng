@@ -268,12 +268,22 @@ def override_command_options(
 
 
 @hookspec
-def get_files_for_deploy(mng_ctx: MngContext) -> dict[Path, Path | str]:
+def get_files_for_deploy(
+    mng_ctx: MngContext,
+    include_user_settings: bool,
+    include_project_settings: bool,
+) -> dict[Path, Path | str]:
     """[experimental] Return files to include when deploying scheduled commands.
 
     Called during schedule deployment to collect files that should be baked
     into the deployment image. Each plugin can contribute files needed for
     its operation in the remote environment.
+
+    Plugins should respect the include_user_settings and include_project_settings
+    flags to allow users to control which files are included. When
+    include_user_settings is False, plugins should skip files from the user's
+    home directory (paths starting with "~"). When include_project_settings is
+    False, plugins should skip unversioned project-specific files.
 
     Return a dict mapping destination paths to sources (empty dict if none):
     - Keys are destination Paths on the remote machine. Paths starting

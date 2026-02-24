@@ -5,6 +5,7 @@ import shlex
 import shutil
 import sys
 import tempfile
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -166,14 +167,39 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
         ) from None
 
 
-def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
+def parse_upload_spec(spec: str) -> tuple[Path, str]:
+    """Parse an upload spec in SOURCE:DEST format.
+
+    Raises ValueError if the spec is malformed or the source does not exist.
+    """
+    if ":" not in spec:
+        raise ValueError(f"Upload spec must be in SOURCE:DEST format, got: {spec}")
+    source_str, dest = spec.split(":", 1)
+    source_path = Path(source_str)
+    if not source_path.exists():
+        raise ValueError(f"Upload source does not exist: {source_str}")
+    dest_str = str(dest)
+    if dest_str.startswith("/") and not dest_str.startswith("~"):
+        raise ValueError(f"Upload destination must be relative or start with '~', got: {dest}")
+    return source_path, dest
+
+
+def _collect_deploy_files(
+    mng_ctx: MngContext,
+    include_user_settings: bool = True,
+    include_project_settings: bool = True,
+) -> dict[Path, Path | str]:
     """Collect all files for deployment by calling the get_files_for_deploy hook.
 
     Destination paths must either start with "~" (user home files) or be
     relative paths (project files copied to the image WORKDIR).  Absolute
     paths that do not start with "~" are rejected.
     """
-    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(mng_ctx=mng_ctx)
+    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(
+        mng_ctx=mng_ctx,
+        include_user_settings=include_user_settings,
+        include_project_settings=include_project_settings,
+    )
     merged: dict[Path, Path | str] = {}
     for result in all_results:
         for dest_path, source in result.items():
@@ -191,7 +217,16 @@ def _collect_deploy_files(mng_ctx: MngContext) -> dict[Path, Path | str]:
     return merged
 
 
-def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) -> None:
+def stage_deploy_files(
+    staging_dir: Path,
+    mng_ctx: MngContext,
+    repo_root: Path,
+    include_user_settings: bool = True,
+    include_project_settings: bool = True,
+    pass_env: Sequence[str] = (),
+    env_files: Sequence[Path] = (),
+    uploads: Sequence[tuple[Path, str]] = (),
+) -> None:
     """Stage files for deployment into a directory for baking into the Modal image.
 
     Collects files from all plugins via the get_files_for_deploy hook and stages
@@ -205,17 +240,22 @@ def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) 
     These are then baked into their final locations during the image build via
     dockerfile_commands (home/ -> $HOME, project/ -> WORKDIR).
 
-    Also stages the secrets .env file if present.
+    Also consolidates environment variables from multiple sources into a single
+    secrets/.env file, and stages any user-specified uploads.
 
     Stages:
     - home/: Files destined for the user's home directory
     - project/: Files destined for the project working directory
-    - secrets/.env (if exists, from repo root)
+    - secrets/.env: Consolidated environment variables from all sources
     """
     staging_dir.mkdir(parents=True, exist_ok=True)
 
     # Collect files from all plugins via the hook
-    deploy_files = _collect_deploy_files(mng_ctx)
+    deploy_files = _collect_deploy_files(
+        mng_ctx,
+        include_user_settings=include_user_settings,
+        include_project_settings=include_project_settings,
+    )
 
     # Create both staging subdirectories unconditionally
     home_dir = staging_dir / "home"
@@ -242,15 +282,75 @@ def stage_deploy_files(staging_dir: Path, mng_ctx: MngContext, repo_root: Path) 
     if deploy_files:
         logger.info("Staged {} deploy files from plugins", len(deploy_files))
 
-    # Secrets env file (project-specific, not from hook)
+    # Stage user-specified uploads
+    for source_path, dest in uploads:
+        dest_str = str(dest)
+        if dest_str.startswith("~"):
+            relative_path = dest_str.removeprefix("~/")
+            staged_path = home_dir / relative_path
+        else:
+            staged_path = project_dir / dest_str
+
+        staged_path.parent.mkdir(parents=True, exist_ok=True)
+        if source_path.is_dir():
+            shutil.copytree(source_path, staged_path, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source_path, staged_path)
+        logger.debug("Staged upload {} -> {}", source_path, dest)
+
+    if uploads:
+        logger.info("Staged {} user-specified uploads", len(uploads))
+
+    # Consolidate environment variables from all sources into a single .env file.
+    # Precedence (lowest to highest): project secrets < --env-file < --pass-env
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
-    secrets_env = repo_root / ".mng" / "dev" / "secrets" / ".env"
-    if secrets_env.exists():
-        shutil.copy2(secrets_env, secrets_dir / ".env")
-        logger.info("Staged secrets from {}", secrets_env)
+    _stage_consolidated_env(secrets_dir, repo_root, pass_env=pass_env, env_files=env_files)
+
+
+def _stage_consolidated_env(
+    secrets_dir: Path,
+    repo_root: Path,
+    pass_env: Sequence[str] = (),
+    env_files: Sequence[Path] = (),
+) -> None:
+    """Consolidate env vars from multiple sources into secrets/.env.
+
+    Sources are merged in order of increasing precedence:
+    1. Project secrets file (.mng/dev/secrets/.env)
+    2. User-specified --env-file entries
+    3. User-specified --pass-env variables from the current process environment
+    """
+    env_lines: list[str] = []
+
+    # 1. Project secrets (lowest precedence)
+    project_secrets = repo_root / ".mng" / "dev" / "secrets" / ".env"
+    if project_secrets.exists():
+        env_lines.extend(project_secrets.read_text().splitlines())
+        logger.info("Including project secrets from {}", project_secrets)
+
+    # 2. User-specified env files
+    for env_file_path in env_files:
+        env_lines.extend(env_file_path.read_text().splitlines())
+        logger.info("Including env file {}", env_file_path)
+
+    # 3. Pass-through env vars from current process
+    for var_name in pass_env:
+        value = os.environ.get(var_name)
+        if value is not None:
+            env_lines.append(f"{var_name}={value}")
+            logger.debug("Passing through env var {}", var_name)
+        else:
+            logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
+
+    if env_lines:
+        (secrets_dir / ".env").write_text("\n".join(env_lines) + "\n")
+        logger.info("Staged consolidated env file with {} entries", len(env_lines))
     else:
-        logger.warning("No secrets file found at {}; agents may not have required API keys", secrets_env)
+        logger.warning(
+            "No secrets file found at {} and no env vars specified; agents may not have required API keys",
+            project_secrets,
+        )
 
 
 @pure
@@ -335,6 +435,11 @@ def deploy_schedule(
     provider: ModalProviderInstance,
     verify_mode: VerifyMode = VerifyMode.NONE,
     sys_argv: list[str] | None = None,
+    include_user_settings: bool = True,
+    include_project_settings: bool = True,
+    pass_env: Sequence[str] = (),
+    env_files: Sequence[Path] = (),
+    uploads: Sequence[tuple[Path, str]] = (),
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
@@ -380,7 +485,16 @@ def deploy_schedule(
         # Stage deploy files (collected from plugins via hook)
         staging_dir = tmp_path / "staging"
         with log_span("Staging deploy files"):
-            stage_deploy_files(staging_dir, mng_ctx, repo_root)
+            stage_deploy_files(
+                staging_dir,
+                mng_ctx,
+                repo_root,
+                include_user_settings=include_user_settings,
+                include_project_settings=include_project_settings,
+                pass_env=pass_env,
+                env_files=env_files,
+                uploads=uploads,
+            )
 
         # Write deploy config as a single JSON file into the staging dir
         deploy_config = build_deploy_config(
