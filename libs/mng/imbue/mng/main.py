@@ -40,6 +40,7 @@ from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
+from imbue.mng.plugins import connect_in_new_iterms2_tab
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
@@ -278,8 +279,11 @@ def create_plugin_manager() -> pluggy.PluginManager:
     pm.add_hookspecs(hookspecs)
 
     # Block plugins that are disabled in config files. This must happen before
-    # load_setuptools_entrypoints so disabled plugins are never registered.
+    # plugin registration so disabled plugins are never registered.
     block_disabled_plugins(pm, read_disabled_plugins())
+
+    # Register built-in plugins that ship with mng (respecting disabled state).
+    _register_builtin_plugins(pm)
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.
@@ -289,6 +293,17 @@ def create_plugin_manager() -> pluggy.PluginManager:
     load_all_registries(pm)
 
     return pm
+
+
+def _register_builtin_plugins(pm: pluggy.PluginManager) -> None:
+    """Register plugins that are bundled with mng.
+
+    Each built-in plugin is registered under its canonical name so it can be
+    disabled via the same ``plugins.<name>.enabled = false`` mechanism used
+    for external plugins.
+    """
+    if not pm.is_blocked("connect_in_new_iterms2_tab"):
+        pm.register(connect_in_new_iterms2_tab, name="connect_in_new_iterms2_tab")
 
 
 def get_or_create_plugin_manager() -> pluggy.PluginManager:
