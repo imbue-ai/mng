@@ -105,7 +105,7 @@ def load_config(
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
-            user_config = _parse_config(raw_user)
+            user_config = parse_config(raw_user)
             config = config.merge_with(user_config)
         except ConfigNotFoundError:
             pass
@@ -114,14 +114,14 @@ def load_config(
     project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
-        project_config = _parse_config(raw_project)
+        project_config = parse_config(raw_project)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
     local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
-        local_config = _parse_config(raw_local)
+        local_config = parse_config(raw_local)
         config = config.merge_with(local_config)
 
     # Apply environment variable overrides
@@ -510,7 +510,7 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def _parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(raw: dict[str, Any]) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
@@ -667,8 +667,7 @@ def _resolve_config_file_paths() -> list[Path]:
     profile_dir = _find_profile_dir_lightweight(base_dir)
     if profile_dir is not None:
         user_config_path = _get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            paths.append(user_config_path)
+        paths.append(user_config_path)
 
     # Project + local config need the project root
     cg = ConcurrencyGroup(name="config-pre-reader")
