@@ -253,7 +253,7 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file. Raises ConfigParseError if missing or malformed."""
+    """Load and parse a TOML file. Raises ConfigParseError if the file is missing or malformed."""
     if not path.exists():
         raise ConfigParseError(f"Config file not found: {path}")
     try:

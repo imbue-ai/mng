@@ -15,7 +15,7 @@ from imbue.mng.utils.git_utils import find_git_worktree_root
 # =============================================================================
 
 
-def load_toml(path: Path) -> dict[str, Any] | None:
+def _load_toml(path: Path) -> dict[str, Any] | None:
     """Load and parse a TOML file, returning None if the file is missing or malformed."""
     if not path.exists():
         return None
@@ -33,7 +33,7 @@ def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
     Returns the profile directory if it can be determined from existing files,
     or None otherwise.
     """
-    root_config = load_toml(base_dir / ROOT_CONFIG_FILENAME)
+    root_config = _load_toml(base_dir / ROOT_CONFIG_FILENAME)
     if root_config is None:
         return None
     profile_id = root_config.get("profile")
@@ -152,7 +152,7 @@ def read_default_command(command_name: str) -> str:
 
 def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract default_subcommand entries from a TOML config file."""
-    raw = load_toml(path)
+    raw = _load_toml(path)
     if raw is None:
         return {}
     raw_commands = raw.get("commands")
@@ -185,7 +185,7 @@ def read_disabled_plugins() -> frozenset[str]:
 
 def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
-    raw = load_toml(path)
+    raw = _load_toml(path)
     if raw is None:
         return {}
     raw_plugins = raw.get("plugins")
@@ -220,7 +220,7 @@ def read_default_host_dir() -> Path:
     # Later values override earlier ones.
     host_dir: str | None = None
     for path in _resolve_config_file_paths():
-        raw = load_toml(path)
+        raw = _load_toml(path)
         if raw is None:
             continue
         value = raw.get("default_host_dir")
