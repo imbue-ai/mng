@@ -8,6 +8,7 @@ from imbue.mng.api.message import MessageResult
 from imbue.mng.api.message import _agent_to_cel_context
 from imbue.mng.api.message import send_message_to_agents
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import Host
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -245,13 +246,18 @@ def test_send_message_to_agents_with_include_filter(
     assert "filter-test-2" not in result.successful_agents
 
 
-def test_send_message_non_mng_error_does_not_prevent_other_agents(
+def test_send_message_one_agent_failure_does_not_prevent_other_agents(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
     local_provider: LocalProviderInstance,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-MngError exception in one agent's send_message must not kill the broadcast."""
+    """One agent's SendMessageError must not kill the broadcast to other agents.
+
+    SendMessageError inherits from BaseMngError (not MngError). Before the switch
+    to concurrent sends, the serial loop only caught MngError, so a SendMessageError
+    would propagate up and abort the entire broadcast.
+    """
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
@@ -278,7 +284,7 @@ def test_send_message_non_mng_error_does_not_prevent_other_agents(
 
     def exploding_send(self: BaseAgent, message: str) -> None:
         if str(self.name) == "will-explode":
-            raise RuntimeError("unexpected failure")
+            raise SendMessageError("will-explode", "simulated send failure")
         original_send(self, message)
 
     monkeypatch.setattr(BaseAgent, "send_message", exploding_send)

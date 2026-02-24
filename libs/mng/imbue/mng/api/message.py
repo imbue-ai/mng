@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from concurrent.futures import Future
 from threading import Lock
 from typing import Any
 
@@ -15,6 +14,7 @@ from imbue.mng.api.find import ensure_host_started
 from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
+from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ProviderInstanceNotFoundError
@@ -158,12 +158,11 @@ def send_message_to_agents(
             logger.warning("Error accessing host {}: {}", host_ref.host_id, e)
 
     # Phase 2: Send messages concurrently
-    agent_names_by_future: dict[Future[None], str] = {}
     with ConcurrencyGroupExecutor(
         parent_cg=mng_ctx.concurrency_group, name="send_message_to_agents", max_workers=32
     ) as executor:
         for agent, host in agents_to_message:
-            future = executor.submit(
+            executor.submit(
                 _send_message_to_agent,
                 agent=agent,
                 host=host,
@@ -174,16 +173,6 @@ def send_message_to_agents(
                 on_success=on_success,
                 on_error=on_error,
             )
-            agent_names_by_future[future] = str(agent.name)
-
-    # Record any unexpected (non-MngError) exceptions from futures
-    for future, agent_name in agent_names_by_future.items():
-        exc = future.exception()
-        if exc is not None:
-            error_msg = str(exc)
-            result.failed_agents.append((agent_name, error_msg))
-            if on_error:
-                on_error(agent_name, error_msg)
 
     # In ABORT mode, raise if any agent failed
     if error_behavior == ErrorBehavior.ABORT and result.failed_agents:
@@ -205,8 +194,8 @@ def _send_message_to_agent(
 ) -> None:
     """Send a message to a single agent.
 
-    Called from a worker thread. Known errors (MngError) are recorded in `result`;
-    unexpected exceptions propagate to the future for the caller to handle.
+    Called from a worker thread. Known errors (BaseMngError) are recorded in `result`;
+    unexpected exceptions propagate to the future and will crash with a traceback.
     """
     agent_name = str(agent.name)
 
@@ -230,7 +219,7 @@ def _send_message_to_agent(
             result.successful_agents.append(agent_name)
         if on_success:
             on_success(agent_name)
-    except MngError as e:
+    except BaseMngError as e:
         error_msg = str(e)
         with result_lock:
             result.failed_agents.append((agent_name, error_msg))
