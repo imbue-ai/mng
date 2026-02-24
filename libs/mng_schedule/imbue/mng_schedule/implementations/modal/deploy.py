@@ -6,7 +6,6 @@ import shlex
 import shutil
 import sys
 import tempfile
-from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -383,33 +382,6 @@ def _collect_deploy_files(
     return merged
 
 
-def _collect_deploy_env_vars(
-    mng_ctx: MngContext,
-    env_vars: Mapping[str, str],
-) -> dict[str, str | None]:
-    """Collect env var overrides from plugins via the get_env_vars_for_deploy hook.
-
-    Each plugin can return new variables to add, existing variables to update,
-    or variables to remove (by setting the value to None). Results from
-    multiple plugins are merged, with later plugins overwriting earlier ones
-    on collision (with a warning).
-    """
-    all_results: list[dict[str, str | None]] = mng_ctx.pm.hook.get_env_vars_for_deploy(
-        mng_ctx=mng_ctx,
-        env_vars=env_vars,
-    )
-    merged: dict[str, str | None] = {}
-    for result in all_results:
-        for key, value in result.items():
-            if key in merged:
-                logger.warning(
-                    "Deploy env var collision: {} registered by multiple plugins, overwriting previous value",
-                    key,
-                )
-            merged[key] = value
-    return merged
-
-
 def stage_deploy_files(
     staging_dir: Path,
     mng_ctx: MngContext,
@@ -541,20 +513,14 @@ def _stage_consolidated_env(
         else:
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
 
-    # 3. Collect env var overrides from plugins (highest precedence)
-    plugin_overrides = _collect_deploy_env_vars(mng_ctx, env_dict)
-    for key, value in plugin_overrides.items():
-        if value is None:
-            env_dict.pop(key, None)
-            logger.debug("Plugin removed env var {}", key)
-        else:
-            env_dict[key] = value
-            logger.debug("Plugin set env var {}", key)
-
-    if plugin_overrides:
-        additions = sum(1 for v in plugin_overrides.values() if v is not None)
-        removals = sum(1 for v in plugin_overrides.values() if v is None)
-        logger.info("Plugins contributed {} env var additions/updates and {} removals", additions, removals)
+    # 3. Let plugins mutate the env dict (highest precedence)
+    pre_plugin_keys = set(env_dict)
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_dict)
+    post_plugin_keys = set(env_dict)
+    added = post_plugin_keys - pre_plugin_keys
+    removed = pre_plugin_keys - post_plugin_keys
+    if added or removed:
+        logger.info("Plugins modified env vars (added: {}, removed: {})", len(added), len(removed))
 
     if env_dict:
         final_lines = [_format_env_line(key, value) for key, value in env_dict.items()]

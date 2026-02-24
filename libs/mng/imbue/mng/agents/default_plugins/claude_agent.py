@@ -4,7 +4,6 @@ import json
 import os
 import random
 import shlex
-from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime as dt_datetime
 from datetime import timezone as dt_timezone
@@ -893,9 +892,9 @@ def get_files_for_deploy(
 
 
 @hookimpl
-def get_env_vars_for_deploy(
+def modify_env_vars_for_deploy(
     mng_ctx: MngContext,
-    env_vars: Mapping[str, str],
-) -> dict[str, str | None]:
+    env_vars: dict[str, str],
+) -> None:
     """Set IS_SANDBOX=1 for Claude agent deployments."""
-    return {"IS_SANDBOX": "1"}
+    env_vars["IS_SANDBOX"] = "1"

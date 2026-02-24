@@ -16,7 +16,6 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandline
-from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_env_vars
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
 from imbue.mng_schedule.implementations.modal.deploy import _parse_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
@@ -527,103 +526,80 @@ def test_stage_consolidated_env_preserves_values_with_hash(
 
 
 # =============================================================================
-# _collect_deploy_env_vars Tests
+# modify_env_vars_for_deploy hook Tests
 # =============================================================================
 
 
-def test_collect_deploy_env_vars_returns_empty_with_no_plugins(
-    tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
-) -> None:
-    """_collect_deploy_env_vars returns empty dict when no plugins contribute env vars."""
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
-    result = _collect_deploy_env_vars(mng_ctx, {"EXISTING": "value"})
-    assert result == {}
-
-
-def test_collect_deploy_env_vars_collects_from_plugin(
+def test_modify_env_vars_for_deploy_plugin_adds_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> None:
-    """_collect_deploy_env_vars collects env vars from a plugin implementation."""
+    """modify_env_vars_for_deploy plugin can add env vars by mutating the dict."""
 
     class _EnvPlugin:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"MY_PLUGIN_VAR": "plugin_value"}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["MY_PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    result = _collect_deploy_env_vars(mng_ctx, {})
-    assert result["MY_PLUGIN_VAR"] == "plugin_value"
+    env_vars: dict[str, str] = {}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert env_vars["MY_PLUGIN_VAR"] == "plugin_value"
 
 
-def test_collect_deploy_env_vars_merges_multiple_plugins(
+def test_modify_env_vars_for_deploy_plugin_removes_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> None:
-    """_collect_deploy_env_vars merges env vars from multiple plugins."""
-
-    class _PluginA:
-        @staticmethod
-        @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"VAR_A": "from_a"}
-
-    class _PluginB:
-        @staticmethod
-        @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"VAR_B": "from_b"}
-
-    plugin_manager.register(_PluginA())
-    plugin_manager.register(_PluginB())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    result = _collect_deploy_env_vars(mng_ctx, {})
-    assert result["VAR_A"] == "from_a"
-    assert result["VAR_B"] == "from_b"
-
-
-def test_collect_deploy_env_vars_supports_none_for_removal(
-    plugin_manager: pluggy.PluginManager,
-    tmp_path: Path,
-) -> None:
-    """_collect_deploy_env_vars supports None values for env var removal."""
+    """modify_env_vars_for_deploy plugin can remove env vars via pop/del."""
 
     class _RemovalPlugin:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"REMOVE_ME": None}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars.pop("REMOVE_ME", None)
 
     plugin_manager.register(_RemovalPlugin())
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    result = _collect_deploy_env_vars(mng_ctx, {"REMOVE_ME": "old_value"})
-    assert result["REMOVE_ME"] is None
+    env_vars = {"REMOVE_ME": "old_value", "KEEP_ME": "kept"}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert "REMOVE_ME" not in env_vars
+    assert env_vars["KEEP_ME"] == "kept"
 
 
-def test_collect_deploy_env_vars_passes_current_env_to_plugins(
+def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
 ) -> None:
-    """_collect_deploy_env_vars passes the current env vars to the plugin hook."""
-    received_env: dict[str, str] = {}
+    """Plugins called later see mutations made by earlier plugins.
 
-    class _InspectPlugin:
+    Uses tryfirst to ensure _PluginA runs before _PluginB, demonstrating
+    that plugins can control ordering via pluggy's tryfirst/trylast.
+    """
+
+    class _PluginA:
+        @staticmethod
+        @hookimpl(tryfirst=True)
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["FROM_A"] = "value_a"
+
+    class _PluginB:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(
-            mng_ctx: MngContext,
-            env_vars: dict[str, str],
-        ) -> dict[str, str | None]:
-            received_env.update(env_vars)
-            return {}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            # B runs after A and can see A's addition
+            if "FROM_A" in env_vars:
+                env_vars["SAW_A"] = "true"
 
-    plugin_manager.register(_InspectPlugin())
+    plugin_manager.register(_PluginA())
+    plugin_manager.register(_PluginB())
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
-    _collect_deploy_env_vars(mng_ctx, {"EXISTING_KEY": "existing_value"})
-    assert received_env["EXISTING_KEY"] == "existing_value"
+    env_vars: dict[str, str] = {}
+    mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
+    assert env_vars["FROM_A"] == "value_a"
+    assert env_vars["SAW_A"] == "true"
 
 
 # =============================================================================
@@ -640,8 +616,8 @@ def test_stage_consolidated_env_includes_plugin_env_vars(
     class _EnvPlugin:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"PLUGIN_VAR": "plugin_value"}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
@@ -659,13 +635,13 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """_stage_consolidated_env should remove env vars when plugin returns None."""
+    """_stage_consolidated_env should remove env vars when plugin deletes keys."""
 
     class _RemovalPlugin:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"REMOVE_ME": None}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars.pop("REMOVE_ME", None)
 
     plugin_manager.register(_RemovalPlugin())
     monkeypatch.setenv("REMOVE_ME", "should_be_removed")
@@ -695,8 +671,8 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
     class _OverridePlugin:
         @staticmethod
         @hookimpl
-        def get_env_vars_for_deploy(mng_ctx: MngContext) -> dict[str, str | None]:
-            return {"MY_VAR": "from_plugin"}
+        def modify_env_vars_for_deploy(env_vars: dict[str, str]) -> None:
+            env_vars["MY_VAR"] = "from_plugin"
 
     plugin_manager.register(_OverridePlugin())
     mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)

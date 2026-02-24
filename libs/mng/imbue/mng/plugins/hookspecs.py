@@ -303,27 +303,21 @@ def get_files_for_deploy(
 
 
 @hookspec
-def get_env_vars_for_deploy(
+def modify_env_vars_for_deploy(
     mng_ctx: MngContext,
-    env_vars: Mapping[str, str],
-) -> dict[str, str | None]:
-    """[experimental] Return env vars to add, update, or remove when deploying scheduled commands.
+    env_vars: dict[str, str],
+) -> None:
+    """[experimental] Mutate the env vars dict for scheduled command deployment.
 
     Called during schedule deployment after the initial environment variables
     have been assembled from --pass-env and --env-file sources. Each plugin
-    can contribute additional environment variables needed for its operation
+    can add, update, or remove environment variables needed for its operation
     in the remote environment.
 
-    The env_vars parameter contains the fully assembled set of environment
-    variables that would be deployed, allowing plugins to make decisions
-    based on the current environment. Plugins should NOT mutate env_vars.
-
-    Return a dict mapping variable names to values (empty dict if none):
-    - Keys are environment variable names.
-    - Values are either str values to set (adding or overwriting), or None
-      to remove the variable from the deployed environment.
+    Plugins mutate env_vars in place: set keys to add or update variables,
+    delete keys (via pop/del) to remove them. Plugins are called in
+    registration order, so later plugins see changes made by earlier ones.
     """
-    return {}
 
 
 @hookspec
