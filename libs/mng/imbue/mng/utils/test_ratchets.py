@@ -179,6 +179,9 @@ def test_prevent_returns_in_docstrings() -> None:
 
 
 def test_prevent_num_prefix() -> None:
+    # 3 violations: 2 in testing.py (numStartups comment + dict key) and 1 in
+    # claude_agent.py (numStartups dict key). These are Claude Code JSON config
+    # keys from an external format that cannot be renamed.
     chunks = check_ratchet_rule(PREVENT_NUM_PREFIX, _get_mng_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(3), PREVENT_NUM_PREFIX.format_failure(chunks)
 

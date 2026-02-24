@@ -10,6 +10,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng import hookimpl
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.plugins import hookspecs
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
@@ -18,7 +19,6 @@ from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandl
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_env_vars
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
 from imbue.mng_schedule.implementations.modal.deploy import _parse_dockerfile_user
-from imbue.mng_schedule.implementations.modal.deploy import _parse_env_lines_to_dict
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import _stage_consolidated_env
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
@@ -29,6 +29,14 @@ from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
+
+
+@pytest.fixture()
+def bare_plugin_manager() -> pluggy.PluginManager:
+    """Create a plugin manager with hookspecs only, no plugins registered."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+    return pm
 
 
 def test_get_modal_app_name() -> None:
@@ -422,7 +430,7 @@ def test_stage_consolidated_env_includes_env_files(
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, env_files=[env_file])
 
     result = (output_dir / ".env").read_text()
-    assert "CUSTOM_VAR=hello" in result
+    assert 'CUSTOM_VAR="hello"' in result
 
 
 def test_stage_consolidated_env_includes_pass_env(
@@ -439,7 +447,7 @@ def test_stage_consolidated_env_includes_pass_env(
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
-    assert "MY_PASS_VAR=passed_value" in result
+    assert 'MY_PASS_VAR="passed_value"' in result
 
 
 def test_stage_consolidated_env_merges_env_files_and_pass_env(
@@ -464,13 +472,13 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
     )
 
     result = (output_dir / ".env").read_text()
-    assert "FILE_KEY=from_file" in result
-    assert "SHELL_KEY=from_shell" in result
+    assert 'FILE_KEY="from_file"' in result
+    assert 'SHELL_KEY="from_shell"' in result
 
 
 def test_stage_consolidated_env_skips_missing_pass_env(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should skip pass-env vars not in the environment."""
@@ -478,72 +486,44 @@ def test_stage_consolidated_env_skips_missing_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["NONEXISTENT_VAR"])
 
-    # No .env file should be created since there are no entries
-    # (unless plugins contribute env vars -- the built-in claude plugin sets IS_SANDBOX=1)
-    env_file = output_dir / ".env"
-    if env_file.exists():
-        content = env_file.read_text()
-        assert "NONEXISTENT_VAR" not in content
+    # No .env file should be created since no env vars were found and no plugins registered
+    assert not (output_dir / ".env").exists()
 
 
 def test_stage_consolidated_env_creates_no_file_when_empty(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    bare_plugin_manager: pluggy.PluginManager,
 ) -> None:
     """_stage_consolidated_env should not create .env when no env vars are available and no plugins contribute."""
-    # Use a bare plugin manager with no plugins registered (so no plugin env vars)
-    bare_pm = pluggy.PluginManager("mng")
-    from imbue.mng.plugins import hookspecs
-
-    bare_pm.add_hookspecs(hookspecs)
-
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_pm, tmp_path)
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
 
     assert not (output_dir / ".env").exists()
 
 
-# =============================================================================
-# _parse_env_lines_to_dict Tests
-# =============================================================================
+def test_stage_consolidated_env_preserves_values_with_hash(
+    tmp_path: Path,
+    bare_plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_stage_consolidated_env should preserve values containing ' # ' (potential inline comments)."""
+    monkeypatch.setenv("PASSWORD", "abc # def")
 
+    output_dir = tmp_path / "secrets"
+    output_dir.mkdir()
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["PASSWORD"])
 
-def test_parse_env_lines_to_dict_basic() -> None:
-    """_parse_env_lines_to_dict should parse simple KEY=VALUE lines."""
-    lines = ["FOO=bar", "BAZ=qux"]
-    result = _parse_env_lines_to_dict(lines)
-    assert result == {"FOO": "bar", "BAZ": "qux"}
+    # Verify the written .env file can be parsed back correctly
+    from dotenv import dotenv_values
 
-
-def test_parse_env_lines_to_dict_skips_comments_and_blanks() -> None:
-    """_parse_env_lines_to_dict should skip comments and blank lines."""
-    lines = ["# This is a comment", "", "  ", "KEY=value"]
-    result = _parse_env_lines_to_dict(lines)
-    assert result == {"KEY": "value"}
-
-
-def test_parse_env_lines_to_dict_handles_export_prefix() -> None:
-    """_parse_env_lines_to_dict should handle the 'export' prefix."""
-    lines = ["export MY_VAR=exported_value"]
-    result = _parse_env_lines_to_dict(lines)
-    assert result == {"MY_VAR": "exported_value"}
-
-
-def test_parse_env_lines_to_dict_returns_empty_for_empty_input() -> None:
-    """_parse_env_lines_to_dict should return empty dict for empty input."""
-    assert _parse_env_lines_to_dict([]) == {}
-
-
-def test_parse_env_lines_to_dict_handles_values_with_equals() -> None:
-    """_parse_env_lines_to_dict should handle values containing '=' characters."""
-    lines = ["CONNECTION_STRING=host=localhost;port=5432"]
-    result = _parse_env_lines_to_dict(lines)
-    assert result == {"CONNECTION_STRING": "host=localhost;port=5432"}
+    parsed = dotenv_values(output_dir / ".env")
+    assert parsed["PASSWORD"] == "abc # def"
 
 
 # =============================================================================
@@ -553,14 +533,10 @@ def test_parse_env_lines_to_dict_handles_values_with_equals() -> None:
 
 def test_collect_deploy_env_vars_returns_empty_with_no_plugins(
     tmp_path: Path,
+    bare_plugin_manager: pluggy.PluginManager,
 ) -> None:
     """_collect_deploy_env_vars returns empty dict when no plugins contribute env vars."""
-    bare_pm = pluggy.PluginManager("mng")
-    from imbue.mng.plugins import hookspecs
-
-    bare_pm.add_hookspecs(hookspecs)
-
-    mng_ctx = _make_test_mng_ctx(bare_pm, tmp_path)
+    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
     result = _collect_deploy_env_vars(mng_ctx, {"EXISTING": "value"})
     assert result == {}
 
@@ -675,7 +651,7 @@ def test_stage_consolidated_env_includes_plugin_env_vars(
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
 
     result = (output_dir / ".env").read_text()
-    assert "PLUGIN_VAR=plugin_value" in result
+    assert 'PLUGIN_VAR="plugin_value"' in result
 
 
 def test_stage_consolidated_env_plugin_can_remove_env_vars(
@@ -699,9 +675,10 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     output_dir.mkdir()
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["REMOVE_ME"])
 
-    env_file = output_dir / ".env"
-    if env_file.exists():
-        assert "REMOVE_ME" not in env_file.read_text()
+    # The .env file may or may not exist depending on whether other plugins
+    # contribute env vars. If it exists, REMOVE_ME must not be in it.
+    env_file_path = output_dir / ".env"
+    assert not env_file_path.exists() or "REMOVE_ME" not in env_file_path.read_text()
 
 
 def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
@@ -734,7 +711,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
     )
 
     result = (output_dir / ".env").read_text()
-    assert "MY_VAR=from_plugin" in result
+    assert 'MY_VAR="from_plugin"' in result
     # Should only appear once (plugin value replaces env/file values)
     assert result.count("MY_VAR=") == 1
 
@@ -820,7 +797,7 @@ def test_stage_deploy_files_with_pass_env(
 
     staged_env = staging_dir / "secrets" / ".env"
     assert staged_env.exists()
-    assert "TEST_API_KEY=sk-test-123" in staged_env.read_text()
+    assert 'TEST_API_KEY="sk-test-123"' in staged_env.read_text()
 
 
 def test_stage_deploy_files_with_exclude_user_settings(

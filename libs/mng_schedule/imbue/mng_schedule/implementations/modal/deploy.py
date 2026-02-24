@@ -10,7 +10,6 @@ from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
-from io import StringIO
 from pathlib import Path
 from typing import Any
 from typing import Final
@@ -384,19 +383,6 @@ def _collect_deploy_files(
     return merged
 
 
-@pure
-def _parse_env_lines_to_dict(env_lines: Sequence[str]) -> dict[str, str]:
-    """Parse env file lines into a key-value dict.
-
-    Uses python-dotenv for consistent parsing with the runtime env file
-    loader (env_file.py). Handles comments, blank lines, quoted values,
-    the 'export' prefix, and multiline values.
-    """
-    content = "\n".join(env_lines)
-    parsed = dotenv_values(stream=StringIO(content))
-    return {k: v for k, v in parsed.items() if v is not None}
-
-
 def _collect_deploy_env_vars(
     mng_ctx: MngContext,
     env_vars: Mapping[str, str],
@@ -508,6 +494,19 @@ def stage_deploy_files(
     _stage_consolidated_env(secrets_dir, mng_ctx=mng_ctx, pass_env=pass_env, env_files=env_files)
 
 
+@pure
+def _format_env_line(key: str, value: str) -> str:
+    """Format a key-value pair as a dotenv line with double-quoted value.
+
+    Double-quoting preserves values that would otherwise be misinterpreted
+    by dotenv parsers (e.g. values containing ' # ' are treated as inline
+    comments when unquoted). Backslashes and double quotes within the value
+    are escaped so they survive a round-trip through dotenv_values().
+    """
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'{key}="{escaped}"'
+
+
 def _stage_consolidated_env(
     secrets_dir: Path,
     mng_ctx: MngContext,
@@ -521,24 +520,26 @@ def _stage_consolidated_env(
     2. User-specified --pass-env variables from the current process environment
     3. Plugin-provided env vars from the get_env_vars_for_deploy hook
     """
-    env_lines: list[str] = []
+    env_dict: dict[str, str] = {}
 
-    # 1. User-specified env files
+    # 1. User-specified env files (parsed with dotenv for correct handling
+    # of quoting, comments, 'export' prefix, etc.)
     for env_file_path in env_files:
-        env_lines.extend(env_file_path.read_text().splitlines())
+        parsed = dotenv_values(env_file_path)
+        for key, value in parsed.items():
+            if value is not None:
+                env_dict[key] = value
         logger.info("Including env file {}", env_file_path)
 
-    # 2. Pass-through env vars from current process
+    # 2. Pass-through env vars from current process (highest user precedence,
+    # overrides env file values)
     for var_name in pass_env:
         value = os.environ.get(var_name)
         if value is not None:
-            env_lines.append(f"{var_name}={value}")
+            env_dict[var_name] = value
             logger.debug("Passing through env var {}", var_name)
         else:
             logger.warning("Environment variable '{}' not set in current environment, skipping", var_name)
-
-    # Parse the assembled env lines into a dict so plugins can inspect them
-    env_dict = _parse_env_lines_to_dict(env_lines)
 
     # 3. Collect env var overrides from plugins (highest precedence)
     plugin_overrides = _collect_deploy_env_vars(mng_ctx, env_dict)
@@ -556,7 +557,7 @@ def _stage_consolidated_env(
         logger.info("Plugins contributed {} env var additions/updates and {} removals", additions, removals)
 
     if env_dict:
-        final_lines = [f"{key}={value}" for key, value in env_dict.items()]
+        final_lines = [_format_env_line(key, value) for key, value in env_dict.items()]
         (secrets_dir / ".env").write_text("\n".join(final_lines) + "\n")
         logger.info("Staged consolidated env file with {} variable entries", len(env_dict))
 
