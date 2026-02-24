@@ -303,7 +303,7 @@ def build_mng_install_commands(mode: MngInstallMode, dockerfile_user: str | None
             # Switch to root and install system deps + uv (shared by both modes).
             commands = [
                 "USER root",
-                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl && rm -rf /var/lib/apt/lists/*",
+                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl rsync bash git && rm -rf /var/lib/apt/lists/*",
                 "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
             ]
             if mode == MngInstallMode.PACKAGE:
