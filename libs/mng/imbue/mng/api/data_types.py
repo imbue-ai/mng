@@ -97,6 +97,10 @@ class NewHostBuildOptions(FrozenModel):
         default=None,
         description="Path to the Dockerfile to build the host image",
     )
+    dockerfile_context: Path | None = Field(
+        default=None,
+        description="Build context directory for Dockerfile COPY/ADD instructions [default: Dockerfile's parent]",
+    )
     build_args: tuple[str, ...] = Field(
         default=(),
         description="Arguments for the build command",

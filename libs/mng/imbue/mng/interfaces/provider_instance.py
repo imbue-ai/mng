@@ -104,6 +104,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
         dockerfile: Path | None = None,
+        dockerfile_context: Path | None = None,
     ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration.
 

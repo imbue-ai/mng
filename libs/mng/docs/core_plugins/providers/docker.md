@@ -13,8 +13,11 @@ mng create my-agent --in docker
 Use `--dockerfile` to build from a Dockerfile:
 
 ```bash
-# Build from a Dockerfile
+# Build from a Dockerfile (context defaults to the Dockerfile's parent directory)
 mng create my-agent --in docker --dockerfile ./Dockerfile
+
+# Build with a different context directory
+mng create my-agent --in docker --dockerfile ./docker/Dockerfile --dockerfile-context .
 ```
 
 Additional build arguments are passed directly to `docker build` via `-b`. Use this for flags like `--no-cache` or `--build-arg`:

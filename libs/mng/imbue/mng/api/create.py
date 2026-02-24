@@ -212,6 +212,7 @@ def resolve_target_host(
                 known_hosts=target_host.environment.known_hosts,
                 snapshot=target_host.build.snapshot,
                 dockerfile=target_host.build.dockerfile,
+                dockerfile_context=target_host.build.dockerfile_context,
             )
 
         # Write host environment variables to the host env file (if creating a new host)

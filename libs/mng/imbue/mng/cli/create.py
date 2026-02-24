@@ -205,6 +205,7 @@ class CreateCliOptions(CommonCliOptions):
     known_host: tuple[str, ...]
     snapshot: str | None
     dockerfile: str | None
+    dockerfile_context: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
     start_arg: tuple[str, ...]
@@ -454,7 +455,12 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option(
     "--dockerfile",
     type=click.Path(exists=True),
-    help="Path to the Dockerfile to build the host image. Build context defaults to the Dockerfile's parent directory",
+    help="Path to the Dockerfile to build the host image",
+)
+@optgroup.option(
+    "--dockerfile-context",
+    type=click.Path(exists=True),
+    help="Build context directory for Dockerfile COPY/ADD instructions [default: Dockerfile's parent directory]",
 )
 @optgroup.option(
     "-b",
@@ -1472,6 +1478,7 @@ def _parse_target_host(
             snapshot=SnapshotName(opts.snapshot) if opts.snapshot else None,
             context_path=Path(opts.project_context_path) if opts.project_context_path else None,
             dockerfile=Path(opts.dockerfile) if opts.dockerfile else None,
+            dockerfile_context=Path(opts.dockerfile_context) if opts.dockerfile_context else None,
             build_args=tuple(combined_build_args),
             start_args=tuple(combined_start_args),
         )

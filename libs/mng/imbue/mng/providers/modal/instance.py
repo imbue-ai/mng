@@ -1635,6 +1635,7 @@ log "=== Shutdown script completed ==="
         known_hosts: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
         dockerfile: Path | None = None,
+        dockerfile_context: Path | None = None,
     ) -> Host:
         """Create a new Modal sandbox host.
 
@@ -1665,8 +1666,10 @@ log "=== Shutdown script completed ==="
         base_image = str(image) if image else config.image
         if dockerfile is not None and config.dockerfile is not None:
             raise MngError("Cannot specify --dockerfile and -b --dockerfile at the same time")
+        if dockerfile_context is not None and config.context_dir is not None:
+            raise MngError("Cannot specify --dockerfile-context and -b --context-dir at the same time")
         dockerfile_path = dockerfile or (Path(config.dockerfile) if config.dockerfile else None)
-        context_dir_path = Path(config.context_dir) if config.context_dir else None
+        context_dir_path = dockerfile_context or (Path(config.context_dir) if config.context_dir else None)
 
         try:
             if snapshot is not None:

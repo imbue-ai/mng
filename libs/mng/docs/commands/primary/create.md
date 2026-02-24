@@ -159,7 +159,8 @@ See [Provision Options](../secondary/provision.md) for full details.
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
 | `--snapshot` | text | Use existing snapshot instead of building | None |
-| `--dockerfile` | path | Path to the Dockerfile to build the host image. Build context defaults to the Dockerfile's parent directory | None |
+| `--dockerfile` | path | Path to the Dockerfile to build the host image | None |
+| `--dockerfile-context` | path | Build context directory for Dockerfile COPY/ADD instructions [default: Dockerfile's parent directory] | None |
 | `-b`, `--build`, `--build-arg` | text | Build argument as key=value or --key=value (e.g., -b gpu=h100 -b cpu=2) [repeatable] | None |
 | `--build-args` | text | Space-separated build arguments (e.g., 'gpu=h100 cpu=2') | None |
 | `-s`, `--start`, `--start-arg` | text | Argument for start [repeatable] | None |
