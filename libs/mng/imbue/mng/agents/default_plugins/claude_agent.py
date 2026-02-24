@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import datetime
 import json
 import os
+import random
 import shlex
 from collections.abc import Sequence
 from pathlib import Path
@@ -800,6 +802,40 @@ class ClaudeAgent(BaseAgent):
         removed = remove_claude_trust_for_path(self.work_dir)
         if removed:
             logger.debug("Removed Claude trust entry for {}", self.work_dir)
+
+
+def _generate_claude_home_settings():
+    # ~/.claude/settings.json
+    return {"skipDangerousModePermissionPrompt": True}
+
+
+def _generate_claude_json(version: str | None):
+    # ~/.claude.json
+    if version is None:
+        version = "2.1.50"
+    current_time = datetime.datetime.now(datetime.UTC)
+    current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    current_time_millis = int(current_time.timestamp() * 1000)
+    cache_time_millis = current_time_millis + 50 + random.random() * 1000
+    change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    return {
+        "numStartups": 1,
+        "installMethod": "native",
+        "autoUpdates": False,
+        "firstStartTime": current_time_str,
+        "opusProMigrationComplete": True,
+        "sonnet1m45MigrationComplete": True,
+        "clientDataCache": {"data": None, "timestamp": cache_time_millis},
+        "cachedChromeExtensionInstalled": False,
+        "changelogLastFetched": change_log_time_millis,
+        "hasCompletedOnboarding": True,
+        "lastOnboardingVersion": version,
+        "lastReleaseNotesSeen": version,
+        "effortCalloutDismissed": True,
+        "officialMarketplaceAutoInstallAttempted": True,
+        "officialMarketplaceAutoInstalled": True,
+        "autoUpdatesProtectedForNative": True,
+    }
 
 
 @hookimpl
