@@ -13,6 +13,14 @@ PROFILES_DIRNAME: Final[str] = "profiles"
 ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
 
 
+class _TomlParseError(ValueError):
+    """TOML parsing failed.
+
+    Lightweight alternative to ConfigParseError for use in pre-readers,
+    which cannot import from errors.py (it pulls in click and primitives).
+    """
+
+
 # =============================================================================
 # Config File Discovery
 # =============================================================================
@@ -21,10 +29,8 @@ ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
 def _load_toml(path: Path) -> dict[str, Any]:
     """Load and parse a TOML file.
 
-    Raises FileNotFoundError if the file does not exist, or ValueError if
-    the TOML content is malformed.  These lightweight exception types avoid
-    importing the project's ConfigNotFoundError/ConfigParseError (which
-    depend on click and primitives).
+    Raises FileNotFoundError if the file does not exist, or _TomlParseError
+    if the TOML content is malformed.
     """
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -33,7 +39,7 @@ def _load_toml(path: Path) -> dict[str, Any]:
         with open(path, "rb") as f:
             return tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
-        raise ValueError(f"Failed to parse {path}: {e}") from e
+        raise _TomlParseError(f"Failed to parse {path}: {e}") from e
 
 
 def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
@@ -179,7 +185,7 @@ def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract default_subcommand entries from a TOML config file."""
     try:
         raw = _load_toml(path)
-    except (FileNotFoundError, ValueError):
+    except (FileNotFoundError, _TomlParseError):
         return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
@@ -213,7 +219,7 @@ def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
     try:
         raw = _load_toml(path)
-    except (FileNotFoundError, ValueError):
+    except (FileNotFoundError, _TomlParseError):
         return {}
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
@@ -249,7 +255,7 @@ def read_default_host_dir() -> Path:
     for path in _resolve_config_file_paths():
         try:
             raw = _load_toml(path)
-        except (FileNotFoundError, ValueError):
+        except (FileNotFoundError, _TomlParseError):
             continue
         value = raw.get("default_host_dir")
         if value is not None:
