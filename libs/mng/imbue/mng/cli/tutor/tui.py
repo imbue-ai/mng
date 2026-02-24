@@ -25,8 +25,7 @@ PALETTE = [
     ("status", "white", "dark blue"),
     ("reversed", "standout", ""),
     ("completed", "dark green", ""),
-    ("pending", "light gray", ""),
-    ("current_heading", "yellow,bold", ""),
+    ("current_heading", "bold", ""),
 ]
 
 CHECK_INTERVAL_SECONDS: int = 3
@@ -171,10 +170,10 @@ def _build_step_widgets(state: _LessonRunnerState) -> list[Text | Divider]:
             attr = "current_heading"
         else:
             mark = "[ ]"
-            attr = "pending"
+            attr = None
 
         heading = f"  {mark} {idx + 1}. {step.heading}"
-        widgets.append(Text((attr, heading)))
+        widgets.append(Text((attr, heading)) if attr is not None else Text(heading))
 
         # Show details for the current step
         if is_current:
@@ -208,7 +207,7 @@ def _on_check_alarm(loop: MainLoop, state: _LessonRunnerState) -> None:
     current_idx = _get_current_step_index(state.step_completed)
     if current_idx is None:
         # All steps already complete
-        state.status_text.set_text("  Lesson complete! Press q to exit.")
+        state.status_text.set_text("  Lesson complete! Press q to go back.")
         return
 
     # Run the check for the current step
@@ -222,19 +221,16 @@ def _on_check_alarm(loop: MainLoop, state: _LessonRunnerState) -> None:
     # Schedule the next check if there are remaining steps
     new_current = _get_current_step_index(state.step_completed)
     if new_current is not None:
-        state.status_text.set_text(f"  Checking step {new_current + 1}/{len(state.lesson.steps)}... (q to quit)")
+        state.status_text.set_text(f"  Checking step {new_current + 1}/{len(state.lesson.steps)}... (q to go back)")
         _schedule_next_check(loop, state)
     else:
-        state.status_text.set_text("  Lesson complete! Press q to exit.")
+        state.status_text.set_text("  Lesson complete! Press q to go back.")
         _refresh_display(state)
 
 
-def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> bool:
-    """Run the lesson runner TUI with periodic check polling.
-
-    Returns True if the lesson was completed, False if the user quit early.
-    """
-    status_text = Text("  Starting lesson... (q to quit)")
+def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> None:
+    """Run the lesson runner TUI with periodic check polling."""
+    status_text = Text("  Starting lesson... (q to go back)")
     status_bar = AttrMap(status_text, "status")
 
     # Initial empty body (will be populated by _refresh_display)
@@ -283,5 +279,3 @@ def run_lesson_runner(lesson: Lesson, mng_ctx: MngContext) -> bool:
         loop.run()
     finally:
         logger.enable("imbue")
-
-    return all(state.step_completed)
