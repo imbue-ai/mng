@@ -1,5 +1,6 @@
 """Unit tests for the connect_in_new_iterms2_tab built-in plugin."""
 
+from imbue.mng.plugins import connect_in_new_iterms2_tab
 from imbue.mng.plugins.connect_in_new_iterms2_tab import _ITERM2_CONNECT_COMMAND
 from imbue.mng.plugins.connect_in_new_iterms2_tab import override_command_options
 
@@ -39,3 +40,8 @@ def test_connect_command_contains_iterm2_osascript() -> None:
     assert "iTerm2" in _ITERM2_CONNECT_COMMAND
     assert "create tab with default profile" in _ITERM2_CONNECT_COMMAND
     assert "mng conn $MNG_AGENT_NAME" in _ITERM2_CONNECT_COMMAND
+
+
+def test_disabled_by_default() -> None:
+    """Plugin declares itself as disabled by default."""
+    assert connect_in_new_iterms2_tab.ENABLED_BY_DEFAULT is False

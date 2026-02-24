@@ -2,6 +2,8 @@ from typing import Any
 
 from imbue.mng import hookimpl
 
+ENABLED_BY_DEFAULT = False
+
 # Shell command passed to `sh -c` that opens a new iTerm2 tab and runs `mng conn`.
 # MNG_AGENT_NAME is set in the environment by run_connect_command before exec.
 _ITERM2_CONNECT_COMMAND = (
