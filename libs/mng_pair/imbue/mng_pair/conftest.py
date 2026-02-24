@@ -24,6 +24,7 @@ from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
+from imbue.mng.utils.testing import isolate_home
 
 
 @pytest.fixture(autouse=True)
@@ -94,7 +95,7 @@ def setup_test_mng_env(
     mng_test_prefix = f"mng_{mng_test_id}-"
     mng_test_root_name = f"mng-test-{mng_test_id}"
 
-    monkeypatch.setenv("HOME", str(tmp_path))
+    isolate_home(tmp_path, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
