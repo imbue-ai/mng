@@ -10,20 +10,24 @@ mng create my-agent --in docker
 
 ## Build Arguments
 
-Build arguments are passed directly to `docker build`. Use `-b` or `--build-arg` to specify them:
+Use `--dockerfile` to build from a Dockerfile:
 
 ```bash
 # Build from a Dockerfile
-mng create my-agent --in docker -b --file=./Dockerfile -b .
-
-# Build with no cache
-mng create my-agent --in docker -b --file=./Dockerfile -b --no-cache -b .
-
-# Build with build-time variables
-mng create my-agent --in docker -b --build-arg=MY_VAR=value -b --file=./Dockerfile -b .
+mng create my-agent --in docker --dockerfile ./Dockerfile
 ```
 
-Run `docker build --help` for the full list of supported flags.
+Additional build arguments are passed directly to `docker build` via `-b`. Use this for flags like `--no-cache` or `--build-arg`:
+
+```bash
+# Build with no cache
+mng create my-agent --in docker --dockerfile ./Dockerfile -b --no-cache
+
+# Build with build-time variables
+mng create my-agent --in docker --dockerfile ./Dockerfile -b --build-arg=MY_VAR=value
+```
+
+Run `docker build --help` for the full list of supported `-b` flags.
 
 ## Start Arguments
 

@@ -36,7 +36,7 @@ mng create my-agent --in modal --build-args "gpu=h100 cpu=2 memory=8"
 | `context-dir` | Build context directory for Dockerfile COPY/ADD instructions | Dockerfile's directory |
 | `secret` | Environment variable name to pass as a secret during image build (can be specified multiple times) | None |
 | `cidr-allowlist` | Restrict network access to the specified CIDR range (can be specified multiple times) | None |
-| `dockerfile` | Path to a Dockerfile for building a custom image | None |
+| `dockerfile` | Path to a Dockerfile for building a custom image (prefer `--dockerfile` instead) | None |
 | `offline` | Block all outbound network access from the sandbox | off |
 | `volume` | Mount a persistent Modal Volume (format: `name:/path`, can be specified multiple times) | None |
 
@@ -79,7 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 Then use it with:
 
 ```bash
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b offline
+mng create my-agent --in modal --dockerfile ./Dockerfile -b offline
 ```
 
 ### Using Secrets During Image Build
@@ -88,10 +88,10 @@ The `secret` build argument allows passing environment variables as secrets to t
 
 ```bash
 # Pass a single secret
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN
+mng create my-agent --in modal --dockerfile ./Dockerfile -b secret=NPM_TOKEN
 
 # Pass multiple secrets
-mng create my-agent --in modal -b dockerfile=./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
+mng create my-agent --in modal --dockerfile ./Dockerfile -b secret=NPM_TOKEN -b secret=GH_TOKEN
 ```
 
 In your Dockerfile, access the secret using `--mount=type=secret`:
