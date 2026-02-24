@@ -27,12 +27,11 @@ from imbue.mng.config.loader import _parse_providers
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
-from imbue.mng.config.pre_readers import _get_local_config_name
-from imbue.mng.config.pre_readers import _get_project_config_name
+from imbue.mng.config.pre_readers import get_local_config_name
+from imbue.mng.config.pre_readers import get_project_config_name
 from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.config.pre_readers import read_default_command
 from imbue.mng.config.pre_readers import read_disabled_plugins
-from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
 from imbue.mng.plugins import hookspecs
@@ -237,15 +236,15 @@ def test_get_user_config_path_returns_correct_path() -> None:
     assert path == profile_dir / "settings.toml"
 
 
-def test_get_project_config_name_returns_correct_path() -> None:
-    """_get_project_config_name should return correct relative path."""
-    path = _get_project_config_name("mng")
+def testget_project_config_name_returns_correct_path() -> None:
+    """get_project_config_name should return correct relative path."""
+    path = get_project_config_name("mng")
     assert path == Path(".mng") / "settings.toml"
 
 
-def test_get_local_config_name_returns_correct_path() -> None:
-    """_get_local_config_name should return correct relative path."""
-    path = _get_local_config_name("mng")
+def testget_local_config_name_returns_correct_path() -> None:
+    """get_local_config_name should return correct relative path."""
+    path = get_local_config_name("mng")
     assert path == Path(".mng") / "settings.local.toml"
 
 
@@ -254,9 +253,9 @@ def test_get_local_config_name_returns_correct_path() -> None:
 # =============================================================================
 
 
-def test_load_toml_raises_config_not_found(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigNotFoundError for missing file."""
-    with pytest.raises(ConfigNotFoundError):
+def test_load_toml_raises_config_parse_error_for_missing_file(tmp_path: Path) -> None:
+    """_load_toml should raise ConfigParseError for missing file."""
+    with pytest.raises(ConfigParseError):
         _load_toml(tmp_path / "nonexistent.toml")
 
 

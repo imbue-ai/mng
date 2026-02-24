@@ -30,7 +30,7 @@ from imbue.mng.config.pre_readers import find_local_config
 from imbue.mng.config.pre_readers import find_profile_dir_lightweight
 from imbue.mng.config.pre_readers import find_project_config
 from imbue.mng.config.pre_readers import get_user_config_path
-from imbue.mng.errors import ConfigNotFoundError
+from imbue.mng.config.pre_readers import load_toml as _load_toml_or_none
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
@@ -105,12 +105,9 @@ def load_config(
     # Load user config from profile directory
     user_config_path = get_user_config_path(profile_dir)
     if user_config_path.exists():
-        try:
-            raw_user = _load_toml(user_config_path)
-            user_config = _parse_config(raw_user)
-            config = config.merge_with(user_config)
-        except ConfigNotFoundError:
-            pass
+        raw_user = _load_toml(user_config_path)
+        user_config = _parse_config(raw_user)
+        config = config.merge_with(user_config)
 
     # Load project config from context_dir or auto-discover
     project_config_path = find_project_config(context_dir, root_name, concurrency_group)
@@ -257,15 +254,11 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file."""
-    if not path.exists():
-        raise ConfigNotFoundError(f"Config file not found: {path}")
-
-    try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigParseError(f"Failed to parse {path}: {e}") from e
+    """Load and parse a TOML file. Raises ConfigParseError on malformed content."""
+    raw = _load_toml_or_none(path)
+    if raw is None:
+        raise ConfigParseError(f"Failed to load config file: {path}")
+    return raw
 
 
 def _check_unknown_fields(
