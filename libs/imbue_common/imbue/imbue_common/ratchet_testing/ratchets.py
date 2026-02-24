@@ -1,6 +1,8 @@
 import ast
 import re
 import subprocess
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Final
 
@@ -417,6 +419,86 @@ def find_assert_isinstance_usages(
 
     sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
     return tuple(sorted_chunks)
+
+
+def find_positional_or_keyword_params(
+    source_dir: Path,
+    excluded_path_patterns: tuple[str, ...] = (),
+) -> tuple[RatchetMatchChunk, ...]:
+    """Find public functions/methods with POSITIONAL_OR_KEYWORD parameters.
+
+    All public function/method parameters (on functions/methods whose names do not
+    start with _) must be either position-only (before /) or keyword-only (after *).
+    For methods, self and cls are exempt.
+
+    TODO: Re-enable real git blame date reporting once violation count is low enough
+    that the subprocess overhead is acceptable (roughly <50 violations).
+    """
+    file_paths = _get_non_ignored_files_with_extension(
+        source_dir, FileExtension(".py"), TEST_FILE_PATTERNS + excluded_path_patterns
+    )
+    chunks: list[RatchetMatchChunk] = []
+    # Use a dummy date to avoid slow git blame calls (565+ violations currently)
+    dummy_date = datetime.min.replace(tzinfo=timezone.utc)
+
+    for file_path in file_paths:
+        tree = _parse_file_ast(file_path)
+        if tree is None:
+            continue
+
+        _collect_positional_or_keyword_violations(
+            tree.body, file_path, chunks, is_inside_class=False, dummy_date=dummy_date
+        )
+
+    return tuple(chunks)
+
+
+def _collect_positional_or_keyword_violations(
+    body: list[ast.stmt],
+    file_path: Path,
+    chunks: list[RatchetMatchChunk],
+    is_inside_class: bool,
+    dummy_date: datetime,
+) -> None:
+    """Walk a list of statements, collecting violations for public functions/methods."""
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            _collect_positional_or_keyword_violations(
+                node.body, file_path, chunks, is_inside_class=True, dummy_date=dummy_date
+            )
+        elif isinstance(node, ast.FunctionDef):
+            # Skip private functions/methods (names starting with _)
+            if node.name.startswith("_"):
+                continue
+
+            # ast.arguments has three lists of params: posonlyargs (before /),
+            # args (between / and *, i.e. POSITIONAL_OR_KEYWORD), and kwonlyargs
+            # (after *). We want to flag any non-empty "args" on public functions.
+            # See https://docs.python.org/3/library/ast.html#ast.arguments
+            positional_or_keyword_args = node.args.args
+
+            # For methods, exempt self/cls (the first arg)
+            if is_inside_class and positional_or_keyword_args:
+                first_arg = positional_or_keyword_args[0]
+                if first_arg.arg in ("self", "cls"):
+                    positional_or_keyword_args = positional_or_keyword_args[1:]
+
+            if positional_or_keyword_args:
+                param_names = [arg.arg for arg in positional_or_keyword_args]
+                start_line = LineNumber(node.lineno)
+                end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
+
+                chunk = RatchetMatchChunk(
+                    file_path=file_path,
+                    matched_content=(
+                        f"public {'method' if is_inside_class else 'function'} "
+                        f"'{node.name}' has POSITIONAL_OR_KEYWORD params: {', '.join(param_names)}"
+                    ),
+                    start_line=start_line,
+                    end_line=end_line,
+                    last_modified_date=dummy_date,
+                )
+                chunks.append(chunk)
 
 
 def check_no_type_errors(project_root: Path) -> None:

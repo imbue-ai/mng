@@ -1089,6 +1089,64 @@ def generate_todo_summary_report(
 
 Avoid using default arguments in function and method signatures. Require callers to explicitly pass all parameters. By convention, prefer to call functions by naming all parameters explicitly at the call site
 
+All public function and method parameters (on functions/methods whose names do not start with `_`) must be explicitly position-only or keyword-only. No parameter may be passable both positionally and by keyword (i.e., no `POSITIONAL_OR_KEYWORD` parameters). Use `/` to mark position-only parameters and `*` to mark the boundary before keyword-only parameters. For methods, `self` and `cls` are exempt from this rule
+
+```python
+# Good: position-only parameters
+@pure
+def calculate_todo_score(
+    todo: TodoItem,
+    weight: float,
+    /,
+) -> float:
+    ...
+
+# Good: keyword-only parameters
+@pure
+def create_todo_report(
+    *,
+    todos: tuple[TodoItem, ...],
+    report_date: datetime,
+) -> TodoReport:
+    ...
+
+# Good: both position-only and keyword-only
+@pure
+def format_todo_item(
+    todo: TodoItem,
+    /,
+    *,
+    is_verbose: bool,
+) -> str:
+    ...
+
+# Bad: parameters are POSITIONAL_OR_KEYWORD (can be passed either way)
+@pure
+def calculate_todo_score_bad(
+    todo: TodoItem,
+    weight: float,
+) -> float:
+    ...
+
+# Bad: position-only is fine, but foo is still POSITIONAL_OR_KEYWORD (needs *)
+@pure
+def mixed_bad_a(
+    todo: TodoItem,
+    /,
+    foo: int,
+) -> str:
+    ...
+
+# Bad: keyword-only is fine, but todo is still POSITIONAL_OR_KEYWORD (needs /)
+@pure
+def mixed_bad_b(
+    todo: TodoItem,
+    *,
+    is_verbose: bool,
+) -> str:
+    ...
+```
+
 ## Functions
 
 Almost all functions should be pure (have no side-effects)
