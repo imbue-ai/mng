@@ -51,7 +51,7 @@ def _read_agent_names_from_cache() -> list[str]:
             return []
 
         return sorted(name for name in names if isinstance(name, str) and name)
-    except (json.JSONDecodeError, OSError):
+    except Exception:
         return []
 
 
@@ -63,8 +63,8 @@ def _trigger_background_cache_refresh() -> None:
     to avoid excessive subprocess spawning.
 
     This function never raises -- background refresh failures are silently ignored.
-    Logging is intentionally omitted: importing loguru would add import latency to
-    every TAB press, and log output on stderr can interfere with shell completion.
+    Logging is intentionally omitted because log output on stderr can interfere
+    with the shell completion protocol.
     """
     try:
         cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
@@ -83,9 +83,10 @@ def _trigger_background_cache_refresh() -> None:
             stderr=devnull,
             start_new_session=True,
         )
-    except OSError:
-        # Intentionally silent: importing loguru adds latency to every TAB press,
-        # and stderr output can interfere with the shell completion protocol.
+    except Exception:
+        # Intentionally silent: log output on stderr can interfere with the
+        # shell completion protocol. get_host_dir() may raise exceptions beyond
+        # OSError (e.g. from ConcurrencyGroup or git worktree discovery).
         pass
 
 
@@ -139,7 +140,7 @@ def _read_cli_completions_file() -> dict | None:
         if not isinstance(data, dict):
             return None
         return data
-    except (json.JSONDecodeError, OSError):
+    except Exception:
         return None
 
 
