@@ -36,6 +36,7 @@ from imbue.imbue_common.logging import trace_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.data_types import HostLifecycleOptions
+from imbue.mng.api.data_types import get_dockerfile_context_dir
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import HostNotFoundError
@@ -962,7 +963,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
-            effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
+            effective_context_dir = get_dockerfile_context_dir(context_dir, dockerfile)
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
                 context_dir=effective_context_dir,

@@ -25,6 +25,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.data_types import HostLifecycleOptions
+from imbue.mng.api.data_types import get_dockerfile_context_dir
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import SnapshotNotFoundError
@@ -727,13 +728,14 @@ kill -TERM 1
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
         # When --dockerfile is used, translate to docker build's --file flag and
-        # always append the Dockerfile's parent as the context directory. The context
-        # is appended unconditionally (even if build_args already contains one) so we
-        # don't need fragile heuristics to detect whether a context path is present.
-        # If there's a conflict, docker build will error clearly.
+        # always append the context directory. The context is appended unconditionally
+        # (even if build_args already contains one) so we don't need fragile heuristics
+        # to detect whether a context path is present. If there's a conflict, docker
+        # build will error clearly.
         effective_build_args: Sequence[str] | None
         if dockerfile is not None:
-            effective_build_args = [f"--file={dockerfile}"] + list(build_args or []) + [str(dockerfile.parent)]
+            context_dir = get_dockerfile_context_dir(None, dockerfile)
+            effective_build_args = [f"--file={dockerfile}"] + list(build_args or []) + [str(context_dir)]
         else:
             effective_build_args = build_args
 

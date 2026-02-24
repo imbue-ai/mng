@@ -72,6 +72,16 @@ class SourceLocation(FrozenModel):
         return self.agent_id is not None or self.agent_name is not None
 
 
+def get_dockerfile_context_dir(context_dir: Path | None, dockerfile: Path) -> Path:
+    """Resolve the build context directory for a Dockerfile.
+
+    Returns context_dir if explicitly provided, otherwise defaults to the
+    Dockerfile's parent directory. Used by both Docker and Modal providers
+    to ensure consistent behavior.
+    """
+    return context_dir if context_dir is not None else dockerfile.parent
+
+
 class NewHostBuildOptions(FrozenModel):
     """Options for building a new host image."""
 
