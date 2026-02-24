@@ -726,19 +726,14 @@ kill -TERM 1
         base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
-        # Prepend --file=<path> to build_args if dockerfile is specified.
-        # Also append the Dockerfile's parent as context dir if no context path
-        # is present in build_args (docker build requires a context argument).
+        # When --dockerfile is used, translate to docker build's --file flag and
+        # always append the Dockerfile's parent as the context directory. The context
+        # is appended unconditionally (even if build_args already contains one) so we
+        # don't need fragile heuristics to detect whether a context path is present.
+        # If there's a conflict, docker build will error clearly.
         effective_build_args: Sequence[str] | None
         if dockerfile is not None:
-            extra_args = [f"--file={dockerfile}"]
-            remaining = list(build_args or [])
-            # Check whether a context path is already present as the last
-            # positional arg (i.e. a non-flag arg at the end of build_args).
-            has_context = bool(remaining) and not remaining[-1].startswith("-")
-            if not has_context:
-                remaining.append(str(dockerfile.parent))
-            effective_build_args = extra_args + remaining
+            effective_build_args = [f"--file={dockerfile}"] + list(build_args or []) + [str(dockerfile.parent)]
         else:
             effective_build_args = build_args
 
