@@ -609,10 +609,12 @@ def test_build_mng_install_commands_package() -> None:
 
 
 def test_build_mng_install_commands_editable() -> None:
-    """build_mng_install_commands returns pip install from local source for EDITABLE mode."""
+    """build_mng_install_commands extracts tarball and does editable tool install for EDITABLE mode."""
     result = build_mng_install_commands(MngInstallMode.EDITABLE)
-    assert len(result) == 1
-    assert "/staging/mng_schedule_src/" in result[0]
+    assert len(result) == 2
+    assert "/mng_src/current.tar.gz" in result[0]
+    assert "/code/mng_editable" in result[0]
+    assert "uv tool install -e /code/mng_editable/libs/mng" in result[1]
 
 
 def test_detect_mng_install_mode_returns_valid_mode() -> None:
@@ -621,12 +623,12 @@ def test_detect_mng_install_mode_returns_valid_mode() -> None:
     assert result in (MngInstallMode.PACKAGE, MngInstallMode.EDITABLE)
 
 
-def test_stage_deploy_files_stages_mng_source_for_editable(
+def test_stage_deploy_files_does_not_stage_mng_source(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """stage_deploy_files with EDITABLE mode should stage the mng-schedule source tree."""
+    """stage_deploy_files should not stage mng source (it is handled separately)."""
     monkeypatch.chdir(tmp_path)
 
     repo_root = tmp_path / "repo"
@@ -638,11 +640,8 @@ def test_stage_deploy_files_stages_mng_source_for_editable(
         staging_dir,
         mng_ctx,
         repo_root,
-        mng_install_mode=MngInstallMode.EDITABLE,
     )
 
-    staged_src = staging_dir / "mng_schedule_src"
-    assert staged_src.exists()
-    assert (staged_src / "pyproject.toml").exists()
-    # Build artifacts should be excluded
-    assert not (staged_src / "__pycache__").exists()
+    # mng source should NOT be in the staging directory (it is staged
+    # separately in deploy_schedule for better Docker layer caching)
+    assert not (staging_dir / "mng_schedule_src").exists()

@@ -38,7 +38,7 @@ _FALLBACK_TIMEZONE: Final[str] = "UTC"
 _DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
 
 # Path prefix on the state volume for schedule records
-_SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugins/schedule"
+_SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugin/schedule"
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
@@ -99,7 +99,7 @@ def detect_local_timezone() -> str:
     )
 
 
-def resolve_git_ref(ref: str) -> str:
+def resolve_git_ref(ref: str, cwd: Path | None = None) -> str:
     """Resolve a git ref (e.g. HEAD, branch name) to a full commit SHA.
 
     Raises ScheduleDeployError if the ref cannot be resolved.
@@ -108,6 +108,7 @@ def resolve_git_ref(ref: str) -> str:
         result = cg.run_process_to_completion(
             ["git", "rev-parse", ref],
             is_checked_after=False,
+            cwd=cwd,
         )
     if result.returncode != 0:
         raise ScheduleDeployError(f"Could not resolve git ref '{ref}': {result.stderr.strip()}") from None
@@ -223,6 +224,31 @@ def _get_mng_schedule_source_dir() -> Path:
     raise ScheduleDeployError(f"Could not find mng-schedule source directory (tried {candidate})")
 
 
+def _get_mng_repo_root() -> Path:
+    """Get the git repository root of the mng monorepo.
+
+    When mng-schedule is installed in editable mode, this finds the git
+    repository root by running git rev-parse from the mng-schedule source
+    directory.
+
+    Raises ScheduleDeployError if the source directory cannot be found or
+    is not in a git repository.
+    """
+    mng_schedule_src = _get_mng_schedule_source_dir()
+    with ConcurrencyGroup(name="git-mng-toplevel") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "--show-toplevel"],
+            is_checked_after=False,
+            cwd=mng_schedule_src,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(
+            f"Could not find git repository root for mng-schedule source at {mng_schedule_src}: "
+            f"{result.stderr.strip()}"
+        ) from None
+    return Path(result.stdout.strip())
+
+
 @pure
 def build_mng_install_commands(mode: MngInstallMode) -> list[str]:
     """Build Dockerfile RUN commands to install mng in the deployed image.
@@ -239,11 +265,12 @@ def build_mng_install_commands(mode: MngInstallMode) -> list[str]:
                 "RUN uv pip install --system mng mng-schedule",
             ]
         case MngInstallMode.EDITABLE:
-            # The local source is staged under /staging/mng_schedule_src/ by
-            # the deploy flow. Install both mng (as a dependency) and
-            # mng-schedule from the staged source.
+            # The mng source tarball is added as a separate layer at /mng_src/
+            # (separate from the staging layer for better Docker cache behavior
+            # when iterating on mng code). Extract and install as an editable tool.
             return [
-                "RUN uv pip install --system /staging/mng_schedule_src/",
+                "RUN mkdir -p /code/mng_editable && tar -xzf /mng_src/current.tar.gz -C /code/mng_editable",
+                "RUN uv tool install -e /code/mng_editable/libs/mng",
             ]
         case MngInstallMode.AUTO:
             raise ScheduleDeployError("AUTO mode must be resolved before building install commands")
@@ -311,7 +338,6 @@ def stage_deploy_files(
     pass_env: Sequence[str] = (),
     env_files: Sequence[Path] = (),
     uploads: Sequence[tuple[Path, str]] = (),
-    mng_install_mode: MngInstallMode = MngInstallMode.SKIP,
 ) -> None:
     """Stage files for deployment into a directory for baking into the Modal image.
 
@@ -385,32 +411,6 @@ def stage_deploy_files(
     secrets_dir = staging_dir / "secrets"
     secrets_dir.mkdir()
     _stage_consolidated_env(secrets_dir, pass_env=pass_env, env_files=env_files)
-
-    # FIXME: this next block is just doing this wrong. We should be using the "make_tar_of_repo" approach instead (since that already properly ensures that the exact commit is packaged without any extra files)
-    #  Also, right now we end up putting the mng source into the same staging directory as the other files--we should *not* do this, as it will invalidate caching for the earlier layers (when we're iterating on mng code)
-    #  Instead, put it into it's own, separate folder in this mode (that is added as late as possible in the build process)
-    #  Then make sure that it gets properly extracted into the right place, and ends up being editable tool installed (eg, call something like "uv tool install -e /path/to/code/libs/mng")
-
-    # For editable installs, stage the mng-schedule source tree so it can be
-    # pip-installed inside the deployed image. Only source code and
-    # pyproject.toml are needed; skip build artifacts and test caches.
-    if mng_install_mode == MngInstallMode.EDITABLE:
-        mng_schedule_src = _get_mng_schedule_source_dir()
-        staged_src = staging_dir / "mng_schedule_src"
-        shutil.copytree(
-            mng_schedule_src,
-            staged_src,
-            dirs_exist_ok=True,
-            ignore=shutil.ignore_patterns(
-                "__pycache__",
-                "*.pyc",
-                ".pytest_cache",
-                "*.egg-info",
-                ".test_output",
-                "htmlcov",
-            ),
-        )
-        logger.info("Staged mng-schedule source from {} for editable install", mng_schedule_src)
 
 
 def _stage_consolidated_env(
@@ -543,12 +543,13 @@ def deploy_schedule(
     1. Find repo root and derive Modal environment name
     2. Resolve mng install mode (auto-detect if needed)
     3. Package repo at the specified commit into a tarball
-    4. Stage deploy files (collected from plugins via hook), env vars, and mng source
-    5. Write deploy config as a single JSON file
-    6. Run modal deploy cron_runner.py with --env for the correct Modal environment
-    7. If verify_mode is not NONE, invoke the function once via modal run to verify
-    8. Save creation record to the provider's state volume
-    9. Return the Modal app name
+    4. Stage deploy files (collected from plugins via hook) and env vars
+    5. For editable installs, separately package mng source (as its own layer)
+    6. Write deploy config as a single JSON file
+    7. Run modal deploy cron_runner.py with --env for the correct Modal environment
+    8. If verify_mode is not NONE, invoke the function once via modal run to verify
+    9. Save creation record to the provider's state volume
+    10. Return the Modal app name
 
     Verification must happen inside this function (before the temp directory is
     cleaned up) because modal run requires the same build-time env vars that
@@ -595,8 +596,24 @@ def deploy_schedule(
                 pass_env=pass_env,
                 env_files=env_files,
                 uploads=uploads,
-                mng_install_mode=resolved_install_mode,
             )
+
+        # For editable installs, separately package the mng monorepo source
+        # into its own directory. This is added as a separate Docker layer
+        # (after the staging layer) so that changes to mng code don't
+        # invalidate the cached staging layer.
+        mng_src_dir: Path | None = None
+        if resolved_install_mode == MngInstallMode.EDITABLE:
+            mng_repo_root = _get_mng_repo_root()
+            mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
+            mng_src_dir = tmp_path / "mng_src"
+            with log_span("Packaging mng source at commit {}", mng_head_commit):
+                package_repo_at_commit(mng_head_commit, mng_src_dir, mng_repo_root)
+            mng_src_tarball = mng_src_dir / "current.tar.gz"
+            if not mng_src_tarball.exists():
+                raise ScheduleDeployError(
+                    f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
+                ) from None
 
         # Write deploy config as a single JSON file into the staging dir
         mng_install_cmds = build_mng_install_commands(resolved_install_mode)
@@ -624,6 +641,8 @@ def deploy_schedule(
         env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
         env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
         env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
+        if mng_src_dir is not None:
+            env["SCHEDULE_MNG_SRC_DIR"] = str(mng_src_dir)
 
         cron_runner_path = Path(__file__).parent / "cron_runner.py"
         cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
