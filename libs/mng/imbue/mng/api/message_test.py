@@ -240,3 +240,51 @@ def test_send_message_to_agents_with_include_filter(
     # Only agent1 should have received the message
     assert "filter-test-1" in result.successful_agents
     assert "filter-test-2" not in result.successful_agents
+
+
+def test_send_message_one_stopped_agent_does_not_prevent_other_from_receiving(
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    local_provider: LocalProviderInstance,
+) -> None:
+    """One agent's failure must not prevent other agents from receiving their message."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    stopped_agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("will-fail"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847270"),
+        ),
+    )
+    running_agent = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("will-succeed"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847271"),
+        ),
+    )
+
+    # Only start the second agent -- the first stays stopped and will fail
+    host.start_agents([running_agent.id])
+
+    result = send_message_to_agents(
+        mng_ctx=temp_mng_ctx,
+        message_content="Hello everyone",
+        all_agents=True,
+        error_behavior=ErrorBehavior.CONTINUE,
+    )
+
+    # Clean up
+    host.destroy_agent(stopped_agent)
+    host.destroy_agent(running_agent)
+
+    # The stopped agent should have failed
+    failed_names = [name for name, _err in result.failed_agents]
+    assert "will-fail" in failed_names
+
+    # The running agent must still have succeeded despite the other's failure
+    assert "will-succeed" in result.successful_agents
