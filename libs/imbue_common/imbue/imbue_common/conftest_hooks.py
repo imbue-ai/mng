@@ -548,24 +548,24 @@ def _print_test_durations_for_ci(
 
 @pytest.fixture(autouse=True)
 def _set_junit_classname_to_filepath(request: pytest.FixtureRequest, record_xml_attribute) -> None:
-    """Set JUnit XML classname to match the file-based test ID from monorepo root.
+    """Set JUnit XML classname and name to match pytest nodeid exactly.
 
-    This ensures consistent classnames regardless of PYTHONPATH configuration or
-    pytest rootdir. Without this, pytest may report different classnames depending
-    on how the test module is imported, causing test counting issues in parallel
-    test runners like offload.
+    This ensures 1-to-1 mapping between pytest discovery and JUnit XML for tools
+    like offload that need to match test IDs with durations.
 
-    The classname is derived from the absolute file path, made relative to the
-    monorepo root (e.g., 'libs/mng/imbue/mng/cli/test_plugin.py' becomes
-    'libs.mng.imbue.mng.cli.test_plugin').
+    Handles:
+    - Simple functions: test_file.py::test_func
+    - Methods in classes: test_file.py::TestClass::test_method
+    - Nested classes: test_file.py::Outer::Inner::test_method
+    - Parameterized tests: test_file.py::TestClass::test_method[param]
     """
     fspath = str(request.node.fspath)
 
-    # Find the monorepo root by looking for libs/ or apps/ directories
+    # Find the monorepo root by looking for libs/ or apps/ or scripts/ directories
     mng_root = None
     path_parts = fspath.split(os.sep)
     for i, part in enumerate(path_parts):
-        if part in ("libs", "apps") and i + 1 < len(path_parts):
+        if part in ("libs", "apps", "scripts") and i + 1 < len(path_parts):
             mng_root = os.sep.join(path_parts[:i])
             break
 
@@ -576,6 +576,13 @@ def _set_junit_classname_to_filepath(request: pytest.FixtureRequest, record_xml_
 
     classname = rel_path.replace(os.sep, ".").replace("/", ".").removesuffix(".py")
     record_xml_attribute("classname", classname)
+
+    # Set name to include class hierarchy if present
+    # e.g., "TestClass::test_method" or "Outer::Inner::test_method"
+    nodeid_parts = request.node.nodeid.split("::")
+    if len(nodeid_parts) > 2:
+        name = "::".join(nodeid_parts[1:])
+        record_xml_attribute("name", name)
 
 
 # ---------------------------------------------------------------------------
