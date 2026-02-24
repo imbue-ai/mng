@@ -12,6 +12,7 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
+from typing import assert_never
 
 import modal.exception
 from loguru import logger
@@ -244,8 +245,10 @@ def build_mng_install_commands(mode: MngInstallMode) -> list[str]:
             return [
                 "RUN uv pip install --system /staging/mng_schedule_src/",
             ]
-        case _:
-            raise ScheduleDeployError(f"Unexpected mng install mode: {mode}")
+        case MngInstallMode.AUTO:
+            raise ScheduleDeployError("AUTO mode must be resolved before building install commands")
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def parse_upload_spec(spec: str) -> tuple[Path, str]:
@@ -259,8 +262,7 @@ def parse_upload_spec(spec: str) -> tuple[Path, str]:
     source_path = Path(source_str)
     if not source_path.exists():
         raise ValueError(f"Upload source does not exist: {source_str}")
-    dest_str = str(dest)
-    if dest_str.startswith("/"):
+    if dest.startswith("/"):
         raise ValueError(f"Upload destination must be relative or start with '~', got: {dest}")
     return source_path, dest
 
