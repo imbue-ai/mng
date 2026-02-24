@@ -10,9 +10,9 @@ from imbue.mng_schedule.cli.group import schedule
 
 CommandHelpMetadata(
     key="schedule",
-    one_line_description="Schedule remote invocations of mng commands",
+    one_line_description="Schedule invocations of mng commands",
     synopsis="mng schedule [add|remove|update|list|run] [OPTIONS]",
-    description="""Schedule remote invocations of mng commands.
+    description="""Schedule invocations of mng commands.
 
 Manage cron-scheduled triggers that run mng commands (create, start, message,
 exec) on a specified provider at regular intervals. This is useful for setting
