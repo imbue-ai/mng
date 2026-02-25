@@ -8,9 +8,10 @@ from imbue.mng.utils.polling import wait_for
 
 def run_watch_loop(
     iteration_fn: Callable[[], None],
-    interval_seconds: int,
+    interval_seconds: float,
     *,
     on_error_continue: bool = True,
+    poll_interval: float = 0.5,
 ) -> None:
     """Run a function repeatedly at a specified interval.
 
@@ -40,7 +41,7 @@ def run_watch_loop(
             wait_for(
                 condition=lambda: False,
                 timeout=float(interval_seconds),
-                poll_interval=0.5,
+                poll_interval=poll_interval,
             )
         except TimeoutError:
             pass
