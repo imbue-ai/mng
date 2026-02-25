@@ -84,6 +84,19 @@ def add_trigger_options(command: Any) -> Any:
 
     # Code Packaging group
     command = optgroup.option(
+        "--full-copy",
+        "full_copy",
+        is_flag=True,
+        default=False,
+        help="Copy the entire codebase into the deployed function's storage. Simple but slow for large codebases.",
+    )(command)
+    command = optgroup.option(
+        "--snapshot",
+        "snapshot_id",
+        default=None,
+        help="Use an existing snapshot for code packaging instead of the git repo.",
+    )(command)
+    command = optgroup.option(
         "--mng-install-mode",
         "mng_install_mode",
         type=click.Choice(["auto", "package", "editable", "skip"], case_sensitive=False),

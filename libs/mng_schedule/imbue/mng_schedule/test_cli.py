@@ -243,3 +243,52 @@ def test_schedule_add_rejects_invalid_verify_value(
     )
     assert result.exit_code != 0
     assert "Invalid value" in result.output
+
+
+def test_schedule_add_snapshot_raises_not_implemented(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --snapshot raises NotImplementedError."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--snapshot",
+            "snap-123",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, NotImplementedError)
+    assert "--snapshot is not yet implemented" in str(result.exception)
+
+
+def test_schedule_add_full_copy_raises_not_implemented(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --full-copy raises NotImplementedError."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--full-copy",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert isinstance(result.exception, NotImplementedError)
+    assert "--full-copy is not yet implemented" in str(result.exception)

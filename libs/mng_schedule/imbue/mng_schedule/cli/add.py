@@ -77,6 +77,12 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     if opts.provider is None:
         raise click.UsageError("--provider is required for schedule add")
 
+    # Code packaging strategy validation
+    if opts.snapshot_id is not None:
+        raise NotImplementedError("--snapshot is not yet implemented for schedule add")
+    if opts.full_copy:
+        raise NotImplementedError("--full-copy is not yet implemented for schedule add")
+
     # Load the provider instance
     try:
         provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
