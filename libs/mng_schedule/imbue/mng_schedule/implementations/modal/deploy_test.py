@@ -25,6 +25,7 @@ from imbue.mng_schedule.implementations.modal.deploy import detect_dockerfile_us
 from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
+from imbue.mng_schedule.implementations.modal.deploy import resolve_commit_hash_for_deploy
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
 
@@ -50,7 +51,6 @@ def test_build_deploy_config_returns_all_keys() -> None:
         schedule_cron="0 3 * * *",
         provider="modal",
         is_enabled=True,
-        git_image_hash="abc123",
     )
     result = build_deploy_config(
         app_name="test-app",
@@ -976,3 +976,31 @@ def test_detect_dockerfile_user_returns_none_for_root_default(tmp_path: Path) ->
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text("FROM python:3.12\nRUN echo hello\n")
     assert detect_dockerfile_user(dockerfile) is None
+
+
+# =============================================================================
+# resolve_commit_hash_for_deploy Tests
+# =============================================================================
+
+
+def test_resolve_commit_hash_reads_cached_file(tmp_path: Path) -> None:
+    """resolve_commit_hash_for_deploy returns the cached hash when the file exists."""
+    deploy_build_path = tmp_path / "build"
+    deploy_build_path.mkdir()
+    commit_hash_file = deploy_build_path / "commit_hash"
+    commit_hash_file.write_text("abc123def456")
+
+    result = resolve_commit_hash_for_deploy(deploy_build_path, repo_root=tmp_path)
+    assert result == "abc123def456"
+
+
+def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
+    """resolve_commit_hash_for_deploy ignores an empty cached file and resolves fresh."""
+    deploy_build_path = tmp_path / "build"
+    deploy_build_path.mkdir()
+    commit_hash_file = deploy_build_path / "commit_hash"
+    commit_hash_file.write_text("   \n")
+
+    # Will fail because tmp_path is not a git repo, proving it tried to resolve fresh
+    with pytest.raises(ScheduleDeployError):
+        resolve_commit_hash_for_deploy(deploy_build_path, repo_root=tmp_path)

@@ -24,7 +24,6 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
-from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.local.deploy import deploy_local_schedule
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
@@ -57,7 +56,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     \b
     Examples:
       mng schedule add --command create --args "--type claude --message 'fix bugs' --in local" --schedule "0 2 * * *" --provider local
-      mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal --git-image-hash HEAD
+      mng schedule add --command create --args "--type claude --message 'fix bugs' --in modal" --schedule "0 2 * * *" --provider modal
     """
     resolve_positional_name(ctx)
     # New schedules default to enabled. The shared options use None so that
@@ -78,22 +77,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     if opts.provider is None:
         raise click.UsageError("--provider is required for schedule add")
 
-    # git_image_hash is required for non-local providers; auto-resolve to HEAD for local.
-    # This validation happens before provider loading so that the error message is
-    # clear even when the provider backend is not available in the current environment.
-    is_local_provider_name = opts.provider == "local"
-    if opts.git_image_hash is None:
-        if is_local_provider_name:
-            git_image_hash_value = "HEAD"
-        else:
-            raise click.UsageError(
-                "--git-image-hash is required when provider is not 'local'. Use HEAD to package the current commit."
-            )
-    else:
-        git_image_hash_value = opts.git_image_hash
-
-    # Load the provider instance (before git ref resolution so unsupported
-    # providers fail with a clear message rather than a git error)
+    # Load the provider instance
     try:
         provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
     except MngError as e:
@@ -108,9 +92,6 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
-    # Resolve git ref to full SHA
-    resolved_hash = resolve_git_ref(git_image_hash_value)
-
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
         command=ScheduledMngCommand(opts.command.upper()),
@@ -118,7 +99,6 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,
         is_enabled=opts.enabled if opts.enabled is not None else True,
-        git_image_hash=resolved_hash,
     )
 
     if isinstance(provider, LocalProviderInstance):

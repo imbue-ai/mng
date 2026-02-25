@@ -95,12 +95,6 @@ def add_trigger_options(command: Any) -> Any:
         "'editable' packages local source, "
         "'skip' assumes mng is already in the base image.",
     )(command)
-    command = optgroup.option(
-        "--git-image-hash",
-        "git_image_hash",
-        default=None,
-        help="Git commit hash (or ref like HEAD) to package project code from. Required for modal provider.",
-    )(command)
     command = optgroup.group("Code Packaging")(command)
 
     # Trigger Definition group

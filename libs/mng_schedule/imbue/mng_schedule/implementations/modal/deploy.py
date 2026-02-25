@@ -30,6 +30,7 @@ from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import ensure_current_branch_is_pushed
 from imbue.mng_schedule.git import get_current_mng_git_hash
 from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.modal.verification import verify_schedule_deployment
@@ -566,6 +567,38 @@ def _build_full_commandline(sys_argv: list[str]) -> str:
     return shlex.join(sys_argv)
 
 
+def resolve_commit_hash_for_deploy(deploy_build_path: Path, repo_root: Path) -> str:
+    """Resolve the git commit hash to use for packaging the project code.
+
+    Uses a cached commit hash file in the deploy build path if available,
+    otherwise determines the current HEAD hash, verifies the branch is
+    pushed to the remote, and writes the hash for future reuse.
+
+    This ensures that repeated deploys from the same repo always use the
+    same commit hash (until the cache file is manually removed).
+
+    Raises ScheduleDeployError if the branch is not pushed or the hash
+    cannot be determined.
+    """
+    commit_hash_file = deploy_build_path / "commit_hash"
+    if commit_hash_file.exists():
+        cached_hash = commit_hash_file.read_text().strip()
+        if cached_hash:
+            logger.info("Using cached commit hash: {}", cached_hash)
+            return cached_hash
+
+    # Resolve HEAD to full SHA
+    commit_hash = resolve_git_ref("HEAD", cwd=repo_root)
+
+    # Verify the branch is pushed before caching
+    ensure_current_branch_is_pushed(cwd=repo_root)
+
+    # Cache for future builds
+    commit_hash_file.write_text(commit_hash)
+    logger.info("Resolved and cached commit hash: {}", commit_hash)
+    return commit_hash
+
+
 def deploy_schedule(
     trigger: ScheduleTriggerDefinition,
     mng_ctx: MngContext,
@@ -616,19 +649,21 @@ def deploy_schedule(
     logger.info("mng install mode: {}", resolved_install_mode.value.lower())
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
-    # FIXME: we should NOT be passing this in via the CLI--we don't need that flag at all. Instead, this should just be figured out here by:
-    #  1. checking in the deploy_build_path to see if we already have a commit_hash file
-    #  2. if not, generate that file by figuring out the current git repo hash and writing it to that file (and ensuring that the current branch has been pushed--throw an error if not)
-    #  then future builds will keep using the same commit hash
-    logger.info("Using commit {} for code packaging", trigger.git_image_hash)
+
+    # Resolve the commit hash for packaging: uses a cached value if available,
+    # otherwise determines the current HEAD and verifies the branch is pushed.
+    commit_hash = resolve_commit_hash_for_deploy(deploy_build_path, repo_root)
+    # Update the trigger with the resolved hash for record-keeping
+    trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
+    logger.info("Using commit {} for code packaging", commit_hash)
 
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
     # Package repo into build context
     build_dir = deploy_build_path / "build"
-    with log_span("Packaging repo at commit {}", trigger.git_image_hash):
-        package_repo_at_commit(trigger.git_image_hash, build_dir, repo_root)
+    with log_span("Packaging repo at commit {}", commit_hash):
+        package_repo_at_commit(commit_hash, build_dir, repo_root)
 
     tarball = build_dir / "current.tar.gz"
     if not tarball.exists():
