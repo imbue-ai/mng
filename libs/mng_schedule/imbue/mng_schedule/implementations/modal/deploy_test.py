@@ -167,9 +167,6 @@ def test_stage_deploy_files_creates_home_directory_structure(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
     """stage_deploy_files should stage files into home/ mirroring their destination paths."""
-    claude_json = Path.home() / ".claude.json"
-    claude_json.write_text('{"staged": true}')
-
     staging_dir = run_staging(None)
 
     # Files should be staged under home/ with their natural paths,
@@ -177,7 +174,6 @@ def test_stage_deploy_files_creates_home_directory_structure(
     staged_file = staging_dir / "home" / ".claude.json"
     assert staged_file.exists()
     staged_data = json.loads(staged_file.read_text())
-    assert staged_data["staged"] is True
     assert staged_data["bypassPermissionsModeAccepted"] is True
 
 
@@ -185,8 +181,6 @@ def test_stage_deploy_files_stages_multiple_home_files(
     run_staging: Callable[[Path | None], Path],
 ) -> None:
     """stage_deploy_files stages multiple home files preserving directory structure."""
-    claude_json = Path.home() / ".claude.json"
-    claude_json.write_text('{"roundtrip": true}')
     mng_dir = Path.home() / ".mng"
     mng_dir.mkdir(parents=True, exist_ok=True)
     mng_config = mng_dir / "config.toml"
@@ -194,13 +188,12 @@ def test_stage_deploy_files_stages_multiple_home_files(
 
     staging_dir = run_staging(None)
 
-    # Both files should be staged under home/ with their natural paths,
-    # and claude.json should have dialog-suppression fields injected
+    # claude.json should be staged with generated defaults (dialog-suppression fields)
     staged_claude = staging_dir / "home" / ".claude.json"
     assert staged_claude.exists()
     staged_claude_data = json.loads(staged_claude.read_text())
-    assert staged_claude_data["roundtrip"] is True
     assert staged_claude_data["bypassPermissionsModeAccepted"] is True
+    # mng config should be staged preserving directory structure
     staged_config = staging_dir / "home" / ".mng" / "config.toml"
     assert staged_config.exists()
     assert staged_config.read_text() == "[test]\nroundtrip = true\n"

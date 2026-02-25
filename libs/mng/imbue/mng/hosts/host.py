@@ -52,7 +52,6 @@ from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
 from imbue.mng.hosts.offline_host import BaseHost
-from imbue.mng.hosts.offline_host import OfflineHost
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CommandResult
@@ -60,6 +59,7 @@ from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
@@ -698,7 +698,7 @@ class Host(BaseHost, OnlineHostInterface):
         )
         self.set_certified_data(updated_data)
 
-    def to_offline_host(self) -> OfflineHost:
+    def to_offline_host(self) -> HostInterface:
         return self.provider_instance.to_offline_host(self.id)
 
     # =========================================================================

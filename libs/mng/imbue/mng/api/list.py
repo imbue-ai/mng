@@ -417,8 +417,8 @@ def _assemble_host_info(
         # Fall back to per-field collection
         # get the host
         host = provider.get_host(host_ref.host_id)
-    except HostAuthenticationError as e:
-        host = provider.get_host(host_ref.host_id).to_offline_host()
+    except HostAuthenticationError:
+        host = provider.to_offline_host(host_ref.host_id)
         is_authentication_failure = True
 
     # Build SSH info if this is a remote host (only available for online hosts)

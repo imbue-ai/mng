@@ -958,13 +958,13 @@ def modify_env_vars_for_deploy(
     mng_ctx: MngContext,
     env_vars: dict[str, str],
 ) -> None:
-    user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
     if "ANTHROPIC_API_KEY" not in env_vars:
-        token = user_claude_json_data.get("primaryApiKey", "")
+        user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+        token = user_claude_json_data.get("primaryApiKey", "") or os.environ.get("ANTHROPIC_API_KEY", "")
         if not token:
             raise UserInputError(
-                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. You must provide credentials to authenticate with Claude Code in order for the deployment to work."
+                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. "
+                "You must provide credentials to authenticate with Claude Code in order for the deployment to work."
             )
-        else:
-            env_vars["ANTHROPIC_API_KEY"] = token
+        env_vars["ANTHROPIC_API_KEY"] = token
     env_vars["IS_SANDBOX"] = "1"

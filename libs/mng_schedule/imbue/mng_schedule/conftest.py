@@ -17,6 +17,17 @@ from imbue.mng.utils.plugin_testing import register_plugin_test_fixtures
 register_plugin_test_fixtures(globals())
 
 
+@pytest.fixture(autouse=True)
+def _set_test_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set a dummy ANTHROPIC_API_KEY for tests that exercise deploy hooks.
+
+    The claude plugin's modify_env_vars_for_deploy hook requires an API key.
+    Without this, any test that calls stage_deploy_files (which invokes the
+    hook) would fail with a UserInputError.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
+
+
 @pytest.fixture()
 def bare_plugin_manager() -> pluggy.PluginManager:
     """Create a plugin manager with hookspecs only, no plugins registered."""
