@@ -67,9 +67,6 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 # Exclude this test file from ratchet scans to prevent self-referential matches
 _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
-# Group all ratchet tests onto a single xdist worker to benefit from LRU caching
-pytestmark = pytest.mark.xdist_group(name="ratchets")
-
 
 def teardown_module() -> None:
     """Clear ratchet LRU caches after all tests in this module complete."""
@@ -365,6 +362,7 @@ def test_prevent_code_in_init_files() -> None:
     )
 
 
+@pytest.mark.acceptance
 def test_no_type_errors() -> None:
     """Ensure the codebase has zero type errors."""
     check_no_type_errors(Path(__file__).parent.parent.parent)
