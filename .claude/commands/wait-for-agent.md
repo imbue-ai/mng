@@ -4,14 +4,14 @@ description: Wait for another agent to enter WAITING state, then execute follow-
 allowed-tools: Bash(uv run mng list *), Bash(while true; do*)
 ---
 
-Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then do the following: $2
+Your task is to wait for agent "$0" to finish its current work (enter the WAITING state), then carry out the user's follow-up instructions (everything after the agent name in their message).
 
 ## Polling Procedure
 
 First, verify the target agent exists and check its current state:
 
 ```
-uv run mng list --include 'name == "$1"' --format '{name}: {state}'
+uv run mng list --include 'name == "$0"' --format '{name}: {state}'
 ```
 
 If no output is returned, the agent does not exist. Report the error and stop.
@@ -22,11 +22,11 @@ Otherwise, poll the agent's lifecycle state every 60 seconds until it leaves the
 
 ```bash
 while true; do
-  STATE=$(uv run mng list --include 'name == "$1"' --format '{state}' 2>/dev/null | head -1)
-  echo "[$(date '+%H:%M:%S')] Agent '$1' state: ${STATE:-NOT_FOUND}"
+  STATE=$(uv run mng list --include 'name == "$0"' --format '{state}' 2>/dev/null | head -1)
+  echo "[$(date '+%H:%M:%S')] Agent '$0' state: ${STATE:-NOT_FOUND}"
   case "$STATE" in
-    WAITING|DONE|STOPPED) echo "Agent '$1' is ready (state: $STATE)"; break ;;
-    "") echo "Agent '$1' not found, stopping"; break ;;
+    WAITING|DONE|STOPPED) echo "Agent '$0' is ready (state: $STATE)"; break ;;
+    "") echo "Agent '$0' not found, stopping"; break ;;
     *) sleep 60 ;;
   esac
 done
@@ -36,4 +36,4 @@ If this command times out (after 10 minutes), simply re-run the same command. Co
 
 ## After the Agent is Ready
 
-Once the agent is in WAITING, DONE, or STOPPED state, proceed with the follow-up task: $2
+Once the agent is in WAITING, DONE, or STOPPED state, carry out the user's follow-up instructions (everything after the agent name in their original message). If no follow-up instructions were provided, inform the user that the agent is ready.
