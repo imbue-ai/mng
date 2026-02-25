@@ -289,7 +289,7 @@ def test_prevent_model_copy() -> None:
 
 def test_prevent_cast_usage() -> None:
     chunks = find_cast_usages(_get_mng_source_dir())
-    assert len(chunks) <= snapshot(14), PREVENT_CAST_USAGE.format_failure(chunks)
+    assert len(chunks) <= snapshot(10), PREVENT_CAST_USAGE.format_failure(chunks)
 
 
 def test_prevent_assert_isinstance_usage() -> None:
