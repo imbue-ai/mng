@@ -16,14 +16,11 @@ setup and fixing -- the caller handles review of the resulting commits.
 
 ### Phase 1: Setup
 
-Remove stale state from previous runs. Determine the window name, then delete
-only the files for this window:
+Remove stale state from previous runs:
 
 ```bash
-WINDOW_NAME=$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0)
-mkdir -p .autofix .autofix/plans .reviews/final_issue_json
+mkdir -p .autofix .autofix/plans
 rm -f .autofix/result
-rm -f ".reviews/final_issue_json/${WINDOW_NAME}.json.done"
 ```
 
 - Initial HEAD (`initial_head`): !`git rev-parse HEAD`
@@ -93,8 +90,5 @@ After the loop ends:
    - If `fixed`: by default empty string, but include any important context
      if needed.
 
-2. Touch the done marker file so the caller knows this skill has finished:
-
-```bash
-touch ".reviews/final_issue_json/${WINDOW_NAME}.json.done"
-```
+   The caller polls for `.autofix/result` to detect completion, so writing
+   this file is the only signal needed.

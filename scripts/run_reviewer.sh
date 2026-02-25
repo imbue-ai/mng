@@ -119,10 +119,18 @@ while true; do
         exit 3
     fi
 
-    if [[ -f "$REVIEW_DONE_MARKER" ]]; then
+    # In autofix mode, poll for the result file directly.
+    # In standard mode, poll for the done marker.
+    if [[ "$IS_AUTOFIX" == "true" ]]; then
+        DONE_FILE=".autofix/result"
+    else
+        DONE_FILE="$REVIEW_DONE_MARKER"
+    fi
+
+    if [[ -f "$DONE_FILE" ]]; then
         ELAPSED=$((CURRENT_TIME - START_TIME))
         log_info "Review completed in ${ELAPSED}s"
-        _log_to_file "INFO" "Review done marker found after ${ELAPSED}s"
+        _log_to_file "INFO" "Completion signal found ($DONE_FILE) after ${ELAPSED}s"
         break
     fi
 
