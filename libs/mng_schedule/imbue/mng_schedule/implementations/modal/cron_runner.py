@@ -246,8 +246,7 @@ def run_scheduled_trigger() -> None:
     # In non-snapshot mode, fetch and check out the latest code from git.
     # In snapshot mode, the agent will be created from the snapshot directly
     # so no project code checkout is needed.
-    snapshot_id = _deploy_config.get("snapshot_id")
-    if snapshot_id is None:
+    if _SNAPSHOT_ID is None:
         branch_name = "josh/schedule_fixes"
         _run_and_stream(["git", "fetch", "origin", branch_name])
         _run_and_stream(["git", "checkout", branch_name])
@@ -267,8 +266,8 @@ def run_scheduled_trigger() -> None:
 
     # In snapshot mode, pass --snapshot to the mng create command so the agent
     # is created from the snapshot rather than from embedded code.
-    if snapshot_id is not None:
-        cmd.extend(["--snapshot", snapshot_id])
+    if _SNAPSHOT_ID is not None:
+        cmd.extend(["--snapshot", _SNAPSHOT_ID])
 
     # Also pass the secrets env file via --host-env-file for create/start commands
     # so the agent host inherits these environment variables.

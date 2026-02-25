@@ -320,3 +320,80 @@ def test_schedule_add_snapshot_and_full_copy_are_mutually_exclusive(
     )
     assert result.exit_code != 0
     assert "--snapshot and --full-copy are mutually exclusive" in result.output
+
+
+def test_schedule_add_snapshot_requires_create_command(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --snapshot can only be used with --command create."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "exec",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "local",
+            "--snapshot",
+            "snap-123",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert "--snapshot can only be used with --command create" in result.output
+
+
+def test_schedule_add_snapshot_with_local_provider(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --snapshot with --provider local is accepted (no UsageError)."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "local",
+            "--snapshot",
+            "snap-123",
+        ],
+        obj=plugin_manager,
+    )
+    # Should not fail at option parsing
+    assert not isinstance(result.exception, click.UsageError)
+    # If it succeeded, verify the output mentions the trigger
+    if result.exit_code == 0:
+        assert "Deployed schedule" in result.output
+
+
+def test_schedule_add_full_copy_with_local_provider(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --full-copy with --provider local is accepted (no UsageError)."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "local",
+            "--full-copy",
+        ],
+        obj=plugin_manager,
+    )
+    # Should not fail at option parsing
+    assert not isinstance(result.exception, click.UsageError)
+    # If it succeeded, verify the output mentions the trigger
+    if result.exit_code == 0:
+        assert "Deployed schedule" in result.output

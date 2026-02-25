@@ -75,9 +75,11 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     if opts.provider is None:
         raise click.UsageError("--provider is required for schedule add")
 
-    # Code packaging strategy validation: --snapshot and --full-copy are mutually exclusive
+    # Code packaging strategy validation
     if opts.snapshot_id is not None and opts.full_copy:
         raise click.UsageError("--snapshot and --full-copy are mutually exclusive")
+    if opts.snapshot_id is not None and opts.command.upper() != "CREATE":
+        raise click.UsageError("--snapshot can only be used with --command create")
 
     # Load the provider instance
     try:
