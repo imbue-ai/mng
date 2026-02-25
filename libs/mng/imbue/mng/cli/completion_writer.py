@@ -10,6 +10,7 @@ from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.completion import get_completion_cache_dir
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 
 
@@ -50,19 +51,6 @@ def _has_agent_name_argument(cmd: click.Command) -> bool:
     return False
 
 
-def _detect_aliases(cli_group: click.Group) -> dict[str, str]:
-    """Auto-detect command aliases by comparing registered names to canonical cmd.name.
-
-    When a command is registered under a name different from its cmd.name, that
-    registered name is an alias. Returns a dict mapping alias -> canonical name.
-    """
-    alias_to_canonical: dict[str, str] = {}
-    for registered_name, cmd in cli_group.commands.items():
-        if cmd.name is not None and registered_name != cmd.name:
-            alias_to_canonical[registered_name] = cmd.name
-    return alias_to_canonical
-
-
 def write_cli_completions_cache(cli_group: click.Group) -> None:
     """Write all CLI commands, options, and choices to the completions cache (best-effort).
 
@@ -79,7 +67,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
     """
     try:
         all_command_names = sorted(cli_group.commands.keys())
-        alias_to_canonical = _detect_aliases(cli_group)
+        alias_to_canonical = detect_alias_to_canonical(cli_group)
 
         subcommand_by_command: dict[str, list[str]] = {}
         options_by_command: dict[str, list[str]] = {}

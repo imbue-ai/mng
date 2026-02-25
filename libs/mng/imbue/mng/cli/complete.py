@@ -115,13 +115,11 @@ def _get_completions(shell: str) -> list[str]:
     resolved_subcommand: str | None = None
 
     # words[0] = "mng", words[1] = command, words[2] = subcommand (if group)
+    # When comp_cword == 1, we are completing the command name itself and
+    # resolved_command stays None. When comp_cword > 1, word[1] is fully typed.
     if len(words) > 1 and comp_cword > 1:
-        # Word at index 1 is fully typed (not being completed)
         raw_cmd = words[1]
         resolved_command = aliases.get(raw_cmd, raw_cmd)
-    elif len(words) > 1 and comp_cword == 1:
-        # We are completing the command name itself
-        pass
 
     is_group = resolved_command is not None and resolved_command in subcommand_by_command
 
