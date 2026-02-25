@@ -5,7 +5,6 @@ import platform
 import shlex
 import shutil
 import sys
-import tempfile
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -614,110 +613,112 @@ def deploy_schedule(
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
-    with tempfile.TemporaryDirectory(prefix="mng-schedule-") as tmpdir:
-        tmp_path = Path(tmpdir)
+    # with tempfile.TemporaryDirectory(prefix="mng-schedule-") as tmpdir:
+    #     tmp_path = Path(tmpdir)
+    tmp_path = Path("/tmp/mng-schedule-deploy")
+    tmp_path.mkdir(parents=True, exist_ok=True)
 
-        # Package repo into build context
-        build_dir = tmp_path / "build"
-        with log_span("Packaging repo at commit {}", trigger.git_image_hash):
-            package_repo_at_commit(trigger.git_image_hash, build_dir, repo_root)
+    # Package repo into build context
+    build_dir = tmp_path / "build"
+    with log_span("Packaging repo at commit {}", trigger.git_image_hash):
+        package_repo_at_commit(trigger.git_image_hash, build_dir, repo_root)
 
-        tarball = build_dir / "current.tar.gz"
-        if not tarball.exists():
-            raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
+    tarball = build_dir / "current.tar.gz"
+    if not tarball.exists():
+        raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
 
-        # Stage deploy files (collected from plugins via hook)
-        staging_dir = tmp_path / "staging"
-        with log_span("Staging deploy files"):
-            stage_deploy_files(
-                staging_dir,
-                mng_ctx,
-                repo_root,
-                include_user_settings=include_user_settings,
-                include_project_settings=include_project_settings,
-                pass_env=pass_env,
-                env_files=env_files,
-                uploads=uploads,
-            )
+    # Stage deploy files (collected from plugins via hook)
+    staging_dir = tmp_path / "staging"
+    with log_span("Staging deploy files"):
+        stage_deploy_files(
+            staging_dir,
+            mng_ctx,
+            repo_root,
+            include_user_settings=include_user_settings,
+            include_project_settings=include_project_settings,
+            pass_env=pass_env,
+            env_files=env_files,
+            uploads=uploads,
+        )
 
-        # For editable installs, separately package the mng monorepo source
-        # into its own directory. This is added as a separate Docker layer
-        # (after the staging layer) so that changes to mng code don't
-        # invalidate the cached staging layer.
-        mng_src_dir: Path | None = None
-        if resolved_install_mode == MngInstallMode.EDITABLE:
-            mng_repo_root = _get_mng_repo_root()
-            mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
-            mng_src_dir = tmp_path / "mng_src"
-            with log_span("Packaging mng source at commit {}", mng_head_commit):
-                package_repo_at_commit(mng_head_commit, mng_src_dir, mng_repo_root)
-            mng_src_tarball = mng_src_dir / "current.tar.gz"
-            if not mng_src_tarball.exists():
-                raise ScheduleDeployError(
-                    f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
-                ) from None
-
-        # Resolve the Dockerfile path (default: .mng/Dockerfile)
-        dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
-        if not dockerfile_path.exists():
+    # For editable installs, separately package the mng monorepo source
+    # into its own directory. This is added as a separate Docker layer
+    # (after the staging layer) so that changes to mng code don't
+    # invalidate the cached staging layer.
+    mng_src_dir: Path | None = None
+    if resolved_install_mode == MngInstallMode.EDITABLE:
+        mng_repo_root = _get_mng_repo_root()
+        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
+        mng_src_dir = tmp_path / "mng_src"
+        with log_span("Packaging mng source at commit {}", mng_head_commit):
+            package_repo_at_commit(mng_head_commit, mng_src_dir, mng_repo_root)
+        mng_src_tarball = mng_src_dir / "current.tar.gz"
+        if not mng_src_tarball.exists():
             raise ScheduleDeployError(
-                f"Dockerfile not found at {dockerfile_path}. "
-                "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
+                f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
             ) from None
 
-        # Write deploy config as a single JSON file into the staging dir
-        dockerfile_user = detect_dockerfile_user(dockerfile_path)
-        mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
-        deploy_config = build_deploy_config(
-            app_name=app_name,
-            trigger=trigger,
-            cron_schedule=trigger.schedule_cron,
-            cron_timezone=cron_timezone,
-            mng_install_commands=mng_install_cmds,
-        )
-        deploy_config_json = json.dumps(deploy_config)
-        (staging_dir / "deploy_config.json").write_text(deploy_config_json)
+    # Resolve the Dockerfile path (default: .mng/Dockerfile)
+    dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
+    if not dockerfile_path.exists():
+        raise ScheduleDeployError(
+            f"Dockerfile not found at {dockerfile_path}. "
+            "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
+        ) from None
 
-        # Build env vars: deploy config as single JSON + local-only paths for image building
-        env = os.environ.copy()
-        env["SCHEDULE_DEPLOY_CONFIG"] = deploy_config_json
-        env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
-        env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
-        env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
-        if mng_src_dir is not None:
-            env["SCHEDULE_MNG_SRC_DIR"] = str(mng_src_dir)
+    # Write deploy config as a single JSON file into the staging dir
+    dockerfile_user = detect_dockerfile_user(dockerfile_path)
+    mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
+    deploy_config = build_deploy_config(
+        app_name=app_name,
+        trigger=trigger,
+        cron_schedule=trigger.schedule_cron,
+        cron_timezone=cron_timezone,
+        mng_install_commands=mng_install_cmds,
+    )
+    deploy_config_json = json.dumps(deploy_config)
+    (staging_dir / "deploy_config.json").write_text(deploy_config_json)
 
-        cron_runner_path = Path(__file__).parent / "cron_runner.py"
-        cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
+    # Build env vars: deploy config as single JSON + local-only paths for image building
+    env = os.environ.copy()
+    env["SCHEDULE_DEPLOY_CONFIG"] = deploy_config_json
+    env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
+    env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
+    env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
+    if mng_src_dir is not None:
+        env["SCHEDULE_MNG_SRC_DIR"] = str(mng_src_dir)
 
-        with log_span("Deploying to Modal as app '{}' in env '{}'", app_name, modal_env_name):
-            with ConcurrencyGroup(name=f"modal-deploy-{trigger.name}") as cg:
-                result = cg.run_process_to_completion(
-                    cmd,
-                    timeout=600.0,
-                    env=env,
-                    is_checked_after=False,
-                    on_output=_forward_output,
-                )
-            if result.returncode != 0:
-                raise ScheduleDeployError(
-                    f"Failed to deploy schedule '{trigger.name}' to Modal "
-                    f"(exit code {result.returncode}). See output above for details."
-                ) from None
+    cron_runner_path = Path(__file__).parent / "cron_runner.py"
+    cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
 
-        logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
+    with log_span("Deploying to Modal as app '{}' in env '{}'", app_name, modal_env_name):
+        with ConcurrencyGroup(name=f"modal-deploy-{trigger.name}") as cg:
+            result = cg.run_process_to_completion(
+                cmd,
+                timeout=600.0,
+                env=env,
+                is_checked_after=False,
+                on_output=_forward_output,
+            )
+        if result.returncode != 0:
+            raise ScheduleDeployError(
+                f"Failed to deploy schedule '{trigger.name}' to Modal "
+                f"(exit code {result.returncode}). See output above for details."
+            ) from None
 
-        # Post-deploy verification (must happen while temp dir is still alive)
-        if verify_mode != VerifyMode.NONE:
-            is_finish = verify_mode == VerifyMode.FULL
-            with log_span("Verifying deployment of schedule '{}'", trigger.name):
-                verify_schedule_deployment(
-                    trigger_name=trigger.name,
-                    modal_env_name=modal_env_name,
-                    is_finish_initial_run=is_finish,
-                    env=env,
-                    cron_runner_path=cron_runner_path,
-                )
+    logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
+
+    # Post-deploy verification (must happen while temp dir is still alive)
+    if verify_mode != VerifyMode.NONE:
+        is_finish = verify_mode == VerifyMode.FULL
+        with log_span("Verifying deployment of schedule '{}'", trigger.name):
+            verify_schedule_deployment(
+                trigger_name=trigger.name,
+                modal_env_name=modal_env_name,
+                is_finish_initial_run=is_finish,
+                env=env,
+                cron_runner_path=cron_runner_path,
+            )
 
     # Save the creation record to the provider's state volume.
     # This is best-effort: the deploy already succeeded, so a failure here

@@ -134,7 +134,7 @@ def build_configure_ssh_command(
         # Create .ssh directory
         f"mkdir -p '{ssh_dir}'",
         # Write authorized_keys file
-        f"printf '%s' '{escaped_client_key}' > '{authorized_keys_path}'",
+        f"printf '%s\\n' '{escaped_client_key}' > '{authorized_keys_path}'",
         # Set permissions on authorized_keys
         f"chmod 600 '{authorized_keys_path}'",
         # Remove any existing host keys (important for restored sandboxes)
