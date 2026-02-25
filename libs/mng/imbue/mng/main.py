@@ -39,7 +39,9 @@ from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.loader import read_explicitly_enabled_plugins
 from imbue.mng.errors import BaseMngError
+from imbue.mng.plugins import connect_in_new_iterms2_tab
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
@@ -278,17 +280,59 @@ def create_plugin_manager() -> pluggy.PluginManager:
     pm.add_hookspecs(hookspecs)
 
     # Block plugins that are disabled in config files. This must happen before
-    # load_setuptools_entrypoints so disabled plugins are never registered.
+    # plugin registration so disabled plugins are never registered.
     block_disabled_plugins(pm, read_disabled_plugins())
+
+    # Register built-in plugins that ship with mng.
+    _register_builtin_plugins(pm)
 
     # Automatically discover and load plugins registered via setuptools entry points.
     # External packages can register hooks by adding an entry point for the "mng" group.
     pm.load_setuptools_entrypoints("mng")
 
+    # Unregister plugins that declare ENABLED_BY_DEFAULT = False and haven't been
+    # explicitly enabled in config.  This must happen before load_all_registries
+    # so that disabled plugins don't register agent types or provider backends.
+    _unregister_disabled_by_default_plugins(pm, read_explicitly_enabled_plugins())
+
     # load all classes defined by plugins so they are available later
     load_all_registries(pm)
 
     return pm
+
+
+def _register_builtin_plugins(pm: pluggy.PluginManager) -> None:
+    """Register plugins that are bundled with mng.
+
+    Each built-in plugin is registered under its canonical name so it can be
+    disabled via config (``plugins.<name>.enabled = false``) or via the
+    module-level ``ENABLED_BY_DEFAULT`` attribute.
+    """
+    if not pm.is_blocked("connect_in_new_iterms2_tab"):
+        pm.register(connect_in_new_iterms2_tab, name="connect_in_new_iterms2_tab")
+
+
+def _unregister_disabled_by_default_plugins(
+    pm: pluggy.PluginManager,
+    explicitly_enabled: frozenset[str],
+) -> None:
+    """Unregister plugins that declare ``ENABLED_BY_DEFAULT = False``.
+
+    Any plugin module (built-in or external) can set a module-level
+    ``ENABLED_BY_DEFAULT = False`` attribute.  Such plugins are only kept
+    registered if the user has explicitly set
+    ``plugins.<name>.enabled = true`` in a config file.
+
+    Plugins that omit the attribute or set it to ``True`` are unaffected.
+    """
+    for name, plugin in list(pm.list_name_plugin()):
+        if name is None or name.startswith("_"):
+            continue
+        if not hasattr(plugin, "ENABLED_BY_DEFAULT") or plugin.ENABLED_BY_DEFAULT:
+            continue
+        if name in explicitly_enabled:
+            continue
+        pm.unregister(plugin, name=name)
 
 
 def get_or_create_plugin_manager() -> pluggy.PluginManager:
