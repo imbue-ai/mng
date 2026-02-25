@@ -1,10 +1,10 @@
 ---
-argument-hint: [agent_name] [post_wait_instructions]
+argument-hint: [agent_name]
 description: Wait for another agent to enter WAITING state, then execute follow-up instructions
 allowed-tools: Bash(uv run mng list *), Bash(while true; do*)
 ---
 
-Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then do the following: $2
+Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then carry out any follow-up instructions the user included in their message.
 
 ## Polling Procedure
 
@@ -36,4 +36,4 @@ If this command times out (after 10 minutes), simply re-run the same command. Co
 
 ## After the Agent is Ready
 
-Once the agent is in WAITING, DONE, or STOPPED state, proceed with the follow-up task: $2
+Once the agent is in WAITING, DONE, or STOPPED state, carry out the follow-up instructions from the user's message. If no follow-up instructions were provided, inform the user that the agent is ready.
