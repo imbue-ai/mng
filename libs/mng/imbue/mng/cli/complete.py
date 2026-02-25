@@ -217,9 +217,12 @@ def main() -> None:
     """Entry point for lightweight tab completion.
 
     Usage:
-        python -m imbue.mng.cli.complete             # complete (reads COMP_WORDS/COMP_CWORD)
-        python -m imbue.mng.cli.complete --script zsh # print shell script to stdout
+        python -m imbue.mng.cli.complete
+            Complete (reads COMP_WORDS/COMP_CWORD from the environment).
+        python -m imbue.mng.cli.complete --script zsh
+            Print the zsh completion script to stdout.
         python -m imbue.mng.cli.complete --script bash
+            Print the bash completion script to stdout.
     """
     args = sys.argv[1:]
 
