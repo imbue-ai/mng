@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -17,6 +17,7 @@ members = [
     "mng",
     "mng-opencode",
     "mng-pair",
+    "mng-pankan",
     "mng-schedule",
     "mng-tutor",
     "sculptor-web",
@@ -1852,6 +1853,23 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "mng", editable = "libs/mng" },
+]
+
+[[package]]
+name = "mng-pankan"
+version = "0.1.0"
+source = { editable = "libs/mng_pankan" }
+dependencies = [
+    { name = "click" },
+    { name = "click-option-group" },
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0" },
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
