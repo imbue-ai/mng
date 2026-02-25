@@ -547,7 +547,6 @@ def test_commands_with_aliases_have_aliases_in_synopsis() -> None:
         )
 
 
-@pytest.mark.acceptance
 def test_all_subcommands_have_git_style_help() -> None:
     """Every subcommand of a group command must produce git-style help.
 

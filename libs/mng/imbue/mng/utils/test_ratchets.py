@@ -289,19 +289,16 @@ def test_prevent_model_copy() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_MODEL_COPY.format_failure(chunks)
 
 
-@pytest.mark.acceptance
 def test_prevent_cast_usage() -> None:
     chunks = find_cast_usages(_get_mng_source_dir())
     assert len(chunks) <= snapshot(10), PREVENT_CAST_USAGE.format_failure(chunks)
 
 
-@pytest.mark.acceptance
 def test_prevent_assert_isinstance_usage() -> None:
     chunks = find_assert_isinstance_usages(_get_mng_source_dir())
     assert len(chunks) <= snapshot(0), PREVENT_ASSERT_ISINSTANCE.format_failure(chunks)
 
 
-@pytest.mark.acceptance
 def test_prevent_direct_subprocess_usage() -> None:
     """Prevent direct usage of subprocess and os process-spawning functions.
 
