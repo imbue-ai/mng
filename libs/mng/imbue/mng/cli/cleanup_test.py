@@ -1,12 +1,18 @@
 """Unit tests for cleanup CLI helpers."""
 
+import json
+
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.cleanup import CleanupCliOptions
 from imbue.mng.cli.cleanup import _build_cel_filters_from_options
 from imbue.mng.cli.cleanup import _selected_marker
 from imbue.mng.cli.cleanup import cleanup
+from imbue.mng.cli.conftest import make_test_agent_info
+from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.primitives import AgentLifecycleState
 
 # =============================================================================
 # Tests for _build_cel_filters_from_options
@@ -202,3 +208,158 @@ def test_cleanup_snapshot_before_raises_not_implemented(
         catch_exceptions=True,
     )
     assert result.exit_code != 0
+
+
+# =============================================================================
+# Dry-run output formatting tests (monkeypatched agents, no real providers)
+# =============================================================================
+
+
+def _fake_find_agents(agents: list[AgentInfo]):
+    """Return a callable that replaces find_agents_for_cleanup, returning pre-built agents."""
+
+    def _find(**kwargs) -> list[AgentInfo]:
+        return agents
+
+    return _find
+
+
+def test_cleanup_dry_run_human_format_with_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--dry-run --yes should list agents that would be destroyed in human format."""
+    agents = [
+        make_test_agent_info(name="cleanup-alpha", state=AgentLifecycleState.RUNNING),
+        make_test_agent_info(name="cleanup-beta", state=AgentLifecycleState.STOPPED),
+    ]
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        _fake_find_agents(agents),
+    )
+
+    result = cli_runner.invoke(
+        cleanup,
+        ["--dry-run", "--yes"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "Would destroy" in result.output
+    assert "cleanup-alpha" in result.output
+    assert "cleanup-beta" in result.output
+
+
+def test_cleanup_dry_run_stop_action_human_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--stop --dry-run --yes should say 'Would stop' in human format."""
+    agents = [
+        make_test_agent_info(name="stop-me", state=AgentLifecycleState.RUNNING),
+    ]
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        _fake_find_agents(agents),
+    )
+
+    result = cli_runner.invoke(
+        cleanup,
+        ["--stop", "--dry-run", "--yes"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "Would stop" in result.output
+    assert "stop-me" in result.output
+
+
+def test_cleanup_dry_run_json_format_with_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--dry-run --yes --format json should emit structured JSON."""
+    agents = [
+        make_test_agent_info(name="json-agent", state=AgentLifecycleState.RUNNING),
+    ]
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        _fake_find_agents(agents),
+    )
+
+    result = cli_runner.invoke(
+        cleanup,
+        ["--dry-run", "--yes", "--format", "json"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    output = json.loads(result.output.strip())
+    assert output["dry_run"] is True
+    assert output["action"] == "destroy"
+    assert len(output["agents"]) == 1
+    assert output["agents"][0]["name"] == "json-agent"
+
+
+def test_cleanup_dry_run_jsonl_format_with_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--dry-run --yes --format jsonl should emit JSONL events."""
+    agents = [
+        make_test_agent_info(name="jsonl-agent", state=AgentLifecycleState.RUNNING),
+    ]
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        _fake_find_agents(agents),
+    )
+
+    result = cli_runner.invoke(
+        cleanup,
+        ["--dry-run", "--yes", "--format", "jsonl"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    lines = [line for line in result.output.strip().split("\n") if line.strip()]
+    # Should have at least the dry_run event (may also have info events)
+    dry_run_events = [json.loads(line) for line in lines if "dry_run" in line]
+    assert len(dry_run_events) == 1
+    assert dry_run_events[0]["event"] == "dry_run"
+    assert dry_run_events[0]["action"] == "destroy"
+    assert len(dry_run_events[0]["agents"]) == 1
+
+
+def test_cleanup_dry_run_stop_json_format(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--stop --dry-run --yes --format json should report action as 'stop'."""
+    agents = [
+        make_test_agent_info(name="stop-json", state=AgentLifecycleState.RUNNING),
+    ]
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        _fake_find_agents(agents),
+    )
+
+    result = cli_runner.invoke(
+        cleanup,
+        ["--stop", "--dry-run", "--yes", "--format", "json"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    output = json.loads(result.output.strip())
+    assert output["action"] == "stop"
+    assert output["dry_run"] is True
