@@ -144,6 +144,9 @@ def _build_settings_json_content(sync_local: bool) -> str:
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
+        if data.get("fastMode") is True:
+            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
+            data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
     data["skipDangerousModePermissionPrompt"] = True
