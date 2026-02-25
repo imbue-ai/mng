@@ -37,6 +37,7 @@ from imbue.mng.providers.modal.instance import TAG_HOST_NAME
 from imbue.mng.providers.modal.instance import TAG_USER_PREFIX
 from imbue.mng.providers.modal.instance import _build_modal_secrets_from_env
 from imbue.mng.providers.modal.instance import _parse_volume_spec
+from imbue.mng.providers.modal.instance import _substitute_dockerfile_build_args
 from imbue.mng.providers.modal.instance import build_sandbox_tags
 from imbue.mng.providers.modal.instance import check_host_name_is_unique
 from imbue.mng.providers.modal.instance import parse_sandbox_tags
@@ -372,7 +373,20 @@ def test_list_all_host_records_returns_empty_when_volume_empty(
     host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
 
     assert host_records == []
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
+
+
+def test_list_all_host_records_returns_empty_when_hosts_dir_missing(
+    modal_provider: ModalProviderInstance,
+) -> None:
+    """_list_all_host_records should return empty list when /hosts/ directory does not exist."""
+    mock_volume = cast(Any, modal_provider.modal_app.volume)
+    mock_volume.listdir.side_effect = modal.exception.NotFoundError("Not found")
+
+    host_records = modal_provider._list_all_host_records(modal_provider.mng_ctx.concurrency_group)
+
+    assert host_records == []
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_records_returns_records_from_volume(
@@ -384,7 +398,7 @@ def test_list_all_host_records_returns_records_from_volume(
 
     # Mock volume.listdir to return a file entry
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -402,11 +416,11 @@ def test_list_all_host_records_skips_non_json_files(
     """_list_all_host_records should skip non-.json files."""
     # Mock volume.listdir to return both .json and non-.json files
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_txt = MagicMock()
-    mock_entry_txt.path = "/readme.txt"
+    mock_entry_txt.path = "hosts/readme.txt"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/subdir"
+    mock_entry_dir.path = "hosts/subdir"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_txt, mock_entry_dir]
@@ -1254,7 +1268,7 @@ def test_persist_agent_data_writes_to_volume(
     modal_provider.persist_agent_data(host_id, agent_data)
 
     # Verify the file was written to the correct path
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     assert expected_path in uploaded_files
 
     # Verify the content is valid JSON with expected fields
@@ -1295,7 +1309,7 @@ def test_remove_persisted_agent_data_removes_file(
 
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1313,7 +1327,7 @@ def test_remove_persisted_agent_data_handles_file_not_found(
     modal_provider.remove_persisted_agent_data(host_id, agent_id)
 
     # Verify the method was called
-    expected_path = f"/{host_id}/{agent_id}.json"
+    expected_path = f"/hosts/{host_id}/{agent_id}.json"
     mock_volume.remove_file.assert_called_once_with(expected_path, recursive=False)
 
 
@@ -1458,7 +1472,7 @@ def test_list_all_host_and_agent_records_returns_empty_when_volume_empty(
 
     assert host_records == []
     assert agent_data == {}
-    mock_volume.listdir.assert_called_once_with("/")
+    mock_volume.listdir.assert_called_once_with("/hosts/")
 
 
 def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
@@ -1471,7 +1485,7 @@ def test_list_all_host_and_agent_records_returns_host_records_and_agent_data(
     agent_data_list = [{"id": str(agent_id), "name": "test-agent", "type": "claude"}]
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1495,9 +1509,9 @@ def test_list_all_host_and_agent_records_skips_non_json_files(
 ) -> None:
     """_list_all_host_and_agent_records only processes .json files."""
     mock_entry_json = MagicMock()
-    mock_entry_json.path = f"/{HostId.generate()}.json"
+    mock_entry_json.path = f"hosts/{HostId.generate()}.json"
     mock_entry_dir = MagicMock()
-    mock_entry_dir.path = "/some-directory"
+    mock_entry_dir.path = "hosts/some-directory"
 
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry_json, mock_entry_dir]
@@ -1519,7 +1533,7 @@ def test_list_all_host_and_agent_records_without_agents(
     host_record = _make_host_record(host_id)
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1543,7 +1557,7 @@ def test_list_all_host_and_agent_records_skips_none_host_records(
     host_id = HostId.generate()
 
     mock_entry = MagicMock()
-    mock_entry.path = f"/{host_id}.json"
+    mock_entry.path = f"hosts/{host_id}.json"
     mock_volume = cast(Any, modal_provider.modal_app.volume)
     mock_volume.listdir.return_value = [mock_entry]
 
@@ -1711,6 +1725,63 @@ def test_load_agent_refs_ignores_running_sandbox_without_host_record(
         result = modal_provider.load_agent_refs(cg=modal_provider.mng_ctx.concurrency_group)
 
     assert len(result) == 0
+
+
+# =============================================================================
+# Docker Build Args Tests
+# =============================================================================
+
+
+def test_parse_build_args_docker_build_arg(modal_provider: ModalProviderInstance) -> None:
+    """Should parse --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(["--docker-build-arg=CLAUDE_CODE_VERSION=2.1.50"])
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50",)
+
+
+def test_parse_build_args_multiple_docker_build_args(modal_provider: ModalProviderInstance) -> None:
+    """Should parse multiple --docker-build-arg arguments."""
+    config = modal_provider._parse_build_args(
+        [
+            "docker-build-arg=CLAUDE_CODE_VERSION=2.1.50",
+            "docker-build-arg=OTHER_ARG=value",
+        ]
+    )
+    assert config.docker_build_args == ("CLAUDE_CODE_VERSION=2.1.50", "OTHER_ARG=value")
+
+
+def test_parse_build_args_docker_build_arg_default_empty(modal_provider: ModalProviderInstance) -> None:
+    """docker_build_args should default to empty tuple."""
+    config = modal_provider._parse_build_args([])
+    assert config.docker_build_args == ()
+
+
+def test_substitute_dockerfile_build_args_replaces_default() -> None:
+    """_substitute_dockerfile_build_args should replace ARG defaults."""
+    dockerfile = 'FROM python:3.11-slim\nARG CLAUDE_CODE_VERSION=""\nRUN echo $CLAUDE_CODE_VERSION'
+    result = _substitute_dockerfile_build_args(dockerfile, ("CLAUDE_CODE_VERSION=2.1.50",))
+    assert 'ARG CLAUDE_CODE_VERSION="2.1.50"' in result
+    assert 'ARG CLAUDE_CODE_VERSION=""' not in result
+
+
+def test_substitute_dockerfile_build_args_replaces_non_empty_default() -> None:
+    """_substitute_dockerfile_build_args should replace non-empty ARG defaults."""
+    dockerfile = 'FROM python:3.11\nARG MY_VERSION="1.0.0"\n'
+    result = _substitute_dockerfile_build_args(dockerfile, ("MY_VERSION=2.0.0",))
+    assert 'ARG MY_VERSION="2.0.0"' in result
+
+
+def test_substitute_dockerfile_build_args_raises_for_missing_arg() -> None:
+    """_substitute_dockerfile_build_args should raise if ARG is not found."""
+    dockerfile = "FROM python:3.11-slim\nRUN echo hello\n"
+    with pytest.raises(MngError, match="not found as an ARG instruction"):
+        _substitute_dockerfile_build_args(dockerfile, ("NONEXISTENT_ARG=value",))
+
+
+def test_substitute_dockerfile_build_args_raises_for_bad_format() -> None:
+    """_substitute_dockerfile_build_args should raise for non KEY=VALUE format."""
+    dockerfile = 'FROM python:3.11-slim\nARG FOO=""\n'
+    with pytest.raises(MngError, match="KEY=VALUE format"):
+        _substitute_dockerfile_build_args(dockerfile, ("no-equals-sign",))
 
 
 # =============================================================================

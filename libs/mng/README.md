@@ -1,3 +1,7 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->
+<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->
+
 # mng: build your team of AI engineering agents
 
 **installation:**
@@ -38,8 +42,8 @@ user    0m1.181s
 sys     0m0.227s
 
 > time mng list
-NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS                                                                                                                                                             
-local-hello    RUNNING     @local      local       RUNNING     project=mng                                                                                                                                                        
+NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS
+local-hello    RUNNING     @local      local       RUNNING     project=mng
 
 real    0m1.773s
 user    0m0.955s
@@ -252,7 +256,7 @@ See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`./docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details on our security model.
+See our [security model](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details.
 
 <!--
 ## Learning more

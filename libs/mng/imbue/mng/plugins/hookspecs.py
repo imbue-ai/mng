@@ -8,6 +8,7 @@ import pluggy
 
 from imbue.mng.api.data_types import OnBeforeCreateArgs
 from imbue.mng.cli.data_types import OptionStackItem
+from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -263,6 +264,59 @@ def override_command_options(
             if command_name == "create" and params.get("agent_type") == "claude":
                 # Override the model for claude agents
                 params["model"] = "opus"
+    """
+
+
+@hookspec
+def get_files_for_deploy(
+    mng_ctx: MngContext,
+    include_user_settings: bool,
+    include_project_settings: bool,
+    repo_root: Path,
+) -> dict[Path, Path | str]:
+    """[experimental] Return files to include when deploying scheduled commands.
+
+    Called during schedule deployment to collect files that should be baked
+    into the deployment image. Each plugin can contribute files needed for
+    its operation in the remote environment.
+
+    Plugins should respect the include_user_settings and include_project_settings
+    flags to allow users to control which files are included. When
+    include_user_settings is False, plugins should skip files from the user's
+    home directory (paths starting with "~"). When include_project_settings is
+    False, plugins should skip unversioned project-specific files.
+
+    When resolving project-relative paths, implementations must use repo_root
+    as the base directory rather than the current working directory. This
+    ensures correct behavior regardless of where the deploy command is invoked.
+
+    Return a dict mapping destination paths to sources (empty dict if none):
+    - Keys are destination Paths on the remote machine. Paths starting
+      with "~" are placed relative to the user's home directory
+      (e.g. Path("~/.claude.json")). Relative paths (without "~" prefix)
+      are placed relative to the project working directory (the Dockerfile
+      WORKDIR). Absolute paths are not allowed.
+    - Values are either a Path to a local file (whose contents will be
+      copied) or a str containing the file contents directly.
+    """
+    return {}
+
+
+@hookspec
+def modify_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: dict[str, str],
+) -> None:
+    """[experimental] Mutate the env vars dict for scheduled command deployment.
+
+    Called during schedule deployment after the initial environment variables
+    have been assembled from --pass-env and --env-file sources. Each plugin
+    can add, update, or remove environment variables needed for its operation
+    in the remote environment.
+
+    Plugins mutate env_vars in place: set keys to add or update variables,
+    delete keys (via pop/del) to remove them. Plugins are called in
+    registration order, so later plugins see changes made by earlier ones.
     """
 
 

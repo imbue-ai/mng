@@ -19,6 +19,7 @@ from imbue.changelings.mng_commands import build_mng_create_command
 from imbue.changelings.mng_commands import get_agent_name_from_command
 from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
+from imbue.mng.utils.testing import isolate_home
 
 # -- get_agent_name_from_command tests --
 
@@ -376,7 +377,7 @@ _REQUIRED_ADD_ARGS = [
 @pytest.fixture
 def _isolated_changeling_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up an isolated HOME with a changeling registered in config."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    isolate_home(tmp_path, monkeypatch)
     runner = CliRunner()
     result = runner.invoke(add, _REQUIRED_ADD_ARGS)
     assert result.exit_code == 0, result.output
