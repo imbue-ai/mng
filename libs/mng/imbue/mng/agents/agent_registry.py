@@ -11,6 +11,7 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.agents.default_plugins import claude_agent
 from imbue.mng.agents.default_plugins import code_guardian_agent
+from imbue.mng.agents.default_plugins import coder_agent
 from imbue.mng.agents.default_plugins import codex_agent
 from imbue.mng.agents.default_plugins import fixme_fairy_agent
 from imbue.mng.config.data_types import AgentTypeConfig
@@ -47,6 +48,7 @@ def load_agents_from_plugins(pm: pluggy.PluginManager) -> None:
     # Register built-in agent type classes (each has a hookimpl static method)
     pm.register(claude_agent, name="claude")
     pm.register(code_guardian_agent, name="code_guardian")
+    pm.register(coder_agent, name="coder")
     pm.register(codex_agent, name="codex")
     pm.register(fixme_fairy_agent, name="fixme_fairy")
 
