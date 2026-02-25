@@ -8,18 +8,13 @@ import click
 import pytest
 from click.shell_completion import CompletionItem
 
-from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import _BACKGROUND_REFRESH_COOLDOWN_SECONDS
-from imbue.mng.cli.completion import _read_agent_names_from_cache
-from imbue.mng.cli.completion import _trigger_background_cache_refresh
-from imbue.mng.cli.completion import complete_agent_name
-from imbue.mng.cli.completion import read_cached_commands
-from imbue.mng.cli.completion import read_cached_subcommands
+from imbue.mng.cli.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.cli.completion_writer import COMMAND_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.cli.completion_writer import _BACKGROUND_REFRESH_COOLDOWN_SECONDS
+from imbue.mng.cli.completion_writer import _read_agent_names_from_cache
+from imbue.mng.cli.completion_writer import _trigger_background_cache_refresh
+from imbue.mng.cli.completion_writer import complete_agent_name
 from imbue.mng.cli.completion_writer import write_cli_completions_cache
-from imbue.mng.cli.config import config as config_group
-from imbue.mng.cli.plugin import plugin as plugin_group
-from imbue.mng.cli.snapshot import snapshot as snapshot_group
 from imbue.mng.cli.test_plugin_cli_commands import _PluginWithSimpleCommand
 from imbue.mng.cli.test_plugin_cli_commands import _test_cli_with_plugin
 from imbue.mng.main import cli
@@ -44,22 +39,6 @@ def _write_cache(host_dir: Path, names: list[str]) -> Path:
     """Write a completion cache file with the given names."""
     cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     data = {"names": names, "updated_at": "2025-01-01T00:00:00+00:00"}
-    cache_path.write_text(json.dumps(data))
-    return cache_path
-
-
-def _write_cli_completions(
-    host_dir: Path,
-    commands: list[str] | None = None,
-    subcommand_by_command: dict[str, list[str]] | None = None,
-) -> Path:
-    """Write a CLI completions cache file for testing."""
-    data: dict = {}
-    if commands is not None:
-        data["commands"] = commands
-    if subcommand_by_command is not None:
-        data["subcommand_by_command"] = subcommand_by_command
-    cache_path = host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text(json.dumps(data))
     return cache_path
 
@@ -475,142 +454,13 @@ def test_write_cli_completions_cache_no_aliases_when_none_registered(
     assert data["aliases"] == {}
 
 
-# -- read_cached_commands tests --
-
-
-def test_read_cached_commands_returns_sorted_command_names(
-    temp_host_dir: Path,
-) -> None:
-    _write_cli_completions(temp_host_dir, commands=["create", "ask", "list"])
-
-    result = read_cached_commands()
-
-    assert result == ["ask", "create", "list"]
-
-
-def test_read_cached_commands_returns_none_when_file_missing(
-    temp_host_dir: Path,
-) -> None:
-    result = read_cached_commands()
-
-    assert result is None
-
-
-def test_read_cached_commands_returns_none_for_malformed_json(
-    temp_host_dir: Path,
-) -> None:
-    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
-    cache_path.write_text("not valid json {{{")
-
-    result = read_cached_commands()
-
-    assert result is None
-
-
-def test_read_cached_commands_returns_none_when_commands_key_missing(
-    temp_host_dir: Path,
-) -> None:
-    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
-    cache_path.write_text(json.dumps({"other_key": "value"}))
-
-    result = read_cached_commands()
-
-    assert result is None
-
-
-def test_read_cached_commands_returns_none_when_commands_not_list(
-    temp_host_dir: Path,
-) -> None:
-    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
-    cache_path.write_text(json.dumps({"commands": "not-a-list"}))
-
-    result = read_cached_commands()
-
-    assert result is None
-
-
-def test_read_cached_commands_filters_non_string_and_empty_entries(
-    temp_host_dir: Path,
-) -> None:
-    mixed_values: list = ["good", "", 123, None, "also-good"]
-    _write_cli_completions(temp_host_dir, commands=mixed_values)
-
-    result = read_cached_commands()
-
-    assert result == ["also-good", "good"]
-
-
-# -- read_cached_subcommands tests --
-
-
-def test_read_cached_subcommands_returns_sorted_subcommand_names(
-    temp_host_dir: Path,
-) -> None:
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"config": ["set", "get", "list"]},
-    )
-
-    result = read_cached_subcommands("config")
-
-    assert result == ["get", "list", "set"]
-
-
-def test_read_cached_subcommands_returns_none_when_file_missing(
-    temp_host_dir: Path,
-) -> None:
-    result = read_cached_subcommands("config")
-
-    assert result is None
-
-
-def test_read_cached_subcommands_returns_none_when_command_not_in_cache(
-    temp_host_dir: Path,
-) -> None:
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"config": ["set", "get"]},
-    )
-
-    result = read_cached_subcommands("nonexistent")
-
-    assert result is None
-
-
-def test_read_cached_subcommands_returns_none_when_subcommand_by_command_missing(
-    temp_host_dir: Path,
-) -> None:
-    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
-    cache_path.write_text(json.dumps({"commands": ["create"]}))
-
-    result = read_cached_subcommands("config")
-
-    assert result is None
-
-
-def test_read_cached_subcommands_filters_non_string_entries(
-    temp_host_dir: Path,
-) -> None:
-    mixed_values: list = ["good", "", 42, None, "also-good"]
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"config": mixed_values},
-    )
-
-    result = read_cached_subcommands("config")
-
-    assert result == ["also-good", "good"]
-
-
 # -- shell_complete override tests --
 
 
-def test_top_level_shell_complete_uses_cached_commands(
+def test_top_level_shell_complete_returns_commands(
     temp_host_dir: Path,
 ) -> None:
-    """AliasAwareGroup.shell_complete should read from the cache."""
-    _write_cli_completions(temp_host_dir, commands=["create", "list", "destroy"])
-
+    """AliasAwareGroup.shell_complete should return matching commands."""
     ctx = click.Context(cli)
     completions = cli.shell_complete(ctx, "cr")
 
@@ -618,77 +468,14 @@ def test_top_level_shell_complete_uses_cached_commands(
     assert "create" in names
 
 
-def test_top_level_shell_complete_falls_back_when_no_cache(
+def test_top_level_shell_complete_filters_aliases(
     temp_host_dir: Path,
 ) -> None:
-    """When the cache file is missing, shell_complete should fall back to live discovery."""
+    """AliasAwareGroup.shell_complete should filter aliases when canonical matches."""
     ctx = click.Context(cli)
-    completions = cli.shell_complete(ctx, "cr")
+    completions = cli.shell_complete(ctx, "c")
 
     names = [item.value for item in completions]
     assert "create" in names
-
-
-def test_config_shell_complete_uses_cached_subcommands(
-    temp_host_dir: Path,
-) -> None:
-    """The config group should read subcommand completions from the cache."""
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"config": ["edit", "get", "list", "set"]},
-    )
-
-    ctx = click.Context(config_group)
-    completions = config_group.shell_complete(ctx, "")
-
-    names = [item.value for item in completions]
-    assert "get" in names
-    assert "set" in names
-    assert "edit" in names
-
-
-def test_plugin_shell_complete_uses_cached_subcommands(
-    temp_host_dir: Path,
-) -> None:
-    """The plugin group should read subcommand completions from the cache."""
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"plugin": ["add", "list", "remove"]},
-    )
-
-    ctx = click.Context(plugin_group)
-    completions = plugin_group.shell_complete(ctx, "")
-
-    names = [item.value for item in completions]
-    assert "add" in names
-    assert "list" in names
-    assert "remove" in names
-
-
-def test_snapshot_shell_complete_uses_cached_subcommands(
-    temp_host_dir: Path,
-) -> None:
-    """The snapshot group should read subcommand completions from the cache."""
-    _write_cli_completions(
-        temp_host_dir,
-        subcommand_by_command={"snapshot": ["create", "destroy", "list"]},
-    )
-
-    ctx = click.Context(snapshot_group)
-    completions = snapshot_group.shell_complete(ctx, "cr")
-
-    names = [item.value for item in completions]
-    assert "create" in names
-    assert "destroy" not in names
-
-
-def test_subcommand_shell_complete_falls_back_when_no_cache(
-    temp_host_dir: Path,
-) -> None:
-    """When the cache file is missing, subcommand groups should fall back to live discovery."""
-    ctx = click.Context(config_group)
-    completions = config_group.shell_complete(ctx, "")
-
-    names = [item.value for item in completions]
-    assert "get" in names
-    assert "set" in names
+    assert "config" in names
+    assert "c" not in names

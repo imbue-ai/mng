@@ -18,7 +18,6 @@ from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import CachedCompletionGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.help_formatter import show_help_with_pager
@@ -198,13 +197,7 @@ def _flatten_config(config: dict[str, Any], prefix: str = "") -> list[tuple[str,
     return result
 
 
-class _ConfigGroup(CachedCompletionGroup):
-    """Config group that reads subcommand completions from the completions cache."""
-
-    _completion_cache_key = "config"
-
-
-@click.group(name="config", cls=_ConfigGroup, invoke_without_command=True)
+@click.group(name="config", invoke_without_command=True)
 @click.option(
     "--scope",
     type=click.Choice(["user", "project", "local"], case_sensitive=False),
