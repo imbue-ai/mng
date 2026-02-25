@@ -415,6 +415,36 @@ class PermissionDialogIndicator(DialogIndicator):
         return "permission dialog"
 
 
+class TrustDialogIndicator(DialogIndicator):
+    """Detects the Claude Code workspace trust dialog shown on first launch in a directory."""
+
+    def get_match_string(self) -> str:
+        return "Yes, I trust this folder"
+
+    def get_description(self) -> str:
+        return "trust dialog"
+
+
+class ThemeSelectionIndicator(DialogIndicator):
+    """Detects the Claude Code theme selection prompt shown during onboarding."""
+
+    def get_match_string(self) -> str:
+        return "Choose the text style that looks best with your terminal"
+
+    def get_description(self) -> str:
+        return "theme selection dialog"
+
+
+class EffortCalloutIndicator(DialogIndicator):
+    """Detects the Claude Code effort callout shown after model selection."""
+
+    def get_match_string(self) -> str:
+        return "You can always change effort in /model later."
+
+    def get_description(self) -> str:
+        return "effort callout"
+
+
 class ClaudeAgent(BaseAgent):
     """Agent implementation for Claude with session resumption support."""
 
@@ -455,11 +485,18 @@ class ClaudeAgent(BaseAgent):
     def get_dialog_indicators(self) -> Sequence[DialogIndicator]:
         """Return Claude Code dialog indicators for runtime detection.
 
-        Detects permission dialogs that appear mid-session when Claude Code
-        asks for user consent before taking an action. These block automated
-        input via tmux send-keys.
+        Detects dialogs that block automated input via tmux send-keys:
+        - Permission dialogs (mid-session tool approval prompts)
+        - Trust dialogs (first launch in a new directory)
+        - Theme selection (onboarding)
+        - Effort callout (after model selection)
         """
-        return (PermissionDialogIndicator(),)
+        return (
+            PermissionDialogIndicator(),
+            TrustDialogIndicator(),
+            ThemeSelectionIndicator(),
+            EffortCalloutIndicator(),
+        )
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None

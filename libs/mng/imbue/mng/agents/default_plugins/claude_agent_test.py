@@ -16,7 +16,10 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_agent import EffortCalloutIndicator
 from imbue.mng.agents.default_plugins.claude_agent import PermissionDialogIndicator
+from imbue.mng.agents.default_plugins.claude_agent import ThemeSelectionIndicator
+from imbue.mng.agents.default_plugins.claude_agent import TrustDialogIndicator
 from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
@@ -2021,16 +2024,29 @@ def test_install_claude_without_version() -> None:
 # =============================================================================
 
 
-def test_get_dialog_indicators_includes_permission_dialog(
+def test_get_dialog_indicators_includes_all_indicators(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """ClaudeAgent.get_dialog_indicators should include the permission dialog indicator."""
+    """ClaudeAgent.get_dialog_indicators should include all dialog indicators."""
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     indicators = agent.get_dialog_indicators()
 
-    assert len(indicators) >= 1
+    assert len(indicators) == 4
     assert isinstance(indicators[0], PermissionDialogIndicator)
     assert indicators[0].get_match_string() == "Do you want to proceed?"
+    assert indicators[0].get_description() == "permission dialog"
+
+    assert isinstance(indicators[1], TrustDialogIndicator)
+    assert indicators[1].get_match_string() == "Yes, I trust this folder"
+    assert indicators[1].get_description() == "trust dialog"
+
+    assert isinstance(indicators[2], ThemeSelectionIndicator)
+    assert indicators[2].get_match_string() == "Choose the text style that looks best with your terminal"
+    assert indicators[2].get_description() == "theme selection dialog"
+
+    assert isinstance(indicators[3], EffortCalloutIndicator)
+    assert indicators[3].get_match_string() == "You can always change effort in /model later."
+    assert indicators[3].get_description() == "effort callout"
 
 
 def test_check_for_blocking_dialog_raises_when_permission_dialog_detected(
