@@ -84,7 +84,7 @@ def _trigger_background_refresh() -> None:
         pass
 
 
-def _get_completions(shell: str) -> list[str]:
+def _get_completions() -> list[str]:
     """Compute completion candidates from environment variables and the cache."""
     comp_words_raw = os.environ.get("COMP_WORDS", "")
     comp_cword_raw = os.environ.get("COMP_CWORD", "")
@@ -234,7 +234,7 @@ def main() -> None:
             sys.stdout.write(_generate_bash_script() + "\n")
         return
 
-    completions = _get_completions("zsh")
+    completions = _get_completions()
     if completions:
         sys.stdout.write("\n".join(completions) + "\n")
 

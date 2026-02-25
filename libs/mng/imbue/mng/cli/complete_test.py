@@ -165,7 +165,7 @@ def test_get_completions_command_name(
     monkeypatch.setenv("COMP_WORDS", "mng cr")
     monkeypatch.setenv("COMP_CWORD", "1")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["create"]
 
@@ -182,7 +182,7 @@ def test_get_completions_command_name_all(
     monkeypatch.setenv("COMP_WORDS", "mng ")
     monkeypatch.setenv("COMP_CWORD", "1")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["ask", "create", "list"]
 
@@ -202,7 +202,7 @@ def test_get_completions_alias_filtering(
     monkeypatch.setenv("COMP_WORDS", "mng c")
     monkeypatch.setenv("COMP_CWORD", "1")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert "create" in result
     assert "config" in result
@@ -226,7 +226,7 @@ def test_get_completions_subcommand(
     monkeypatch.setenv("COMP_WORDS", "mng config ")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["edit", "get", "list", "set"]
 
@@ -246,7 +246,7 @@ def test_get_completions_subcommand_with_prefix(
     monkeypatch.setenv("COMP_WORDS", "mng config s")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["set"]
 
@@ -266,7 +266,7 @@ def test_get_completions_options(
     monkeypatch.setenv("COMP_WORDS", "mng list --f")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["--format"]
 
@@ -287,7 +287,7 @@ def test_get_completions_option_choices(
     monkeypatch.setenv("COMP_WORDS", "mng list --format ")
     monkeypatch.setenv("COMP_CWORD", "3")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["json", "table", "jsonl"]
 
@@ -308,7 +308,7 @@ def test_get_completions_option_choices_with_prefix(
     monkeypatch.setenv("COMP_WORDS", "mng list --format j")
     monkeypatch.setenv("COMP_CWORD", "3")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["json", "jsonl"]
 
@@ -329,7 +329,7 @@ def test_get_completions_subcommand_options(
     monkeypatch.setenv("COMP_WORDS", "mng config get --")
     monkeypatch.setenv("COMP_CWORD", "3")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert "--help" in result
     assert "--scope" in result
@@ -352,7 +352,7 @@ def test_get_completions_subcommand_option_choices(
     monkeypatch.setenv("COMP_WORDS", "mng config get --scope ")
     monkeypatch.setenv("COMP_CWORD", "4")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["user", "project", "local"]
 
@@ -373,7 +373,7 @@ def test_get_completions_agent_names(
     monkeypatch.setenv("COMP_WORDS", "mng connect ")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["my-agent", "other-agent"]
 
@@ -394,7 +394,7 @@ def test_get_completions_agent_names_with_prefix(
     monkeypatch.setenv("COMP_WORDS", "mng connect my")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == ["my-agent"]
 
@@ -415,7 +415,7 @@ def test_get_completions_no_agent_names_for_non_agent_command(
     monkeypatch.setenv("COMP_WORDS", "mng list ")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == []
 
@@ -436,7 +436,7 @@ def test_get_completions_alias_resolves_to_canonical(
     monkeypatch.setenv("COMP_WORDS", "mng conn --")
     monkeypatch.setenv("COMP_CWORD", "2")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert "--help" in result
     assert "--start" in result
@@ -452,7 +452,7 @@ def test_get_completions_empty_cache(
     monkeypatch.setenv("COMP_WORDS", "mng ")
     monkeypatch.setenv("COMP_CWORD", "1")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == []
 
@@ -466,6 +466,6 @@ def test_get_completions_invalid_comp_cword(
     monkeypatch.setenv("COMP_WORDS", "mng ")
     monkeypatch.setenv("COMP_CWORD", "not-a-number")
 
-    result = _get_completions("zsh")
+    result = _get_completions()
 
     assert result == []
