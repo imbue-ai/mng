@@ -39,6 +39,7 @@ from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.utils.git_utils import find_source_repo_of_worktree
+from imbue.mng.utils.git_utils import remove_worktree
 
 
 class _OfflineHostToDestroy(FrozenModel):
@@ -322,7 +323,11 @@ def destroy(ctx: click.Context, **kwargs) -> None:
     # Remove worktree (must happen before branch deletion)
     if worktree_to_remove is not None:
         work_dir, source_repo_path = worktree_to_remove
-        _remove_worktree(work_dir, source_repo_path, mng_ctx.concurrency_group, output_opts)
+        try:
+            remove_worktree(work_dir, source_repo_path, mng_ctx.concurrency_group)
+            _output(f"Removed worktree: {work_dir}", output_opts)
+        except ProcessError as e:
+            logger.warning("Failed to remove worktree {}: {}", work_dir, e)
 
     # Delete the created branch (after worktree removal)
     if branch_to_remove is not None:
@@ -496,29 +501,6 @@ def _output_result(destroyed_agents: Sequence[AgentName], output_opts: OutputOpt
                 write_human_line("\nSuccessfully destroyed {} agent(s)", len(destroyed_agents))
         case _ as unreachable:
             assert_never(unreachable)
-
-
-def _remove_worktree(
-    work_dir: Path,
-    source_repo_path: Path,
-    cg: ConcurrencyGroup,
-    output_opts: OutputOptions,
-) -> None:
-    """Remove a git worktree from the source repository.
-
-    Failures are logged as warnings but do not fail the destroy operation.
-    """
-    try:
-        result = cg.run_process_to_completion(
-            ["git", "-C", str(source_repo_path), "worktree", "remove", "--force", str(work_dir)],
-            is_checked_after=False,
-        )
-        if result.returncode == 0:
-            _output(f"Removed worktree: {work_dir}", output_opts)
-        else:
-            logger.warning("Failed to remove worktree {}: {}", work_dir, result.stderr.strip())
-    except ProcessError as e:
-        logger.warning("Failed to remove worktree {}: {}", work_dir, e)
 
 
 def _remove_created_branch(
