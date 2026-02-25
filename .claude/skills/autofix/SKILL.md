@@ -53,8 +53,11 @@ Important:
 After the loop ends:
 
 1. Determine the result:
-   - If `git rev-parse HEAD` equals `initial_head`, the result is `clean`
-     (no issues found or no fixes made).
+   - If `git rev-parse HEAD` equals `initial_head`, check what the last
+     subagent reported (it may have found issues it was unable to fix or
+     unable to commit). If it encountered problems, the result is
+     `error: <description of what the subagent reported>`. Otherwise the
+     result is `clean`.
    - If HEAD moved past `initial_head`, the result is `fixed`.
    - If an error occurred during the fix loop, the result is `error: <description>`.
 
