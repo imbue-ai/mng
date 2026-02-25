@@ -44,9 +44,8 @@ Repeat up to 10 times:
 Important:
 - Do NOT explore code, plan, or fix anything yourself. The subagent does all
   the work.
-- Each iteration gets a fresh-context subagent, which is the whole point.
-- Do NOT pass the subagent any information about previous iterations or previous
-  fixes. It operates from a clean slate every time.
+- Each iteration MUST get a fresh-context subagent with no information from
+  previous iterations. This is the whole point -- a clean slate every time.
 
 ### Phase 3: Signal Completion
 
