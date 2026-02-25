@@ -45,7 +45,7 @@ Important:
 - Do NOT explore code, plan, or fix anything yourself. The subagent does all
   the work.
 - Each iteration MUST get a fresh-context subagent with no information from
-  previous iterations. This is the whole point -- a clean slate every time.
+  previous iterations.
 
 ### Phase 3: Signal Completion
 
