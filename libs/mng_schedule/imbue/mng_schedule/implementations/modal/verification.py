@@ -147,7 +147,11 @@ def verify_schedule_deployment(
 
         logger.info("modal run completed successfully for schedule '{}'", trigger_name)
 
-        if not is_finish_initial_run:
+        if is_finish_initial_run:
+            # FIXME: we should be waiting until the agent actually finishes and shuts down
+            #  get the agent, and then just keep polling until its state changes from RUNNING
+            pass
+        else:
             if extracted_agent_name is not None:
                 _destroy_agent(extracted_agent_name)
             else:
