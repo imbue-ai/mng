@@ -26,10 +26,11 @@ from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.config.data_types import split_cli_args_string
 from imbue.mng.config.plugin_registry import get_plugin_config_class
-from imbue.mng.config.pre_readers import find_local_config
 from imbue.mng.config.pre_readers import find_profile_dir_lightweight
-from imbue.mng.config.pre_readers import find_project_config
 from imbue.mng.config.pre_readers import get_user_config_path
+from imbue.mng.config.pre_readers import load_local_config
+from imbue.mng.config.pre_readers import load_project_config
+from imbue.mng.config.pre_readers import try_load_toml
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
@@ -101,26 +102,14 @@ def load_config(
         commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
-    # Load user config from profile directory
-    user_config_path = get_user_config_path(profile_dir)
-    if user_config_path.exists():
-        raw_user = _load_toml(user_config_path)
-        user_config = parse_config(raw_user)
-        config = config.merge_with(user_config)
-
-    # Load project config from context_dir or auto-discover
-    project_config_path = find_project_config(context_dir, root_name, concurrency_group)
-    if project_config_path is not None and project_config_path.exists():
-        raw_project = _load_toml(project_config_path)
-        project_config = parse_config(raw_project)
-        config = config.merge_with(project_config)
-
-    # Load local config from context_dir or auto-discover
-    local_config_path = find_local_config(context_dir, root_name, concurrency_group)
-    if local_config_path is not None and local_config_path.exists():
-        raw_local = _load_toml(local_config_path)
-        local_config = parse_config(raw_local)
-        config = config.merge_with(local_config)
+    # Load and merge config files in precedence order (user, project, local)
+    for raw in (
+        try_load_toml(get_user_config_path(profile_dir)),
+        load_project_config(context_dir, root_name, concurrency_group),
+        load_local_config(context_dir, root_name, concurrency_group),
+    ):
+        if raw is not None:
+            config = config.merge_with(parse_config(raw))
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -250,17 +239,6 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
 # =============================================================================
 # Config Loading
 # =============================================================================
-
-
-def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file. Raises ConfigParseError if the file is missing or malformed."""
-    if not path.exists():
-        raise ConfigParseError(f"Config file not found: {path}")
-    try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigParseError(f"Failed to parse {path}: {e}") from e
 
 
 def _check_unknown_fields(
