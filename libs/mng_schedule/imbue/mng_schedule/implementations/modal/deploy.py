@@ -641,7 +641,7 @@ def deploy_schedule(
     # stick this in the home directory instead, eg, ~/.mng/build/plugin/schedule/<hash_of_full_repo_root_path>/
     # That way we will have a persistent location for this build, and the caching will work out from the modal side
     repo_root_hash = hashlib.md5(str(repo_root.absolute()).encode("utf-8")).hexdigest()
-    deploy_build_path = mng_ctx.config.default_host_dir / "build" / repo_root_hash
+    deploy_build_path = Path(os.path.expanduser(mng_ctx.config.default_host_dir)) / "build" / repo_root_hash
     deploy_build_path.mkdir(parents=True, exist_ok=True)
 
     # Resolve mng install mode (auto-detect if needed)
