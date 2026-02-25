@@ -134,9 +134,8 @@ def add_trigger_options(command: Any) -> Any:
         "--command",
         "command",
         type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
-        default="create",
-        show_default=True,
-        help="Which mng command to run when triggered.",
+        default=None,
+        help="Which mng command to run when triggered. Defaults to 'create' for schedule add.",
     )(command)
     command = optgroup.option(
         "--name",

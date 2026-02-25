@@ -63,6 +63,10 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # update can distinguish "not specified" from "explicitly set".
     if ctx.params.get("enabled") is None:
         ctx.params["enabled"] = True
+    # Default --command to "create" for schedule add. The shared options keep
+    # default=None so that update can distinguish "not specified" from "explicitly set".
+    if ctx.params.get("command") is None:
+        ctx.params["command"] = "create"
     mng_ctx, _output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_add",
