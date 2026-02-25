@@ -16,14 +16,33 @@ setup and fixing -- the caller handles review of the resulting commits.
 
 ### Phase 1: Setup
 
-!`rm -f .autofix/result`
-!`rm -f .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0).json.done`
+Remove stale state from previous runs. Determine the window name, then delete
+only the files for this window:
+
+```bash
+WINDOW_NAME=$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0)
+mkdir -p .autofix .autofix/plans .reviews/final_issue_json
+rm -f .autofix/result
+rm -f ".reviews/final_issue_json/${WINDOW_NAME}.json.done"
+```
 
 - Initial HEAD (`initial_head`): !`git rev-parse HEAD`
+- Base branch (`base_branch`): !`echo $GIT_BASE_BRANCH`
 
-- Base branch (`base_branch`): !`echo ${GIT_BASE_BRANCH:-main}`
+If base branch is empty above, use `main`.
 
-!`mkdir -p .autofix/plans`
+Determine which commits are unique to this branch (not on the base branch).
+The base branch may have been merged in, so use `git log` with `--first-parent`
+on the current branch to find commits since the merge-base:
+
+```bash
+git log --oneline --first-parent $(git merge-base HEAD base_branch)..HEAD
+```
+
+If the output is empty, there are no unique commits on this branch -- stop
+immediately with a `clean` result. If it is not obvious which commits are
+unique to this branch (e.g. the branch history is complex), use
+`AskUserQuestion` to clarify before proceeding.
 
 ### Phase 2: Fix Loop
 
@@ -74,9 +93,8 @@ After the loop ends:
    - If `fixed`: by default empty string, but include any important context
      if needed.
 
-3. Touch the done marker file so the caller knows this skill has finished:
+2. Touch the done marker file so the caller knows this skill has finished:
 
 ```bash
-mkdir -p .reviews/final_issue_json
-touch .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0).json.done
+touch ".reviews/final_issue_json/${WINDOW_NAME}.json.done"
 ```
