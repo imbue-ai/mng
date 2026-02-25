@@ -409,7 +409,7 @@ class OnlineHostInterface(HostInterface, ABC):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
-        branch_name: str | None = None,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the state directory and metadata for a new agent."""
         ...
@@ -458,7 +458,7 @@ class CreateWorkDirResult(FrozenModel):
     """Result of creating an agent work directory."""
 
     path: Path = Field(description="Path to the created work directory")
-    branch_name: str | None = Field(
+    created_branch_name: str | None = Field(
         default=None,
         description="Name of the git branch created for this work directory, if any",
     )

@@ -504,7 +504,7 @@ def test_get_agent_name_from_session_various_inputs(session_name: str, prefix: s
 
 
 # =============================================================================
-# Tests for --remove-branch
+# Tests for --remove-created-branch
 # =============================================================================
 
 
@@ -518,13 +518,13 @@ def _git_branch_exists(repo_path: Path, branch_name: str) -> bool:
     return branch_name in result.stdout
 
 
-def test_destroy_remove_branch_deletes_branch(
+def test_destroy_remove_created_branch_deletes_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --remove-branch deletes the git branch after destroying a worktree agent."""
+    """Test that --remove-created-branch deletes the git branch after destroying a worktree agent."""
     agent_name = f"test-rm-branch-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
     branch_name = f"mng/{agent_name}-local"
@@ -553,7 +553,7 @@ def test_destroy_remove_branch_deletes_branch(
 
         destroy_result = cli_runner.invoke(
             destroy,
-            [agent_name, "--force", "--remove-branch"],
+            [agent_name, "--force", "--remove-created-branch"],
             obj=plugin_manager,
             catch_exceptions=False,
         )
@@ -562,17 +562,17 @@ def test_destroy_remove_branch_deletes_branch(
         assert "Destroyed agent:" in destroy_result.output
         assert f"Deleted branch: {branch_name}" in destroy_result.output
         assert not _git_branch_exists(temp_git_repo, branch_name), (
-            f"Expected branch {branch_name} to be deleted after destroy --remove-branch"
+            f"Expected branch {branch_name} to be deleted after destroy --remove-created-branch"
         )
 
 
-def test_destroy_without_remove_branch_leaves_branch(
+def test_destroy_without_remove_created_branch_leaves_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that destroy without --remove-branch leaves the git branch intact."""
+    """Test that destroy without --remove-created-branch leaves the git branch intact."""
     agent_name = f"test-keep-branch-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
     branch_name = f"mng/{agent_name}-local"
@@ -609,17 +609,17 @@ def test_destroy_without_remove_branch_leaves_branch(
         assert destroy_result.exit_code == 0, f"Destroy failed: {destroy_result.output}"
         # Branch should still exist
         assert _git_branch_exists(temp_git_repo, branch_name), (
-            f"Expected branch {branch_name} to still exist after destroy without --remove-branch"
+            f"Expected branch {branch_name} to still exist after destroy without --remove-created-branch"
         )
 
 
-def test_destroy_remove_branch_graceful_when_no_branch(
+def test_destroy_remove_created_branch_graceful_when_no_branch(
     cli_runner: CliRunner,
     temp_work_dir: Path,
     mng_test_prefix: str,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --remove-branch is a no-op when agent has no branch_name."""
+    """Test that --remove-created-branch is a no-op when agent has no created_branch_name."""
     agent_name = f"test-no-branch-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
 
@@ -646,7 +646,7 @@ def test_destroy_remove_branch_graceful_when_no_branch(
 
         destroy_result = cli_runner.invoke(
             destroy,
-            [agent_name, "--force", "--remove-branch"],
+            [agent_name, "--force", "--remove-created-branch"],
             obj=plugin_manager,
             catch_exceptions=False,
         )

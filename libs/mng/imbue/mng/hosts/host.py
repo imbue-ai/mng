@@ -948,12 +948,12 @@ class Host(BaseHost, OnlineHostInterface):
         if is_generated_work_dir:
             self._add_generated_work_dir(target_path)
 
-        branch_name: str | None = None
+        created_branch_name: str | None = None
 
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
             logger.debug("Skipped file transfer: source and target are the same path")
-            return CreateWorkDirResult(path=target_path, branch_name=None)
+            return CreateWorkDirResult(path=target_path)
 
         # Check if source has a .git directory
         if source_host.is_local:
@@ -974,7 +974,7 @@ class Host(BaseHost, OnlineHostInterface):
                 self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
-                branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
+                created_branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
                 self._transfer_extra_files(source_host, source_path, target_path, options)
 
         # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
@@ -991,7 +991,7 @@ class Host(BaseHost, OnlineHostInterface):
                 exclude_git=has_git_options,
             )
 
-        return CreateWorkDirResult(path=target_path, branch_name=branch_name)
+        return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
 
     def _transfer_git_repo(
         self,
@@ -1378,7 +1378,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Track generated work directories at the host level
             self._add_generated_work_dir(work_dir_path)
 
-            return CreateWorkDirResult(path=work_dir_path, branch_name=branch_name)
+            return CreateWorkDirResult(path=work_dir_path, created_branch_name=branch_name)
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
@@ -1395,7 +1395,7 @@ class Host(BaseHost, OnlineHostInterface):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
-        branch_name: str | None = None,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
@@ -1450,7 +1450,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "permissions": [],
                 "start_on_boot": False,
                 "labels": dict(options.label_options.labels),
-                "branch_name": branch_name,
+                "created_branch_name": created_branch_name,
             }
 
             data_path = state_dir / "data.json"

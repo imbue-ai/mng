@@ -348,44 +348,43 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
 
 
 # =========================================================================
-# Tests for get_branch_name
+# Tests for get_created_branch_name
 # =========================================================================
 
 
-def test_get_branch_name_returns_value_from_data_json(
+def test_get_created_branch_name_returns_value_from_data_json(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_branch_name returns the branch_name from data.json."""
+    """Test that get_created_branch_name returns the value from data.json."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    # Write branch_name to data.json
     agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     data = json.loads((agent_dir / "data.json").read_text())
-    data["branch_name"] = "mng/test-branch-local"
+    data["created_branch_name"] = "mng/test-branch-local"
     (agent_dir / "data.json").write_text(json.dumps(data))
 
-    assert agent.get_branch_name() == "mng/test-branch-local"
+    assert agent.get_created_branch_name() == "mng/test-branch-local"
 
 
-def test_get_branch_name_returns_none_when_absent(
+def test_get_created_branch_name_returns_none_when_absent(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_branch_name returns None for agents without branch_name."""
+    """Test that get_created_branch_name returns None for agents without it."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    assert agent.get_branch_name() is None
+    assert agent.get_created_branch_name() is None
 
 
-def test_create_agent_state_stores_branch_name(
+def test_create_agent_state_stores_created_branch_name(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that create_agent_state stores branch_name in data.json."""
+    """Test that create_agent_state stores created_branch_name in data.json."""
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
@@ -395,17 +394,17 @@ def test_create_agent_state_stores_branch_name(
         command=CommandString("sleep 1"),
     )
 
-    agent = host.create_agent_state(temp_work_dir, options, branch_name="mng/my-branch-local")
+    agent = host.create_agent_state(temp_work_dir, options, created_branch_name="mng/my-branch-local")
 
-    assert agent.get_branch_name() == "mng/my-branch-local"
+    assert agent.get_created_branch_name() == "mng/my-branch-local"
 
 
-def test_create_agent_state_stores_none_branch_name(
+def test_create_agent_state_stores_none_created_branch_name(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that create_agent_state stores null branch_name when not provided."""
+    """Test that create_agent_state stores null created_branch_name when not provided."""
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
@@ -417,24 +416,23 @@ def test_create_agent_state_stores_none_branch_name(
 
     agent = host.create_agent_state(temp_work_dir, options)
 
-    assert agent.get_branch_name() is None
+    assert agent.get_created_branch_name() is None
 
 
-def test_get_branch_name_returns_none_when_null(
+def test_get_created_branch_name_returns_none_when_null(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """Test that get_branch_name returns None when branch_name is null in data.json."""
+    """Test that get_created_branch_name returns None when value is null in data.json."""
     agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
 
-    # Explicitly set branch_name to null
     agent_dir = local_provider.host_dir / "agents" / str(agent.id)
     data = json.loads((agent_dir / "data.json").read_text())
-    data["branch_name"] = None
+    data["created_branch_name"] = None
     (agent_dir / "data.json").write_text(json.dumps(data))
 
-    assert agent.get_branch_name() is None
+    assert agent.get_created_branch_name() is None
 
 
 # =========================================================================

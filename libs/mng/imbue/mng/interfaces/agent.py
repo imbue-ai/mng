@@ -100,8 +100,8 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def get_branch_name(self) -> str | None:
-        """Return the git branch name created for this agent, or None if not applicable."""
+    def get_created_branch_name(self) -> str | None:
+        """Return the git branch name that was created for this agent, or None if not applicable."""
         ...
 
     @abstractmethod

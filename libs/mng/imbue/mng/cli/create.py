@@ -738,7 +738,7 @@ def _handle_create(
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
     is_work_dir_created: bool
-    early_branch_name: str | None = None
+    early_created_branch_name: str | None = None
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_result = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
@@ -748,7 +748,7 @@ def _handle_create(
         agent_opts = agent_opts.model_copy_update(
             to_update(agent_opts.field_ref().target_path, work_dir_result.path),
         )
-        early_branch_name = work_dir_result.branch_name
+        early_created_branch_name = work_dir_result.created_branch_name
         is_work_dir_created = True
     else:
         if snapshot is None:
@@ -777,7 +777,7 @@ def _handle_create(
             mng_ctx,
             is_work_dir_created,
             output_opts,
-            branch_name=early_branch_name,
+            created_branch_name=early_created_branch_name,
         )
         return
 
@@ -790,7 +790,7 @@ def _handle_create(
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
-            branch_name=early_branch_name,
+            created_branch_name=early_created_branch_name,
         )
 
         # If --edit-message was used, wait for editor and send the message
@@ -894,7 +894,7 @@ def _create_agent_in_background(
     mng_ctx: MngContext,
     is_work_dir_created: bool,
     output_opts: OutputOptions,
-    branch_name: str | None = None,
+    created_branch_name: str | None = None,
 ) -> None:
     """Create an agent in a background process that continues after parent exits.
 
@@ -925,7 +925,7 @@ def _create_agent_in_background(
             agent_options=agent_options,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
-            branch_name=branch_name,
+            created_branch_name=created_branch_name,
         )
 
         # Output result

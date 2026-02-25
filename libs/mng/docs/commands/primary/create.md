@@ -223,6 +223,10 @@ See [Limit Options](../secondary/limit.md)
 
 ## Provider Build/Start Arguments
 
+Provider: docker
+  Build args are passed directly to 'docker build'. Run 'docker build --help' for details.
+  Start args are passed directly to 'docker run'. Run 'docker run --help' for details.
+
 Provider: local
   No build arguments are supported for the local provider.
   No start arguments are supported for the local provider.
