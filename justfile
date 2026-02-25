@@ -24,7 +24,7 @@ run target:
   fi
 
 # Run tests on Modal via Offload 
-test-offload:
+test-offload args="":
     #!/bin/bash
     set -ueo pipefail
     # If not set, default LAST_COMMIT_SHA to the current HEAD
@@ -42,7 +42,7 @@ test-offload:
     trap "rm -f current.tar.gz" EXIT
 
     # Run offload, and make sure to specifically permit error code 2 (flaky tests). Any other error code is a failure.
-    offload -c offload-modal.toml run --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
+    offload -c offload-modal.toml {{args}} run --env="LAST_COMMIT_SHA:{{LAST_COMMIT_SHA}}" --copy-dir="/tmp/$OFFLOAD_PATCH_UUID:/offload-upload" || [[ $? -eq 2 ]]
 
 test-unit:
   uv run pytest --ignore-glob="**/test_*.py" --cov-fail-under=36
