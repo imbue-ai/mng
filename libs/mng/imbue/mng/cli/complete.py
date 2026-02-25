@@ -274,10 +274,13 @@ def main() -> None:
 
     shell = args[0] if args else "zsh"
 
-    completions = _get_completions(shell)
-    output = _format_output(completions, shell)
-    if output:
-        sys.stdout.write(output + "\n")
+    try:
+        completions = _get_completions(shell)
+        output = _format_output(completions, shell)
+        if output:
+            sys.stdout.write(output + "\n")
+    except Exception:
+        pass
 
     _trigger_background_refresh()
 
