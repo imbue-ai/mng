@@ -57,15 +57,23 @@ testpaths = [
 addopts = [
   "-nauto",
   "--dist=worksteal",
+  "--cov=imbue.mng",
+  "--cov=imbue.imbue_common",
+  "--cov=imbue.mng_opencode",
+  "--cov=imbue.mng_pair",
+  "--cov=imbue.changelings",
+  "--cov-report=term-missing",
+  "--cov-report=html",
+  "--cov-report=xml",
+  "--cov-fail-under=75",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",
   "--max-worker-restart=0",
   "-m not acceptance and not release",
   "--slow-tests-to-file",
+  "--coverage-to-file",
 ]
-# Coverage is opt-in for local runs (saves ~7s) but always runs in CI.
-# To run locally with coverage: uv run pytest --cov=imbue.mng --cov=imbue.imbue_common --cov=imbue.mng_opencode --cov=imbue.mng_pair --cov=imbue.changelings --cov-report=term-missing --cov-report=html --cov-report=xml --cov-fail-under=75 --coverage-to-file
 
 [tool.ruff]
 line-length = 119
