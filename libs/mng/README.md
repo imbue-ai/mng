@@ -161,12 +161,12 @@ To set up manually, generate the completion script and append it to your shell r
 
 **Zsh** (run once):
 ```bash
-"$(head -1 "$(which mng)" | sed 's/^#!//')" -m imbue.mng.cli.complete --script zsh >> ~/.zshrc
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script zsh >> ~/.zshrc
 ```
 
 **Bash** (run once):
 ```bash
-"$(head -1 "$(which mng)" | sed 's/^#!//')" -m imbue.mng.cli.complete --script bash >> ~/.bashrc
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script bash >> ~/.bashrc
 ```
 
 Note: `mng` must be installed on your PATH for completion to work (not invoked via `uv run`).
