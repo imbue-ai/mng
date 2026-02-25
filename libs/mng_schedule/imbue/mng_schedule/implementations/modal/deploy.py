@@ -22,15 +22,15 @@ from pydantic import ValidationError
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
-from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
-from imbue.mng_schedule.data_types import ScheduleCreationRecord
+from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import get_current_mng_git_hash
+from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.modal.verification import verify_schedule_deployment
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
@@ -51,26 +51,6 @@ def _forward_output(line: str, is_stdout: bool) -> None:
 @pure
 def get_modal_app_name(trigger_name: str) -> str:
     return f"mng-schedule-{trigger_name}"
-
-
-def load_modal_provider_instance(
-    provider_instance_name: str,
-    mng_ctx: MngContext,
-) -> ModalProviderInstance:
-    """Load a provider instance and verify it is a Modal provider.
-
-    Raises ScheduleDeployError if the provider cannot be loaded or is not a Modal provider.
-    """
-    try:
-        provider = get_provider_instance(ProviderInstanceName(provider_instance_name), mng_ctx)
-    except Exception as exc:
-        raise ScheduleDeployError(f"Failed to load provider '{provider_instance_name}': {exc}") from exc
-    if not isinstance(provider, ModalProviderInstance):
-        raise ScheduleDeployError(
-            f"Provider '{provider_instance_name}' is not a Modal provider. "
-            "Only Modal providers are currently supported for schedules."
-        ) from None
-    return provider
 
 
 @pure
@@ -98,22 +78,6 @@ def detect_local_timezone() -> str:
         etc_timezone_path=Path("/etc/timezone"),
         etc_localtime_path=Path("/etc/localtime"),
     )
-
-
-def resolve_git_ref(ref: str, cwd: Path | None = None) -> str:
-    """Resolve a git ref (e.g. HEAD, branch name) to a full commit SHA.
-
-    Raises ScheduleDeployError if the ref cannot be resolved.
-    """
-    with ConcurrencyGroup(name="git-rev-parse") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", ref],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(f"Could not resolve git ref '{ref}': {result.stderr.strip()}") from None
-    return result.stdout.strip()
 
 
 def get_repo_root() -> Path:
@@ -546,17 +510,8 @@ def build_deploy_config(
     }
 
 
-def _get_current_mng_git_hash() -> str:
-    """Get the git commit hash of the current mng codebase."""
-    try:
-        return resolve_git_ref("HEAD")
-    except ScheduleDeployError:
-        logger.warning("Could not determine mng git hash (not in a git repository?)")
-        return "unknown"
-
-
 def _save_schedule_creation_record(
-    record: ScheduleCreationRecord,
+    record: ModalScheduleCreationRecord,
     provider: ModalProviderInstance,
 ) -> None:
     """Save a schedule creation record to the provider's state volume."""
@@ -569,7 +524,7 @@ def _save_schedule_creation_record(
 
 def list_schedule_creation_records(
     provider: ModalProviderInstance,
-) -> list[ScheduleCreationRecord]:
+) -> list[ModalScheduleCreationRecord]:
     """Read all schedule creation records from the provider's state volume.
 
     Returns an empty list if no schedules directory exists on the volume.
@@ -581,7 +536,7 @@ def list_schedule_creation_records(
     except (modal.exception.NotFoundError, FileNotFoundError):
         return []
 
-    records: list[ScheduleCreationRecord] = []
+    records: list[ModalScheduleCreationRecord] = []
     for entry in entries:
         if not entry.path.endswith(".json"):
             continue
@@ -592,7 +547,7 @@ def list_schedule_creation_records(
             logger.warning("Skipped unreadable schedule record at {}: {}", file_path, exc)
             continue
         try:
-            record = ScheduleCreationRecord.model_validate_json(data)
+            record = ModalScheduleCreationRecord.model_validate_json(data)
         except (ValidationError, ValueError) as exc:
             logger.warning("Skipped invalid schedule record at {}: {}", file_path, exc)
             continue
@@ -764,15 +719,15 @@ def deploy_schedule(
     # should not cause the command to report failure.
     effective_sys_argv = sys_argv if sys_argv is not None else []
     with log_span("Saving schedule creation record"):
-        creation_record = ScheduleCreationRecord(
+        creation_record = ModalScheduleCreationRecord(
             trigger=trigger,
             full_commandline=_build_full_commandline(effective_sys_argv),
             hostname=platform.node(),
             working_directory=str(Path.cwd()),
-            mng_git_hash=_get_current_mng_git_hash(),
+            mng_git_hash=get_current_mng_git_hash(),
             created_at=datetime.now(timezone.utc),
-            modal_app_name=app_name,
-            modal_environment=modal_env_name,
+            app_name=app_name,
+            environment=modal_env_name,
         )
         try:
             _save_schedule_creation_record(creation_record, provider)

@@ -7,6 +7,7 @@ import pytest
 
 from imbue.imbue_common.errors import SwitchError
 from imbue.mng_schedule.cli.list import _get_schedule_field_value
+from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
@@ -22,15 +23,15 @@ def _make_test_record(is_enabled: bool = True) -> ScheduleCreationRecord:
         is_enabled=is_enabled,
         git_image_hash="abc123def456789012345678901234567890abcd",
     )
-    return ScheduleCreationRecord(
+    return ModalScheduleCreationRecord(
         trigger=trigger,
         full_commandline="uv run mng schedule add --command create",
         hostname="dev-laptop",
         working_directory="/home/user/project",
         mng_git_hash="fedcba654321",
         created_at=datetime(2025, 6, 15, 14, 30, 0, tzinfo=timezone.utc),
-        modal_app_name="mng-schedule-nightly-build",
-        modal_environment="mng-user1",
+        app_name="mng-schedule-nightly-build",
+        environment="mng-user1",
     )
 
 

@@ -9,17 +9,17 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng_schedule.cli.group import schedule
 
 CommandHelpMetadata(
-    key="mng-schedule",
-    one_line_description="Schedule remote invocations of mng commands",
+    key="schedule",
+    one_line_description="Schedule invocations of mng commands",
     synopsis="mng schedule [add|remove|update|list|run] [OPTIONS]",
-    description="""Schedule remote invocations of mng commands.
+    description="""Schedule invocations of mng commands.
 
 Manage cron-scheduled triggers that run mng commands (create, start, message,
 exec) on a specified provider at regular intervals. This is useful for setting
 up autonomous agents that run on a recurring schedule.""",
     examples=(
         ("Add a nightly scheduled agent", "mng schedule add --command create --schedule '0 2 * * *' --provider modal"),
-        ("List all schedules", "mng schedule list"),
+        ("List all schedules", "mng schedule list --provider local"),
         ("Remove a trigger", "mng schedule remove my-trigger"),
         ("Disable a trigger", "mng schedule update my-trigger --disabled"),
         ("Test a trigger immediately", "mng schedule run my-trigger"),

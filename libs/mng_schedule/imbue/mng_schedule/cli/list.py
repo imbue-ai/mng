@@ -8,17 +8,21 @@ from tabulate import tabulate
 
 from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.logging import log_span
+from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.errors import MngError
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.local.instance import LocalProviderInstance
+from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.cli.group import schedule
 from imbue.mng_schedule.cli.options import ScheduleListCliOptions
 from imbue.mng_schedule.data_types import ScheduleCreationRecord
-from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.implementations.local.deploy import list_local_schedule_creation_records
 from imbue.mng_schedule.implementations.modal.deploy import list_schedule_creation_records
-from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_instance
 
 
 @schedule.command(name="list")
@@ -32,9 +36,8 @@ from imbue.mng_schedule.implementations.modal.deploy import load_modal_provider_
 )
 @optgroup.option(
     "--provider",
-    default="modal",
-    show_default=True,
-    help="Provider instance to list schedules from.",
+    required=True,
+    help="Provider instance to list schedules from (e.g. 'local', 'modal').",
 )
 @add_common_options
 @click.pass_context
@@ -45,9 +48,9 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
 
     \b
     Examples:
-      mng schedule list
-      mng schedule list --all
-      mng schedule list --json
+      mng schedule list --provider local
+      mng schedule list --provider modal --all
+      mng schedule list --provider local --json
     """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
@@ -57,12 +60,21 @@ def schedule_list(ctx: click.Context, **kwargs: Any) -> None:
 
     # Load the provider instance
     try:
-        provider = load_modal_provider_instance(opts.provider, mng_ctx)
-    except ScheduleDeployError as e:
-        raise click.ClickException(str(e)) from e
+        provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
+    except MngError as e:
+        raise click.ClickException(f"Failed to load provider '{opts.provider}': {e}") from e
 
-    with log_span("Listing schedule creation records"):
-        records = list_schedule_creation_records(provider)
+    if isinstance(provider, LocalProviderInstance):
+        with log_span("Listing local schedule creation records"):
+            records: list[ScheduleCreationRecord] = list_local_schedule_creation_records(mng_ctx)
+    elif isinstance(provider, ModalProviderInstance):
+        with log_span("Listing schedule creation records"):
+            records = list(list_schedule_creation_records(provider))
+    else:
+        raise click.ClickException(
+            f"Provider '{opts.provider}' (type {type(provider).__name__}) is not supported for schedules. "
+            "Supported providers: local, modal."
+        )
 
     # Filter out disabled schedules unless --all is specified
     if not opts.all_schedules:

@@ -8,11 +8,8 @@ import pluggy
 import pytest
 from dotenv import dotenv_values
 
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng import hookimpl
-from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.plugins import hookspecs
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
@@ -30,14 +27,6 @@ from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
-
-
-@pytest.fixture()
-def bare_plugin_manager() -> pluggy.PluginManager:
-    """Create a plugin manager with hookspecs only, no plugins registered."""
-    pm = pluggy.PluginManager("mng")
-    pm.add_hookspecs(hookspecs)
-    return pm
 
 
 def test_get_modal_app_name() -> None:
@@ -145,26 +134,6 @@ def test_build_full_commandline_shell_escapes_spaces_in_arguments() -> None:
 # =============================================================================
 
 
-def _make_test_mng_ctx(
-    plugin_manager: pluggy.PluginManager,
-    tmp_path: Path,
-) -> MngContext:
-    """Create a MngContext for testing with the given plugin manager.
-
-    Uses a bare ConcurrencyGroup (not as a context manager) since these tests
-    only exercise hook calls, not process execution.
-    """
-    profile_dir = tmp_path / "profile"
-    profile_dir.mkdir(exist_ok=True)
-    config = MngConfig(default_host_dir=tmp_path / ".mng_host")
-    return MngContext(
-        config=config,
-        pm=plugin_manager,
-        profile_dir=profile_dir,
-        concurrency_group=ConcurrencyGroup(name="test"),
-    )
-
-
 # =============================================================================
 # stage_deploy_files Tests
 # =============================================================================
@@ -174,6 +143,7 @@ def _make_test_mng_ctx(
 def run_staging(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> Callable[[Path | None], Path]:
     """Return a callable that runs stage_deploy_files and returns the staging dir.
 
@@ -186,7 +156,7 @@ def run_staging(
             repo_root = tmp_path / "repo"
             repo_root.mkdir(exist_ok=True)
         staging_dir = tmp_path / "staging"
-        mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+        mng_ctx = temp_mng_ctx
         stage_deploy_files(staging_dir, mng_ctx, repo_root)
         return staging_dir
 
@@ -250,12 +220,13 @@ def test_stage_deploy_files_creates_secrets_dir(
 def test_stage_deploy_files_creates_subdirs_with_claude_defaults(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should always stage generated claude defaults in home/."""
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
     home_dir = staging_dir / "home"
@@ -272,6 +243,7 @@ def test_stage_deploy_files_creates_subdirs_with_claude_defaults(
 def test_stage_deploy_files_stages_project_files(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage relative paths under project/."""
 
@@ -285,7 +257,7 @@ def test_stage_deploy_files_stages_project_files(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     stage_deploy_files(staging_dir, mng_ctx, repo_root)
 
     staged_file = staging_dir / "project" / "config" / "settings.toml"
@@ -302,6 +274,7 @@ def _make_mng_ctx_with_hook_returning(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     files: dict[Path, Path | str],
+    temp_mng_ctx: MngContext,
 ) -> MngContext:
     """Create a MngContext with an extra plugin that returns the given files."""
 
@@ -312,18 +285,20 @@ def _make_mng_ctx_with_hook_returning(
             return files
 
     plugin_manager.register(_TestPlugin())
-    return _make_test_mng_ctx(plugin_manager, tmp_path)
+    return temp_mng_ctx
 
 
 def test_collect_deploy_files_accepts_relative_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should accept relative paths as project files."""
     mng_ctx = _make_mng_ctx_with_hook_returning(
         plugin_manager,
         tmp_path,
         {Path("relative/config.toml"): "content"},
+        temp_mng_ctx,
     )
 
     result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
@@ -333,12 +308,14 @@ def test_collect_deploy_files_accepts_relative_path(
 def test_collect_deploy_files_rejects_absolute_path(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should raise ScheduleDeployError for absolute paths."""
     mng_ctx = _make_mng_ctx_with_hook_returning(
         plugin_manager,
         tmp_path,
         {Path("/etc/config.toml"): "content"},
+        temp_mng_ctx,
     )
 
     with pytest.raises(ScheduleDeployError, match="must be relative or start with '~'"):
@@ -348,6 +325,7 @@ def test_collect_deploy_files_rejects_absolute_path(
 def test_collect_deploy_files_resolves_collision(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_collect_deploy_files should resolve collisions when two plugins register the same path."""
 
@@ -366,7 +344,7 @@ def test_collect_deploy_files_resolves_collision(
     plugin_manager.register(_PluginA())
     plugin_manager.register(_PluginB())
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     result = _collect_deploy_files(mng_ctx, repo_root=tmp_path)
 
     # Should still succeed, with one entry (last one wins)
@@ -424,7 +402,7 @@ def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
 
 def test_stage_consolidated_env_includes_env_files(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include vars from --env-file."""
     env_file = tmp_path / "custom.env"
@@ -432,7 +410,7 @@ def test_stage_consolidated_env_includes_env_files(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, env_files=[env_file])
 
     result = (output_dir / ".env").read_text()
@@ -441,15 +419,15 @@ def test_stage_consolidated_env_includes_env_files(
 
 def test_stage_consolidated_env_includes_pass_env(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include vars from --pass-env."""
     monkeypatch.setenv("MY_PASS_VAR", "passed_value")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["MY_PASS_VAR"])
 
     result = (output_dir / ".env").read_text()
@@ -458,8 +436,8 @@ def test_stage_consolidated_env_includes_pass_env(
 
 def test_stage_consolidated_env_merges_env_files_and_pass_env(
     tmp_path: Path,
-    plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should merge env files and pass-env vars."""
     env_file = tmp_path / "extra.env"
@@ -469,7 +447,7 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     _stage_consolidated_env(
         output_dir,
         mng_ctx=mng_ctx,
@@ -484,15 +462,15 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
 
 def test_stage_consolidated_env_skips_missing_pass_env(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should skip pass-env vars not in the environment."""
     monkeypatch.delenv("NONEXISTENT_VAR", raising=False)
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["NONEXISTENT_VAR"])
 
     # No .env file should be created since no env vars were found and no plugins registered
@@ -501,12 +479,12 @@ def test_stage_consolidated_env_skips_missing_pass_env(
 
 def test_stage_consolidated_env_creates_no_file_when_empty(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should not create .env when no env vars are available and no plugins contribute."""
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx)
 
     assert not (output_dir / ".env").exists()
@@ -514,15 +492,15 @@ def test_stage_consolidated_env_creates_no_file_when_empty(
 
 def test_stage_consolidated_env_preserves_values_with_hash(
     tmp_path: Path,
-    bare_plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    bare_temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should preserve values containing ' # ' (potential inline comments)."""
     monkeypatch.setenv("PASSWORD", "abc # def")
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
-    mng_ctx = _make_test_mng_ctx(bare_plugin_manager, tmp_path)
+    mng_ctx = bare_temp_mng_ctx
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["PASSWORD"])
 
     # Verify the written .env file can be parsed back correctly
@@ -538,6 +516,7 @@ def test_stage_consolidated_env_preserves_values_with_hash(
 def test_modify_env_vars_for_deploy_plugin_adds_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """modify_env_vars_for_deploy plugin can add env vars by mutating the dict."""
 
@@ -548,7 +527,7 @@ def test_modify_env_vars_for_deploy_plugin_adds_vars(
             env_vars["MY_PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars: dict[str, str] = {}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert env_vars["MY_PLUGIN_VAR"] == "plugin_value"
@@ -557,6 +536,7 @@ def test_modify_env_vars_for_deploy_plugin_adds_vars(
 def test_modify_env_vars_for_deploy_plugin_removes_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """modify_env_vars_for_deploy plugin can remove env vars via pop/del."""
 
@@ -567,7 +547,7 @@ def test_modify_env_vars_for_deploy_plugin_removes_vars(
             env_vars.pop("REMOVE_ME", None)
 
     plugin_manager.register(_RemovalPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars = {"REMOVE_ME": "old_value", "KEEP_ME": "kept"}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert "REMOVE_ME" not in env_vars
@@ -577,6 +557,7 @@ def test_modify_env_vars_for_deploy_plugin_removes_vars(
 def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """Plugins called later see mutations made by earlier plugins.
 
@@ -600,7 +581,7 @@ def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
 
     plugin_manager.register(_PluginA())
     plugin_manager.register(_PluginB())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     env_vars: dict[str, str] = {}
     mng_ctx.pm.hook.modify_env_vars_for_deploy(mng_ctx=mng_ctx, env_vars=env_vars)
     assert env_vars["FROM_A"] == "value_a"
@@ -615,6 +596,7 @@ def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
 def test_stage_consolidated_env_includes_plugin_env_vars(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include env vars contributed by plugins."""
 
@@ -625,7 +607,7 @@ def test_stage_consolidated_env_includes_plugin_env_vars(
             env_vars["PLUGIN_VAR"] = "plugin_value"
 
     plugin_manager.register(_EnvPlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
@@ -639,6 +621,7 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should remove env vars when plugin deletes keys."""
 
@@ -651,7 +634,7 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     plugin_manager.register(_RemovalPlugin())
     monkeypatch.setenv("REMOVE_ME", "should_be_removed")
 
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
     _stage_consolidated_env(output_dir, mng_ctx=mng_ctx, pass_env=["REMOVE_ME"])
@@ -666,6 +649,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env plugin env vars should override pass-env and env-file vars."""
     env_file = tmp_path / "base.env"
@@ -680,7 +664,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
             env_vars["MY_VAR"] = "from_plugin"
 
     plugin_manager.register(_OverridePlugin())
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     output_dir = tmp_path / "secrets"
     output_dir.mkdir()
@@ -705,6 +689,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
 def test_stage_deploy_files_stages_upload_file(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage uploaded files to the correct destination."""
     source_file = tmp_path / "local_config.toml"
@@ -713,7 +698,7 @@ def test_stage_deploy_files_stages_upload_file(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -730,6 +715,7 @@ def test_stage_deploy_files_stages_upload_file(
 def test_stage_deploy_files_stages_upload_directory(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should stage uploaded directories recursively."""
     source_dir = tmp_path / "my_configs"
@@ -742,7 +728,7 @@ def test_stage_deploy_files_stages_upload_directory(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -760,6 +746,7 @@ def test_stage_deploy_files_with_pass_env(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should include --pass-env vars in the consolidated env file."""
     monkeypatch.setenv("TEST_API_KEY", "sk-test-123")
@@ -767,7 +754,7 @@ def test_stage_deploy_files_with_pass_env(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -784,6 +771,7 @@ def test_stage_deploy_files_with_pass_env(
 def test_stage_deploy_files_with_exclude_user_settings(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files with include_user_settings=False should skip mng home files but still include claude defaults."""
     # Create a home file that would normally be included
@@ -795,7 +783,7 @@ def test_stage_deploy_files_with_exclude_user_settings(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,
@@ -898,6 +886,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should not stage mng source (it is handled separately)."""
     monkeypatch.chdir(tmp_path)
@@ -905,7 +894,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
-    mng_ctx = _make_test_mng_ctx(plugin_manager, tmp_path)
+    mng_ctx = temp_mng_ctx
 
     stage_deploy_files(
         staging_dir,

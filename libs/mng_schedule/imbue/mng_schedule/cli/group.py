@@ -4,7 +4,6 @@ import click
 from click_option_group import optgroup
 
 from imbue.mng.cli.common_opts import add_common_options
-from imbue.mng.cli.default_command_group import DefaultCommandGroup
 
 # =============================================================================
 # Shared option decorator
@@ -153,25 +152,19 @@ def resolve_positional_name(ctx: click.Context) -> None:
 # =============================================================================
 
 
-class _ScheduleGroup(DefaultCommandGroup):
-    """Schedule group that defaults to 'list' when no subcommand is given."""
-
-    _default_command = "list"
-
-
-@click.group(name="schedule", cls=_ScheduleGroup)
+@click.group(name="schedule")
 @add_common_options
 @click.pass_context
 def schedule(ctx: click.Context, **kwargs: Any) -> None:
-    """Schedule remote invocations of mng commands.
+    """Schedule invocations of mng commands.
 
     Manage cron-scheduled triggers that run mng commands (create, start,
     message, exec) on a specified provider at regular intervals.
 
     \b
     Examples:
-      mng schedule add --command create --args '--message "do work" --in modal' --schedule "0 2 * * *" --provider modal
-      mng schedule list
+      mng schedule add --command create --args '--message "do work" --in local' --schedule "0 2 * * *" --provider local
+      mng schedule list --provider local
       mng schedule remove my-trigger
       mng schedule run my-trigger
     """

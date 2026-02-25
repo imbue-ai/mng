@@ -18,11 +18,11 @@ mng schedule add --command create --args "--type claude --message 'review recent
 # Add a named trigger that runs locally
 mng schedule add nightly-test-checker --command create --args "--message 'make sure all tests are passing'" --schedule "0 3 * * *" --provider local
 
-# List all active schedules
-mng schedule list
+# List all active local schedules
+mng schedule list --provider local
 
-# List all schedules including disabled ones
-mng schedule list --all
+# List all modal schedules including disabled ones
+mng schedule list --provider modal --all
 
 # Update an existing trigger
 mng schedule update my-trigger --schedule "0 4 * * *"
@@ -47,7 +47,7 @@ Run `mng schedule <subcommand> --help` for more details on each subcommand:
 - **`add`** -- Create a new scheduled trigger
 - **`remove`** -- Remove one or more scheduled triggers
 - **`update`** -- Modify fields of an existing trigger
-- **`list`** -- List scheduled triggers (default when no subcommand given)
+- **`list`** -- List scheduled triggers
 - **`run`** -- Execute a trigger immediately for testing
 
 ## Packaging code for remote execution
