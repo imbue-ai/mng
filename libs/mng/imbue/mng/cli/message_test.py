@@ -1,3 +1,5 @@
+from typing import Any
+
 import click
 import pytest
 
@@ -9,7 +11,7 @@ from imbue.mng.cli.message import _emit_json_output
 from imbue.mng.cli.message import _get_message_content
 
 
-def _make_default_opts(**overrides: object) -> MessageCliOptions:
+def _make_default_opts(**overrides: Any) -> MessageCliOptions:
     """Build a MessageCliOptions with sensible defaults for testing."""
     defaults = {
         "agents": (),
