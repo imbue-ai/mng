@@ -334,6 +334,11 @@ class BaseAgent(AgentInterface):
     def _raise_send_timeout(self, session_name: str, timeout_reason: str) -> NoReturn:
         """Check for a blocking dialog before raising a generic send timeout.
 
+        Only called from sub-steps of send_message (marker visibility, message
+        ending, and submission signal waits). This provides a second chance to
+        detect dialogs that appeared *during* the send, after the initial
+        _check_for_blocking_dialog at the top of send_message already passed.
+
         If a dialog is detected, raises DialogDetectedError (more actionable).
         Otherwise raises SendMessageError with the provided timeout reason.
         """
