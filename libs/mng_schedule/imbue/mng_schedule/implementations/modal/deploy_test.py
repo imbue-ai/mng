@@ -24,6 +24,7 @@ from imbue.mng_schedule.implementations.modal.deploy import build_mng_install_co
 from imbue.mng_schedule.implementations.modal.deploy import detect_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.deploy import package_working_directory
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import resolve_commit_hash_for_deploy
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
@@ -1004,3 +1005,95 @@ def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
     # Will fail because tmp_path is not a git repo, proving it tried to resolve fresh
     with pytest.raises(ScheduleDeployError):
         resolve_commit_hash_for_deploy(deploy_build_path, repo_root=tmp_path)
+
+
+# =============================================================================
+# package_working_directory Tests
+# =============================================================================
+
+
+def test_package_working_directory_creates_tarball(tmp_path: Path) -> None:
+    """package_working_directory should create current.tar.gz in the dest directory."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("hello")
+    (source_dir / "subdir").mkdir()
+    (source_dir / "subdir" / "nested.txt").write_text("world")
+
+    dest_dir = tmp_path / "dest"
+    package_working_directory(source_dir, dest_dir)
+
+    tarball = dest_dir / "current.tar.gz"
+    assert tarball.exists()
+    assert tarball.stat().st_size > 0
+
+
+def test_package_working_directory_tarball_contains_files(tmp_path: Path) -> None:
+    """package_working_directory tarball should contain the source files."""
+    import tarfile
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "readme.md").write_text("# Hello")
+
+    dest_dir = tmp_path / "dest"
+    package_working_directory(source_dir, dest_dir)
+
+    tarball = dest_dir / "current.tar.gz"
+    with tarfile.open(tarball, "r:gz") as tf:
+        names = tf.getnames()
+    assert any("readme.md" in name for name in names)
+
+
+def test_package_working_directory_creates_dest_dir(tmp_path: Path) -> None:
+    """package_working_directory should create the destination directory if it does not exist."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    dest_dir = tmp_path / "nonexistent" / "dest"
+    assert not dest_dir.exists()
+
+    package_working_directory(source_dir, dest_dir)
+
+    assert dest_dir.exists()
+    assert (dest_dir / "current.tar.gz").exists()
+
+
+def test_build_deploy_config_includes_snapshot_id() -> None:
+    """build_deploy_config should include snapshot_id when provided."""
+    trigger = ScheduleTriggerDefinition(
+        name="snap-test",
+        command=ScheduledMngCommand.CREATE,
+        args="--message hello",
+        schedule_cron="0 3 * * *",
+        provider="modal",
+    )
+    result = build_deploy_config(
+        app_name="test-app",
+        trigger=trigger,
+        cron_schedule="0 3 * * *",
+        cron_timezone="UTC",
+        mng_install_commands=[],
+        snapshot_id="snap-abc123",
+    )
+    assert result["snapshot_id"] == "snap-abc123"
+
+
+def test_build_deploy_config_omits_snapshot_id_when_none() -> None:
+    """build_deploy_config should not include snapshot_id when it is None."""
+    trigger = ScheduleTriggerDefinition(
+        name="test",
+        command=ScheduledMngCommand.CREATE,
+        args="",
+        schedule_cron="0 3 * * *",
+        provider="modal",
+    )
+    result = build_deploy_config(
+        app_name="test-app",
+        trigger=trigger,
+        cron_schedule="0 3 * * *",
+        cron_timezone="UTC",
+        mng_install_commands=[],
+    )
+    assert "snapshot_id" not in result

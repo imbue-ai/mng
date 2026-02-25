@@ -371,9 +371,10 @@ def test_list_local_schedule_creation_records_skips_invalid_json(
 
 
 def test_deploy_local_schedule_with_snapshot_in_args(
+    tmp_path: Path,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """Test that a trigger with --snapshot in args produces a wrapper script containing the snapshot flag."""
+    """Test that a trigger with --snapshot in args produces a deployed wrapper script containing the snapshot flag."""
     trigger = ScheduleTriggerDefinition(
         name="snap-trigger",
         command=ScheduledMngCommand.CREATE,
@@ -391,13 +392,10 @@ def test_deploy_local_schedule_with_snapshot_in_args(
         git_hash_resolver=lambda: "fakehash",
     )
 
-    # Verify the wrapper script includes --snapshot in the command
-    script_content = build_wrapper_script(
-        trigger=trigger,
-        working_directory="/tmp",
-        path_value="/usr/bin",
-        env_file_path=None,
-    )
+    # Read the actual deployed wrapper script and verify it contains --snapshot
+    wrapper_script = tmp_path / ".mng" / "schedule" / "triggers" / "snap-trigger" / "run.sh"
+    assert wrapper_script.exists()
+    script_content = wrapper_script.read_text()
     assert "--snapshot" in script_content
     assert "snap-abc123" in script_content
 
