@@ -47,35 +47,11 @@ def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
     if branch_name == "HEAD":
         raise ScheduleDeployError("Cannot deploy from a detached HEAD. Check out a branch first.") from None
 
-    # Check that the branch has an upstream tracking branch
+    # Check if there is anything unpushed on this branch:
     with ConcurrencyGroup(name="git-upstream-check") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "--verify", f"@{{u}}"],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(
-            f"Branch '{branch_name}' has no remote tracking branch. "
-            f"Push it first with: git push -u origin {branch_name}"
-        ) from None
-
-    # Check for unpushed commits
-    with ConcurrencyGroup(name="git-unpushed-check") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "log", "@{u}..HEAD", "--oneline"],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(f"Could not check for unpushed commits: {result.stderr.strip()}") from None
-
-    unpushed = result.stdout.strip()
-    if unpushed:
-        num_commits = len(unpushed.splitlines())
-        raise ScheduleDeployError(
-            f"Branch '{branch_name}' has {num_commits} unpushed commit(s). Push them first with: git push"
-        ) from None
+        result = cg.run_process_to_completion(["git", "log", f"origin/{branch_name}..HEAD", "--oneline"], cwd=cwd)
+    if result.stdout.strip() or result.stderr.strip():
+        raise ScheduleDeployError("Some changes are not pushed")
 
 
 def get_current_mng_git_hash() -> str:
