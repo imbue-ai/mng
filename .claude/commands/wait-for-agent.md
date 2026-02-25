@@ -1,20 +1,20 @@
 ---
 argument-hint: [agent_name] [post_wait_instructions]
 description: Wait for another agent to enter WAITING state, then execute follow-up instructions
-allowed-tools: Bash(uv run mng list *), Bash(while true; do*)
+allowed-tools: Bash(while true; do*)
 ---
 
 Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then do the following: $2
 
+## Current State
+
+Here is the current state of agent "$1":
+
+!`uv run mng list --include 'name == "$1"' --format '{name}: {state}' 2>/dev/null`
+
 ## Polling Procedure
 
-First, verify the target agent exists and check its current state:
-
-```
-uv run mng list --include 'name == "$1"' --format '{name}: {state}'
-```
-
-If no output is returned, the agent does not exist. Report the error and stop.
+If the output above is empty, the agent does not exist. Report the error and stop.
 
 If the agent is already in WAITING, DONE, or STOPPED state, skip the polling loop and proceed directly to the follow-up task.
 
