@@ -23,6 +23,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
@@ -567,20 +568,7 @@ def _build_full_commandline(sys_argv: list[str]) -> str:
     return shlex.join(sys_argv)
 
 
-def resolve_commit_hash_for_deploy(deploy_build_path: Path, repo_root: Path) -> str:
-    """Resolve the git commit hash to use for packaging the project code.
-
-    Uses a cached commit hash file in the deploy build path if available,
-    otherwise determines the current HEAD hash, verifies the branch is
-    pushed to the remote, and writes the hash for future reuse.
-
-    This ensures that repeated deploys from the same repo always use the
-    same commit hash (until the cache file is manually removed).
-
-    Raises ScheduleDeployError if the branch is not pushed or the hash
-    cannot be determined.
-    """
-    commit_hash_file = deploy_build_path / "commit_hash"
+def resolve_commit_hash_for_deploy(commit_hash_file: Path, repo_root: Path) -> str:
     if commit_hash_file.exists():
         cached_hash = commit_hash_file.read_text().strip()
         if cached_hash:
@@ -595,8 +583,10 @@ def resolve_commit_hash_for_deploy(deploy_build_path: Path, repo_root: Path) -> 
 
     # Cache for future builds
     commit_hash_file.write_text(commit_hash)
-    logger.info("Resolved and cached commit hash: {}", commit_hash)
-    return commit_hash
+
+    raise UserInputError(
+        "No cached commit was found, so created one. See output of git diff, add the file, commit, and try again"
+    )
 
 
 def deploy_schedule(
@@ -652,7 +642,7 @@ def deploy_schedule(
 
     # Resolve the commit hash for packaging: uses a cached value if available,
     # otherwise determines the current HEAD and verifies the branch is pushed.
-    commit_hash = resolve_commit_hash_for_deploy(deploy_build_path, repo_root)
+    commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
     # Update the trigger with the resolved hash for record-keeping
     trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
     logger.info("Using commit {} for code packaging", commit_hash)
