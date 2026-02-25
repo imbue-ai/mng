@@ -2124,8 +2124,8 @@ Welcome to your first agent!
 
 Mng runs your agents in tmux sessions,
 and I can see you're already a tmux user.
-Here are some tips for using nested tmux sessions:
-https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/nested_tmux.md
+Here are some tips for using mng alongside tmux:
+https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/tmux_users.md
 
 The config file for mng's tmux sessions is ~/.mng/tmux.conf.
 Among other things, it sets up some extra keybindings:

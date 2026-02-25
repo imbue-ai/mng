@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from datetime import datetime
 from datetime import timezone
 from functools import cached_property
@@ -59,6 +60,7 @@ from imbue.mng.providers.docker.volume import DockerVolume
 from imbue.mng.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mng.providers.docker.volume import ensure_state_container
 from imbue.mng.providers.docker.volume import state_volume_name
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -73,8 +75,26 @@ from imbue.mng.providers.ssh_utils import wait_for_sshd
 # Container entrypoint as SDK-style command tuple (used by tests)
 CONTAINER_ENTRYPOINT: Final[tuple[str, ...]] = ("sh", "-c", CONTAINER_ENTRYPOINT_CMD)
 
-# Default image used when no image is specified
+# Fallback base image when no image is specified by the user or provider config.
 DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"
+
+
+def _build_default_dockerfile() -> str:
+    """Build the default Dockerfile contents from REQUIRED_HOST_PACKAGES."""
+    packages = " \\\n    ".join(sorted(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
+    return f"""\
+FROM {DEFAULT_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+# Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
 
 # Docker label prefix
 LABEL_PREFIX: Final[str] = "com.imbue.mng."
@@ -517,6 +537,13 @@ kill -TERM 1
             raise MngError(f"docker build failed:\n{result.stderr}")
         return tag
 
+    def _build_default_image(self, tag: str) -> str:
+        """Build a Docker image from the mng default Dockerfile."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dockerfile_path = Path(tmpdir) / "Dockerfile"
+            dockerfile_path.write_text(DEFAULT_DOCKERFILE_CONTENTS)
+            return self._build_image(["--file", str(dockerfile_path), tmpdir], tag)
+
     def _pull_image(self, image_name: str) -> str:
         """Pull a Docker image if not already present locally."""
         with log_span("Pulling Docker image: {}", image_name):
@@ -725,12 +752,26 @@ kill -TERM 1
         base_image = str(image) if image else (self.config.default_image or DEFAULT_IMAGE)
         effective_start_args = tuple(self.config.default_start_args) + tuple(start_args or ())
 
+        # Detect whether we're falling through to the default with no user customization
+        is_using_default = not image and not build_args and not self.config.default_image
+        if is_using_default:
+            logger.warning(
+                "No image or Dockerfile specified -- building from mng default Dockerfile. "
+                "Consider using your own Dockerfile (-b --file=<path>) to include "
+                "your project's dependencies for faster startup.",
+            )
+
         try:
-            # Build image if build_args provided, otherwise pull base image
             if build_args:
+                # Build image from user-provided build args / Dockerfile
                 build_tag = f"mng-build-{host_id}"
                 image_name = self._build_image(build_args, build_tag)
+            elif is_using_default:
+                # Build from the mng default Dockerfile so packages are pre-installed
+                build_tag = f"mng-build-{host_id}"
+                image_name = self._build_default_image(build_tag)
             else:
+                # User specified an image (via --image or config default_image); pull it
                 image_name = self._pull_image(base_image)
 
             labels = build_container_labels(host_id, name, str(self.name), tags)

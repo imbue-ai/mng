@@ -972,8 +972,6 @@ class ModalProviderInstance(BaseProviderInstance):
         elif base_image:
             image = modal.Image.from_registry(base_image)
         else:
-            # Pre-install required host packages so the runtime check in
-            # _check_and_install_packages is a no-op (no warnings, faster startup).
             image = modal.Image.debian_slim().apt_install(*(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
 
         return image
@@ -1663,6 +1661,13 @@ log "=== Shutdown script completed ==="
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
         context_dir_path = Path(config.context_dir) if config.context_dir else None
+
+        if not base_image and not dockerfile_path:
+            logger.warning(
+                "No image or Dockerfile specified -- building from mng default Dockerfile. "
+                "Consider using your own Dockerfile (-b --dockerfile=<path>) to include "
+                "your project's dependencies for faster startup.",
+            )
 
         try:
             if snapshot is not None:
