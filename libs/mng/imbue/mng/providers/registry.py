@@ -28,6 +28,7 @@ from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng.providers.docker.config import DockerProviderConfig
+from imbue.mng.providers.modal.config import ModalProviderConfig
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
@@ -83,10 +84,13 @@ def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_doc
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
 
-    # Register docker config even when backend is not loaded, so config files
-    # referencing the docker backend can still be parsed
-    if not include_docker:
+    # Register config classes for built-in backends even when their backend is not
+    # loaded (excluded via include_* flags or blocked via disabled plugins), so
+    # config files referencing these backends can still be parsed.
+    if ProviderBackendName("docker") not in _config_registry:
         _config_registry[ProviderBackendName("docker")] = DockerProviderConfig
+    if ProviderBackendName("modal") not in _config_registry:
+        _config_registry[ProviderBackendName("modal")] = ModalProviderConfig
 
     _registry_state["backends_loaded"] = True
 

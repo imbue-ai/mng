@@ -60,8 +60,7 @@ from imbue.mng.providers.docker.volume import DockerVolume
 from imbue.mng.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mng.providers.docker.volume import ensure_state_container
 from imbue.mng.providers.docker.volume import state_volume_name
-from imbue.mng.providers.ssh_host_setup import DEFAULT_BASE_IMAGE
-from imbue.mng.providers.ssh_host_setup import DEFAULT_DOCKERFILE_CONTENTS
+from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -77,7 +76,25 @@ from imbue.mng.providers.ssh_utils import wait_for_sshd
 CONTAINER_ENTRYPOINT: Final[tuple[str, ...]] = ("sh", "-c", CONTAINER_ENTRYPOINT_CMD)
 
 # Fallback base image when no image is specified by the user or provider config.
-DEFAULT_IMAGE: Final[str] = DEFAULT_BASE_IMAGE
+DEFAULT_IMAGE: Final[str] = "debian:bookworm-slim"
+
+
+def _build_default_dockerfile() -> str:
+    """Build the default Dockerfile contents from REQUIRED_HOST_PACKAGES."""
+    packages = " \\\n    ".join(sorted(pkg.package for pkg in REQUIRED_HOST_PACKAGES))
+    return f"""\
+FROM {DEFAULT_IMAGE}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    {packages} \\
+    && rm -rf /var/lib/apt/lists/*
+"""
+
+
+# Minimal Dockerfile that pre-installs the packages mng requires at runtime.
+# Using this as the default avoids slow runtime installs on every host create.
+# Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
+DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
 
 # Docker label prefix
 LABEL_PREFIX: Final[str] = "com.imbue.mng."
