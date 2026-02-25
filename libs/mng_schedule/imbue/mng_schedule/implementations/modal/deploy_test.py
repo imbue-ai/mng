@@ -1060,28 +1060,8 @@ def test_package_working_directory_creates_dest_dir(tmp_path: Path) -> None:
     assert (dest_dir / "current.tar.gz").exists()
 
 
-def test_build_deploy_config_includes_snapshot_id() -> None:
-    """build_deploy_config should include snapshot_id when provided."""
-    trigger = ScheduleTriggerDefinition(
-        name="snap-test",
-        command=ScheduledMngCommand.CREATE,
-        args="--message hello",
-        schedule_cron="0 3 * * *",
-        provider="modal",
-    )
-    result = build_deploy_config(
-        app_name="test-app",
-        trigger=trigger,
-        cron_schedule="0 3 * * *",
-        cron_timezone="UTC",
-        mng_install_commands=[],
-        snapshot_id="snap-abc123",
-    )
-    assert result["snapshot_id"] == "snap-abc123"
-
-
-def test_build_deploy_config_omits_snapshot_id_when_none() -> None:
-    """build_deploy_config should not include snapshot_id when it is None."""
+def _make_deploy_config(**kwargs: object) -> dict[str, object]:
+    """Build a deploy config with a standard trigger, forwarding kwargs."""
     trigger = ScheduleTriggerDefinition(
         name="test",
         command=ScheduledMngCommand.CREATE,
@@ -1089,50 +1069,40 @@ def test_build_deploy_config_omits_snapshot_id_when_none() -> None:
         schedule_cron="0 3 * * *",
         provider="modal",
     )
-    result = build_deploy_config(
+    return build_deploy_config(
         app_name="test-app",
         trigger=trigger,
         cron_schedule="0 3 * * *",
         cron_timezone="UTC",
         mng_install_commands=[],
+        **kwargs,  # type: ignore[arg-type]
     )
-    assert "snapshot_id" not in result
 
 
-def test_build_deploy_config_includes_full_copy() -> None:
-    """build_deploy_config should include full_copy when True."""
-    trigger = ScheduleTriggerDefinition(
-        name="copy-test",
-        command=ScheduledMngCommand.CREATE,
-        args="",
-        schedule_cron="0 3 * * *",
-        provider="modal",
-    )
-    result = build_deploy_config(
-        app_name="test-app",
-        trigger=trigger,
-        cron_schedule="0 3 * * *",
-        cron_timezone="UTC",
-        mng_install_commands=[],
-        full_copy=True,
-    )
-    assert result["full_copy"] is True
+@pytest.mark.parametrize(
+    ("kwargs", "expected_key", "expected_value"),
+    [
+        ({"snapshot_id": "snap-abc123"}, "snapshot_id", "snap-abc123"),
+        ({"full_copy": True}, "full_copy", True),
+        ({"git_branch": "main"}, "git_branch", "main"),
+    ],
+    ids=["snapshot_id", "full_copy", "git_branch"],
+)
+def test_build_deploy_config_includes_optional_field(
+    kwargs: dict[str, object],
+    expected_key: str,
+    expected_value: object,
+) -> None:
+    """build_deploy_config should include optional fields when provided."""
+    result = _make_deploy_config(**kwargs)
+    assert result[expected_key] == expected_value
 
 
-def test_build_deploy_config_omits_full_copy_when_false() -> None:
-    """build_deploy_config should not include full_copy when False (default)."""
-    trigger = ScheduleTriggerDefinition(
-        name="test",
-        command=ScheduledMngCommand.CREATE,
-        args="",
-        schedule_cron="0 3 * * *",
-        provider="modal",
-    )
-    result = build_deploy_config(
-        app_name="test-app",
-        trigger=trigger,
-        cron_schedule="0 3 * * *",
-        cron_timezone="UTC",
-        mng_install_commands=[],
-    )
-    assert "full_copy" not in result
+@pytest.mark.parametrize(
+    "absent_key",
+    ["snapshot_id", "full_copy", "git_branch"],
+)
+def test_build_deploy_config_omits_optional_field_when_default(absent_key: str) -> None:
+    """build_deploy_config should omit optional fields when not provided."""
+    result = _make_deploy_config()
+    assert absent_key not in result

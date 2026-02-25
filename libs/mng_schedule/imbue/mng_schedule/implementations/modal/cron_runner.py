@@ -255,7 +255,11 @@ def run_scheduled_trigger() -> None:
     # directly. In full-copy mode, the code was baked into the image at deploy
     # time. In both cases, no git checkout is needed.
     if _SNAPSHOT_ID is None and not _FULL_COPY:
-        branch_name = "josh/schedule_fixes"
+        branch_name = _deploy_config.get("git_branch")
+        if branch_name is None:
+            raise RuntimeError(
+                "git_branch is not set in deploy config. This is required for git-based deployment mode."
+            )
         _run_and_stream(["git", "fetch", "origin", branch_name])
         _run_and_stream(["git", "checkout", branch_name])
         _run_and_stream(["git", "merge", f"origin/{branch_name}"])

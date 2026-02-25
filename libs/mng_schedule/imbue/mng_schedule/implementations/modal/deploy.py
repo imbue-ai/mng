@@ -31,6 +31,7 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.git import ensure_current_branch_is_pushed
+from imbue.mng_schedule.git import get_current_branch
 from imbue.mng_schedule.git import get_current_mng_git_hash
 from imbue.mng_schedule.git import resolve_git_ref
 from imbue.mng_schedule.implementations.modal.verification import verify_schedule_deployment
@@ -528,10 +529,14 @@ def build_deploy_config(
     cron_schedule: str,
     cron_timezone: str,
     mng_install_commands: list[str],
+    git_branch: str | None = None,
     snapshot_id: str | None = None,
     full_copy: bool = False,
 ) -> dict[str, Any]:
     """Build the deploy configuration dict that gets baked into the Modal image.
+
+    git_branch is the branch to fetch/checkout at runtime for the default
+    git-based deployment mode.
 
     When snapshot_id is set, cron_runner.py will build a minimal image (without the
     project Dockerfile) and pass --snapshot to the mng create command.
@@ -546,6 +551,8 @@ def build_deploy_config(
         "cron_timezone": cron_timezone,
         "mng_install_commands": mng_install_commands,
     }
+    if git_branch is not None:
+        config["git_branch"] = git_branch
     if snapshot_id is not None:
         config["snapshot_id"] = snapshot_id
     if full_copy:
@@ -699,8 +706,11 @@ def deploy_schedule(
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
-    # Code packaging: choose strategy based on flags
+    # Code packaging: choose strategy based on flags.
+    # git_branch is resolved for git-based mode so cron_runner.py knows which
+    # branch to fetch/checkout at runtime.
     build_dir = deploy_build_path / "build"
+    git_branch: str | None = None
     if is_snapshot_mode:
         # Snapshot mode: skip code packaging entirely. The agent will be created
         # from the snapshot, so no project code needs to be baked into the image.
@@ -715,10 +725,11 @@ def deploy_schedule(
                 f"Expected tarball at {tarball} after full-copy packaging, but it was not found"
             ) from None
     else:
-        # Default git-based mode: resolve commit hash and package at that commit.
+        # Default git-based mode: resolve commit hash, branch, and package at that commit.
+        git_branch = get_current_branch(cwd=repo_root)
         commit_hash = resolve_commit_hash_for_deploy(deploy_build_path, repo_root)
         trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
-        logger.info("Using commit {} for code packaging", commit_hash)
+        logger.info("Using commit {} on branch '{}' for code packaging", commit_hash, git_branch)
         with log_span("Packaging repo at commit {}", commit_hash):
             package_repo_at_commit(commit_hash, build_dir, repo_root)
         tarball = build_dir / "current.tar.gz"
@@ -777,6 +788,7 @@ def deploy_schedule(
         cron_schedule=trigger.schedule_cron,
         cron_timezone=cron_timezone,
         mng_install_commands=mng_install_cmds,
+        git_branch=git_branch,
         snapshot_id=snapshot_id,
         full_copy=full_copy,
     )
