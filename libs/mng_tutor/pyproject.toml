@@ -1,15 +1,16 @@
 [project]
-name = "mng-pair"
+name = "mng-tutor"
 version = "0.1.0"
-description = "Pair command plugin for mng - continuous file sync between agent and local directory"
+description = "Interactive tutorial plugin for mng"
 requires-python = ">=3.11"
 dependencies = [
     "mng==0.1.4",
+    "click>=8.0",
     "click-option-group>=0.5.6",
 ]
 
 [project.entry-points.mng]
-pair = "imbue.mng_pair.plugin"
+tutor = "imbue.mng_tutor.plugin"
 
 [build-system]
 requires = ["hatchling"]

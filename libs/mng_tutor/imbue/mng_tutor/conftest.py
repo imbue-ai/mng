@@ -14,7 +14,12 @@ import imbue.mng.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+from imbue.mng.config.data_types import MngConfig
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.plugins import hookspecs
+from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
@@ -37,15 +42,7 @@ def cli_runner() -> CliRunner:
 
 @pytest.fixture(autouse=True)
 def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
-    """Create a plugin manager with mng hookspecs and local backend only.
-
-    Also loads external plugins via setuptools entry points to match the behavior
-    of load_config(). This ensures that external plugins like mng_pair are
-    discovered and registered.
-
-    This fixture also resets the module-level plugin manager singleton to ensure
-    test isolation.
-    """
+    """Create a plugin manager with mng hookspecs and local backend only."""
     imbue.mng.main.reset_plugin_manager()
     reset_backend_registry()
     reset_agent_registry()
@@ -140,3 +137,44 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
     repo_dir.mkdir()
     init_git_repo(repo_dir)
     return repo_dir
+
+
+@pytest.fixture
+def temp_config(temp_host_dir: Path) -> MngConfig:
+    """Create a MngConfig with a temporary host directory."""
+    mng_test_prefix = os.environ.get("MNG_PREFIX", "mng-test-")
+    return MngConfig(default_host_dir=temp_host_dir, prefix=mng_test_prefix, is_error_reporting_enabled=False)
+
+
+@pytest.fixture
+def temp_profile_dir(temp_host_dir: Path) -> Path:
+    """Create a temporary profile directory."""
+    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    return profile_dir
+
+
+@pytest.fixture
+def temp_mng_ctx(
+    temp_config: MngConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
+) -> Generator[MngContext, None, None]:
+    """Create a MngContext with a temporary host directory."""
+    with ConcurrencyGroup(name="test") as cg:
+        yield MngContext(
+            config=temp_config,
+            pm=plugin_manager,
+            profile_dir=temp_profile_dir,
+            is_interactive=False,
+            is_auto_approve=False,
+            concurrency_group=cg,
+        )
+
+
+@pytest.fixture
+def local_provider(temp_host_dir: Path, temp_mng_ctx: MngContext) -> LocalProviderInstance:
+    """Create a LocalProviderInstance with a temporary host directory."""
+    return LocalProviderInstance(
+        name=ProviderInstanceName("local"),
+        host_dir=temp_host_dir,
+        mng_ctx=temp_mng_ctx,
+    )

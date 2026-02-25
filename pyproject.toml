@@ -43,6 +43,8 @@ dev = [
 # --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
 # if it fires during fixture setup/teardown (especially the session-scoped cleanup).
 timeout_func_only = true
+# Use xunit1 format to enable record_xml_attribute fixture for consistent classnames
+junit_family = "xunit1"
 pythonpath = [
   "apps/*",
   "libs/*",
@@ -58,6 +60,7 @@ addopts = [
   "--cov=imbue.imbue_common",
   "--cov=imbue.mng_opencode",
   "--cov=imbue.mng_pair",
+  "--cov=imbue.mng_tutor",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -138,6 +141,9 @@ omit = [
     "apps/changelings/imbue/changelings/deploy/cron_runner.py",
     "apps/changelings/imbue/changelings/deploy/remote_runner.py",
     "apps/changelings/imbue/changelings/deploy/verification.py",
+    # Tutor TUI is interactive and should not have automated tests
+    "libs/mng_tutor/imbue/mng_tutor/tui.py",
+    "libs/mng_tutor/imbue/mng_tutor/cli.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
