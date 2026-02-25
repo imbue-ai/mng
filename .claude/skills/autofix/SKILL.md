@@ -16,14 +16,13 @@ setup and fixing -- the caller handles review of the resulting commits.
 
 ### Phase 1: Setup
 
+Record the initial state:
+
 ```bash
 mkdir -p .autofix/plans
+git rev-parse HEAD        # this is initial_head
+echo "$GIT_BASE_BRANCH"  # this is base_branch (use "main" if empty)
 ```
-
-- Initial HEAD (`initial_head`): !`git rev-parse HEAD`
-- Base branch (`base_branch`): !`echo $GIT_BASE_BRANCH`
-
-If base branch is empty above, use `main`.
 
 Determine which commits are unique to this branch (not on the base branch).
 The base branch may have been merged in, so use `git log` with `--first-parent`
