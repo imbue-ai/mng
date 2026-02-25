@@ -142,21 +142,19 @@ def test_read_agent_names_from_cache_filters_non_string_and_empty_names(
     assert result == ["also-good", "good"]
 
 
-def test_read_agent_names_from_cache_uses_default_host_dir(
+def test_read_agent_names_from_cache_uses_env_override_for_cache_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MNG_HOST_DIR", raising=False)
-    monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    custom_dir = tmp_path / "custom-cache"
+    custom_dir.mkdir()
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(custom_dir))
 
-    host_dir = tmp_path / ".mng"
-    host_dir.mkdir(parents=True, exist_ok=True)
-    _write_cache(host_dir, ["home-agent"])
+    _write_cache(custom_dir, ["cached-agent"])
 
     result = _read_agent_names_from_cache()
 
-    assert result == ["home-agent"]
+    assert result == ["cached-agent"]
 
 
 # =============================================================================

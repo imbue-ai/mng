@@ -8,7 +8,7 @@ from loguru import logger
 
 from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import get_host_dir
+from imbue.mng.cli.completion import get_completion_cache_dir
 from imbue.mng.utils.file_utils import atomic_write
 
 
@@ -38,7 +38,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             "subcommand_by_command": subcommand_by_command,
         }
 
-        cache_path = get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write CLI completions cache")

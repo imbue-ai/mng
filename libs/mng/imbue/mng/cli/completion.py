@@ -1,6 +1,8 @@
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Final
@@ -8,22 +10,27 @@ from typing import Final
 import click
 from click.shell_completion import CompletionItem
 
-from imbue.mng.config.pre_readers import read_default_host_dir
-
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
 _BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
-def get_host_dir() -> Path:
-    """Resolve the host directory using the full config precedence.
+def get_completion_cache_dir() -> Path:
+    """Return the directory used for completion cache files.
 
-    Delegates to the lightweight pre-reader which checks (highest to lowest):
-    1. MNG_HOST_DIR environment variable
-    2. default_host_dir from config files
-    3. ~/.{MNG_ROOT_NAME} fallback (defaults to ~/.mng)
+    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
+    system temp directory namespaced by uid to avoid collisions between users.
+    The directory is created if it does not exist.
+
+    This avoids importing the config system, keeping tab completion fast.
     """
-    return read_default_host_dir()
+    env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
+    if env_dir:
+        cache_dir = Path(env_dir)
+    else:
+        cache_dir = Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
 
 
 # =============================================================================
@@ -41,7 +48,7 @@ def _read_agent_names_from_cache() -> list[str]:
     Callers are responsible for guarding against unexpected exceptions.
     """
     try:
-        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if not cache_path.is_file():
             return []
 
@@ -66,7 +73,7 @@ def _trigger_background_cache_refresh() -> None:
     guarding against unexpected exceptions.
     """
     try:
-        cache_path = get_host_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
         if cache_path.is_file():
             age = time.time() - cache_path.stat().st_mtime
             if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
@@ -118,7 +125,7 @@ def complete_agent_name(
 
 def _get_cli_completions_path() -> Path:
     """Return the path to the CLI completions cache file in the host dir."""
-    return get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+    return get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
 
 
 def _read_cli_completions_file() -> dict | None:

@@ -242,6 +242,7 @@ def setup_test_mng_env(
 
     isolate_home(tmp_home_dir, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
 
