@@ -11,6 +11,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
@@ -19,9 +20,28 @@ from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.pure import pure
+from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
+from imbue.mng.api.list import load_all_agents_grouped_by_host
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng_schedule.errors import ScheduleDeployError
 
 VERIFICATION_TIMEOUT_SECONDS: Final[float] = 900.0
+
+# How long to wait for the agent to finish running after modal run completes.
+_AGENT_FINISH_TIMEOUT_SECONDS: Final[float] = 3600.0
+
+# How often to poll the agent's lifecycle state.
+_AGENT_POLL_INTERVAL_SECONDS: Final[float] = 10.0
+
+# How often to capture and log the agent's tmux pane content.
+_SCREEN_CAPTURE_INTERVAL_SECONDS: Final[float] = 30.0
+
+# Agent lifecycle states that indicate the agent is still actively running.
+_RUNNING_STATES: Final[frozenset[AgentLifecycleState]] = frozenset(
+    {AgentLifecycleState.RUNNING, AgentLifecycleState.WAITING, AgentLifecycleState.REPLACED}
+)
 
 
 @pure
@@ -46,6 +66,79 @@ def _destroy_agent(agent_name: str) -> None:
         )
     if result.returncode != 0:
         logger.warning("mng destroy failed (exit {}): {}", result.returncode, result.stderr)
+
+
+def _resolve_agent(agent_name: str, mng_ctx: MngContext) -> AgentInterface:
+    """Resolve an agent by name to an AgentInterface object.
+
+    Queries all providers to find the agent and returns a handle to it.
+    The host is started if necessary, but the agent's lifecycle state is
+    not checked (since we expect the agent to be running and want to poll
+    its state ourselves).
+
+    Raises UserInputError if the agent cannot be found.
+    """
+    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx)
+    agent, _host = find_and_maybe_start_agent_by_name_or_id(
+        agent_name,
+        agents_by_host,
+        mng_ctx,
+        "schedule-verify",
+        is_start_desired=True,
+        skip_agent_state_check=True,
+    )
+    return agent
+
+
+def _wait_for_agent_to_finish(
+    agent: AgentInterface,
+    timeout_seconds: float = _AGENT_FINISH_TIMEOUT_SECONDS,
+    poll_interval_seconds: float = _AGENT_POLL_INTERVAL_SECONDS,
+    screen_capture_interval_seconds: float = _SCREEN_CAPTURE_INTERVAL_SECONDS,
+) -> None:
+    """Wait for an agent to finish running, periodically capturing its screen.
+
+    Polls the agent's lifecycle state until it is no longer in a running state
+    (RUNNING, WAITING, or REPLACED). Periodically captures and logs the agent's
+    tmux pane content via capture_pane_content() so the deployment progress can
+    be monitored.
+
+    Raises ScheduleDeployError if the timeout is exceeded.
+    """
+    logger.info("Waiting for agent '{}' to finish (timeout: {:.0f}s)", agent.name, timeout_seconds)
+
+    start_time = time.monotonic()
+    # Set to a value that triggers an immediate capture on the first iteration.
+    last_capture_time = start_time - screen_capture_interval_seconds
+
+    while True:
+        elapsed = time.monotonic() - start_time
+        if elapsed > timeout_seconds:
+            raise ScheduleDeployError(
+                f"Timed out waiting for agent '{agent.name}' to finish after {timeout_seconds:.0f}s"
+            )
+
+        state = agent.get_lifecycle_state()
+        if state not in _RUNNING_STATES:
+            logger.info(
+                "Agent '{}' finished with state: {} (after {:.0f}s)",
+                agent.name,
+                state,
+                elapsed,
+            )
+            return
+
+        # Capture and log the agent's screen periodically.
+        now = time.monotonic()
+        if now - last_capture_time >= screen_capture_interval_seconds:
+            screen = agent.capture_pane_content()
+            if screen is not None:
+                logger.info("Agent '{}' screen capture:\n{}", agent.name, screen)
+            else:
+                logger.debug("Could not capture screen for agent '{}'", agent.name)
+            last_capture_time = now
+
+        time.sleep(poll_interval_seconds)
 
 
 def _stream_process_output(
@@ -85,6 +178,7 @@ def verify_schedule_deployment(
     is_finish_initial_run: bool,
     env: Mapping[str, str],
     cron_runner_path: Path,
+    mng_ctx: MngContext,
     process_timeout_seconds: float = VERIFICATION_TIMEOUT_SECONDS,
 ) -> None:
     """Verify deployment by invoking the deployed function and waiting for it to exit.
@@ -94,7 +188,9 @@ def verify_schedule_deployment(
     2. Streams output and monitors for errors
     3. Waits for the process to exit
     4. If is_finish_initial_run is False, destroys the agent after it starts
-    5. If is_finish_initial_run is True, leaves the agent running
+    5. If is_finish_initial_run is True, resolves the agent via the mng Python API,
+       then polls its lifecycle state until it finishes, periodically capturing and
+       logging the agent's tmux screen via capture_pane_content()
     6. Raises ScheduleDeployError on timeout, non-zero exit, or detected errors
     """
     cmd = build_modal_run_command(cron_runner_path, modal_env_name)
@@ -148,9 +244,14 @@ def verify_schedule_deployment(
         logger.info("modal run completed successfully for schedule '{}'", trigger_name)
 
         if is_finish_initial_run:
-            # FIXME: we should be waiting until the agent actually finishes and shuts down
-            #  get the agent, and then just keep polling until its state changes from RUNNING
-            pass
+            if extracted_agent_name is not None:
+                agent = _resolve_agent(extracted_agent_name, mng_ctx)
+                _wait_for_agent_to_finish(agent)
+            else:
+                logger.warning(
+                    "Could not extract agent name from output -- cannot wait for agent to finish. "
+                    "The agent may still be running."
+                )
         else:
             if extracted_agent_name is not None:
                 _destroy_agent(extracted_agent_name)

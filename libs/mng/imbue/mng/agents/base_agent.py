@@ -288,6 +288,10 @@ class BaseAgent(AgentInterface):
             if tui_indicator is not None:
                 self._wait_for_tui_ready(self.session_name, tui_indicator)
 
+    def capture_pane_content(self) -> str | None:
+        """Capture the current tmux pane content for this agent."""
+        return self._capture_pane_content(self.session_name)
+
     def _send_message_simple(self, session_name: str, message: str) -> None:
         """Send a message without marker-based synchronization."""
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
