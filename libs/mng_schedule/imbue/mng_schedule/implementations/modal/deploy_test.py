@@ -144,12 +144,14 @@ def run_staging(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Callable[[Path | None], Path]:
     """Return a callable that runs stage_deploy_files and returns the staging dir.
 
     Accepts an optional repo_root (creates an empty one if not provided).
     The caller should create any files they want staged BEFORE calling this.
     """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     def _run(repo_root: Path | None = None) -> Path:
         if repo_root is None:
@@ -214,8 +216,10 @@ def test_stage_deploy_files_creates_subdirs_with_claude_defaults(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should always stage generated claude defaults in home/."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     repo_root = tmp_path / "repo"
     repo_root.mkdir()
     staging_dir = tmp_path / "staging"
@@ -237,8 +241,10 @@ def test_stage_deploy_files_stages_project_files(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should stage relative paths under project/."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _ProjectFilePlugin:
         @staticmethod
@@ -396,8 +402,10 @@ def test_parse_upload_spec_rejects_absolute_dest(tmp_path: Path) -> None:
 def test_stage_consolidated_env_includes_env_files(
     tmp_path: Path,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should include vars from --env-file."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     env_file = tmp_path / "custom.env"
     env_file.write_text("CUSTOM_VAR=hello\n")
 
@@ -416,6 +424,7 @@ def test_stage_consolidated_env_includes_pass_env(
     temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should include vars from --pass-env."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     monkeypatch.setenv("MY_PASS_VAR", "passed_value")
 
     output_dir = tmp_path / "secrets"
@@ -433,6 +442,7 @@ def test_stage_consolidated_env_merges_env_files_and_pass_env(
     temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should merge env files and pass-env vars."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     env_file = tmp_path / "extra.env"
     env_file.write_text("FILE_KEY=from_file\n")
 
@@ -510,8 +520,10 @@ def test_modify_env_vars_for_deploy_plugin_adds_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """modify_env_vars_for_deploy plugin can add env vars by mutating the dict."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _EnvPlugin:
         @staticmethod
@@ -530,8 +542,10 @@ def test_modify_env_vars_for_deploy_plugin_removes_vars(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """modify_env_vars_for_deploy plugin can remove env vars via pop/del."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _RemovalPlugin:
         @staticmethod
@@ -551,12 +565,14 @@ def test_modify_env_vars_for_deploy_plugins_see_each_others_changes(
     plugin_manager: pluggy.PluginManager,
     tmp_path: Path,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Plugins called later see mutations made by earlier plugins.
 
     Uses tryfirst to ensure _PluginA runs before _PluginB, demonstrating
     that plugins can control ordering via pluggy's tryfirst/trylast.
     """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _PluginA:
         @staticmethod
@@ -590,8 +606,10 @@ def test_stage_consolidated_env_includes_plugin_env_vars(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """_stage_consolidated_env should include env vars contributed by plugins."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _EnvPlugin:
         @staticmethod
@@ -617,6 +635,7 @@ def test_stage_consolidated_env_plugin_can_remove_env_vars(
     temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env should remove env vars when plugin deletes keys."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
 
     class _RemovalPlugin:
         @staticmethod
@@ -645,6 +664,7 @@ def test_stage_consolidated_env_plugin_overrides_have_highest_precedence(
     temp_mng_ctx: MngContext,
 ) -> None:
     """_stage_consolidated_env plugin env vars should override pass-env and env-file vars."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     env_file = tmp_path / "base.env"
     env_file.write_text("MY_VAR=from_file\n")
 
@@ -683,8 +703,10 @@ def test_stage_deploy_files_stages_upload_file(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should stage uploaded files to the correct destination."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     source_file = tmp_path / "local_config.toml"
     source_file.write_text("[config]\nkey = true\n")
 
@@ -709,8 +731,10 @@ def test_stage_deploy_files_stages_upload_directory(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files should stage uploaded directories recursively."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     source_dir = tmp_path / "my_configs"
     source_dir.mkdir()
     (source_dir / "a.txt").write_text("file-a")
@@ -742,6 +766,7 @@ def test_stage_deploy_files_with_pass_env(
     temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should include --pass-env vars in the consolidated env file."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     monkeypatch.setenv("TEST_API_KEY", "sk-test-123")
 
     repo_root = tmp_path / "repo"
@@ -765,8 +790,10 @@ def test_stage_deploy_files_with_exclude_user_settings(
     tmp_path: Path,
     plugin_manager: pluggy.PluginManager,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """stage_deploy_files with include_user_settings=False should skip mng home files but still include claude defaults."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     # Create a home file that would normally be included
     mng_dir = Path.home() / ".mng"
     mng_dir.mkdir(parents=True, exist_ok=True)
@@ -882,6 +909,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
     temp_mng_ctx: MngContext,
 ) -> None:
     """stage_deploy_files should not stage mng source (it is handled separately)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-dummy-key-for-tests")
     monkeypatch.chdir(tmp_path)
 
     repo_root = tmp_path / "repo"
