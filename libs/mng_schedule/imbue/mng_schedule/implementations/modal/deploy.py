@@ -43,6 +43,7 @@ _SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugin/schedule"
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
+    print("Is stdout:", is_stdout)
     stream = sys.stdout if is_stdout else sys.stderr
     stream.write(line)
     stream.flush()
@@ -269,7 +270,7 @@ def build_mng_install_commands(mode: MngInstallMode, dockerfile_user: str | None
             commands = [
                 "USER root",
                 "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl rsync bash git && rm -rf /var/lib/apt/lists/*",
-                "RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
+                "RUN command -v uv || curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
             ]
             if mode == MngInstallMode.PACKAGE:
                 # pip install runs as root (needs write access to system site-packages).

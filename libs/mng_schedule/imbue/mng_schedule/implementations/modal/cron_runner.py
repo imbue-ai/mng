@@ -199,10 +199,10 @@ def run_scheduled_trigger() -> None:
 
     # Load consolidated env vars into the process environment so that the
     # mng CLI and any subprocesses it spawns have access to them.
-    secrets_env = Path("/staging/secrets/env.json")
-    if secrets_env.exists():
+    secrets_json_path = Path("/staging/secrets/env.json")
+    if secrets_json_path.exists():
         print("Loading environment variables from secrets env file...")
-        for key, value in json.loads(secrets_env.read_text()).items():
+        for key, value in json.loads(secrets_json_path.read_text()).items():
             if value is not None:
                 os.environ[key] = value
 
@@ -216,6 +216,7 @@ def run_scheduled_trigger() -> None:
 
     # Also pass the secrets env file via --host-env-file for create/start commands
     # so the agent host inherits these environment variables.
+    secrets_env = Path("/staging/secrets/.env")
     if secrets_env.exists() and command in ("create", "start"):
         cmd.extend(["--host-env-file", str(secrets_env)])
 
