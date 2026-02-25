@@ -331,7 +331,7 @@ def _check_unknown_fields(
 
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
-    disabled_plugins: frozenset[str] = frozenset(),
+    disabled_plugins: frozenset[str],
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
@@ -528,7 +528,7 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
 
 def parse_config(
     raw: dict[str, Any],
-    disabled_plugins: frozenset[str] = frozenset(),
+    disabled_plugins: frozenset[str],
 ) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 

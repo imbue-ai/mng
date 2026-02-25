@@ -285,7 +285,7 @@ def test_load_toml_parses_valid_file(tmp_path: Path) -> None:
 def test_parse_providers_parses_valid_provider() -> None:
     """_parse_providers should parse valid provider configs."""
     raw = {"my-local": {"backend": "local"}}
-    result = _parse_providers(raw)
+    result = _parse_providers(raw, disabled_plugins=frozenset())
     assert ProviderInstanceName("my-local") in result
     assert result[ProviderInstanceName("my-local")].backend == ProviderBackendName("local")
 
@@ -294,14 +294,14 @@ def test_parse_providers_raises_on_unknown_backend() -> None:
     """_parse_providers should raise ConfigParseError for unknown backend."""
     raw = {"my-provider": {"some_field": "value"}}
     with pytest.raises(ConfigParseError, match="references unknown backend 'my-provider'"):
-        _parse_providers(raw)
+        _parse_providers(raw, disabled_plugins=frozenset())
 
 
 def test_parse_providers_raises_on_unknown_fields() -> None:
     """_parse_providers should raise ConfigParseError for unknown fields."""
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
     with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
-        _parse_providers(raw)
+        _parse_providers(raw, disabled_plugins=frozenset())
 
 
 def test_parse_providers_skips_disabled_plugin() -> None:
@@ -546,7 +546,7 @@ def test_parse_config_parses_full_config() -> None:
         "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
-    result = parse_config(raw)
+    result = parse_config(raw, disabled_plugins=frozenset())
     assert result.prefix == "test-"
     assert result.default_host_dir == "/tmp/test"
     assert AgentTypeName("claude") in result.agent_types
@@ -560,7 +560,7 @@ def test_parse_config_parses_full_config() -> None:
 def test_parse_config_handles_minimal_config() -> None:
     """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
-    result = parse_config(raw)
+    result = parse_config(raw, disabled_plugins=frozenset())
     assert result.prefix == "test-"
     assert result.agent_types == {}
     assert result.providers == {}
@@ -571,7 +571,7 @@ def test_parse_config_handles_minimal_config() -> None:
 
 def test_parse_config_handles_empty_config() -> None:
     """parse_config should handle empty config dict."""
-    result = parse_config({})
+    result = parse_config({}, disabled_plugins=frozenset())
     assert result.prefix is None
     assert result.default_host_dir is None
     assert result.agent_types == {}
@@ -585,7 +585,7 @@ def test_parse_config_raises_on_unknown_top_level_field() -> None:
     """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        parse_config(raw)
+        parse_config(raw, disabled_plugins=frozenset())
 
 
 def test_parse_config_raises_on_unknown_nested_field() -> None:
@@ -594,19 +594,19 @@ def test_parse_config_raises_on_unknown_nested_field() -> None:
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        parse_config(raw)
+        parse_config(raw, disabled_plugins=frozenset())
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
-    result = parse_config(raw)
+    result = parse_config(raw, disabled_plugins=frozenset())
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
 def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
-    result = parse_config({})
+    result = parse_config({}, disabled_plugins=frozenset())
     assert result.default_destroyed_host_persisted_seconds is None
 
 
@@ -618,7 +618,7 @@ def test_parse_providers_accepts_destroyed_host_persisted_seconds() -> None:
             "destroyed_host_persisted_seconds": 172800.0,
         },
     }
-    result = _parse_providers(raw_providers)
+    result = _parse_providers(raw_providers, disabled_plugins=frozenset())
     provider_config = result[ProviderInstanceName("my-local")]
     assert provider_config.destroyed_host_persisted_seconds == 172800.0
 
