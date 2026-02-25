@@ -15,6 +15,7 @@ from typing import Any
 from typing import Final
 
 from imbue.imbue_common.pure import pure
+from imbue.mng.cli.output_helpers import AbortError
 
 _INSTALL_DIRNAME: Final[str] = "install"
 
@@ -67,9 +68,6 @@ def require_install_dir() -> Path:
     Raises ``AbortError`` when running from a development checkout rather
     than the managed install.
     """
-    # Import here to avoid circular dependency (output_helpers -> ... -> install_dir).
-    from imbue.mng.cli.output_helpers import AbortError
-
     install_dir = get_install_dir()
     if not is_running_from_install_dir():
         raise AbortError(
