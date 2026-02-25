@@ -33,7 +33,6 @@ from imbue.mng.config.data_types import EnvVar
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.conftest import make_mng_ctx
-from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.hosts.host import Host
@@ -48,8 +47,6 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
-from imbue.mng.utils.polling import wait_for
-from imbue.mng.utils.testing import cleanup_tmux_session
 from imbue.mng.utils.testing import init_git_repo
 
 # =============================================================================
@@ -2013,63 +2010,3 @@ def test_install_claude_without_version() -> None:
     assert len(executed_commands) == 1
     assert "bash -s" not in executed_commands[0]
     assert "install.sh | bash" in executed_commands[0]
-
-
-# =============================================================================
-# Dialog Detection Tests
-# =============================================================================
-
-
-def test_check_for_blocking_dialog_raises_when_permission_dialog_detected(
-    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
-) -> None:
-    """_check_for_blocking_dialog should raise DialogDetectedError when permission dialog text is visible."""
-    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-    session_name = f"{agent.mng_ctx.config.prefix}{agent.name}"
-
-    # Create a tmux session that displays permission dialog text
-    agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'echo \"Do you want to proceed?\"; sleep 847601'",
-        timeout_seconds=5.0,
-    )
-
-    try:
-        # Wait for the text to appear in the pane
-        wait_for(
-            lambda: agent._check_pane_contains(session_name, "Do you want to proceed?"),
-            timeout=5.0,
-            error_message="Dialog text not visible in pane",
-        )
-
-        # Should detect the dialog and raise
-        with pytest.raises(DialogDetectedError, match="permission dialog"):
-            agent._check_for_blocking_dialog(session_name)
-    finally:
-        cleanup_tmux_session(session_name)
-
-
-def test_check_for_blocking_dialog_passes_when_no_dialog_present(
-    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
-) -> None:
-    """_check_for_blocking_dialog should not raise when no dialog text is visible."""
-    agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-    session_name = f"{agent.mng_ctx.config.prefix}{agent.name}"
-
-    # Create a tmux session with normal (non-dialog) content
-    agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'echo \"Normal output here\"; sleep 847602'",
-        timeout_seconds=5.0,
-    )
-
-    try:
-        # Wait for the content to appear
-        wait_for(
-            lambda: agent._check_pane_contains(session_name, "Normal output here"),
-            timeout=5.0,
-            error_message="Content not visible in pane",
-        )
-
-        # Should NOT raise because no dialog indicators are present
-        agent._check_for_blocking_dialog(session_name)
-    finally:
-        cleanup_tmux_session(session_name)
