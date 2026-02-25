@@ -24,7 +24,7 @@ _BACKGROUND_REFRESH_COOLDOWN_SECONDS = 30
 def _get_completion_cache_dir() -> Path:
     """Return the directory used for completion cache files.
 
-    Mirrors get_completion_cache_dir() in completion.py but uses only stdlib.
+    Mirrors get_completion_cache_dir() in completion_writer.py but uses only stdlib.
     """
     env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
     if env_dir:
