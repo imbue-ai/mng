@@ -206,6 +206,20 @@ def run_scheduled_trigger() -> None:
             if value is not None:
                 os.environ[key] = value
 
+    # Set up GitHub authentication
+    print("Setting up GitHub authentication...")
+    os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
+    _run_and_stream(
+        "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null && gh auth setup-git",
+        is_shell=True,
+    )
+
+    # make sure we fetch and check out the latest code
+    branch_name = "josh/schedule_fixes"
+    _run_and_stream(["git", "fetch", "--all"])
+    _run_and_stream(["git", "checkout", branch_name])
+    _run_and_stream(["git", "merge", f"origin/{branch_name}"])
+
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()
     args_str = trigger.get("args", "")
@@ -223,10 +237,6 @@ def run_scheduled_trigger() -> None:
     print(f"Currently in {os.getcwd()}")
 
     print(f"Running: {' '.join(cmd)}")
-    exit_code = _run_and_stream(
-        cmd,
-        cwd="/code/mng",
-        is_checked=False,
-    )
+    exit_code = _run_and_stream(cmd, is_checked=False)
     if exit_code != 0:
         raise RuntimeError(f"mng {command} failed with exit code {exit_code}")
