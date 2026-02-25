@@ -635,6 +635,7 @@ def test_get_idle_seconds_after_boot_activity(host_with_temp_dir: tuple[Host, Pa
 # =============================================================================
 
 
+@pytest.mark.acceptance
 def test_unset_vars_applied_during_agent_start(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -751,6 +752,7 @@ def test_procps_ps_command_available() -> None:
         raise AssertionError("ps aux output invalid")
 
 
+@pytest.mark.acceptance
 def test_stop_agent_kills_single_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -805,6 +807,7 @@ def test_stop_agent_kills_single_pane_processes(
     wait_for(check_cleanup, timeout=10, error_message="Agent session and processes not cleaned up after stop")
 
 
+@pytest.mark.acceptance
 def test_stop_agent_kills_multi_pane_processes(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -867,6 +870,7 @@ def test_stop_agent_kills_multi_pane_processes(
     )
 
 
+@pytest.mark.acceptance
 def test_start_agent_creates_process_group(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -924,6 +928,7 @@ def test_start_agent_creates_process_group(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.acceptance
 def test_start_agent_starts_process_activity_monitor(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1037,6 +1042,7 @@ def test_additional_commands_stored_in_agent_data(
     ]
 
 
+@pytest.mark.acceptance
 def test_start_agent_creates_additional_tmux_windows(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1094,6 +1100,7 @@ def test_start_agent_creates_additional_tmux_windows(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.acceptance
 def test_start_agent_additional_windows_run_commands(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -1944,6 +1951,7 @@ def test_provision_agent_env_vars_precedence(
     assert "from_file" not in content
 
 
+@pytest.mark.acceptance
 def test_start_agent_has_access_to_env_vars(
     temp_host_dir: Path,
     per_host_dir: Path,
@@ -2006,6 +2014,7 @@ def test_start_agent_has_access_to_env_vars(
         host.stop_agents([agent.id])
 
 
+@pytest.mark.acceptance
 @pytest.mark.timeout(25)
 def test_new_tmux_window_inherits_env_vars(
     temp_host_dir: Path,

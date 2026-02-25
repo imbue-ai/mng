@@ -60,6 +60,7 @@ def test_cli_create_with_echo_command(
         assert agents_dir.exists(), "agents directory should exist under host dir"
 
 
+@pytest.mark.acceptance
 def test_cli_create_via_subprocess(
     temp_work_dir: Path,
     temp_host_dir: Path,
