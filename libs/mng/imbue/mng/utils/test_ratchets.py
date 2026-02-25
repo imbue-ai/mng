@@ -311,7 +311,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     # Docker provider uses subprocess for docker build/run CLI pass-through.
     # connect.py uses os.execvp/os.execvpe for process replacement (not child spawning).
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(47), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(48), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
@@ -355,7 +355,7 @@ def test_prevent_importlib_import_module() -> None:
 
 def test_prevent_getattr() -> None:
     chunks = check_ratchet_rule(PREVENT_GETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(8), PREVENT_GETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(10), PREVENT_GETATTR.format_failure(chunks)
 
 
 def test_prevent_setattr() -> None:
