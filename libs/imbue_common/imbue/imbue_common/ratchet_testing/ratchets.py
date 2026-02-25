@@ -8,7 +8,6 @@ from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
 from imbue.imbue_common.ratchet_testing.core import LineNumber
 from imbue.imbue_common.ratchet_testing.core import RatchetMatchChunk
-from imbue.imbue_common.ratchet_testing.core import _get_chunk_commit_date
 from imbue.imbue_common.ratchet_testing.core import _get_non_ignored_files_with_extension
 from imbue.imbue_common.ratchet_testing.core import _parse_file_ast
 
@@ -38,18 +37,15 @@ def find_if_elif_without_else(
                     start_line = LineNumber(node.lineno)
                     end_line = LineNumber(_get_if_chain_end_line(node))
 
-                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                     chunk = RatchetMatchChunk(
                         file_path=file_path,
                         matched_content=f"if/elif chain at line {start_line}",
                         start_line=start_line,
                         end_line=end_line,
-                        last_modified_date=commit_date,
                     )
                     chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
@@ -186,18 +182,15 @@ def find_init_methods_in_non_exception_classes(
                         start_line = LineNumber(item.lineno)
                         end_line = LineNumber(item.end_lineno if item.end_lineno else item.lineno)
 
-                        commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                         chunk = RatchetMatchChunk(
                             file_path=file_path,
                             matched_content=f"__init__ method in non-Exception/Error class '{class_name}'",
                             start_line=start_line,
                             end_line=end_line,
-                            last_modified_date=commit_date,
                         )
                         chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
@@ -253,18 +246,15 @@ def find_inline_functions(
                         start_line = LineNumber(inner_node.lineno)
                         end_line = LineNumber(inner_node.end_lineno if inner_node.end_lineno else inner_node.lineno)
 
-                        commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                         chunk = RatchetMatchChunk(
                             file_path=file_path,
                             matched_content=f"inline function '{inner_node.name}' at line {start_line}",
                             start_line=start_line,
                             end_line=end_line,
-                            last_modified_date=commit_date,
                         )
                         chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
@@ -302,18 +292,15 @@ def find_underscore_imports(
                     start_line = LineNumber(node.lineno)
                     end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
 
-                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                     chunk = RatchetMatchChunk(
                         file_path=file_path,
                         matched_content=f"import of underscore-prefixed name(s): {', '.join(underscore_names)}",
                         start_line=start_line,
                         end_line=end_line,
-                        last_modified_date=commit_date,
                     )
                     chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
@@ -359,18 +346,15 @@ def find_cast_usages(
                     start_line = LineNumber(node.lineno)
                     end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
 
-                    commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                     chunk = RatchetMatchChunk(
                         file_path=file_path,
                         matched_content=f"cast() usage at line {start_line}",
                         start_line=start_line,
                         end_line=end_line,
-                        last_modified_date=commit_date,
                     )
                     chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
@@ -404,18 +388,15 @@ def find_assert_isinstance_usages(
                         start_line = LineNumber(node.lineno)
                         end_line = LineNumber(node.end_lineno if node.end_lineno else node.lineno)
 
-                        commit_date = _get_chunk_commit_date(file_path, start_line, end_line)
-
                         chunk = RatchetMatchChunk(
                             file_path=file_path,
                             matched_content=f"assert isinstance() at line {start_line}",
                             start_line=start_line,
                             end_line=end_line,
-                            last_modified_date=commit_date,
                         )
                         chunks.append(chunk)
 
-    sorted_chunks = sorted(chunks, key=lambda c: c.last_modified_date, reverse=True)
+    sorted_chunks = sorted(chunks, key=lambda c: (str(c.file_path), c.start_line))
     return tuple(sorted_chunks)
 
 
