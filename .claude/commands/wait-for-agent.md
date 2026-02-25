@@ -1,6 +1,7 @@
 ---
 argument-hint: [agent_name] [post_wait_instructions]
 description: Wait for another agent to enter WAITING state, then execute follow-up instructions
+allowed-tools: Bash(uv run mng list *), Bash(while true; do*)
 ---
 
 Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then do the following: $2
