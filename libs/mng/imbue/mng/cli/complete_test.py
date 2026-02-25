@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 from imbue.mng.cli.complete import _filter_aliases
-from imbue.mng.cli.complete import _format_output
 from imbue.mng.cli.complete import _get_completions
 from imbue.mng.cli.complete import _read_agent_names
 from imbue.mng.cli.complete import _read_cache
@@ -470,25 +469,3 @@ def test_get_completions_invalid_comp_cword(
     result = _get_completions("zsh")
 
     assert result == []
-
-
-# =============================================================================
-# _format_output tests
-# =============================================================================
-
-
-def test_format_output_zsh() -> None:
-    result = _format_output(["create", "list"], "zsh")
-
-    assert result == "plain\ncreate\n_\nplain\nlist\n_"
-
-
-def test_format_output_bash() -> None:
-    result = _format_output(["create", "list"], "bash")
-
-    assert result == "plain,create\nplain,list"
-
-
-def test_format_output_empty() -> None:
-    assert _format_output([], "zsh") == ""
-    assert _format_output([], "bash") == ""
