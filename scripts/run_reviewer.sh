@@ -223,17 +223,19 @@ upload_reviewer_output() {
 }
 
 if [[ "$IS_AUTOFIX" == "true" ]]; then
-    # Autofix mode: check the result file and whether HEAD moved
-    if [[ -f .autofix/result ]]; then
-        RESULT=$(cat .autofix/result)
-        if [[ "$RESULT" == error:* ]]; then
-            log_error "Autofix failed: $RESULT"
-            _log_to_file "ERROR" "Autofix error: $RESULT, exiting with 1"
-            exit 1
-        fi
-    else
+    # Autofix mode: parse the JSON result file and check whether HEAD moved
+    if [[ ! -f .autofix/result ]]; then
         log_error "Autofix did not write a result file"
         _log_to_file "ERROR" "Missing .autofix/result, exiting with 1"
+        exit 1
+    fi
+
+    AUTOFIX_STATUS=$(jq -r '.status // empty' .autofix/result 2>/dev/null || true)
+    AUTOFIX_NOTE=$(jq -r '.note // empty' .autofix/result 2>/dev/null || true)
+
+    if [[ "$AUTOFIX_STATUS" == "failed" ]]; then
+        log_error "Autofix failed: $AUTOFIX_NOTE"
+        _log_to_file "ERROR" "Autofix failed: $AUTOFIX_NOTE, exiting with 1"
         exit 1
     fi
 

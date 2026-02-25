@@ -52,16 +52,29 @@ Important:
 
 After the loop ends:
 
-1. Determine the result:
+1. Determine the result and write it as JSON to `.autofix/result`:
+
    - If `git rev-parse HEAD` equals `initial_head`, check what the last
      subagent reported (it may have found issues it was unable to fix or
-     unable to commit). If it encountered problems, the result is
-     `error: <description of what the subagent reported>`. Otherwise the
-     result is `clean`.
-   - If HEAD moved past `initial_head`, the result is `fixed`.
-   - If an error occurred during the fix loop, the result is `error: <description>`.
+     unable to commit). If it encountered problems, the status is `failed`.
+     Otherwise the status is `clean`.
+   - If HEAD moved past `initial_head`, the status is `fixed`.
+   - If an error occurred during the fix loop, the status is `failed`.
 
-2. Write the result string to `.autofix/result`.
+   The JSON format is:
+
+   ```json
+   {
+     "status": "<clean|fixed|failed>",
+     "note": "<see below>"
+   }
+   ```
+
+   The `note` field:
+   - If `clean`: what the reviewer's final conclusion was (e.g. "no issues found").
+   - If `failed`: what the error or problem was.
+   - If `fixed`: by default empty string, but include any important context
+     if needed.
 
 3. Touch the done marker file so the caller knows this skill has finished:
 
