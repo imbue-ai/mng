@@ -1,12 +1,8 @@
 # offload configuration for running mng tests on Modal
 
-# Format for constructing test IDs from JUnit XML (pytest uses name attribute directly)
-test_id_format = "{name}"
-
 [offload]
 max_parallel = 50
 test_timeout_secs = 60
-retry_count = 4
 stream_output = true
 sandbox_project_root = "/code/mng"
 
@@ -19,12 +15,17 @@ destroy_command = "uv run @modal_sandbox.py destroy {sandbox_id}"
 download_command = "uv run @modal_sandbox.py download {sandbox_id} {paths}"
 timeout_secs = 600
 
-[groups.all]
+[framework]
 type = "default"
+# Format for constructing test IDs from JUnit XML (pytest uses name attribute directly)
+test_id_format = "{name}"
 # Discover tests locally using pytest --collect-only, exclude acceptance and release tests
 discover_command = "uv run pytest --collect-only -q -m 'not acceptance and not release' 2>/dev/null | grep '::'"
 # Run tests in the sandbox (source is baked into /app)
 run_command = "cd /code/mng && git fetch origin main && git checkout main && git apply /offload-upload/patch --allow-empty && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml=/tmp/junit.xml {tests}"
+
+[groups.all]
+retry_count = 0
 
 [report]
 output_dir = "test-results"
