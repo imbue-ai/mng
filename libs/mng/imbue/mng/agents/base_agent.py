@@ -53,6 +53,11 @@ class DialogIndicator(FrozenModel, ABC):
         """Return the string to look for in the tmux pane content."""
         ...
 
+    @abstractmethod
+    def get_description(self) -> str:
+        """Return a human-readable description for error messages."""
+        ...
+
 
 class BaseAgent(AgentInterface):
     """Concrete agent implementation that stores data on the host filesystem."""
@@ -317,7 +322,7 @@ class BaseAgent(AgentInterface):
         for indicator in indicators:
             match_string = indicator.get_match_string()
             if match_string in content:
-                description = type(indicator).__name__
+                description = indicator.get_description()
                 logger.warning(
                     "Dialog detected in agent {} pane: {} (matched: {})",
                     self.name,

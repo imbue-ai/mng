@@ -411,6 +411,9 @@ class PermissionDialogIndicator(DialogIndicator):
     def get_match_string(self) -> str:
         return "Do you want to proceed?"
 
+    def get_description(self) -> str:
+        return "permission dialog"
+
 
 class ClaudeAgent(BaseAgent):
     """Agent implementation for Claude with session resumption support."""

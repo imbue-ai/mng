@@ -2055,7 +2055,7 @@ def test_check_for_blocking_dialog_raises_when_permission_dialog_detected(
         )
 
         # Should detect the dialog and raise
-        with pytest.raises(DialogDetectedError, match="PermissionDialogIndicator"):
+        with pytest.raises(DialogDetectedError, match="permission dialog"):
             agent._check_for_blocking_dialog(session_name)
     finally:
         cleanup_tmux_session(session_name)
