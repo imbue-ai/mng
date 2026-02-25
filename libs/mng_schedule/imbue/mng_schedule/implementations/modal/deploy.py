@@ -529,11 +529,15 @@ def build_deploy_config(
     cron_timezone: str,
     mng_install_commands: list[str],
     snapshot_id: str | None = None,
+    full_copy: bool = False,
 ) -> dict[str, Any]:
     """Build the deploy configuration dict that gets baked into the Modal image.
 
     When snapshot_id is set, cron_runner.py will build a minimal image (without the
     project Dockerfile) and pass --snapshot to the mng create command.
+
+    When full_copy is True, cron_runner.py will skip git fetch/checkout at runtime
+    since the working directory code was baked in at deploy time.
     """
     config: dict[str, Any] = {
         "app_name": app_name,
@@ -544,6 +548,8 @@ def build_deploy_config(
     }
     if snapshot_id is not None:
         config["snapshot_id"] = snapshot_id
+    if full_copy:
+        config["full_copy"] = True
     return config
 
 
@@ -772,6 +778,7 @@ def deploy_schedule(
         cron_timezone=cron_timezone,
         mng_install_commands=mng_install_cmds,
         snapshot_id=snapshot_id,
+        full_copy=full_copy,
     )
     deploy_config_json = json.dumps(deploy_config)
     (staging_dir / "deploy_config.json").write_text(deploy_config_json)

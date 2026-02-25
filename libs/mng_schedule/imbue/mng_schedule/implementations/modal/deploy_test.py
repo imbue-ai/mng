@@ -1097,3 +1097,42 @@ def test_build_deploy_config_omits_snapshot_id_when_none() -> None:
         mng_install_commands=[],
     )
     assert "snapshot_id" not in result
+
+
+def test_build_deploy_config_includes_full_copy() -> None:
+    """build_deploy_config should include full_copy when True."""
+    trigger = ScheduleTriggerDefinition(
+        name="copy-test",
+        command=ScheduledMngCommand.CREATE,
+        args="",
+        schedule_cron="0 3 * * *",
+        provider="modal",
+    )
+    result = build_deploy_config(
+        app_name="test-app",
+        trigger=trigger,
+        cron_schedule="0 3 * * *",
+        cron_timezone="UTC",
+        mng_install_commands=[],
+        full_copy=True,
+    )
+    assert result["full_copy"] is True
+
+
+def test_build_deploy_config_omits_full_copy_when_false() -> None:
+    """build_deploy_config should not include full_copy when False (default)."""
+    trigger = ScheduleTriggerDefinition(
+        name="test",
+        command=ScheduledMngCommand.CREATE,
+        args="",
+        schedule_cron="0 3 * * *",
+        provider="modal",
+    )
+    result = build_deploy_config(
+        app_name="test-app",
+        trigger=trigger,
+        cron_schedule="0 3 * * *",
+        cron_timezone="UTC",
+        mng_install_commands=[],
+    )
+    assert "full_copy" not in result

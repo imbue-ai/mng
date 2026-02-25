@@ -21,8 +21,8 @@ def add_trigger_options(command: Any) -> Any:
     """Add trigger definition options shared by add and update commands.
 
     All options are optional at the click level. Commands that require specific
-    options (e.g. add requires --command, --schedule, --provider) should
-    validate at runtime.
+    options (e.g. add requires --schedule and --provider) should validate at
+    runtime.
     """
     # Applied in reverse order (bottom-up per click convention)
 

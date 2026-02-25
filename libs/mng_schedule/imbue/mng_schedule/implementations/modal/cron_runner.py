@@ -29,8 +29,10 @@
 #
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
-# - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
 # - SCHEDULE_STAGING_DIR: Local path to staging directory (deploy files + secrets)
+#
+# Required for git-based and full-copy modes (not snapshot mode):
+# - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
 # - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
 #
 # Optional environment variables at deploy time:
@@ -97,6 +99,11 @@ _MNG_INSTALL_COMMANDS: list[str] = _deploy_config.get("mng_install_commands", []
 # of from embedded project code. In this mode, the image is built without the
 # project Dockerfile (just mng + config).
 _SNAPSHOT_ID: str | None = _deploy_config.get("snapshot_id")
+
+# Full-copy mode: when True, the entire working directory was baked into the
+# image at deploy time. Git fetch/checkout is skipped at runtime since the
+# code is already present.
+_FULL_COPY: bool = _deploy_config.get("full_copy", False)
 
 
 # --- Image definition ---
@@ -243,10 +250,11 @@ def run_scheduled_trigger() -> None:
         is_shell=True,
     )
 
-    # In non-snapshot mode, fetch and check out the latest code from git.
-    # In snapshot mode, the agent will be created from the snapshot directly
-    # so no project code checkout is needed.
-    if _SNAPSHOT_ID is None:
+    # In non-snapshot/non-full-copy mode, fetch and check out the latest code
+    # from git. In snapshot mode, the agent will be created from the snapshot
+    # directly. In full-copy mode, the code was baked into the image at deploy
+    # time. In both cases, no git checkout is needed.
+    if _SNAPSHOT_ID is None and not _FULL_COPY:
         branch_name = "josh/schedule_fixes"
         _run_and_stream(["git", "fetch", "origin", branch_name])
         _run_and_stream(["git", "checkout", branch_name])
