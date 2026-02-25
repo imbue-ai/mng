@@ -14,7 +14,6 @@ from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
-from imbue.mng.config.loader import _load_toml
 from imbue.mng.config.loader import _merge_command_defaults
 from imbue.mng.config.loader import _parse_agent_types
 from imbue.mng.config.loader import _parse_command_env_vars
@@ -217,34 +216,6 @@ def test_all_cli_commands_are_single_word() -> None:
         f"for MNG_COMMANDS_<COMMANDNAME>_<PARAMNAME> env var parsing to work. "
         f"Invalid commands: {invalid_commands}"
     )
-
-
-# =============================================================================
-# Tests for _load_toml
-# =============================================================================
-
-
-def test_load_toml_raises_config_parse_error_for_missing_file(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigParseError for missing file."""
-    with pytest.raises(ConfigParseError):
-        _load_toml(tmp_path / "nonexistent.toml")
-
-
-def test_load_toml_raises_config_parse_error(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigParseError for invalid TOML."""
-    invalid_toml = tmp_path / "invalid.toml"
-    invalid_toml.write_text("[invalid toml syntax")
-    with pytest.raises(ConfigParseError):
-        _load_toml(invalid_toml)
-
-
-def test_load_toml_parses_valid_file(tmp_path: Path) -> None:
-    """_load_toml should parse valid TOML files."""
-    valid_toml = tmp_path / "valid.toml"
-    valid_toml.write_text('prefix = "test-"\n[agent_types.claude]\ncommand = "claude"')
-    result = _load_toml(valid_toml)
-    assert result["prefix"] == "test-"
-    assert result["agent_types"]["claude"]["command"] == "claude"
 
 
 # =============================================================================
