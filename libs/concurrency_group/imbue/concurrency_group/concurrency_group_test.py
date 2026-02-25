@@ -40,8 +40,11 @@ def test_concurrency_group_shortly_waits_for_threads_to_finish() -> None:
 
 def test_concurrency_group_shortly_waits_for_processes_to_finish(tmp_path: Path) -> None:
     with ConcurrencyGroup(name="outer") as cg:
-        process1 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)])
-        process2 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)])
+        # Use a 1-second sleep instead of SMALL_SLEEP (0.05s) to guarantee the
+        # processes are still running when we assert. 1s is well under the default
+        # 4s exit timeout, so the ConcurrencyGroup will wait for them to finish.
+        process1 = cg.run_process_in_background(["sleep", "1"])
+        process2 = cg.run_process_in_background(["sleep", "1"])
         assert process1.poll() is None
         assert process2.poll() is None
     assert process1.poll() is not None
