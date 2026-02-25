@@ -290,10 +290,10 @@ def test_parse_providers_parses_valid_provider() -> None:
     assert result[ProviderInstanceName("my-local")].backend == ProviderBackendName("local")
 
 
-def test_parse_providers_raises_on_missing_backend() -> None:
-    """_parse_providers should raise ConfigParseError for missing backend."""
+def test_parse_providers_raises_on_unknown_backend() -> None:
+    """_parse_providers should raise ConfigParseError for unknown backend."""
     raw = {"my-provider": {"some_field": "value"}}
-    with pytest.raises(ConfigParseError, match="missing required 'backend'"):
+    with pytest.raises(ConfigParseError, match="references unknown backend 'my-provider'"):
         _parse_providers(raw)
 
 
@@ -302,6 +302,45 @@ def test_parse_providers_raises_on_unknown_fields() -> None:
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
     with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
         _parse_providers(raw)
+
+
+def test_parse_providers_skips_disabled_plugin() -> None:
+    """_parse_providers should skip provider blocks whose plugin is disabled."""
+    raw = {"modal": {"backend": "modal"}}
+    result = _parse_providers(raw, disabled_plugins=frozenset({"modal"}))
+    assert len(result) == 0
+
+
+def test_parse_providers_keeps_non_disabled_providers() -> None:
+    """_parse_providers should parse providers whose plugin is not disabled."""
+    raw = {
+        "my-local": {"backend": "local"},
+        "modal": {"backend": "modal"},
+    }
+    result = _parse_providers(raw, disabled_plugins=frozenset({"modal"}))
+    assert ProviderInstanceName("my-local") in result
+    assert ProviderInstanceName("modal") not in result
+
+
+def test_parse_providers_explicit_plugin_field_overrides_backend_for_skip() -> None:
+    """_parse_providers should use explicit plugin field for disabled-plugin check."""
+    raw = {"my-cloud": {"backend": "local", "plugin": "my-cloud-plugin"}}
+    result = _parse_providers(raw, disabled_plugins=frozenset({"my-cloud-plugin"}))
+    assert len(result) == 0
+
+
+def test_parse_providers_explicit_plugin_field_not_disabled() -> None:
+    """_parse_providers should parse provider when explicit plugin is not disabled."""
+    raw = {"my-local": {"backend": "local", "plugin": "some-plugin"}}
+    result = _parse_providers(raw, disabled_plugins=frozenset({"other-plugin"}))
+    assert ProviderInstanceName("my-local") in result
+
+
+def test_parse_providers_unknown_backend_mentions_disabled_plugins() -> None:
+    """_parse_providers error message should mention disabled plugins when they exist."""
+    raw = {"my-provider": {"backend": "nonexistent"}}
+    with pytest.raises(ConfigParseError, match="Currently disabled plugins: modal"):
+        _parse_providers(raw, disabled_plugins=frozenset({"modal"}))
 
 
 # =============================================================================

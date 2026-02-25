@@ -88,6 +88,10 @@ def load_config(
     # Get/create profile directory first (needed for user config
     profile_dir = get_or_create_profile_dir(base_dir)
 
+    # Pre-compute disabled plugins so _parse_providers can skip them.
+    # This uses the same lightweight pre-reader that create_plugin_manager() uses.
+    config_disabled_plugins = read_disabled_plugins()
+
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
     config = MngConfig.model_construct(
@@ -105,7 +109,7 @@ def load_config(
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
-            user_config = parse_config(raw_user)
+            user_config = parse_config(raw_user, disabled_plugins=config_disabled_plugins)
             config = config.merge_with(user_config)
         except ConfigNotFoundError:
             pass
@@ -114,14 +118,14 @@ def load_config(
     project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
-        project_config = parse_config(raw_project)
+        project_config = parse_config(raw_project, disabled_plugins=config_disabled_plugins)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
     local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
-        local_config = parse_config(raw_local)
+        local_config = parse_config(raw_local, disabled_plugins=config_disabled_plugins)
         config = config.merge_with(local_config)
 
     # Apply environment variable overrides
@@ -327,19 +331,31 @@ def _check_unknown_fields(
 
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
+    disabled_plugins: frozenset[str] = frozenset(),
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
     Uses model_construct to bypass validation and explicitly set None for unset fields.
+    Provider blocks whose plugin is disabled are silently skipped.
     """
     providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
 
     for name, raw_config in raw_providers.items():
         backend = raw_config.get("backend") or name
+        plugin = raw_config.get("plugin") or backend
+        if plugin in disabled_plugins:
+            continue
         try:
             config_class = get_provider_config_class(backend)
         except UnknownBackendError as e:
-            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
+            msg = f"Provider '{name}' references unknown backend '{backend}'."
+            if disabled_plugins:
+                msg += (
+                    f" If this backend is provided by a disabled plugin, either enable"
+                    f' the plugin or add `plugin = "<plugin-name>"` to this provider'
+                    f" block. Currently disabled plugins: {', '.join(sorted(disabled_plugins))}"
+                )
+            raise ConfigParseError(msg) from e
         _check_unknown_fields(raw_config, config_class, f"providers.{name}")
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
@@ -510,7 +526,10 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(
+    raw: dict[str, Any],
+    disabled_plugins: frozenset[str] = frozenset(),
+) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
@@ -520,7 +539,9 @@ def parse_config(raw: dict[str, Any]) -> MngConfig:
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
     kwargs["agent_types"] = _parse_agent_types(raw.pop("agent_types", {})) if "agent_types" in raw else {}
-    kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
+    kwargs["providers"] = (
+        _parse_providers(raw.pop("providers", {}), disabled_plugins=disabled_plugins) if "providers" in raw else {}
+    )
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
     kwargs["create_templates"] = (
