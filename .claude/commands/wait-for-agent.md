@@ -6,15 +6,15 @@ allowed-tools: Bash(uv run mng list *), Bash(while true; do*)
 
 Your task is to wait for agent "$1" to finish its current work (enter the WAITING state), then do the following: $2
 
-## Current Agent States
-
-!`uv run mng list --format '{name}: {state}' 2>/dev/null`
-
 ## Polling Procedure
 
-Find agent "$1" in the list above.
+First, verify the target agent exists and check its current state:
 
-If the agent is not listed, it does not exist. Report the error and stop.
+```
+uv run mng list --include 'name == "$1"' --format '{name}: {state}'
+```
+
+If no output is returned, the agent does not exist. Report the error and stop.
 
 If the agent is already in WAITING, DONE, or STOPPED state, skip the polling loop and proceed directly to the follow-up task.
 
