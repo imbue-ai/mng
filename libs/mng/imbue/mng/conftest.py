@@ -454,6 +454,41 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
     return venv_dir
 
 
+@pytest.fixture
+def isolated_mng_install_dir(tmp_path: Path, mng_test_root_name: str) -> Path:
+    """Create a temporary mng install directory for subprocess-based tests.
+
+    Creates the install directory structure that ``require_install_dir()``
+    expects: ``<HOME>/.<root_name>/install/`` containing a pyproject.toml
+    and a ``.venv`` with workspace packages installed.
+
+    Returns the install directory (parent of .venv). Run mng via
+    ``install_dir / ".venv" / "bin" / "mng"``.
+    """
+    install_dir = tmp_path / f".{mng_test_root_name}" / "install"
+    install_dir.mkdir(parents=True)
+
+    pyproject_content = (
+        '[project]\nname = "mng-install"\nversion = "0.0.0"\nrequires-python = ">=3.11"\ndependencies = ["mng"]\n'
+    )
+    (install_dir / "pyproject.toml").write_text(pyproject_content)
+
+    venv_dir = install_dir / ".venv"
+
+    install_args: list[str] = []
+    for pkg in _WORKSPACE_PACKAGES:
+        install_args.extend(["-e", str(pkg)])
+
+    cg = ConcurrencyGroup(name="isolated-install-setup")
+    with cg:
+        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        cg.run_process_to_completion(
+            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
+        )
+
+    return install_dir
+
+
 @pytest.fixture(autouse=True)
 def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
     """Create a plugin manager with mng hookspecs and local backend only.

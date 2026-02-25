@@ -1,5 +1,4 @@
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +13,6 @@ from imbue.mng.cli.plugin import PluginInfo
 from imbue.mng.cli.plugin import _GitSource
 from imbue.mng.cli.plugin import _PathSource
 from imbue.mng.cli.plugin import _PypiSource
-from imbue.mng.cli.plugin import _build_uv_pip_install_command_for_name_or_url
-from imbue.mng.cli.plugin import _build_uv_pip_install_command_for_path
-from imbue.mng.cli.plugin import _build_uv_pip_uninstall_command
 from imbue.mng.cli.plugin import _emit_plugin_add_result
 from imbue.mng.cli.plugin import _emit_plugin_list
 from imbue.mng.cli.plugin import _emit_plugin_remove_result
@@ -456,50 +452,19 @@ def test_parse_pypi_package_name_invalid_format() -> None:
 
 
 # =============================================================================
-# Tests for _build_uv_pip_install_command_for_path / _build_uv_pip_install_command_for_name_or_url
-# =============================================================================
-
-
-def test_build_uv_pip_install_command_for_path() -> None:
-    """_build_uv_pip_install_command_for_path should use -e flag for local paths."""
-    cmd = _build_uv_pip_install_command_for_path("./my-plugin")
-    assert cmd == ("uv", "pip", "install", "--python", sys.executable, "-e", str(Path("./my-plugin").resolve()))
-
-
-def test_build_uv_pip_install_command_for_name_or_url_git() -> None:
-    """_build_uv_pip_install_command_for_name_or_url should pass git URL directly."""
-    url = "https://github.com/user/repo.git"
-    cmd = _build_uv_pip_install_command_for_name_or_url(url)
-    assert cmd == ("uv", "pip", "install", "--python", sys.executable, url)
-
-
-def test_build_uv_pip_install_command_for_name_or_url_pypi() -> None:
-    """_build_uv_pip_install_command_for_name_or_url should pass package name directly."""
-    cmd = _build_uv_pip_install_command_for_name_or_url("mng-opencode")
-    assert cmd == ("uv", "pip", "install", "--python", sys.executable, "mng-opencode")
-
-
-# =============================================================================
-# Tests for _build_uv_pip_uninstall_command
-# =============================================================================
-
-
-def test_build_uv_pip_uninstall_command() -> None:
-    """_build_uv_pip_uninstall_command should produce a valid uv pip uninstall command."""
-    cmd = _build_uv_pip_uninstall_command("mng-opencode")
-    assert cmd == ("uv", "pip", "uninstall", "--python", sys.executable, "mng-opencode")
-
-
-# =============================================================================
 # Tests for _get_installed_package_names
 # =============================================================================
 
 
 def test_get_installed_package_names_returns_package_names() -> None:
     """_get_installed_package_names should return a set of installed package names."""
+    python_path = Path("/tmp/test-venv/bin/python")
 
     class FakeConcurrencyGroup:
         def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
+            assert "--python" in command
+            assert str(python_path) in command
+
             class Result:
                 stdout = json.dumps(
                     [
@@ -511,12 +476,13 @@ def test_get_installed_package_names_returns_package_names() -> None:
 
             return Result()
 
-    names = _get_installed_package_names(FakeConcurrencyGroup())
+    names = _get_installed_package_names(FakeConcurrencyGroup(), python_path)
     assert names == {"mng", "mng-opencode", "pluggy"}
 
 
 def test_get_installed_package_names_empty_list() -> None:
     """_get_installed_package_names should return an empty set when no packages are installed."""
+    python_path = Path("/tmp/test-venv/bin/python")
 
     class FakeConcurrencyGroup:
         def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
@@ -525,7 +491,7 @@ def test_get_installed_package_names_empty_list() -> None:
 
             return Result()
 
-    names = _get_installed_package_names(FakeConcurrencyGroup())
+    names = _get_installed_package_names(FakeConcurrencyGroup(), python_path)
     assert names == set()
 
 

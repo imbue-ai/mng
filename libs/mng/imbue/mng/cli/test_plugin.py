@@ -416,52 +416,52 @@ _MNG_OPENCODE_DIR = Path(__file__).resolve().parents[5] / "libs" / "mng_opencode
 
 
 def _run_isolated_mng(
-    venv_dir: Path,
+    install_dir: Path,
     *args: str,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a mng command inside an isolated venv and return the result."""
+    """Run a mng command inside an isolated install directory and return the result."""
     result = subprocess.run(
-        [str(venv_dir / "bin" / "mng"), *args],
+        [str(install_dir / ".venv" / "bin" / "mng"), *args],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=60,
     )
     assert result.returncode == 0, f"mng {' '.join(args)} failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     return result
 
 
 @pytest.mark.timeout(180)
-def test_plugin_add_path_and_remove_lifecycle(isolated_mng_venv: Path) -> None:
-    """Test `mng plugin add --path` and `mng plugin remove` using the real mng-opencode plugin.
+def test_plugin_add_path_and_remove_lifecycle(isolated_mng_install_dir: Path) -> None:
+    """Test ``mng plugin add --path`` and ``mng plugin remove`` using the real mng-opencode plugin.
 
-    Uses an isolated temp venv (via the isolated_mng_venv fixture) so
-    install/uninstall operations cannot affect the workspace venv or
-    interfere with parallel test workers.
+    Uses an isolated install directory (via the ``isolated_mng_install_dir``
+    fixture) so install/uninstall operations cannot affect the workspace
+    venv or interfere with parallel test workers.
     """
-    # -- Verify opencode is NOT installed in the fresh venv --
-    list_before = _run_isolated_mng(isolated_mng_venv, "plugin", "list", "--format", "json")
+    # -- Verify opencode is NOT installed in the fresh install dir --
+    list_before = _run_isolated_mng(isolated_mng_install_dir, "plugin", "list", "--format", "json")
     plugin_names_before = [p["name"] for p in json.loads(list_before.stdout)["plugins"]]
     assert "opencode" not in plugin_names_before
 
     # -- Install via mng plugin add --path --
     add_result = _run_isolated_mng(
-        isolated_mng_venv, "plugin", "add", "--path", str(_MNG_OPENCODE_DIR), "--format", "json"
+        isolated_mng_install_dir, "plugin", "add", "--path", str(_MNG_OPENCODE_DIR), "--format", "json"
     )
     add_output = json.loads(add_result.stdout)
     assert add_output["package"] == "mng-opencode"
     assert add_output["has_entry_points"] is True
 
     # -- Verify it shows up --
-    list_after_add = _run_isolated_mng(isolated_mng_venv, "plugin", "list", "--format", "json")
+    list_after_add = _run_isolated_mng(isolated_mng_install_dir, "plugin", "list", "--format", "json")
     plugin_names_after_add = [p["name"] for p in json.loads(list_after_add.stdout)["plugins"]]
     assert "opencode" in plugin_names_after_add
 
     # -- Remove via mng plugin remove --
-    remove_result = _run_isolated_mng(isolated_mng_venv, "plugin", "remove", "mng-opencode", "--format", "json")
+    remove_result = _run_isolated_mng(isolated_mng_install_dir, "plugin", "remove", "mng-opencode", "--format", "json")
     remove_output = json.loads(remove_result.stdout)
     assert remove_output["package"] == "mng-opencode"
 
     # -- Verify it's gone --
-    list_after_remove = _run_isolated_mng(isolated_mng_venv, "plugin", "list", "--format", "json")
+    list_after_remove = _run_isolated_mng(isolated_mng_install_dir, "plugin", "list", "--format", "json")
     plugin_names_after_remove = [p["name"] for p in json.loads(list_after_remove.stdout)["plugins"]]
     assert "opencode" not in plugin_names_after_remove
