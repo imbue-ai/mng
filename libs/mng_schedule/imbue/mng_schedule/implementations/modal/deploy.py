@@ -599,26 +599,31 @@ def deploy_schedule(
 
     Raises ScheduleDeployError if any step fails.
     """
+    # FIXME: hmm--we should not be assuming that we're calling deploy from inside the target repo. Allow this to be specified in the CLI
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
     modal_env_name = provider.environment_name
+
+    # stick this in the home directory instead, eg, ~/.mng/build/plugin/schedule/<hash_of_full_repo_root_path>/
+    # That way we will have a persistent location for this build, and the caching will work out from the modal side
+    repo_root_hash = hashlib.md5(str(repo_root.absolute()).encode("utf-8")).hexdigest()
+    deploy_build_path = mng_ctx.config.default_host_dir / "build" / repo_root_hash
+    deploy_build_path.mkdir(parents=True, exist_ok=True)
 
     # Resolve mng install mode (auto-detect if needed)
     resolved_install_mode = resolve_mng_install_mode(mng_install_mode)
     logger.info("mng install mode: {}", resolved_install_mode.value.lower())
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
+    # FIXME: we should NOT be passing this in via the CLI--we don't need that flag at all. Instead, this should just be figured out here by:
+    #  1. checking in the deploy_build_path to see if we already have a commit_hash file
+    #  2. if not, generate that file by figuring out the current git repo hash and writing it to that file (and ensuring that the current branch has been pushed--throw an error if not)
+    #  then future builds will keep using the same commit hash
     logger.info("Using commit {} for code packaging", trigger.git_image_hash)
 
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
-
-    # stick this in the home directory instead, eg, ~/.mng/build/plugin/schedule/<hash_of_full_repo_root_path>/
-    # That way we will have a persistent location for this build, and the caching will work out from the modal side
-    repo_root_hash = hashlib.md5(str(repo_root.absolute()).encode("utf-8")).hexdigest()
-    deploy_build_path = mng_ctx.config.default_host_dir / "build" / "plugin" / "schedule" / repo_root_hash
-    deploy_build_path.mkdir(parents=True, exist_ok=True)
 
     # Package repo into build context
     build_dir = deploy_build_path / "build"
