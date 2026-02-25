@@ -10,6 +10,39 @@ from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.config.pre_readers import read_default_command
 from imbue.mng.config.pre_readers import read_default_host_dir
 from imbue.mng.config.pre_readers import read_disabled_plugins
+from imbue.mng.config.pre_readers import try_load_toml
+
+# =============================================================================
+# Tests for try_load_toml
+# =============================================================================
+
+
+def test_try_load_toml_returns_none_for_none_path() -> None:
+    """try_load_toml should return None when given a None path."""
+    assert try_load_toml(None) is None
+
+
+def test_try_load_toml_returns_none_for_missing_file(tmp_path: Path) -> None:
+    """try_load_toml should return None when the file does not exist."""
+    assert try_load_toml(tmp_path / "nonexistent.toml") is None
+
+
+def test_try_load_toml_returns_none_for_malformed_toml(tmp_path: Path) -> None:
+    """try_load_toml should return None when the file contains invalid TOML."""
+    invalid_toml = tmp_path / "invalid.toml"
+    invalid_toml.write_text("[invalid toml syntax")
+    assert try_load_toml(invalid_toml) is None
+
+
+def test_try_load_toml_parses_valid_file(tmp_path: Path) -> None:
+    """try_load_toml should parse valid TOML files and return the dict."""
+    valid_toml = tmp_path / "valid.toml"
+    valid_toml.write_text('prefix = "test-"\n[agent_types.claude]\ncommand = "claude"')
+    result = try_load_toml(valid_toml)
+    assert result is not None
+    assert result["prefix"] == "test-"
+    assert result["agent_types"]["claude"]["command"] == "claude"
+
 
 # =============================================================================
 # Tests for config file path functions
