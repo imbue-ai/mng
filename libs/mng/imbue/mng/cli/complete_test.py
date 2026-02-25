@@ -10,7 +10,7 @@ from imbue.mng.cli.complete import _read_agent_names
 from imbue.mng.cli.complete import _read_cache
 
 
-def _write_command_cache(cache_dir: Path, data: dict) -> None:
+def _write_command_cache(cache_dir: Path, data: dict[str, object]) -> None:
     """Write a command completions cache file for testing."""
     cache_dir.mkdir(parents=True, exist_ok=True)
     (cache_dir / ".command_completions.json").write_text(json.dumps(data))

@@ -14,7 +14,6 @@ from imbue.mng.cli.common_opts import TCommand
 from imbue.mng.cli.common_opts import create_group_title_option
 from imbue.mng.cli.common_opts import find_last_option_index_in_group
 from imbue.mng.cli.common_opts import find_option_group
-from imbue.mng.cli.completion import read_cached_commands
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import connect
 from imbue.mng.cli.create import create
@@ -44,35 +43,12 @@ from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
+from imbue.mng.utils.click_utils import detect_aliases_by_command
 
 # Module-level container for the plugin manager singleton, created lazily.
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
 _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
-
-# Command aliases - maps canonical command names to their aliases
-# This is used by the help formatter to display aliases
-COMMAND_ALIASES: dict[str, list[str]] = {
-    "create": ["c"],
-    "cleanup": ["clean"],
-    "config": ["cfg"],
-    "destroy": ["rm"],
-    "exec": ["x"],
-    "message": ["msg"],
-    "list": ["ls"],
-    "connect": ["conn"],
-    "provision": ["prov"],
-    "stop": ["s"],
-    "plugin": ["plug"],
-    "limit": ["lim"],
-    "rename": ["mv"],
-    "snapshot": ["snap"],
-}
-
-# Build reverse mapping: alias -> canonical name
-_ALIAS_TO_CANONICAL: dict[str, str] = {}
-for canonical, aliases in COMMAND_ALIASES.items():
-    for alias in aliases:
-        _ALIAS_TO_CANONICAL[alias] = canonical
 
 
 def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
@@ -131,13 +107,16 @@ class AliasAwareGroup(DefaultCommandGroup):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
+        alias_to_canonical = detect_alias_to_canonical(self)
+        aliases_by_cmd = detect_aliases_by_command(self)
+
         commands: list[tuple[str, click.Command]] = []
         for subcommand in self.list_commands(ctx):
             cmd = self.get_command(ctx, subcommand)
             if cmd is None or cmd.hidden:
                 continue
             # Skip alias entries - we'll show them with the main command
-            if subcommand in _ALIAS_TO_CANONICAL:
+            if subcommand in alias_to_canonical:
                 continue
             commands.append((subcommand, cmd))
 
@@ -152,7 +131,7 @@ class AliasAwareGroup(DefaultCommandGroup):
             meta = get_help_metadata(subcommand)
             help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
-            aliases = COMMAND_ALIASES.get(subcommand, [])
+            aliases = aliases_by_cmd.get(subcommand, [])
             if aliases:
                 subcommand = ", ".join([subcommand] + aliases)
             rows.append((subcommand, help_text))
@@ -162,26 +141,13 @@ class AliasAwareGroup(DefaultCommandGroup):
                 formatter.write_dl(rows)
 
     def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        try:
-            cached_commands = read_cached_commands()
-            if cached_commands is not None:
-                completions = [CompletionItem(name) for name in cached_commands if name.startswith(incomplete)]
-                # Include option completions (--help, --version) from the base Command class
-                completions.extend(click.Command.shell_complete(self, ctx, incomplete))
-                completed_names = {item.value for item in completions}
-                return [
-                    item
-                    for item in completions
-                    if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
-                ]
-        except Exception:
-            pass
+        alias_to_canonical = detect_alias_to_canonical(self)
         completions = super().shell_complete(ctx, incomplete)
         completed_names = {item.value for item in completions}
         return [
             item
             for item in completions
-            if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
+            if item.value not in alias_to_canonical or alias_to_canonical[item.value] not in completed_names
         ]
 
 

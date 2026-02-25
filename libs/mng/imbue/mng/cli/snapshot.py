@@ -13,7 +13,6 @@ from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import CachedCompletionGroup
 from imbue.mng.cli.default_command_group import DefaultCommandGroup
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
@@ -393,7 +392,7 @@ def _emit_destroy_result(
 # =============================================================================
 
 
-class _SnapshotGroup(CachedCompletionGroup, DefaultCommandGroup):
+class _SnapshotGroup(DefaultCommandGroup):
     """Snapshot group that defaults to 'create' when no subcommand is given.
 
     This is safe because the next argument must be a valid agent name,
@@ -402,7 +401,6 @@ class _SnapshotGroup(CachedCompletionGroup, DefaultCommandGroup):
     """
 
     _config_key = "snapshot"
-    _completion_cache_key = "snapshot"
 
 
 @click.group(name="snapshot", cls=_SnapshotGroup)

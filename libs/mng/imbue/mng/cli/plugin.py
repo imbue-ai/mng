@@ -22,7 +22,6 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import CachedCompletionGroup
 from imbue.mng.cli.config import ConfigScope
 from imbue.mng.cli.config import get_config_path
 from imbue.mng.cli.config import load_config_file_tomlkit
@@ -353,13 +352,7 @@ def _emit_plugin_remove_result(
             assert_never(unreachable)
 
 
-class _PluginGroup(CachedCompletionGroup):
-    """Plugin group that reads subcommand completions from the completions cache."""
-
-    _completion_cache_key = "plugin"
-
-
-@click.group(name="plugin", cls=_PluginGroup, invoke_without_command=True)
+@click.group(name="plugin", invoke_without_command=True)
 @add_common_options
 @click.pass_context
 def plugin(ctx: click.Context, **kwargs: Any) -> None:

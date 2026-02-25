@@ -3,8 +3,8 @@
 import click
 import pytest
 
-from imbue.mng.main import COMMAND_ALIASES
 from imbue.mng.main import cli
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
 
 
 def _complete_names(incomplete: str) -> list[str]:
@@ -14,30 +14,15 @@ def _complete_names(incomplete: str) -> list[str]:
     return [item.value for item in completions]
 
 
-# Build (alias, canonical) pairs for parametrized test
-_ALL_ALIAS_PAIRS: list[tuple[str, str]] = [
-    (alias, canonical) for canonical, aliases in COMMAND_ALIASES.items() for alias in aliases
-]
+# Build (alias, canonical) pairs from the CLI group for parametrized test
+_ALL_ALIAS_PAIRS: list[tuple[str, str]] = sorted(detect_alias_to_canonical(cli).items())
 
 
 @pytest.mark.parametrize(("alias", "canonical"), _ALL_ALIAS_PAIRS, ids=[a for a, _ in _ALL_ALIAS_PAIRS])
 def test_alias_registered_and_points_to_canonical(alias: str, canonical: str) -> None:
-    """Every alias in COMMAND_ALIASES must be registered and point to the canonical command."""
+    """Every detected alias must be registered and point to the canonical command."""
     assert alias in cli.commands, f"Alias '{alias}' not registered via cli.add_command"
     assert cli.commands[alias] is cli.commands[canonical], f"Alias '{alias}' does not point to '{canonical}'"
-
-
-def test_no_undeclared_aliases() -> None:
-    """Every registered alias must be declared in COMMAND_ALIASES.
-
-    A registered name is an alias if it differs from the command's own name
-    (i.e. it was added via cli.add_command(cmd, name="alias")).
-    """
-    all_declared_aliases = {alias for aliases in COMMAND_ALIASES.values() for alias in aliases}
-
-    undeclared = [name for name, cmd in cli.commands.items() if name != cmd.name and name not in all_declared_aliases]
-
-    assert not undeclared, f"Commands registered as aliases but not declared in COMMAND_ALIASES: {undeclared}"
 
 
 def test_shell_complete_drops_alias_when_canonical_present() -> None:

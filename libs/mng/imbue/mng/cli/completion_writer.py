@@ -1,16 +1,128 @@
 import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Final
 
 import click
+from click.shell_completion import CompletionItem
 from loguru import logger
 
-from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import complete_agent_name
-from imbue.mng.cli.completion import get_completion_cache_dir
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
+
+AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
+COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
+_BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
+
+
+def get_completion_cache_dir() -> Path:
+    """Return the directory used for completion cache files.
+
+    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
+    system temp directory namespaced by uid to avoid collisions between users.
+    The directory is created if it does not exist.
+
+    This avoids importing the config system, keeping tab completion fast.
+    """
+    env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
+    if env_dir:
+        cache_dir = Path(env_dir)
+    else:
+        cache_dir = Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+# =============================================================================
+# Agent name completion (read from runtime cache)
+# =============================================================================
+
+
+def _read_agent_names_from_cache() -> list[str]:
+    """Read agent names from the completion cache file.
+
+    Reads .agent_completions.json and returns the "names" list.
+    The cache is written by write_agent_names_cache() below.
+
+    Returns an empty list on expected errors (missing file, malformed JSON).
+    Callers are responsible for guarding against unexpected exceptions.
+    """
+    try:
+        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        if not cache_path.is_file():
+            return []
+
+        data = json.loads(cache_path.read_text())
+        names = data.get("names")
+        if not isinstance(names, list):
+            return []
+
+        return sorted(name for name in names if isinstance(name, str) and name)
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _trigger_background_cache_refresh() -> None:
+    """Fire-and-forget a background `mng list` to refresh the completion cache.
+
+    Spawns a detached subprocess so shell completion returns immediately.
+    Skips the refresh if the cache was updated within the last N seconds
+    to avoid excessive subprocess spawning.
+
+    Catches OSError from subprocess spawning. Callers are responsible for
+    guarding against unexpected exceptions.
+    """
+    try:
+        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        if cache_path.is_file():
+            age = time.time() - cache_path.stat().st_mtime
+            if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
+                return
+
+        # Uses subprocess.Popen directly instead of ConcurrencyGroup's
+        # run_background because the child must outlive the parent process
+        # (start_new_session=True). run_background doesn't support detaching.
+        devnull = subprocess.DEVNULL
+        subprocess.Popen(
+            [sys.executable, "-c", "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])"],
+            stdout=devnull,
+            stderr=devnull,
+            start_new_session=True,
+        )
+    except OSError:
+        pass
+
+
+def complete_agent_name(
+    ctx: click.Context,
+    param: click.Parameter,
+    incomplete: str,
+) -> list[CompletionItem]:
+    """Click shell_complete callback that provides agent name completions.
+
+    Used on click.Argument decorators to mark commands that accept agent names
+    as positional arguments. The cache writer detects this callback to populate
+    the agent_name_arguments field in the completions cache.
+
+    Never raises -- shell completion must not interfere with normal CLI operation.
+    """
+    try:
+        names = _read_agent_names_from_cache()
+        _trigger_background_cache_refresh()
+        return [CompletionItem(name) for name in names if name.startswith(incomplete)]
+    except Exception:
+        return []
+
+
+# =============================================================================
+# Cache writers
+# =============================================================================
 
 
 def _extract_options_for_command(cmd: click.Command) -> list[str]:
@@ -50,19 +162,6 @@ def _has_agent_name_argument(cmd: click.Command) -> bool:
     return False
 
 
-def _detect_aliases(cli_group: click.Group) -> dict[str, str]:
-    """Auto-detect command aliases by comparing registered names to canonical cmd.name.
-
-    When a command is registered under a name different from its cmd.name, that
-    registered name is an alias. Returns a dict mapping alias -> canonical name.
-    """
-    alias_to_canonical: dict[str, str] = {}
-    for registered_name, cmd in cli_group.commands.items():
-        if cmd.name is not None and registered_name != cmd.name:
-            alias_to_canonical[registered_name] = cmd.name
-    return alias_to_canonical
-
-
 def write_cli_completions_cache(cli_group: click.Group) -> None:
     """Write all CLI commands, options, and choices to the completions cache (best-effort).
 
@@ -79,7 +178,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
     """
     try:
         all_command_names = sorted(cli_group.commands.keys())
-        alias_to_canonical = _detect_aliases(cli_group)
+        alias_to_canonical = detect_alias_to_canonical(cli_group)
 
         subcommand_by_command: dict[str, list[str]] = {}
         options_by_command: dict[str, list[str]] = {}
@@ -120,7 +219,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                 if _has_agent_name_argument(cmd):
                     agent_name_arguments.append(canonical_name)
 
-        cache_data: dict = {
+        cache_data: dict[str, object] = {
             "commands": all_command_names,
             "aliases": alias_to_canonical,
             "subcommand_by_command": subcommand_by_command,

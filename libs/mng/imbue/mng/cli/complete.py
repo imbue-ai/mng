@@ -115,13 +115,11 @@ def _get_completions(shell: str) -> list[str]:
     resolved_subcommand: str | None = None
 
     # words[0] = "mng", words[1] = command, words[2] = subcommand (if group)
+    # When comp_cword == 1, we are completing the command name itself and
+    # resolved_command stays None. When comp_cword > 1, word[1] is fully typed.
     if len(words) > 1 and comp_cword > 1:
-        # Word at index 1 is fully typed (not being completed)
         raw_cmd = words[1]
         resolved_command = aliases.get(raw_cmd, raw_cmd)
-    elif len(words) > 1 and comp_cword == 1:
-        # We are completing the command name itself
-        pass
 
     is_group = resolved_command is not None and resolved_command in subcommand_by_command
 
@@ -208,12 +206,73 @@ def _format_output(completions: list[str], shell: str) -> str:
         return "\n".join(f"plain,{value}" for value in completions)
 
 
+def _generate_zsh_script() -> str:
+    """Generate the zsh completion script with the current python path baked in."""
+    python_path = sys.executable
+    return f"""# mng tab completion (lightweight -- does not load the full CLI)
+_mng_complete() {{
+    local -a completions response
+    (( ! $+commands[mng] )) && return 1
+    response=("${{(@f)$(env COMP_WORDS="${{words[*]}}" COMP_CWORD=$((CURRENT-1)) \\
+        {python_path} -m imbue.mng.cli.complete zsh)}}")
+    for type key descr in ${{response}}; do
+        if [[ "$type" == "plain" ]]; then
+            if [[ "$descr" == "_" ]]; then
+                completions+=("$key")
+            else
+                completions+=("$key":"$descr")
+            fi
+        fi
+    done
+    if [ -n "$completions" ]; then
+        compadd -U -V unsorted -a completions
+    fi
+}}
+compdef _mng_complete mng"""
+
+
+def _generate_bash_script() -> str:
+    """Generate the bash completion script with the current python path baked in."""
+    python_path = sys.executable
+    return f"""# mng tab completion (lightweight -- does not load the full CLI)
+_mng_complete() {{
+    local IFS=$'\\n'
+    COMPREPLY=()
+    local response
+    response=$(env COMP_WORDS="${{COMP_WORDS[*]}}" COMP_CWORD="$COMP_CWORD" \\
+        {python_path} -m imbue.mng.cli.complete bash)
+    local completion
+    while IFS= read -r completion; do
+        local type="${{completion%%,*}}"
+        local value="${{completion#*,}}"
+        if [[ "$type" == "plain" ]]; then
+            COMPREPLY+=("$value")
+        fi
+    done <<< "$response"
+}}
+complete -o default -F _mng_complete mng"""
+
+
 def main() -> None:
-    """Entry point for lightweight tab completion."""
-    if len(sys.argv) < 2:
-        shell = "zsh"
-    else:
-        shell = sys.argv[1]
+    """Entry point for lightweight tab completion.
+
+    Usage:
+        python -m imbue.mng.cli.complete zsh          # complete (reads COMP_WORDS/COMP_CWORD)
+        python -m imbue.mng.cli.complete bash          # complete (reads COMP_WORDS/COMP_CWORD)
+        python -m imbue.mng.cli.complete --script zsh  # print shell script to stdout
+        python -m imbue.mng.cli.complete --script bash # print shell script to stdout
+    """
+    args = sys.argv[1:]
+
+    if len(args) >= 2 and args[0] == "--script":
+        shell = args[1]
+        if shell == "zsh":
+            sys.stdout.write(_generate_zsh_script() + "\n")
+        else:
+            sys.stdout.write(_generate_bash_script() + "\n")
+        return
+
+    shell = args[0] if args else "zsh"
 
     completions = _get_completions(shell)
     output = _format_output(completions, shell)
