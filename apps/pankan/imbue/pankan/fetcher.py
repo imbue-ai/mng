@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 
 from loguru import logger
 
@@ -32,9 +33,14 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     for error in result.errors:
         errors.append(f"{error.exception_type}: {error.message}")
 
+    # Find a local agent work_dir to use as cwd for gh (so it can detect the repo)
+    gh_cwd = _find_git_cwd(result.agents)
+
     # Fetch all PRs from GitHub
-    prs = fetch_all_prs(cg)
-    pr_by_branch = _build_pr_branch_index(prs)
+    pr_result = fetch_all_prs(cg, cwd=gh_cwd)
+    if pr_result.error is not None:
+        errors.append(pr_result.error)
+    pr_by_branch = _build_pr_branch_index(pr_result.prs)
 
     # Build board entries with branch and PR info
     entries: list[AgentBoardEntry] = []
@@ -57,6 +63,18 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
         errors=tuple(errors),
         fetch_time_seconds=elapsed,
     )
+
+
+def _find_git_cwd(agents: list[AgentInfo]) -> Path | None:
+    """Find a local agent work_dir to use as cwd for gh commands.
+
+    Returns the first accessible local agent work_dir, or None if no local
+    agent has an accessible work_dir.
+    """
+    for agent in agents:
+        if agent.host.provider_name == LOCAL_PROVIDER_NAME and agent.work_dir.exists():
+            return agent.work_dir
+    return None
 
 
 def _resolve_agent_branch(agent: AgentInfo, cg: ConcurrencyGroup) -> str | None:

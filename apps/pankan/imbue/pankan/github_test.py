@@ -171,12 +171,13 @@ def test_fetch_all_prs_success() -> None:
         },
     ]
     cg = _make_mock_cg(json.dumps(raw_prs))
-    prs = fetch_all_prs(cg)
-    assert len(prs) == 2
-    assert prs[0].number == 1
-    assert prs[0].state == PrState.OPEN
-    assert prs[1].number == 2
-    assert prs[1].state == PrState.MERGED
+    result = fetch_all_prs(cg)
+    assert len(result.prs) == 2
+    assert result.prs[0].number == 1
+    assert result.prs[0].state == PrState.OPEN
+    assert result.prs[1].number == 2
+    assert result.prs[1].state == PrState.MERGED
+    assert result.error is None
 
 
 def test_fetch_all_prs_process_error() -> None:
@@ -187,17 +188,30 @@ def test_fetch_all_prs_process_error() -> None:
         stdout="",
         stderr="gh: not found",
     )
-    prs = fetch_all_prs(cg)
-    assert prs == ()
+    result = fetch_all_prs(cg)
+    assert result.prs == ()
+    assert result.error is not None
+    assert "gh pr list failed" in result.error
 
 
 def test_fetch_all_prs_invalid_json() -> None:
     cg = _make_mock_cg("not valid json")
-    prs = fetch_all_prs(cg)
-    assert prs == ()
+    result = fetch_all_prs(cg)
+    assert result.prs == ()
+    assert result.error is not None
+    assert "parse" in result.error.lower()
 
 
 def test_fetch_all_prs_empty_list() -> None:
     cg = _make_mock_cg("[]")
-    prs = fetch_all_prs(cg)
-    assert prs == ()
+    result = fetch_all_prs(cg)
+    assert result.prs == ()
+    assert result.error is None
+
+
+def test_fetch_all_prs_passes_cwd(tmp_path: MagicMock) -> None:
+    cg = _make_mock_cg("[]")
+    fetch_all_prs(cg, cwd=tmp_path)
+    cg.run_process_to_completion.assert_called_once()
+    call_kwargs = cg.run_process_to_completion.call_args
+    assert call_kwargs.kwargs.get("cwd") == tmp_path or call_kwargs[1].get("cwd") == tmp_path

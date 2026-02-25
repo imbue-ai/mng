@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -11,12 +12,22 @@ from imbue.pankan.data_types import PrInfo
 from imbue.pankan.data_types import PrState
 
 
-def fetch_all_prs(cg: ConcurrencyGroup) -> tuple[PrInfo, ...]:
+class FetchPrsResult:
+    """Result of fetching PRs from GitHub."""
+
+    def __init__(self, prs: tuple[PrInfo, ...], error: str | None) -> None:
+        self.prs = prs
+        self.error = error
+
+
+def fetch_all_prs(cg: ConcurrencyGroup, cwd: Path | None = None) -> FetchPrsResult:
     """Fetch all PRs from the current repo using gh CLI.
 
-    Runs gh pr list to get recent PRs in all states. Returns empty tuple if
-    the gh CLI is not installed, not authenticated, or the current directory
-    is not a GitHub repository.
+    Runs gh pr list to get recent PRs in all states. The cwd parameter should
+    point to a directory inside the target git repository so that gh can detect
+    which GitHub repo to query.
+
+    Returns a FetchPrsResult with the PRs and any error message.
     """
     try:
         result = cg.run_process_to_completion(
@@ -32,15 +43,16 @@ def fetch_all_prs(cg: ConcurrencyGroup) -> tuple[PrInfo, ...]:
                 "500",
             ],
             timeout=30,
+            cwd=cwd,
         )
         raw_prs: list[dict[str, Any]] = json.loads(result.stdout)
-        return tuple(_parse_pr(raw) for raw in raw_prs)
+        return FetchPrsResult(prs=tuple(_parse_pr(raw) for raw in raw_prs), error=None)
     except ProcessError as e:
         logger.debug("Failed to fetch PRs from GitHub: {}", e)
-        return ()
+        return FetchPrsResult(prs=(), error=f"gh pr list failed: {e.stderr.strip() or e.stdout.strip() or str(e)}")
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.debug("Failed to parse PR data from GitHub: {}", e)
-        return ()
+        return FetchPrsResult(prs=(), error=f"Failed to parse gh output: {e}")
 
 
 @pure
