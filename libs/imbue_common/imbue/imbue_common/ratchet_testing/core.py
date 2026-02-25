@@ -161,30 +161,55 @@ def _parse_file_ast(file_path: Path) -> ast.Module | None:
         return None
 
 
-def _get_line_commit_date(
-    file_path: Path,
-    line_number: LineNumber,
-) -> datetime:
-    """Get the date of the last commit that touched a specific line."""
+@lru_cache(maxsize=None)
+def _get_file_blame_dates(file_path: Path) -> dict[int, datetime]:
+    """Run git blame once for an entire file and return a mapping of line_number -> commit_date.
+
+    Uses --line-porcelain to get full porcelain output for every line, then parses
+    committer-time timestamps. Results are cached per file to avoid repeated subprocess calls.
+    """
     try:
         result = subprocess.run(
-            ["git", "blame", "-L", f"{line_number},{line_number}", "--porcelain", str(file_path)],
+            ["git", "blame", "--line-porcelain", str(file_path)],
             cwd=file_path.parent,
             capture_output=True,
             text=True,
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        raise GitCommandError(f"Failed to get git blame for {file_path}:{line_number}") from e
+        raise GitCommandError(f"Failed to get git blame for {file_path}") from e
 
-    # Parse the porcelain output to extract the committer-time
+    line_dates: dict[int, datetime] = {}
+    current_line_number: int | None = None
+
     for line in result.stdout.splitlines():
-        if line.startswith("committer-time "):
+        # Each block starts with: <sha1> <orig-line> <final-line> [<num-lines>]
+        # The final-line (3rd field) is the line number in the current file.
+        if len(line) >= 40 and not line.startswith("\t") and not line.startswith(" "):
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    current_line_number = int(parts[2])
+                except ValueError:
+                    current_line_number = None
+        elif line.startswith("committer-time ") and current_line_number is not None:
             timestamp_str = line.split(" ", 1)[1]
             timestamp = int(timestamp_str)
-            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            line_dates[current_line_number] = datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
-    raise GitCommandError(f"Could not find commit date for {file_path}:{line_number}")
+    return line_dates
+
+
+def _get_line_commit_date(
+    file_path: Path,
+    line_number: LineNumber,
+) -> datetime:
+    """Get the date of the last commit that touched a specific line."""
+    blame_dates = _get_file_blame_dates(file_path)
+    commit_date = blame_dates.get(int(line_number))
+    if commit_date is None:
+        raise GitCommandError(f"Could not find commit date for {file_path}:{line_number}")
+    return commit_date
 
 
 def _get_chunk_commit_date(
@@ -280,6 +305,7 @@ def clear_ratchet_caches() -> None:
     _get_all_files_with_extension.cache_clear()
     _read_file_contents.cache_clear()
     _parse_file_ast.cache_clear()
+    _get_file_blame_dates.cache_clear()
 
 
 def format_ratchet_failure_message(
