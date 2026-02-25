@@ -26,11 +26,13 @@ from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.config.loader import parse_config
 from imbue.mng.config.pre_readers import get_local_config_name
 from imbue.mng.config.pre_readers import get_project_config_name
 from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.errors import ConfigKeyNotFoundError
 from imbue.mng.errors import ConfigNotFoundError
+from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.utils.git_utils import find_git_worktree_root
@@ -380,6 +382,9 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
 def config_set(ctx: click.Context, key: str, value: str, **kwargs: Any) -> None:
     try:
         _config_set_impl(ctx, key, value, **kwargs)
+    except ConfigParseError as e:
+        logger.error("Invalid configuration: {}", e)
+        ctx.exit(1)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
@@ -403,6 +408,9 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
     # Parse and set the value
     parsed_value = _parse_value(value)
     set_nested_value(doc, key, parsed_value)
+
+    # Validate the resulting config before saving
+    parse_config(dict(doc.unwrap()))
 
     # Save the config
     save_config_file(config_path, doc)

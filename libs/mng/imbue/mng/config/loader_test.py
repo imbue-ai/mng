@@ -19,7 +19,6 @@ from imbue.mng.config.loader import _merge_command_defaults
 from imbue.mng.config.loader import _parse_agent_types
 from imbue.mng.config.loader import _parse_command_env_vars
 from imbue.mng.config.loader import _parse_commands
-from imbue.mng.config.loader import _parse_config
 from imbue.mng.config.loader import _parse_create_templates
 from imbue.mng.config.loader import _parse_logging_config
 from imbue.mng.config.loader import _parse_plugins
@@ -27,6 +26,7 @@ from imbue.mng.config.loader import _parse_providers
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
+from imbue.mng.config.loader import parse_config
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
 from imbue.mng.plugins import hookspecs
@@ -461,12 +461,12 @@ def test_parse_create_templates_multiple_templates() -> None:
 
 
 # =============================================================================
-# Tests for _parse_config
+# Tests for parse_config
 # =============================================================================
 
 
 def test_parse_config_parses_full_config() -> None:
-    """_parse_config should parse a full config dict."""
+    """parse_config should parse a full config dict."""
     raw = {
         "prefix": "test-",
         "default_host_dir": "/tmp/test",
@@ -477,7 +477,7 @@ def test_parse_config_parses_full_config() -> None:
         "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.prefix == "test-"
     assert result.default_host_dir == "/tmp/test"
     assert AgentTypeName("claude") in result.agent_types
@@ -489,9 +489,9 @@ def test_parse_config_parses_full_config() -> None:
 
 
 def test_parse_config_handles_minimal_config() -> None:
-    """_parse_config should handle minimal config with missing optional fields."""
+    """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.prefix == "test-"
     assert result.agent_types == {}
     assert result.providers == {}
@@ -501,8 +501,8 @@ def test_parse_config_handles_minimal_config() -> None:
 
 
 def test_parse_config_handles_empty_config() -> None:
-    """_parse_config should handle empty config dict."""
-    result = _parse_config({})
+    """parse_config should handle empty config dict."""
+    result = parse_config({})
     assert result.prefix is None
     assert result.default_host_dir is None
     assert result.agent_types == {}
@@ -513,31 +513,31 @@ def test_parse_config_handles_empty_config() -> None:
 
 
 def test_parse_config_raises_on_unknown_top_level_field() -> None:
-    """_parse_config should raise ConfigParseError for unknown top-level fields."""
+    """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        _parse_config(raw)
+        parse_config(raw)
 
 
 def test_parse_config_raises_on_unknown_nested_field() -> None:
-    """_parse_config should raise ConfigParseError for unknown fields in nested config sections."""
+    """parse_config should raise ConfigParseError for unknown fields in nested config sections."""
     raw = {
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        _parse_config(raw)
+        parse_config(raw)
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
-    """_parse_config should parse default_destroyed_host_persisted_seconds from config."""
+    """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
 def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
-    """_parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
-    result = _parse_config({})
+    """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
+    result = parse_config({})
     assert result.default_destroyed_host_persisted_seconds is None
 
 
