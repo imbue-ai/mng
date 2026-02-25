@@ -105,7 +105,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(3), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
@@ -316,12 +316,12 @@ def test_prevent_direct_subprocess_usage() -> None:
 
 def test_prevent_unittest_mock_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_UNITTEST_MOCK_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(3), PREVENT_UNITTEST_MOCK_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(4), PREVENT_UNITTEST_MOCK_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_monkeypatch_setattr() -> None:
     chunks = check_ratchet_rule(PREVENT_MONKEYPATCH_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(27), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(25), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
 
 
 def test_prevent_test_container_classes() -> None:

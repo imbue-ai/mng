@@ -1007,16 +1007,3 @@ def session_cleanup() -> Generator[None, None, None]:
             "These resources have been cleaned up, but tests should not leak!\n"
             "Please fix the test(s) that failed to clean up properly."
         )
-
-
-@pytest.fixture
-def short_send_message_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Shorten send_message timeouts for tests that don't have a real agent process.
-
-    Reduces _SEND_MESSAGE_TIMEOUT_SECONDS and _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
-    so tests that inevitably hit marker/submission timeouts complete quickly.
-    """
-    from imbue.mng.agents import base_agent as base_agent_module
-
-    monkeypatch.setattr(base_agent_module, "_SEND_MESSAGE_TIMEOUT_SECONDS", 0.5)
-    monkeypatch.setattr(base_agent_module, "_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS", 0.5)
