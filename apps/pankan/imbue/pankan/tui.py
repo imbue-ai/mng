@@ -21,6 +21,7 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.pankan.data_types import AgentBoardEntry
+from imbue.pankan.data_types import BoardSection
 from imbue.pankan.data_types import BoardSnapshot
 from imbue.pankan.data_types import CheckStatus
 from imbue.pankan.data_types import PrState
@@ -36,6 +37,10 @@ PALETTE = [
     ("state_stopped", "light red", ""),
     ("state_done", "dark gray", ""),
     ("state_replaced", "dark gray", ""),
+    ("section_cooking", "yellow", ""),
+    ("section_reviewing", "light cyan", ""),
+    ("section_merged", "light magenta", ""),
+    ("section_closed", "dark gray", ""),
     ("pr_open", "light green", ""),
     ("pr_merged", "light magenta", ""),
     ("pr_closed", "light red", ""),
@@ -43,19 +48,31 @@ PALETTE = [
     ("check_failing", "light red", ""),
     ("check_pending", "yellow", ""),
     ("check_unknown", "dark gray", ""),
-    ("section_heading", "bold", ""),
     ("no_pr", "dark gray", ""),
     ("error_text", "light red", ""),
 ]
 
-# Display order for lifecycle states
-LIFECYCLE_STATE_ORDER: tuple[AgentLifecycleState, ...] = (
-    AgentLifecycleState.RUNNING,
-    AgentLifecycleState.WAITING,
-    AgentLifecycleState.STOPPED,
-    AgentLifecycleState.DONE,
-    AgentLifecycleState.REPLACED,
+# Display order for board sections
+BOARD_SECTION_ORDER: tuple[BoardSection, ...] = (
+    BoardSection.STILL_COOKING,
+    BoardSection.PR_BEING_REVIEWED,
+    BoardSection.PR_MERGED,
+    BoardSection.PR_CLOSED,
 )
+
+_SECTION_LABELS: dict[BoardSection, str] = {
+    BoardSection.STILL_COOKING: "Still cooking",
+    BoardSection.PR_BEING_REVIEWED: "PR being reviewed",
+    BoardSection.PR_MERGED: "PR merged",
+    BoardSection.PR_CLOSED: "PR closed",
+}
+
+_SECTION_ATTR: dict[BoardSection, str] = {
+    BoardSection.STILL_COOKING: "section_cooking",
+    BoardSection.PR_BEING_REVIEWED: "section_reviewing",
+    BoardSection.PR_MERGED: "section_merged",
+    BoardSection.PR_CLOSED: "section_closed",
+}
 
 _STATE_ATTR: dict[AgentLifecycleState, str] = {
     AgentLifecycleState.RUNNING: "state_running",
@@ -63,12 +80,6 @@ _STATE_ATTR: dict[AgentLifecycleState, str] = {
     AgentLifecycleState.STOPPED: "state_stopped",
     AgentLifecycleState.DONE: "state_done",
     AgentLifecycleState.REPLACED: "state_replaced",
-}
-
-_PR_STATE_ATTR: dict[PrState, str] = {
-    PrState.OPEN: "pr_open",
-    PrState.CLOSED: "pr_closed",
-    PrState.MERGED: "pr_merged",
 }
 
 _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
@@ -113,49 +124,55 @@ class _PankanInputHandler(MutableModel):
         return True
 
 
-def _format_pr_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
-    """Build urwid text markup for an agent's PR info."""
+def _classify_entry(entry: AgentBoardEntry) -> BoardSection:
+    """Determine which board section an agent belongs to based on its PR state."""
     if entry.pr is None:
-        return [("no_pr", "(no PR)")]
+        return BoardSection.STILL_COOKING
+    if entry.pr.state == PrState.MERGED:
+        return BoardSection.PR_MERGED
+    if entry.pr.state == PrState.CLOSED:
+        return BoardSection.PR_CLOSED
+    return BoardSection.PR_BEING_REVIEWED
 
-    pr = entry.pr
-    pr_state_attr = _PR_STATE_ATTR[pr.state]
-    check_attr = _CHECK_STATUS_ATTR[pr.check_status]
 
-    parts: list[str | tuple[Hashable, str]] = [
-        f"PR #{pr.number} ",
-        (pr_state_attr, pr.state.lower()),
-    ]
-
-    if pr.check_status != CheckStatus.UNKNOWN:
-        parts.append("  checks ")
-        parts.append((check_attr, pr.check_status.lower()))
-
-    return parts
+def _format_check_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
+    """Build urwid text markup for CI check status."""
+    if entry.pr is None or entry.pr.check_status == CheckStatus.UNKNOWN:
+        return []
+    check_attr = _CHECK_STATUS_ATTR[entry.pr.check_status]
+    return ["  checks ", (check_attr, entry.pr.check_status.lower())]
 
 
 def _format_agent_line(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
-    """Build urwid text markup for a single agent line."""
+    """Build urwid text markup for a single agent line.
+
+    Shows: name, agent state, PR info (number + checks if applicable).
+    """
     state_attr = _STATE_ATTR.get(entry.state, "")
-    name_padded = f"  {entry.name:<24}"
     parts: list[str | tuple[Hashable, str]] = [
-        (state_attr, name_padded),
+        f"  {entry.name:<24}",
+        (state_attr, f"{entry.state:<10}"),
     ]
-    parts.extend(_format_pr_markup(entry))
+
+    if entry.pr is not None:
+        parts.append(f"  PR #{entry.pr.number}")
+        parts.extend(_format_check_markup(entry))
+
     return parts
 
 
 def _build_board_widgets(snapshot: BoardSnapshot) -> list[Text | Divider]:
-    """Build the urwid widget list from a BoardSnapshot, grouped by lifecycle state."""
-    # Group entries by state
-    by_state: dict[AgentLifecycleState, list[AgentBoardEntry]] = {}
+    """Build the urwid widget list from a BoardSnapshot, grouped by PR state."""
+    # Classify entries into sections
+    by_section: dict[BoardSection, list[AgentBoardEntry]] = {}
     for entry in snapshot.entries:
-        by_state.setdefault(entry.state, []).append(entry)
+        section = _classify_entry(entry)
+        by_section.setdefault(section, []).append(entry)
 
     widgets: list[Text | Divider] = []
 
-    for state in LIFECYCLE_STATE_ORDER:
-        entries = by_state.get(state)
+    for section in BOARD_SECTION_ORDER:
+        entries = by_section.get(section)
         if not entries:
             continue
 
@@ -163,9 +180,10 @@ def _build_board_widgets(snapshot: BoardSnapshot) -> list[Text | Divider]:
             widgets.append(Divider())
 
         # Section heading
-        state_attr = _STATE_ATTR.get(state, "")
-        heading = f"{state} ({len(entries)})"
-        widgets.append(Text((state_attr, heading)))
+        section_attr = _SECTION_ATTR[section]
+        label = _SECTION_LABELS[section]
+        heading = f"{label} ({len(entries)})"
+        widgets.append(Text((section_attr, heading)))
 
         for entry in entries:
             widgets.append(Text(_format_agent_line(entry)))

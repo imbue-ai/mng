@@ -5,6 +5,7 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.pankan.data_types import AgentBoardEntry
+from imbue.pankan.data_types import BoardSection
 from imbue.pankan.data_types import BoardSnapshot
 from imbue.pankan.data_types import CheckStatus
 from imbue.pankan.data_types import PrInfo
@@ -15,6 +16,13 @@ def test_pr_state_values() -> None:
     assert PrState.OPEN == "OPEN"
     assert PrState.CLOSED == "CLOSED"
     assert PrState.MERGED == "MERGED"
+
+
+def test_board_section_values() -> None:
+    assert BoardSection.STILL_COOKING == "STILL_COOKING"
+    assert BoardSection.PR_BEING_REVIEWED == "PR_BEING_REVIEWED"
+    assert BoardSection.PR_MERGED == "PR_MERGED"
+    assert BoardSection.PR_CLOSED == "PR_CLOSED"
 
 
 def test_check_status_values() -> None:

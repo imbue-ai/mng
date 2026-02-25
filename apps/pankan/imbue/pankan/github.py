@@ -35,6 +35,8 @@ def fetch_all_prs(cg: ConcurrencyGroup, cwd: Path | None = None) -> FetchPrsResu
                 "gh",
                 "pr",
                 "list",
+                "--author",
+                "@me",
                 "--state",
                 "all",
                 "--json",
