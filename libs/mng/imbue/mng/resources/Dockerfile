@@ -55,6 +55,9 @@ WORKDIR /code/mng/
 # install python dependencies
 RUN unset UV_INDEX_URL && uv sync --all-packages
 
+# install mng as a tool
+RUN uv tool install -e /code/mng/libs/mng
+
 # Run idly forever while being responsive to SIGTERM.
 # PID 1 must explicitly install signal handlers in order to respect signals.
 # `tail -f /dev/null` does not do this.

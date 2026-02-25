@@ -1,3 +1,4 @@
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -613,13 +614,14 @@ def deploy_schedule(
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
-    # with tempfile.TemporaryDirectory(prefix="mng-schedule-") as tmpdir:
-    #     tmp_path = Path(tmpdir)
-    tmp_path = Path("/tmp/mng-schedule-deploy")
-    tmp_path.mkdir(parents=True, exist_ok=True)
+    # stick this in the home directory instead, eg, ~/.mng/build/plugin/schedule/<hash_of_full_repo_root_path>/
+    # That way we will have a persistent location for this build, and the caching will work out from the modal side
+    repo_root_hash = hashlib.md5(str(repo_root.absolute()).encode("utf-8")).hexdigest()
+    deploy_build_path = mng_ctx.config.default_host_dir / "build" / "plugin" / "schedule" / repo_root_hash
+    deploy_build_path.mkdir(parents=True, exist_ok=True)
 
     # Package repo into build context
-    build_dir = tmp_path / "build"
+    build_dir = deploy_build_path / "build"
     with log_span("Packaging repo at commit {}", trigger.git_image_hash):
         package_repo_at_commit(trigger.git_image_hash, build_dir, repo_root)
 
@@ -628,7 +630,7 @@ def deploy_schedule(
         raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
 
     # Stage deploy files (collected from plugins via hook)
-    staging_dir = tmp_path / "staging"
+    staging_dir = deploy_build_path / "staging"
     with log_span("Staging deploy files"):
         stage_deploy_files(
             staging_dir,
@@ -649,7 +651,7 @@ def deploy_schedule(
     if resolved_install_mode == MngInstallMode.EDITABLE:
         mng_repo_root = _get_mng_repo_root()
         mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
-        mng_src_dir = tmp_path / "mng_src"
+        mng_src_dir = deploy_build_path / "mng_src"
         with log_span("Packaging mng source at commit {}", mng_head_commit):
             package_repo_at_commit(mng_head_commit, mng_src_dir, mng_repo_root)
         mng_src_tarball = mng_src_dir / "current.tar.gz"
