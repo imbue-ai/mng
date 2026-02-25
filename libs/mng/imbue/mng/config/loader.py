@@ -8,6 +8,7 @@ from typing import Sequence
 from uuid import uuid4
 
 import pluggy
+from loguru import logger
 from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -104,7 +105,7 @@ def load_config(
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
-            user_config = _parse_config(raw_user)
+            user_config = parse_config(raw_user)
             config = config.merge_with(user_config)
         except ConfigNotFoundError:
             pass
@@ -113,14 +114,14 @@ def load_config(
     project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
-        project_config = _parse_config(raw_project)
+        project_config = parse_config(raw_project)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
     local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
-        local_config = _parse_config(raw_local)
+        local_config = parse_config(raw_local)
         config = config.merge_with(local_config)
 
     # Apply environment variable overrides
@@ -170,6 +171,10 @@ def load_config(
         enabled_plugins,
         disabled_plugins,
     )
+
+    # Block disabled plugins so their hooks don't fire. This covers
+    # CLI-level --disable-plugin flags that weren't known at startup.
+    block_disabled_plugins(pm, config_dict["disabled_plugins"])
 
     # Include logging if not None
     if config.logging is not None:
@@ -438,6 +443,18 @@ def _apply_plugin_overrides(
     return enabled_result, disabled_names
 
 
+def block_disabled_plugins(pm: pluggy.PluginManager, disabled_names: frozenset[str]) -> None:
+    """Block disabled plugins in the plugin manager so their hooks don't fire.
+
+    Uses pm.set_blocked() which both prevents future registration and
+    unregisters already-registered plugins. Safe to call for names that
+    are already blocked (no-op in that case).
+    """
+    for name in disabled_names:
+        if not pm.is_blocked(name):
+            pm.set_blocked(name)
+
+
 def _parse_logging_config(raw_logging: dict[str, Any]) -> LoggingConfig:
     """Parse logging config.
 
@@ -493,7 +510,7 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def _parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(raw: dict[str, Any]) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
@@ -618,17 +635,56 @@ def _merge_command_defaults(
 
 
 # =============================================================================
-# Lightweight default-subcommand reader
+# Lightweight config pre-readers
 # =============================================================================
 #
-# These functions read only the `default_subcommand` values from config
-# files.  They run at CLI parse time -- before the full config is loaded --
-# so they intentionally avoid plugin hooks, full config validation, and
-# anything that needs a PluginManager.
+# These functions read specific values from config files before the full
+# config is loaded.  They run early in startup (CLI parse time or plugin
+# manager creation) so they intentionally avoid plugin hooks, full config
+# validation, and anything that needs a PluginManager.
 #
-# `DefaultCommandGroup.make_context` calls `read_default_command` once
-# per invocation and writes the result onto the group instance so that
-# `parse_args` / `resolve_command` can use it directly.
+# Note: logging is not yet configured when these run (setup_logging needs
+# OutputOptions and MngContext, which aren't available until after config
+# loading). Trace-level logs will only be visible with loguru's default
+# stderr sink if someone explicitly lowers the level.
+#
+# _resolve_config_file_paths returns the existing config file paths in
+# precedence order (user, project, local). Each pre-reader calls its own
+# per-file loader and merges the results via dict comprehension, so later
+# layers naturally override earlier ones.
+
+
+def _resolve_config_file_paths() -> list[Path]:
+    """Return existing config file paths in precedence order (lowest to highest)."""
+    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
+    env_host_dir = os.environ.get("MNG_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    base_dir = base_dir.expanduser()
+
+    paths: list[Path] = []
+
+    # User config
+    profile_dir = _find_profile_dir_lightweight(base_dir)
+    if profile_dir is not None:
+        user_config_path = _get_user_config_path(profile_dir)
+        paths.append(user_config_path)
+
+    # Project + local config need the project root
+    cg = ConcurrencyGroup(name="config-pre-reader")
+    with cg:
+        project_config_path = _find_project_config(None, root_name, cg)
+        local_config_path = _find_local_config(None, root_name, cg)
+
+    if project_config_path is not None:
+        paths.append(project_config_path)
+
+    if local_config_path is not None:
+        paths.append(local_config_path)
+
+    return paths
+
+
+# --- Default subcommand pre-reader ---
 
 
 def read_default_command(command_name: str) -> str:
@@ -638,59 +694,65 @@ def read_default_command(command_name: str) -> str:
     group, falls back to `"create"`.  An empty string means "disabled"
     (the caller should show help instead of defaulting).
     """
-    return _read_all_default_subcommands().get(command_name, "create")
+    merged = dict(
+        item for path in _resolve_config_file_paths() for item in _load_default_subcommands_from_file(path).items()
+    )
+    return merged.get(command_name, "create")
 
 
-def _read_all_default_subcommands() -> dict[str, str]:
-    """Read `default_subcommand` from all config layers and merge.
-
-    Precedence (lowest to highest): user config, project config, local config.
-    Returns a dict mapping command-group name to default subcommand string.
-    """
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
-    base_dir = base_dir.expanduser()
-
-    merged: dict[str, str] = {}
-
-    # User config
-    profile_dir = _find_profile_dir_lightweight(base_dir)
-    if profile_dir is not None:
-        user_config_path = _get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            _merge_default_subcommands_from_file(user_config_path, merged)
-
-    # Project + local config need the project root
-    cg = ConcurrencyGroup(name="default-subcmd-reader")
-    with cg:
-        project_config_path = _find_project_config(None, root_name, cg)
-        local_config_path = _find_local_config(None, root_name, cg)
-
-    if project_config_path is not None and project_config_path.exists():
-        _merge_default_subcommands_from_file(project_config_path, merged)
-
-    if local_config_path is not None and local_config_path.exists():
-        _merge_default_subcommands_from_file(local_config_path, merged)
-
-    return merged
-
-
-def _merge_default_subcommands_from_file(path: Path, target: dict[str, str]) -> None:
-    """Extract `default_subcommand` entries from a TOML config file into `target`."""
+def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
+    """Extract `default_subcommand` entries from a TOML config file."""
     try:
         raw = _load_toml(path)
-    except (ConfigNotFoundError, ConfigParseError):
-        return
+    except (ConfigNotFoundError, ConfigParseError) as e:
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
+        return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
-        return
+        return {}
+    result: dict[str, str] = {}
     for cmd_name, cmd_section in raw_commands.items():
         if not isinstance(cmd_section, dict):
             continue
         value = cmd_section.get("default_subcommand")
         if value is not None:
-            target[cmd_name] = str(value)
+            result[cmd_name] = str(value)
+    return result
+
+
+# --- Disabled plugins pre-reader ---
+
+
+def read_disabled_plugins() -> frozenset[str]:
+    """Return the set of plugin names disabled across all config layers.
+
+    Reads user, project, and local config files for `[plugins.<name>]`
+    sections with `enabled = false`.  Later layers override earlier ones.
+    """
+    merged = dict(
+        item for path in _resolve_config_file_paths() for item in _load_disabled_plugins_from_file(path).items()
+    )
+    return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
+
+
+def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
+    """Extract plugin enabled/disabled state from a TOML config file."""
+    try:
+        raw = _load_toml(path)
+    except (ConfigNotFoundError, ConfigParseError) as e:
+        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
+        return {}
+    raw_plugins = raw.get("plugins")
+    if not isinstance(raw_plugins, dict):
+        return {}
+    result: dict[str, bool] = {}
+    for plugin_name, plugin_section in raw_plugins.items():
+        if not isinstance(plugin_section, dict):
+            continue
+        enabled_value = plugin_section.get("enabled")
+        if enabled_value is not None:
+            result[plugin_name] = bool(enabled_value)
+    return result
 
 
 def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:

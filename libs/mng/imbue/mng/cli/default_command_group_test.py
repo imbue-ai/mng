@@ -90,6 +90,7 @@ def test_explicit_create_still_works() -> None:
 def test_mng_bare_invocation_defaults_to_create(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Running `mng` with no args should forward to `mng create`."""
     result = cli_runner.invoke(cli, [], obj=plugin_manager)
@@ -101,6 +102,7 @@ def test_mng_bare_invocation_defaults_to_create(
 def test_mng_unrecognized_command_forwards_to_create(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """Running `mng my-task` should forward to `mng create my-task`."""
     result = cli_runner.invoke(cli, ["my-task"], obj=plugin_manager)

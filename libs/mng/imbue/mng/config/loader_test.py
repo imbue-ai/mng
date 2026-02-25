@@ -22,14 +22,16 @@ from imbue.mng.config.loader import _merge_command_defaults
 from imbue.mng.config.loader import _parse_agent_types
 from imbue.mng.config.loader import _parse_command_env_vars
 from imbue.mng.config.loader import _parse_commands
-from imbue.mng.config.loader import _parse_config
 from imbue.mng.config.loader import _parse_create_templates
 from imbue.mng.config.loader import _parse_logging_config
 from imbue.mng.config.loader import _parse_plugins
 from imbue.mng.config.loader import _parse_providers
+from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
+from imbue.mng.config.loader import parse_config
 from imbue.mng.config.loader import read_default_command
+from imbue.mng.config.loader import read_disabled_plugins
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
@@ -489,12 +491,12 @@ def test_parse_create_templates_multiple_templates() -> None:
 
 
 # =============================================================================
-# Tests for _parse_config
+# Tests for parse_config
 # =============================================================================
 
 
 def test_parse_config_parses_full_config() -> None:
-    """_parse_config should parse a full config dict."""
+    """parse_config should parse a full config dict."""
     raw = {
         "prefix": "test-",
         "default_host_dir": "/tmp/test",
@@ -505,7 +507,7 @@ def test_parse_config_parses_full_config() -> None:
         "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.prefix == "test-"
     assert result.default_host_dir == "/tmp/test"
     assert AgentTypeName("claude") in result.agent_types
@@ -517,9 +519,9 @@ def test_parse_config_parses_full_config() -> None:
 
 
 def test_parse_config_handles_minimal_config() -> None:
-    """_parse_config should handle minimal config with missing optional fields."""
+    """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.prefix == "test-"
     assert result.agent_types == {}
     assert result.providers == {}
@@ -529,8 +531,8 @@ def test_parse_config_handles_minimal_config() -> None:
 
 
 def test_parse_config_handles_empty_config() -> None:
-    """_parse_config should handle empty config dict."""
-    result = _parse_config({})
+    """parse_config should handle empty config dict."""
+    result = parse_config({})
     assert result.prefix is None
     assert result.default_host_dir is None
     assert result.agent_types == {}
@@ -541,31 +543,31 @@ def test_parse_config_handles_empty_config() -> None:
 
 
 def test_parse_config_raises_on_unknown_top_level_field() -> None:
-    """_parse_config should raise ConfigParseError for unknown top-level fields."""
+    """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        _parse_config(raw)
+        parse_config(raw)
 
 
 def test_parse_config_raises_on_unknown_nested_field() -> None:
-    """_parse_config should raise ConfigParseError for unknown fields in nested config sections."""
+    """parse_config should raise ConfigParseError for unknown fields in nested config sections."""
     raw = {
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        _parse_config(raw)
+        parse_config(raw)
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
-    """_parse_config should parse default_destroyed_host_persisted_seconds from config."""
+    """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
-    result = _parse_config(raw)
+    result = parse_config(raw)
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
 def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
-    """_parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
-    result = _parse_config({})
+    """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
+    result = parse_config({})
     assert result.default_destroyed_host_persisted_seconds is None
 
 
@@ -931,78 +933,120 @@ def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.
 
 
 def test_read_default_command_reads_from_project_config(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should read default_subcommand from project config."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
 
-    # Create project config file
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = config_dir / "settings.toml"
-    settings_path.write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-
-    # Point config at the git repo
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == "list"
+    assert read_default_command("mng") == "list"
 
 
 def test_read_default_command_local_overrides_project(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should let local config override project config."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
+    (project_config_dir / "settings.local.toml").write_text('[commands.mng]\ndefault_subcommand = "stop"\n')
 
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    # Project sets "list"
-    (config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-    # Local sets "stop"
-    (config_dir / "settings.local.toml").write_text('[commands.mng]\ndefault_subcommand = "stop"\n')
-
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == "stop"
+    assert read_default_command("mng") == "stop"
 
 
 def test_read_default_command_empty_string_disables(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should return empty string when config disables defaulting."""
+    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = ""\n')
 
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = ""\n')
-
-    monkeypatch.chdir(temp_git_repo)
-
-    result = read_default_command("mng")
-    assert result == ""
+    assert read_default_command("mng") == ""
 
 
 def test_read_default_command_independent_command_names(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_git_repo: Path,
-    mng_test_root_name: str,
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
 ) -> None:
     """read_default_command should handle multiple command names independently."""
-
-    config_dir = temp_git_repo / f".{mng_test_root_name}"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    (config_dir / "settings.toml").write_text(
+    (project_config_dir / "settings.toml").write_text(
         '[commands.mng]\ndefault_subcommand = "list"\n\n[commands.snapshot]\ndefault_subcommand = "destroy"\n'
     )
-
-    monkeypatch.chdir(temp_git_repo)
 
     assert read_default_command("mng") == "list"
     assert read_default_command("snapshot") == "destroy"
     # Unconfigured groups still get "create"
     assert read_default_command("other") == "create"
+
+
+# =============================================================================
+# Tests for read_disabled_plugins
+# =============================================================================
+
+
+def test_read_disabled_plugins_returns_empty_when_no_config(temp_git_repo_cwd: Path) -> None:
+    """read_disabled_plugins should return empty set when no config files exist."""
+    assert read_disabled_plugins() == frozenset()
+
+
+def test_read_disabled_plugins_reads_from_project_config(
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
+) -> None:
+    """read_disabled_plugins should find disabled plugins in project config."""
+    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+
+    assert "modal" in read_disabled_plugins()
+
+
+def test_read_disabled_plugins_local_overrides_project(
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
+) -> None:
+    """read_disabled_plugins should let local config re-enable a plugin disabled in project config."""
+    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
+    (project_config_dir / "settings.local.toml").write_text("[plugins.modal]\nenabled = true\n")
+
+    assert "modal" not in read_disabled_plugins()
+
+
+def test_read_disabled_plugins_multiple_plugins(
+    project_config_dir: Path,
+    temp_git_repo_cwd: Path,
+) -> None:
+    """read_disabled_plugins should handle multiple disabled plugins."""
+    (project_config_dir / "settings.toml").write_text(
+        "[plugins.modal]\nenabled = false\n\n[plugins.docker]\nenabled = false\n\n[plugins.local]\nenabled = true\n"
+    )
+
+    result = read_disabled_plugins()
+    assert "modal" in result
+    assert "docker" in result
+    assert "local" not in result
+
+
+# =============================================================================
+# Tests for block_disabled_plugins
+# =============================================================================
+
+
+def test_block_disabled_plugins_blocks_names_in_plugin_manager() -> None:
+    """block_disabled_plugins should call pm.set_blocked for each disabled name."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+
+    block_disabled_plugins(pm, frozenset({"modal", "docker"}))
+
+    assert pm.is_blocked("modal")
+    assert pm.is_blocked("docker")
+    assert not pm.is_blocked("local")
+
+
+def test_block_disabled_plugins_is_idempotent() -> None:
+    """block_disabled_plugins should be safe to call multiple times."""
+    pm = pluggy.PluginManager("mng")
+    pm.add_hookspecs(hookspecs)
+
+    block_disabled_plugins(pm, frozenset({"modal"}))
+    block_disabled_plugins(pm, frozenset({"modal"}))
+
+    assert pm.is_blocked("modal")

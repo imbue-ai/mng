@@ -493,7 +493,7 @@ def test_build_cron_mng_command_includes_dangerously_skip_permissions() -> None:
 # -- find_repo_root tests (using real git) --
 
 
-def test_find_repo_root_returns_path_in_git_repo() -> None:
+def test_find_repo_root_returns_path_in_git_repo(imbue_repo_cwd: Path) -> None:
     """When called from inside a git repo, find_repo_root should return a valid path."""
     result = find_repo_root()
 
@@ -501,13 +501,11 @@ def test_find_repo_root_returns_path_in_git_repo() -> None:
     assert (result / ".git").exists()
 
 
-def test_find_repo_root_raises_outside_git_repo(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """When called from outside a git repo, ChangelingDeployError should be raised."""
-    monkeypatch.chdir(tmp_path)
+def test_find_repo_root_raises_outside_git_repo() -> None:
+    """When called from outside a git repo, ChangelingDeployError should be raised.
 
+    The autouse _isolated_home fixture chdirs to tmp_path (not a git repo).
+    """
     with pytest.raises(ChangelingDeployError, match="Could not find git repository root"):
         find_repo_root()
 
@@ -515,7 +513,7 @@ def test_find_repo_root_raises_outside_git_repo(
 # -- get_imbue_commit_hash tests --
 
 
-def test_get_imbue_commit_hash_returns_hex_string() -> None:
+def test_get_imbue_commit_hash_returns_hex_string(imbue_repo_cwd: Path) -> None:
     """The commit hash should be a 40-character hex string."""
     result = get_imbue_commit_hash()
 
@@ -523,12 +521,8 @@ def test_get_imbue_commit_hash_returns_hex_string() -> None:
     assert all(c in "0123456789abcdef" for c in result)
 
 
-def test_get_imbue_commit_hash_raises_outside_git_repo(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
+def test_get_imbue_commit_hash_raises_outside_git_repo() -> None:
+    """The autouse _isolated_home fixture chdirs to tmp_path (not a git repo)."""
     with pytest.raises(ChangelingDeployError, match="Could not get current commit hash"):
         get_imbue_commit_hash()
 
@@ -536,26 +530,22 @@ def test_get_imbue_commit_hash_raises_outside_git_repo(
 # -- get_imbue_repo_url tests --
 
 
-def test_get_imbue_repo_url_returns_non_empty_string() -> None:
+def test_get_imbue_repo_url_returns_non_empty_string(imbue_repo_cwd: Path) -> None:
     """The imbue repo URL should be a non-empty string."""
     result = get_imbue_repo_url()
 
     assert len(result) > 0
 
 
-def test_get_imbue_repo_url_returns_https_url() -> None:
+def test_get_imbue_repo_url_returns_https_url(imbue_repo_cwd: Path) -> None:
     """The imbue repo URL should be HTTPS (SSH URLs are converted)."""
     result = get_imbue_repo_url()
 
     assert result.startswith("https://")
 
 
-def test_get_imbue_repo_url_raises_outside_git_repo(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-
+def test_get_imbue_repo_url_raises_outside_git_repo() -> None:
+    """The autouse _isolated_home fixture chdirs to tmp_path (not a git repo)."""
     with pytest.raises(ChangelingDeployError, match="Could not get repository clone URL"):
         get_imbue_repo_url()
 

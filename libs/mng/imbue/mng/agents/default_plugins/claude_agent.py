@@ -149,7 +149,7 @@ def _build_settings_json_content(sync_local: bool) -> str:
     return json.dumps(data, indent=2) + "\n"
 
 
-def _build_claude_json_for_remote(sync_local: bool, version: str | None) -> dict[str, Any]:
+def _build_claude_json_for_remote(sync_local: bool, work_dir: Path, version: str | None) -> dict[str, Any]:
     """Build ~/.claude.json data for remote deployment.
 
     Uses the local file as a base when sync_local is True and the file exists,
@@ -167,6 +167,10 @@ def _build_claude_json_for_remote(sync_local: bool, version: str | None) -> dict
         data = _generate_claude_json(version)
     data["bypassPermissionsModeAccepted"] = True
     data["effortCalloutDismissed"] = True
+    # Add trust for the remote work_dir so Claude doesn't show the
+    # trust dialog (which would intercept tmux send-keys input):
+    projects = data.setdefault("projects", {})
+    projects.setdefault(str(work_dir), {})["hasTrustDialogAccepted"] = True
     return data
 
 
@@ -794,7 +798,7 @@ class ClaudeAgent(BaseAgent):
                     host.write_text_file(remote_path, source_path.read_text())
 
             # Always ship ~/.claude.json
-            claude_json_data = _build_claude_json_for_remote(config.sync_claude_json, config.version)
+            claude_json_data = _build_claude_json_for_remote(config.sync_claude_json, self.work_dir, config.version)
             # If the local file lacks primaryApiKey, try the macOS keychain
             if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
                 keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
@@ -902,7 +906,8 @@ def get_files_for_deploy(
 
     # Always ship ~/.claude/settings.json and ~/.claude.json
     files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
-    claude_json_data = _build_claude_json_for_remote(include_user_settings, None)
+    # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
+    claude_json_data = _build_claude_json_for_remote(include_user_settings, repo_root, None)
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:

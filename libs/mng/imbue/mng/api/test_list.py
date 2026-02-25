@@ -130,7 +130,8 @@ def test_agent_to_cel_context_basic_fields() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["type"] == "agent"
+    assert context["resource_type"] == "agent"
+    assert context["type"] == "claude"
     assert context["name"] == "test-agent"
     assert context["host"]["name"] == "test-host"
     assert context["host"]["provider"] == "local"

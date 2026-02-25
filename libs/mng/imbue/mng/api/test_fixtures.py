@@ -27,6 +27,7 @@ class FakeHost(MutableModel):
     """Minimal test double for OnlineHostInterface that executes commands locally."""
 
     is_local: bool = Field(default=True, description="Whether this is a local host")
+    host_dir: Path = Field(default_factory=lambda: Path("/fake/host_dir"), description="Host state directory")
 
     def execute_command(
         self,
@@ -52,6 +53,20 @@ class FakeHost(MutableModel):
             stderr=result.stderr,
             success=result.returncode == 0,
         )
+
+    def read_text_file(self, path: Path, encoding: str = "utf-8") -> str:
+        """Read a file from the local filesystem."""
+        return path.read_text(encoding=encoding)
+
+    def write_text_file(self, path: Path, content: str, encoding: str = "utf-8", mode: str | None = None) -> None:
+        """Write a text file to the local filesystem."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding=encoding)
+
+    def write_file(self, path: Path, content: bytes, mode: str | None = None) -> None:
+        """Write a binary file to the local filesystem."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
 
 
 class SyncTestContext(FrozenModel):

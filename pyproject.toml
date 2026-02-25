@@ -31,7 +31,6 @@ dev = [
     "semver>=3.0",
     "tomlkit>=0.12.0",
     "imbue-common[dev]",
-    "mkdocs-click>=0.9.0",
 ]
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)
@@ -44,6 +43,8 @@ dev = [
 # --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
 # if it fires during fixture setup/teardown (especially the session-scoped cleanup).
 timeout_func_only = true
+# Use xunit1 format to enable record_xml_attribute fixture for consistent classnames
+junit_family = "xunit1"
 pythonpath = [
   "apps/*",
   "libs/*",
