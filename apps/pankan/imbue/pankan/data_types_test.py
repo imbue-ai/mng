@@ -20,6 +20,7 @@ def test_pr_state_values() -> None:
 
 def test_board_section_values() -> None:
     assert BoardSection.STILL_COOKING == "STILL_COOKING"
+    assert BoardSection.PR_DRAFTED == "PR_DRAFTED"
     assert BoardSection.PR_BEING_REVIEWED == "PR_BEING_REVIEWED"
     assert BoardSection.PR_MERGED == "PR_MERGED"
     assert BoardSection.PR_CLOSED == "PR_CLOSED"
@@ -40,6 +41,7 @@ def test_pr_info_construction() -> None:
         url="https://github.com/org/repo/pull/42",
         head_branch="mng/my-agent-local",
         check_status=CheckStatus.PASSING,
+        is_draft=False,
     )
     assert pr.number == 42
     assert pr.title == "Add feature X"
@@ -57,6 +59,7 @@ def test_pr_info_is_frozen() -> None:
         url="https://github.com/org/repo/pull/42",
         head_branch="mng/my-agent-local",
         check_status=CheckStatus.PASSING,
+        is_draft=False,
     )
     with pytest.raises(ValidationError):
         pr.number = 99  # type: ignore[misc]
@@ -83,6 +86,7 @@ def test_agent_board_entry_with_pr() -> None:
         url="https://github.com/org/repo/pull/10",
         head_branch="mng/my-agent-local",
         check_status=CheckStatus.PASSING,
+        is_draft=False,
     )
     entry = AgentBoardEntry(
         name=AgentName("my-agent"),

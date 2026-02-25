@@ -123,6 +123,22 @@ def test_parse_pr() -> None:
     assert pr.url == "https://github.com/org/repo/pull/42"
     assert pr.head_branch == "mng/my-agent-local"
     assert pr.check_status == CheckStatus.PASSING
+    assert pr.is_draft is False
+
+
+def test_parse_pr_draft() -> None:
+    raw = {
+        "number": 99,
+        "title": "WIP feature",
+        "state": "OPEN",
+        "url": "https://github.com/org/repo/pull/99",
+        "headRefName": "mng/wip-local",
+        "statusCheckRollup": [],
+        "isDraft": True,
+    }
+    pr = _parse_pr(raw)
+    assert pr.is_draft is True
+    assert pr.state == PrState.OPEN
 
 
 def test_parse_pr_merged_with_no_checks() -> None:

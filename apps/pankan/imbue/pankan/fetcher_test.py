@@ -56,6 +56,7 @@ def _make_pr_info(
     number: int = 1,
     head_branch: str = "mng/test-local",
     state: PrState = PrState.OPEN,
+    is_draft: bool = False,
 ) -> PrInfo:
     """Create a minimal PrInfo for testing."""
     return PrInfo(
@@ -65,6 +66,7 @@ def _make_pr_info(
         url=f"https://github.com/org/repo/pull/{number}",
         head_branch=head_branch,
         check_status=CheckStatus.PASSING,
+        is_draft=is_draft,
     )
 
 

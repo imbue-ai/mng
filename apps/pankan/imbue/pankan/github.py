@@ -40,7 +40,7 @@ def fetch_all_prs(cg: ConcurrencyGroup, cwd: Path | None = None) -> FetchPrsResu
                 "--state",
                 "all",
                 "--json",
-                "number,title,state,headRefName,url,statusCheckRollup",
+                "number,title,state,headRefName,url,statusCheckRollup,isDraft",
                 "--limit",
                 "500",
             ],
@@ -67,6 +67,7 @@ def _parse_pr(raw: dict[str, Any]) -> PrInfo:
         url=raw["url"],
         head_branch=raw["headRefName"],
         check_status=_parse_check_status(raw.get("statusCheckRollup")),
+        is_draft=bool(raw.get("isDraft", False)),
     )
 
 

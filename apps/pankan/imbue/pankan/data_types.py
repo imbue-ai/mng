@@ -30,6 +30,7 @@ class BoardSection(UpperCaseStrEnum):
     """Sections for grouping agents on the board, based on PR state."""
 
     STILL_COOKING = auto()
+    PR_DRAFTED = auto()
     PR_BEING_REVIEWED = auto()
     PR_MERGED = auto()
     PR_CLOSED = auto()
@@ -44,6 +45,7 @@ class PrInfo(FrozenModel):
     url: str = Field(description="PR URL")
     head_branch: str = Field(description="Head branch name of the PR")
     check_status: CheckStatus = Field(description="Aggregate CI check status")
+    is_draft: bool = Field(description="Whether the PR is a draft")
 
 
 class AgentBoardEntry(FrozenModel):
