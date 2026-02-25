@@ -1,13 +1,13 @@
 from textwrap import dedent
 
-from imbue.mng.cli.tutor.data_types import AgentExistsCheck
-from imbue.mng.cli.tutor.data_types import AgentInStateCheck
-from imbue.mng.cli.tutor.data_types import AgentNotExistsCheck
-from imbue.mng.cli.tutor.data_types import FileExistsInAgentWorkDirCheck
-from imbue.mng.cli.tutor.data_types import Lesson
-from imbue.mng.cli.tutor.data_types import LessonStep
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
+from imbue.mng_tutor.data_types import AgentExistsCheck
+from imbue.mng_tutor.data_types import AgentInStateCheck
+from imbue.mng_tutor.data_types import AgentNotExistsCheck
+from imbue.mng_tutor.data_types import FileExistsInAgentWorkDirCheck
+from imbue.mng_tutor.data_types import Lesson
+from imbue.mng_tutor.data_types import LessonStep
 
 LESSON_GETTING_STARTED = Lesson(
     title="Basic Local Agent",

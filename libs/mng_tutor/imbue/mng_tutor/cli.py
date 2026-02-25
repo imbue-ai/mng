@@ -7,9 +7,9 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.tutor.lessons import ALL_LESSONS
-from imbue.mng.cli.tutor.tui import run_lesson_runner
-from imbue.mng.cli.tutor.tui import run_lesson_selector
+from imbue.mng_tutor.lessons import ALL_LESSONS
+from imbue.mng_tutor.tui import run_lesson_runner
+from imbue.mng_tutor.tui import run_lesson_selector
 
 
 class TutorCliOptions(CommonCliOptions):

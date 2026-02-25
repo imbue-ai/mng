@@ -17,9 +17,9 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mng.cli.tutor.checks import run_check
-from imbue.mng.cli.tutor.data_types import Lesson
 from imbue.mng.config.data_types import MngContext
+from imbue.mng_tutor.checks import run_check
+from imbue.mng_tutor.data_types import Lesson
 
 PALETTE = [
     ("header", "white", "dark blue"),
