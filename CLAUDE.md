@@ -49,7 +49,7 @@ Only after doing all of the above should you begin writing code.
 - Do NOT write code in `__init__.py`--leave them completely blank (the only exception is for a line like "hookimpl = pluggy.HookimplMarker("mng")", which should go at the very root __init__.py of a library).
 - Do NOT make constructs like module-level usage of `__all__`
 - Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
-- To run all tests in the monorepo: "uv run pytest --no-cov" from the root of the git checkout. (The --no-cov flag skips coverage measurement, which saves ~7s. Coverage is always measured in CI.)
+- To run all tests in the monorepo: "uv run pytest --no-cov" from the root of the git checkout. (The --no-cov flag skips coverage measurement, which is ~20% faster. Coverage is always measured in CI.)
 - To run tests for a single project: "cd libs/mng && uv run pytest --no-cov" or "cd apps/changelings && uv run pytest --no-cov". Each project has its own pytest and coverage configuration in its pyproject.toml.
 - Running pytest will produce files in .test_output/ (relative to the directory you ran from) for things like slow tests and coverage reports.
 - Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" tests also run in CI. Do *not* run *all* the acceptance tests locally to validate changes--just allow CI to run them automatically after you finish responding (it's faster than running them locally).
