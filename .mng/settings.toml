@@ -24,10 +24,6 @@ add_command = ["github_setup='ssh-keyscan github.com >> ~/.ssh/known_hosts && gh
 agent_args = ["--dangerously-skip-permissions"]
 target_path = "/code/mng"
 
-[agent_types.coder]
-parent_type = "claude"
-cli_args = """--settings '{"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "./scripts/check_commit_status.sh"}]}, {"hooks": [{"type": "command", "timeout": 600, "command": "./scripts/main_claude_stop_hook.sh"}]}]}}'"""
-
 [providers.modal]
 is_enabled = true
 default_cpu = 4

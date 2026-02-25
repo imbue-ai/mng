@@ -27,7 +27,16 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
 _log_to_file "INFO" "run_reviewer started (pid=$$, ppid=$PPID, session=$SESSION, window=$WINDOW)"
 
 # Configuration
-REVIEW_TIMEOUT=600  # 10 minutes max wait for review
+IS_AUTOFIX=false
+if [[ -f .autofix/enabled ]]; then
+    IS_AUTOFIX=true
+fi
+
+if [[ "$IS_AUTOFIX" == "true" ]]; then
+    REVIEW_TIMEOUT=1800  # 30 minutes for autofix (iterative fix loop)
+else
+    REVIEW_TIMEOUT=600   # 10 minutes for standard review
+fi
 POLL_INTERVAL=5     # Check every 5 seconds
 REVIEW_OUTPUT_DIR=".reviews/final_issue_json"
 REVIEW_OUTPUT_FILE="$REVIEW_OUTPUT_DIR/$WINDOW.json"
@@ -74,15 +83,22 @@ log_info() {
     _log_to_file "INFO" "$1"
 }
 
+# Choose the review command based on autofix mode
+if [[ "$IS_AUTOFIX" == "true" ]]; then
+    REVIEW_COMMAND="/autofix"
+else
+    REVIEW_COMMAND="/verify-branch"
+fi
+
 # Send the review command to the tmux window
-_log_to_file "INFO" "Sending review commands to tmux $SESSION:$WINDOW"
-log_info "Triggering review in $SESSION:$WINDOW..."
+_log_to_file "INFO" "Sending review commands to tmux $SESSION:$WINDOW (command=$REVIEW_COMMAND)"
+log_info "Triggering review in $SESSION:$WINDOW ($REVIEW_COMMAND)..."
 tmux send-keys -t "$SESSION:$WINDOW" "/clear"
 # see below note
 sleep 1.0
 tmux send-keys -t "$SESSION:$WINDOW" Enter
 sleep 2.0
-tmux send-keys -t "$SESSION:$WINDOW" "/verify-branch"
+tmux send-keys -t "$SESSION:$WINDOW" "$REVIEW_COMMAND"
 # These have to be separate - otherwise it's treated as a bracketed paste
 # and irritatingly, we *do* require the sleep :(  I've seen claude fail without this (though even with zero sleep it only fails about 1 in 10 times for me)
 # it would clearly be better to have a more robust method for sending messages, but we don't quite have that yet
@@ -206,15 +222,49 @@ upload_reviewer_output() {
     fi
 }
 
-if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
-    log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
-    cache_results 2
-    _log_to_file "INFO" "Found $BLOCKING_ISSUES blocking issues, exiting with 2"
-    exit 2
-fi
+if [[ "$IS_AUTOFIX" == "true" ]]; then
+    # Autofix mode: check the result file and whether HEAD moved
+    if [[ -f .autofix/result ]]; then
+        RESULT=$(cat .autofix/result)
+        if [[ "$RESULT" == error:* ]]; then
+            log_error "Autofix failed: $RESULT"
+            _log_to_file "ERROR" "Autofix error: $RESULT, exiting with 1"
+            exit 1
+        fi
+    else
+        log_error "Autofix did not write a result file"
+        _log_to_file "ERROR" "Missing .autofix/result, exiting with 1"
+        exit 1
+    fi
 
-log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
-upload_reviewer_output "$REVIEW_OUTPUT_FILE" "$CURRENT_COMMIT"
-cache_results 0
-_log_to_file "INFO" "run_reviewer completed successfully, exiting with 0"
-exit 0
+    # Check if HEAD moved (fixes were made)
+    NEW_HEAD=$(git rev-parse HEAD)
+    if [[ "$NEW_HEAD" != "$CURRENT_COMMIT" ]]; then
+        log_error "Autofix made changes. Present each fix to the user for Keep/Revert."
+        log_error "Run: git log --reverse --format='%H %s' $CURRENT_COMMIT..HEAD"
+        log_error "Check .autofix/config/auto-accept.md for auto-accept rules."
+        log_error "Revert rejected commits in reverse order: git revert --no-edit <hash>"
+        cache_results 2
+        _log_to_file "INFO" "Autofix moved HEAD from $CURRENT_COMMIT to $NEW_HEAD, exiting with 2"
+        exit 2
+    fi
+
+    log_info "Autofix found no issues"
+    cache_results 0
+    _log_to_file "INFO" "Autofix completed cleanly, exiting with 0"
+    exit 0
+else
+    # Standard review mode: check for blocking issues
+    if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
+        log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
+        cache_results 2
+        _log_to_file "INFO" "Found $BLOCKING_ISSUES blocking issues, exiting with 2"
+        exit 2
+    fi
+
+    log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
+    upload_reviewer_output "$REVIEW_OUTPUT_FILE" "$CURRENT_COMMIT"
+    cache_results 0
+    _log_to_file "INFO" "run_reviewer completed successfully, exiting with 0"
+    exit 0
+fi
