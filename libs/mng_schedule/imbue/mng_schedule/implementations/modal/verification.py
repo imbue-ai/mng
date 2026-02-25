@@ -7,7 +7,7 @@
 # This module is excluded from unit test coverage because it requires
 # real Modal and mng infrastructure to execute (similar to cron_runner.py).
 # It is exercised by the acceptance test in test_schedule_add.py.
-
+import pdb
 import re
 import subprocess
 import sys
@@ -39,6 +39,7 @@ _AGENT_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"Starting agent\s+(\S+
 def _destroy_agent(agent_name: str) -> None:
     """Destroy an agent by name (no-op if it doesn't exist, since --force is used)."""
     logger.info("Destroying verification agent '{}'", agent_name)
+    pdb.set_trace()
     with ConcurrencyGroup(name="mng-destroy") as cg:
         result = cg.run_process_to_completion(
             ["uv", "run", "mng", "destroy", "--force", agent_name],

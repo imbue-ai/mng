@@ -37,7 +37,7 @@ _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Constants for signal-based synchronization
-_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
+_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):

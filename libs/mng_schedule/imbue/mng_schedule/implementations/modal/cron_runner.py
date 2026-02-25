@@ -217,7 +217,7 @@ def run_scheduled_trigger() -> None:
 
     # make sure we fetch and check out the latest code
     branch_name = "josh/schedule_fixes"
-    _run_and_stream(["git", "fetch", "--all"])
+    _run_and_stream(["git", "fetch", "origin", branch_name])
     _run_and_stream(["git", "checkout", branch_name])
     _run_and_stream(["git", "merge", f"origin/{branch_name}"])
 
