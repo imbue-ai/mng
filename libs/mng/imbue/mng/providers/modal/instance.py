@@ -2071,6 +2071,13 @@ log "=== Shutdown script completed ==="
     # Discovery Methods
     # =========================================================================
 
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
+
     @handle_modal_auth_error
     def get_host(
         self,

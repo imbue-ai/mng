@@ -277,6 +277,9 @@ class OnlineHostInterface(HostInterface, ABC):
         """Update the certified plugin data for the given plugin name."""
         ...
 
+    @abstractmethod
+    def to_offline_host(self) -> HostInterface: ...
+
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================

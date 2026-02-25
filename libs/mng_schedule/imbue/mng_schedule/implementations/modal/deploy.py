@@ -131,7 +131,6 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
         result = cg.run_process_to_completion(
             ["bash", str(script_path), commit_hash, str(dest_dir)],
             is_checked_after=False,
-            on_output=_forward_output,
             cwd=repo_root,
         )
     if result.returncode != 0:

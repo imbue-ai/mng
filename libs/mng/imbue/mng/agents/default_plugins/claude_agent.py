@@ -369,14 +369,14 @@ def _has_api_credentials_available(
     Returns True if any credential source is detected, False otherwise.
     """
     # Local hosts inherit the process environment via tmux
-    if host.is_local and os.environ.get("ANTHROPIC_API_KEY"):
+    if host.is_local and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         return True
 
     for env_var in options.environment.env_vars:
-        if env_var.key == "ANTHROPIC_API_KEY":
+        if env_var.key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
             return True
 
-    if host.get_env_var("ANTHROPIC_API_KEY"):
+    if host.get_env_var("ANTHROPIC_API_KEY") or host.get_env_var("ANTHROPIC_AUTH_TOKEN"):
         return True
 
     # Check credentials file or macOS keychain (OAuth tokens)

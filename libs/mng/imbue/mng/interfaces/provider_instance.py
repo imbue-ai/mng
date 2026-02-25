@@ -166,6 +166,9 @@ class ProviderInstanceInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def to_offline_host(self, host_id: HostId) -> HostInterface: ...
+
+    @abstractmethod
     def list_hosts(
         self,
         cg: ConcurrencyGroup,

@@ -25,6 +25,7 @@ from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
+from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
@@ -34,7 +35,9 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.providers.base_provider import BaseProviderInstance
 
 
 class _OfflineHostToDestroy(FrozenModel):
@@ -336,7 +339,34 @@ def _find_agents_to_destroy(
 
                 match host_interface:
                     case OnlineHostInterface() as online_host:
-                        for agent in online_host.get_agents():
+                        try:
+                            agents = online_host.get_agents()
+                        except HostConnectionError as e:
+                            logger.warning(
+                                "Failed to connect to host {} to verify agent status. Treating host as offline: {}",
+                                host_ref.host_id,
+                                str(e),
+                            )
+                            host_id_str = str(host_ref.host_id)
+                            if host_id_str in seen_offline_hosts:
+                                continue
+
+                            offline_host = host_interface.to_offline_host()
+                            _handle_offline_or_unreachable_host(
+                                agent_identifiers,
+                                destroy_all,
+                                host_id_str,
+                                host_ref,
+                                matched_identifiers,
+                                offline_host,
+                                offline_hosts,
+                                provider,
+                                seen_offline_hosts,
+                            )
+
+                            continue
+                        # if we were able to list the agents from the online host:
+                        for agent in agents:
                             if agent.id == agent_ref.agent_id:
                                 online_agents.append((agent, online_host))
                                 break
@@ -350,30 +380,17 @@ def _find_agents_to_destroy(
                             continue
 
                         # Offline host - check if ALL agents on this host are being destroyed
-                        all_agent_refs_on_host = offline_host.get_agent_references()
-                        all_targeted = destroy_all or all(
-                            str(ref.agent_name) in agent_identifiers or str(ref.agent_id) in agent_identifiers
-                            for ref in all_agent_refs_on_host
+                        _handle_offline_or_unreachable_host(
+                            agent_identifiers,
+                            destroy_all,
+                            host_id_str,
+                            host_ref,
+                            matched_identifiers,
+                            offline_host,
+                            offline_hosts,
+                            provider,
+                            seen_offline_hosts,
                         )
-                        if all_targeted:
-                            # Collect the host for destruction (don't destroy yet)
-                            offline_hosts.append(
-                                _OfflineHostToDestroy(
-                                    host=offline_host,
-                                    provider=provider,
-                                    agent_names=[ref.agent_name for ref in all_agent_refs_on_host],
-                                )
-                            )
-                            seen_offline_hosts.add(host_id_str)
-                            for ref in all_agent_refs_on_host:
-                                matched_identifiers.add(str(ref.agent_name))
-                                matched_identifiers.add(str(ref.agent_id))
-                        else:
-                            raise HostOfflineError(
-                                f"Host '{host_ref.host_id}' is offline. Cannot destroy individual agents on an "
-                                f"offline host. Either start the host first, or destroy all "
-                                f"{len(all_agent_refs_on_host)} agent(s) on this host."
-                            )
                     case _ as unreachable:
                         assert_never(unreachable)
 
@@ -385,6 +402,43 @@ def _find_agents_to_destroy(
             raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
 
     return _DestroyTargets(online_agents=online_agents, offline_hosts=offline_hosts)
+
+
+def _handle_offline_or_unreachable_host(
+    agent_identifiers: Sequence[str],
+    destroy_all: bool,
+    host_id_str: str,
+    host_ref: HostReference,
+    matched_identifiers: set[str],
+    offline_host: HostInterface,
+    offline_hosts: list[_OfflineHostToDestroy],
+    provider: BaseProviderInstance,
+    seen_offline_hosts: set[str],
+):
+    all_agent_refs_on_host = offline_host.get_agent_references()
+    all_targeted = destroy_all or all(
+        str(ref.agent_name) in agent_identifiers or str(ref.agent_id) in agent_identifiers
+        for ref in all_agent_refs_on_host
+    )
+    if all_targeted:
+        # Collect the host for destruction (don't destroy yet)
+        offline_hosts.append(
+            _OfflineHostToDestroy(
+                host=offline_host,
+                provider=provider,
+                agent_names=[ref.agent_name for ref in all_agent_refs_on_host],
+            )
+        )
+        seen_offline_hosts.add(host_id_str)
+        for ref in all_agent_refs_on_host:
+            matched_identifiers.add(str(ref.agent_name))
+            matched_identifiers.add(str(ref.agent_id))
+    else:
+        raise HostOfflineError(
+            f"Host '{host_ref.host_id}' is offline. Cannot destroy individual agents on an "
+            f"offline host. Either start the host first, or destroy all "
+            f"{len(all_agent_refs_on_host)} agent(s) on this host."
+        )
 
 
 def _confirm_destruction(targets: _DestroyTargets) -> None:

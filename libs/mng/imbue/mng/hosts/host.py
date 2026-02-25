@@ -23,6 +23,7 @@ from paramiko import SSHException
 from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
+from pyinfra.api.exceptions import ConnectError
 from pyinfra.connectors.util import CommandOutput
 from tenacity import retry
 from tenacity import retry_if_exception
@@ -41,6 +42,7 @@ from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostDataSchemaError
 from imbue.mng.errors import InvalidActivityTypeError
@@ -50,6 +52,7 @@ from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
 from imbue.mng.hosts.offline_host import BaseHost
+from imbue.mng.hosts.offline_host import OfflineHost
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CommandResult
@@ -143,8 +146,14 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _ensure_connected(self) -> None:
         """Ensure the pyinfra host is connected."""
-        if not self.connector.host.connected:
-            self.connector.host.connect(raise_exceptions=True)
+        try:
+            if not self.connector.host.connected:
+                self.connector.host.connect(raise_exceptions=True)
+        except ConnectError as e:
+            if "authentication error" in str(e).lower():
+                raise HostAuthenticationError(f"Authentication failed when connecting to host: {e}") from e
+            else:
+                raise HostConnectionError(f"Failed to connect to host: {e}") from e
 
     def disconnect(self) -> None:
         """Disconnect the pyinfra host if connected.
@@ -688,6 +697,9 @@ class Host(BaseHost, OnlineHostInterface):
             to_update(certified_data.field_ref().plugin, updated_plugin),
         )
         self.set_certified_data(updated_data)
+
+    def to_offline_host(self) -> OfflineHost:
+        return self.provider_instance.to_offline_host(self.id)
 
     # =========================================================================
     # Reported Plugin Data
