@@ -23,6 +23,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.primitives import LogLevel
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
@@ -43,10 +44,12 @@ _SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugin/schedule"
 
 
 def _forward_output(line: str, is_stdout: bool) -> None:
-    print("Is stdout:", is_stdout)
-    stream = sys.stdout if is_stdout else sys.stderr
-    stream.write(line)
-    stream.flush()
+    if is_stdout:
+        logger.log(LogLevel.BUILD.value, "{}", line.rstrip(), source="modal deploy")
+    else:
+        stream = sys.stdout if is_stdout else sys.stderr
+        stream.write(line)
+        stream.flush()
 
 
 @pure
