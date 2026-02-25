@@ -34,7 +34,7 @@ while true; do
 done
 ```
 
-If this command times out (after 10 minutes), simply re-run the same command. Continue re-running until the agent reaches a terminal state.
+If this command times out (after 10 minutes), check on the agent by running `tmux capture-pane -t mng-AGENT_NAME -p -S -30` to see its recent output. The tmux session name format is `mng-AGENT_NAME`. If it looks like the agent is still actively working, re-run the polling loop. If it looks stuck or dead, inform the user.
 
 ## After the Agent is Ready
 
