@@ -148,21 +148,19 @@ def test_read_agent_names_from_cache_filters_non_string_and_empty_names(
     assert result == ["also-good", "good"]
 
 
-def test_read_agent_names_from_cache_uses_default_host_dir(
+def test_read_agent_names_from_cache_uses_env_override_for_cache_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MNG_HOST_DIR", raising=False)
-    monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
-    monkeypatch.setenv("HOME", str(tmp_path))
+    custom_dir = tmp_path / "custom-cache"
+    custom_dir.mkdir()
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(custom_dir))
 
-    host_dir = tmp_path / ".mng"
-    host_dir.mkdir(parents=True, exist_ok=True)
-    _write_cache(host_dir, ["home-agent"])
+    _write_cache(custom_dir, ["cached-agent"])
 
     result = _read_agent_names_from_cache()
 
-    assert result == ["home-agent"]
+    assert result == ["cached-agent"]
 
 
 # =============================================================================
@@ -349,6 +347,118 @@ def test_write_cli_completions_cache_includes_plugin_group_subcommands(
     assert "myplugin" in data["subcommand_by_command"]
     assert "run" in data["subcommand_by_command"]["myplugin"]
     assert "status" in data["subcommand_by_command"]["myplugin"]
+
+
+# -- extended cache field tests --
+
+
+def test_write_cli_completions_cache_includes_options(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should include options_by_command."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    # The list command should have --format and other options
+    assert "list" in data["options_by_command"]
+    list_options = data["options_by_command"]["list"]
+    assert "--help" in list_options
+
+    # Subcommand options should use dot-separated keys
+    assert "config.get" in data["options_by_command"]
+    config_get_options = data["options_by_command"]["config.get"]
+    assert "--scope" in config_get_options
+    assert "--help" in config_get_options
+
+
+def test_write_cli_completions_cache_includes_choices(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should include option_choices for click.Choice options."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    # config.get --scope has Choice(["user", "project", "local"])
+    assert "config.get.--scope" in data["option_choices"]
+    assert "user" in data["option_choices"]["config.get.--scope"]
+    assert "project" in data["option_choices"]["config.get.--scope"]
+    assert "local" in data["option_choices"]["config.get.--scope"]
+
+
+def test_write_cli_completions_cache_includes_aliases_mapping(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should include alias->canonical mapping."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    assert "c" in data["aliases"]
+    assert data["aliases"]["c"] == "create"
+    assert "ls" in data["aliases"]
+    assert data["aliases"]["ls"] == "list"
+    assert "rm" in data["aliases"]
+    assert data["aliases"]["rm"] == "destroy"
+
+
+def test_write_cli_completions_cache_includes_agent_name_arguments(
+    temp_host_dir: Path,
+) -> None:
+    """write_cli_completions_cache should detect commands using complete_agent_name."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    agent_cmds = data["agent_name_arguments"]
+    assert "connect" in agent_cmds
+    assert "destroy" in agent_cmds
+    assert "exec" in agent_cmds
+    assert "logs" in agent_cmds
+    assert "message" in agent_cmds
+    assert "start" in agent_cmds
+    assert "stop" in agent_cmds
+
+
+def test_write_cli_completions_cache_skips_alias_entries_for_options(
+    temp_host_dir: Path,
+) -> None:
+    """Options should only be extracted for canonical command names, not aliases."""
+    write_cli_completions_cache(cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    # Alias "c" should not have its own entry in options_by_command
+    assert "c" not in data["options_by_command"]
+    assert "ls" not in data["options_by_command"]
+    assert "rm" not in data["options_by_command"]
+
+
+def test_write_cli_completions_cache_no_aliases_when_none_registered(
+    temp_host_dir: Path,
+) -> None:
+    """A group with no aliased commands should have an empty aliases dict."""
+
+    @click.group()
+    def simple_cli() -> None:
+        pass
+
+    @simple_cli.command(name="hello")
+    def hello_cmd() -> None:
+        pass
+
+    write_cli_completions_cache(simple_cli)
+
+    cache_path = temp_host_dir / COMMAND_COMPLETIONS_CACHE_FILENAME
+    data = json.loads(cache_path.read_text())
+
+    assert data["aliases"] == {}
 
 
 # -- read_cached_commands tests --

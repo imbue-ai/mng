@@ -8,37 +8,128 @@ from loguru import logger
 
 from imbue.mng.cli.completion import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.cli.completion import COMMAND_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion import get_host_dir
+from imbue.mng.cli.completion import complete_agent_name
+from imbue.mng.cli.completion import get_completion_cache_dir
 from imbue.mng.utils.file_utils import atomic_write
 
 
+def _extract_options_for_command(cmd: click.Command) -> list[str]:
+    """Extract all --long option names from a click command."""
+    options: list[str] = []
+    for param in cmd.params:
+        if isinstance(param, click.Option):
+            for opt in param.opts + param.secondary_opts:
+                if opt.startswith("--"):
+                    options.append(opt)
+    return sorted(options)
+
+
+def _extract_choices_for_command(cmd: click.Command, key_prefix: str) -> dict[str, list[str]]:
+    """Extract option choices (click.Choice values) from a click command.
+
+    Returns a dict mapping "key_prefix.--option" to the list of valid choices.
+    """
+    choices: dict[str, list[str]] = {}
+    for param in cmd.params:
+        if isinstance(param, click.Option) and isinstance(param.type, click.Choice):
+            choice_values: list[str] = [str(c) for c in param.type.choices]
+            for opt in param.opts + param.secondary_opts:
+                if opt.startswith("--"):
+                    choices[f"{key_prefix}.{opt}"] = choice_values
+    return choices
+
+
+def _has_agent_name_argument(cmd: click.Command) -> bool:
+    """Check if a command has an argument using complete_agent_name for shell completion."""
+    for param in cmd.params:
+        if isinstance(param, click.Argument):
+            # click stores the shell_complete callback in _custom_shell_complete
+            custom_complete = vars(param).get("_custom_shell_complete")
+            if custom_complete is complete_agent_name:
+                return True
+    return False
+
+
+def _detect_aliases(cli_group: click.Group) -> dict[str, str]:
+    """Auto-detect command aliases by comparing registered names to canonical cmd.name.
+
+    When a command is registered under a name different from its cmd.name, that
+    registered name is an alias. Returns a dict mapping alias -> canonical name.
+    """
+    alias_to_canonical: dict[str, str] = {}
+    for registered_name, cmd in cli_group.commands.items():
+        if cmd.name is not None and registered_name != cmd.name:
+            alias_to_canonical[registered_name] = cmd.name
+    return alias_to_canonical
+
+
 def write_cli_completions_cache(cli_group: click.Group) -> None:
-    """Write all CLI commands and subcommands to the completions cache (best-effort).
+    """Write all CLI commands, options, and choices to the completions cache (best-effort).
 
     Walks the CLI command tree and writes the result to
-    {host_dir}/.command_completions.json. This is called from the list command
-    (triggered by background tab completion refresh) to keep the cache up to
-    date with installed plugins.
+    .command_completions.json in the completion cache directory. This is called
+    from the list command (triggered by background tab completion refresh) to
+    keep the cache up to date with installed plugins.
+
+    Aliases are auto-detected: any command registered under a name different
+    from its canonical cmd.name is treated as an alias.
 
     Catches OSError from cache writes so filesystem failures do not break
     CLI commands. Other exceptions are allowed to propagate.
     """
     try:
         all_command_names = sorted(cli_group.commands.keys())
+        alias_to_canonical = _detect_aliases(cli_group)
 
         subcommand_by_command: dict[str, list[str]] = {}
+        options_by_command: dict[str, list[str]] = {}
+        option_choices: dict[str, list[str]] = {}
+        agent_name_arguments: list[str] = []
+
         for name, cmd in cli_group.commands.items():
+            # Skip alias entries -- only process canonical command names
+            if name in alias_to_canonical:
+                continue
+
+            canonical_name = cmd.name or name
+
             if isinstance(cmd, click.Group) and cmd.commands:
-                canonical_name = cmd.name or name
                 if canonical_name not in subcommand_by_command:
                     subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
 
-        cache_data = {
+                # Extract options and choices for subcommands
+                for sub_name, sub_cmd in cmd.commands.items():
+                    sub_key = f"{canonical_name}.{sub_name}"
+                    sub_options = _extract_options_for_command(sub_cmd)
+                    if sub_options:
+                        options_by_command[sub_key] = sub_options
+                    option_choices.update(_extract_choices_for_command(sub_cmd, sub_key))
+
+                # Also extract options for the group command itself
+                group_options = _extract_options_for_command(cmd)
+                if group_options:
+                    options_by_command[canonical_name] = group_options
+                option_choices.update(_extract_choices_for_command(cmd, canonical_name))
+            else:
+                # Simple command (not a group)
+                cmd_options = _extract_options_for_command(cmd)
+                if cmd_options:
+                    options_by_command[canonical_name] = cmd_options
+                option_choices.update(_extract_choices_for_command(cmd, canonical_name))
+
+                if _has_agent_name_argument(cmd):
+                    agent_name_arguments.append(canonical_name)
+
+        cache_data: dict = {
             "commands": all_command_names,
+            "aliases": alias_to_canonical,
             "subcommand_by_command": subcommand_by_command,
+            "options_by_command": options_by_command,
+            "option_choices": option_choices,
+            "agent_name_arguments": sorted(agent_name_arguments),
         }
 
-        cache_path = get_host_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
+        cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write CLI completions cache")
