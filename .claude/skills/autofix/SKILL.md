@@ -16,9 +16,9 @@ setup and fixing -- the caller handles review of the resulting commits.
 
 ### Phase 1: Setup
 
-- Remove stale state from previous runs:
-  - `rm -f .autofix/result`
-  - `rm -f .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0).json.done`
+!`rm -f .autofix/result`
+!`rm -f .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0).json.done`
+
 - Initial HEAD (`initial_head`): !`git rev-parse HEAD`
 
 Determine the base branch: check the GIT_BASE_BRANCH environment variable.
