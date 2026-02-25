@@ -64,7 +64,7 @@ def _read_host_record(host_id: str) -> dict[str, Any] | None:
     """
     # Reload the volume to get latest data (changes made externally)
     volume.reload()
-    path = f"/vol/{host_id}.json"
+    path = f"/vol/hosts/{host_id}.json"
     try:
         with open(path) as f:
             return json.load(f)
@@ -75,7 +75,8 @@ def _read_host_record(host_id: str) -> dict[str, Any] | None:
 def _write_host_record(host_record: dict[str, Any]) -> None:
     """Write a host record to the volume."""
     host_id = host_record["certified_host_data"]["host_id"]
-    path = f"/vol/{host_id}.json"
+    path = f"/vol/hosts/{host_id}.json"
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w") as f:
         json.dump(host_record, f, indent=2)
     volume.commit()
@@ -84,14 +85,14 @@ def _write_host_record(host_record: dict[str, Any]) -> None:
 def _write_agent_records(host_id: str, agents: list[dict[str, Any]]) -> None:
     """Write agent records to the volume.
 
-    Each agent is stored at /vol/{host_id}/{agent_id}.json so that
+    Each agent is stored at /vol/hosts/{host_id}/{agent_id}.json so that
     stopped hosts can still show their agents in mng list.
     """
     if not agents:
         return
 
     # Create the host directory if it doesn't exist
-    host_dir = f"/vol/{host_id}"
+    host_dir = f"/vol/hosts/{host_id}"
     os.makedirs(host_dir, exist_ok=True)
 
     # Write each agent's data

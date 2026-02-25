@@ -325,7 +325,7 @@
   "libs/mng/imbue/mng/cli/test_exec.py::test_exec_cwd_override_on_modal": 45.0,
   "libs/mng/imbue/mng/cli/test_exec.py::test_exec_echo_on_modal": 82.0,
   "libs/mng/imbue/mng/cli/test_exec.py::test_exec_failure_propagates_exit_code_on_modal": 82.0,
-  "libs/mng/imbue/mng/cli/test_exec.py::test_exec_json_output_on_modal": 45.0,
+  "libs/mng/imbue/mng/cli/test_exec.py::test_exec_json_output_on_modal": 230.0,
   "libs/mng/imbue/mng/cli/test_gc.py::test_gc_work_dirs_dry_run": 0.07266544608864933,
   "libs/mng/imbue/mng/cli/test_gc.py::test_gc_work_dirs_removes_orphaned_directory": 0.12262616597581655,
   "libs/mng/imbue/mng/cli/test_gc.py::test_gc_work_dirs_with_cel_filter": 0.08654925099108368,
