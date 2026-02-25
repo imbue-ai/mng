@@ -21,10 +21,9 @@ setup and fixing -- the caller handles review of the resulting commits.
 
 - Initial HEAD (`initial_head`): !`git rev-parse HEAD`
 
-Determine the base branch: check the GIT_BASE_BRANCH environment variable.
-If it is set, use its value. Otherwise default to main.
+- Base branch (`base_branch`): !`echo ${GIT_BASE_BRANCH:-main}`
 
-Create the .autofix/plans directory if it does not already exist.
+!`mkdir -p .autofix/plans`
 
 ### Phase 2: Fix Loop
 
