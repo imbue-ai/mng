@@ -115,7 +115,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(4), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
@@ -150,7 +150,7 @@ def test_prevent_namedtuple_usage() -> None:
 
 def test_prevent_trailing_comments() -> None:
     chunks = check_ratchet_rule(PREVENT_TRAILING_COMMENTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(4), PREVENT_TRAILING_COMMENTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_TRAILING_COMMENTS.format_failure(chunks)
 
 
 def test_prevent_relative_imports() -> None:
@@ -187,7 +187,7 @@ def test_prevent_num_prefix() -> None:
 
 def test_prevent_builtin_exception_raises() -> None:
     chunks = check_ratchet_rule(PREVENT_BUILTIN_EXCEPTION_RAISES, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_BUILTIN_EXCEPTION_RAISES.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_BUILTIN_EXCEPTION_RAISES.format_failure(chunks)
 
 
 def test_prevent_yaml_usage() -> None:
