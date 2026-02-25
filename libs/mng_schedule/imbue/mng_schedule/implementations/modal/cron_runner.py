@@ -5,10 +5,9 @@
 # env vars, building the image). The runtime function runs the configured mng
 # command.
 #
-# IMPORTANT: This file must NOT import from imbue.* or any other 3rd-party packages at the top level
-# Instead, those imports should be inlined into run_scheduled_trigger
-# This is an exception to our usual style of keeping imports at the top level, but it's necessary to ensure that the
-# module runs correctly on modal (without requiring additional packaging commands from modal, which are slower)
+# IMPORTANT: This file must NOT import from imbue.* or any other 3rd-party packages
+# We simply want to call into the mng command, which can then use those other packages if necessary.
+# This avoids modal needing to package or load any additional dependencies.
 #
 # The image is built from the project's Dockerfile (typically .mng/Dockerfile)
 # which installs system deps, uv, claude code, extracts the repo tarball, and
@@ -192,8 +191,6 @@ def run_scheduled_trigger() -> None:
     Deploy files (config, settings, etc.) are already baked into $HOME and
     WORKDIR during the image build via dockerfile_commands.
     """
-    from imbue.mng_schedule.implementations.modal.env_file import load_env_file
-
     trigger = _deploy_config["trigger"]
 
     if not trigger.get("is_enabled", True):
@@ -202,10 +199,12 @@ def run_scheduled_trigger() -> None:
 
     # Load consolidated env vars into the process environment so that the
     # mng CLI and any subprocesses it spawns have access to them.
-    secrets_env = Path("/staging/secrets/.env")
+    secrets_env = Path("/staging/secrets/env.json")
     if secrets_env.exists():
         print("Loading environment variables from secrets env file...")
-        load_env_file(secrets_env)
+        for key, value in json.loads(secrets_env.read_text()).items():
+            if value is not None:
+                os.environ[key] = value
 
     # Set up GitHub authentication
     print("Setting up GitHub authentication...")

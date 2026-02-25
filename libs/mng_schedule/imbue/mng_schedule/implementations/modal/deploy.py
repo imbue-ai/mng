@@ -490,6 +490,8 @@ def _stage_consolidated_env(
         final_lines = [_format_env_line(key, value) for key, value in env_dict.items()]
         (secrets_dir / ".env").write_text("\n".join(final_lines) + "\n")
         logger.info("Staged consolidated env file with {} variable entries", len(env_dict))
+        # also write to json so it's easier for us to load from the modal function:
+        (secrets_dir / "env.json").write_text(json.dumps({key: str(value) for key, value in env_dict.items()}))
 
 
 @pure
