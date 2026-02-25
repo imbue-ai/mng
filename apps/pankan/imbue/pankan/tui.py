@@ -32,61 +32,47 @@ REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
 PALETTE = [
     ("header", "white", "dark blue"),
     ("footer", "white", "dark blue"),
+    # Agent states: only RUNNING and WAITING-needing-attention get color
     ("state_running", "light green", ""),
-    ("state_waiting", "yellow", ""),
-    ("state_stopped", "light red", ""),
-    ("state_done", "dark gray", ""),
-    ("state_replaced", "dark gray", ""),
-    ("section_cooking", "yellow", ""),
-    ("section_reviewing", "light cyan", ""),
-    ("section_merged", "light magenta", ""),
-    ("section_closed", "dark gray", ""),
-    ("pr_open", "light green", ""),
-    ("pr_merged", "light magenta", ""),
-    ("pr_closed", "light red", ""),
+    ("state_attention", "light red", ""),
+    # Section headings
+    ("section_done", "light magenta", ""),
+    ("section_cancelled", "dark gray", ""),
+    ("section_in_review", "light cyan", ""),
+    ("section_in_progress", "yellow", ""),
+    # CI checks
     ("check_passing", "light green", ""),
     ("check_failing", "light red", ""),
     ("check_pending", "yellow", ""),
-    ("check_unknown", "dark gray", ""),
-    ("no_pr", "dark gray", ""),
     ("error_text", "light red", ""),
 ]
 
-# Display order for board sections
+# Display order: most mature first (like Linear)
 BOARD_SECTION_ORDER: tuple[BoardSection, ...] = (
-    BoardSection.STILL_COOKING,
-    BoardSection.PR_BEING_REVIEWED,
     BoardSection.PR_MERGED,
     BoardSection.PR_CLOSED,
+    BoardSection.PR_BEING_REVIEWED,
+    BoardSection.STILL_COOKING,
 )
 
 _SECTION_LABELS: dict[BoardSection, str] = {
-    BoardSection.STILL_COOKING: "Still cooking",
-    BoardSection.PR_BEING_REVIEWED: "PR being reviewed",
-    BoardSection.PR_MERGED: "PR merged",
-    BoardSection.PR_CLOSED: "PR closed",
+    BoardSection.PR_MERGED: "Done - PR merged",
+    BoardSection.PR_CLOSED: "Cancelled - PR closed",
+    BoardSection.PR_BEING_REVIEWED: "In review - PR pending",
+    BoardSection.STILL_COOKING: "In progress - still cooking locally",
 }
 
 _SECTION_ATTR: dict[BoardSection, str] = {
-    BoardSection.STILL_COOKING: "section_cooking",
-    BoardSection.PR_BEING_REVIEWED: "section_reviewing",
-    BoardSection.PR_MERGED: "section_merged",
-    BoardSection.PR_CLOSED: "section_closed",
-}
-
-_STATE_ATTR: dict[AgentLifecycleState, str] = {
-    AgentLifecycleState.RUNNING: "state_running",
-    AgentLifecycleState.WAITING: "state_waiting",
-    AgentLifecycleState.STOPPED: "state_stopped",
-    AgentLifecycleState.DONE: "state_done",
-    AgentLifecycleState.REPLACED: "state_replaced",
+    BoardSection.PR_MERGED: "section_done",
+    BoardSection.PR_CLOSED: "section_cancelled",
+    BoardSection.PR_BEING_REVIEWED: "section_in_review",
+    BoardSection.STILL_COOKING: "section_in_progress",
 }
 
 _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
     CheckStatus.PASSING: "check_passing",
     CheckStatus.FAILING: "check_failing",
     CheckStatus.PENDING: "check_pending",
-    CheckStatus.UNKNOWN: "check_unknown",
 }
 
 
@@ -135,24 +121,46 @@ def _classify_entry(entry: AgentBoardEntry) -> BoardSection:
     return BoardSection.PR_BEING_REVIEWED
 
 
+def _get_state_attr(entry: AgentBoardEntry, section: BoardSection) -> str:
+    """Determine the color attribute for an agent's lifecycle state.
+
+    Red is reserved for states that require user attention:
+    - WAITING agents in the "still cooking" section need the user to respond
+    - CI check failures also use red (handled separately)
+
+    RUNNING gets green. Everything else is default (no color).
+    """
+    if entry.state == AgentLifecycleState.RUNNING:
+        return "state_running"
+    if entry.state == AgentLifecycleState.WAITING and section == BoardSection.STILL_COOKING:
+        return "state_attention"
+    return ""
+
+
 def _format_check_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
     """Build urwid text markup for CI check status."""
     if entry.pr is None or entry.pr.check_status == CheckStatus.UNKNOWN:
         return []
-    check_attr = _CHECK_STATUS_ATTR[entry.pr.check_status]
+    check_attr = _CHECK_STATUS_ATTR.get(entry.pr.check_status, "")
+    if not check_attr:
+        return []
     return ["  checks ", (check_attr, entry.pr.check_status.lower())]
 
 
-def _format_agent_line(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
+def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[str | tuple[Hashable, str]]:
     """Build urwid text markup for a single agent line.
 
     Shows: name, agent state, PR info (number + checks if applicable).
     """
-    state_attr = _STATE_ATTR.get(entry.state, "")
+    state_attr = _get_state_attr(entry, section)
+    state_text = f"{entry.state:<10}"
     parts: list[str | tuple[Hashable, str]] = [
         f"  {entry.name:<24}",
-        (state_attr, f"{entry.state:<10}"),
     ]
+    if state_attr:
+        parts.append((state_attr, state_text))
+    else:
+        parts.append(state_text)
 
     if entry.pr is not None:
         parts.append(f"  PR #{entry.pr.number}")
@@ -186,7 +194,7 @@ def _build_board_widgets(snapshot: BoardSnapshot) -> list[Text | Divider]:
         widgets.append(Text((section_attr, heading)))
 
         for entry in entries:
-            widgets.append(Text(_format_agent_line(entry)))
+            widgets.append(Text(_format_agent_line(entry, section)))
 
     if not widgets:
         widgets.append(Text("No agents found."))
