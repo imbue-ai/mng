@@ -30,6 +30,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         raise NotImplementedError()

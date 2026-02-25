@@ -124,6 +124,7 @@ def default_create_cli_opts() -> CreateCliOptions:
         host_env_file=(),
         pass_host_env=(),
         known_host=(),
+        authorized_keys=(),
         snapshot=None,
         build_arg=(),
         build_args=None,

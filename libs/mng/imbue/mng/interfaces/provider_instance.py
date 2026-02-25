@@ -102,6 +102,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration.

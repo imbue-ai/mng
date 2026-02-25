@@ -184,6 +184,7 @@ class LocalProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create (or return) the local host.

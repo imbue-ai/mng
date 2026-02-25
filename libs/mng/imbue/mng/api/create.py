@@ -202,6 +202,7 @@ def resolve_target_host(
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
             known_hosts_count=len(target_host.environment.known_hosts),
+            authorized_keys_count=len(target_host.environment.authorized_keys),
         ):
             new_host = provider.create_host(
                 name=host_name,
@@ -210,6 +211,7 @@ def resolve_target_host(
                 start_args=target_host.build.start_args,
                 lifecycle=target_host.lifecycle,
                 known_hosts=target_host.environment.known_hosts,
+                authorized_keys=target_host.environment.authorized_keys,
                 snapshot=target_host.build.snapshot,
             )
 

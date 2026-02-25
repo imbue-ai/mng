@@ -61,6 +61,7 @@ from imbue.mng.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mng.providers.docker.volume import ensure_state_container
 from imbue.mng.providers.docker.volume import state_volume_name
 from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -321,6 +322,7 @@ class DockerProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         host_volume_mount_path: str | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the container."""
@@ -342,6 +344,12 @@ class DockerProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 with log_span("Adding {} known_hosts entries to container", len(known_hosts)):
                     self._exec_in_container(container, add_known_hosts_cmd)
+
+        if authorized_keys:
+            add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
+            if add_authorized_keys_cmd is not None:
+                with log_span("Adding {} authorized_keys entries to container", len(authorized_keys)):
+                    self._exec_in_container(container, add_authorized_keys_cmd)
 
         with log_span("Starting sshd in container"):
             self._exec_in_container(container, "/usr/sbin/sshd -D", detach=True)
@@ -376,6 +384,7 @@ class DockerProviderInstance(BaseProviderInstance):
         config: ContainerConfig,
         host_data: CertifiedHostData,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a container and create a Host object.
 
@@ -392,6 +401,7 @@ class DockerProviderInstance(BaseProviderInstance):
             host_private_key,
             host_public_key,
             known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
             host_volume_mount_path=host_volume_symlink_target,
         )
 
@@ -738,6 +748,7 @@ kill -TERM 1
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create a new Docker container host.
@@ -844,6 +855,7 @@ kill -TERM 1
                 config=config,
                 host_data=host_data,
                 known_hosts=known_hosts,
+                authorized_keys=authorized_keys,
             )
         except (MngError, docker.errors.DockerException, OSError) as e:
             # Clean up the container on SSH setup failure to avoid orphans
