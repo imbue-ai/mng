@@ -54,6 +54,7 @@ def test_send_message_raises_dialog_detected_when_dialog_visible(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.usefixtures("short_send_message_timeouts")
 def test_send_message_does_not_raise_dialog_detected_when_no_dialog(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
