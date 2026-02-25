@@ -9,33 +9,22 @@
 # We simply want to call into the mng command, which can then use those other packages if necessary.
 # This avoids modal needing to package or load any additional dependencies.
 #
-# The image is built from the project's Dockerfile (typically .mng/Dockerfile)
-# which installs system deps, uv, claude code, extracts the repo tarball, and
-# runs `uv sync --all-packages`. The code lives at /code/mng/ in the image.
-#
-# A staging directory is added as an image layer, containing:
-# - /staging/deploy_config.json: All deploy-time configuration as a single JSON
-# - /staging/home/: Files destined for ~/  (mirrors home directory structure)
-# - /staging/project/: Files destined for the project working directory
-# - /staging/secrets/.env: Consolidated env vars (from --pass-env and --env-file)
-#
-# Files from /staging/home/ and /staging/project/ are baked into their final
-# locations ($HOME and WORKDIR respectively) during the image build via
-# dockerfile_commands, so no runtime file installation is needed.
-#
-# For editable installs, a separate mng source layer is added after the staging
-# layer (at /mng_src/) to avoid invalidating the staging layer cache when
-# iterating on mng code.
+# Image building strategy:
+# 1. Base image: built from the mng Dockerfile, which provides a complete
+#    environment with system deps, Python, uv, Claude Code, and mng installed.
+#    For EDITABLE mode, the mng monorepo tarball is in the build context.
+#    For PACKAGE mode, a modified Dockerfile installs mng from PyPI instead.
+# 2. Target repo layer: the user's project tarball is extracted to the
+#    configured target_repo_path (default /code/project).
+# 3. Staging layer: deploy files (config, secrets, settings) are baked into
+#    their final locations ($HOME and WORKDIR).
 #
 # Required environment variables at deploy time:
 # - SCHEDULE_DEPLOY_CONFIG: JSON string with all deploy configuration
-# - SCHEDULE_BUILD_CONTEXT_DIR: Local path to build context (contains current.tar.gz)
+# - SCHEDULE_BUILD_CONTEXT_DIR: Local path to mng build context (monorepo tarball for editable, empty for package)
 # - SCHEDULE_STAGING_DIR: Local path to staging directory (deploy files + secrets)
-# - SCHEDULE_DOCKERFILE: Local path to Dockerfile for image build
-#
-# Optional environment variables at deploy time:
-# - SCHEDULE_MNG_SRC_DIR: Local path to mng source tarball directory (for editable installs).
-#   When set, the mng source is added as a separate Docker layer for better cache isolation.
+# - SCHEDULE_DOCKERFILE: Local path to mng Dockerfile (or modified version for package mode)
+# - SCHEDULE_TARGET_REPO_DIR: Local path to directory containing the target repo tarball
 import datetime
 import json
 import os
@@ -71,73 +60,59 @@ if modal.is_local():
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
     _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
-    # Optional: path to mng source tarball directory (for editable installs)
-    _MNG_SRC_DIR: str = os.environ.get("SCHEDULE_MNG_SRC_DIR", "")
+    _TARGET_REPO_DIR: str = _require_env("SCHEDULE_TARGET_REPO_DIR")
 else:
     _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
 
     _BUILD_CONTEXT_DIR = ""
     _STAGING_DIR = ""
     _DOCKERFILE = ""
-    _MNG_SRC_DIR = ""
+    _TARGET_REPO_DIR = ""
 
 # Extract config values used by both deploy-time image building and runtime scheduling
 _APP_NAME: str = _deploy_config["app_name"]
 _CRON_SCHEDULE: str = _deploy_config["cron_schedule"]
 _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
-
-# Dockerfile commands for installing mng, computed by deploy.py's
-# build_mng_install_commands() and passed via the deploy config JSON.
-# This ensures a single source of truth for the install logic.
-_MNG_INSTALL_COMMANDS: list[str] = _deploy_config.get("mng_install_commands", [])
+_TARGET_REPO_PATH: str = _deploy_config.get("target_repo_path", "/code/project")
 
 
 # --- Image definition ---
-# The image is built from the project's Dockerfile, which already installs
-# system dependencies, uv, claude code, extracts the repo tarball, and runs
-# `uv sync --all-packages`. We add the staging directory on top and then
-# bake user/project files into their final locations via dockerfile_commands.
-# The Dockerfile's WORKDIR must be set to the project directory (e.g.
-# /code/mng/) so that project files are copied to the correct location.
-#
-# If mng_install_commands is non-empty, additional dockerfile commands are
-# appended to install mng and mng-schedule into the image (so that
-# `uv run mng` works at runtime even if the base image does not include mng).
-#
-# For editable installs, the mng source tarball is added as a separate layer
-# (after the staging layer) so that changes to mng code don't invalidate
-# the cached staging layer. The install commands then extract and install
-# from /mng_src/.
+# The image is built in layers:
+# 1. Base: mng Dockerfile (system deps, uv, Claude Code, mng installed)
+# 2. Target repo: user's project tarball extracted to target_repo_path
+# 3. Staging: deploy files (config, secrets) baked into $HOME and WORKDIR
 
 if modal.is_local():
-    _image = (
-        modal.Image.from_dockerfile(
-            _DOCKERFILE,
-            context_dir=_BUILD_CONTEXT_DIR,
-        )
-        .add_local_dir(
-            _STAGING_DIR,
-            "/staging",
-            copy=True,
-        )
-        .dockerfile_commands(
-            [
-                "RUN cp -a /staging/home/. $HOME/",
-                "RUN cp -a /staging/project/. .",
-            ]
-        )
+    # 1. Build base image from the mng Dockerfile
+    _image = modal.Image.from_dockerfile(
+        _DOCKERFILE,
+        context_dir=_BUILD_CONTEXT_DIR,
     )
-    # Add mng source as a separate layer for editable installs. This is
-    # intentionally a separate layer so that iterating on mng code only
-    # invalidates this layer, not the staging layer above.
-    if _MNG_SRC_DIR:
-        _image = _image.add_local_dir(
-            _MNG_SRC_DIR,
-            "/mng_src",
-            copy=True,
-        )
-    if _MNG_INSTALL_COMMANDS:
-        _image = _image.dockerfile_commands(_MNG_INSTALL_COMMANDS)
+
+    # 2. Add the target repo tarball and extract it to the configured path
+    _image = _image.add_local_dir(
+        _TARGET_REPO_DIR,
+        "/target_repo",
+        copy=True,
+    ).dockerfile_commands(
+        [
+            f"RUN mkdir -p {_TARGET_REPO_PATH} && tar -xzf /target_repo/current.tar.gz -C {_TARGET_REPO_PATH} && rm -rf /target_repo",
+            f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}",
+            f"WORKDIR {_TARGET_REPO_PATH}",
+        ]
+    )
+
+    # 3. Add staging files and bake them into their final locations
+    _image = _image.add_local_dir(
+        _STAGING_DIR,
+        "/staging",
+        copy=True,
+    ).dockerfile_commands(
+        [
+            "RUN cp -a /staging/home/. $HOME/",
+            "RUN cp -a /staging/project/. .",
+        ]
+    )
 else:
     # At runtime, the image is already built
     _image = modal.Image.debian_slim()
@@ -214,12 +189,6 @@ def run_scheduled_trigger() -> None:
         "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null && gh auth setup-git",
         is_shell=True,
     )
-
-    # make sure we fetch and check out the latest code
-    branch_name = "josh/schedule_fixes"
-    _run_and_stream(["git", "fetch", "origin", branch_name])
-    _run_and_stream(["git", "checkout", branch_name])
-    _run_and_stream(["git", "merge", f"origin/{branch_name}"])
 
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()

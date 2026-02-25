@@ -15,14 +15,13 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.implementations.modal.deploy import _build_full_commandline
+from imbue.mng_schedule.implementations.modal.deploy import _build_package_mode_dockerfile
 from imbue.mng_schedule.implementations.modal.deploy import _collect_deploy_files
-from imbue.mng_schedule.implementations.modal.deploy import _parse_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import _resolve_timezone_from_paths
 from imbue.mng_schedule.implementations.modal.deploy import _stage_consolidated_env
 from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
-from imbue.mng_schedule.implementations.modal.deploy import build_mng_install_commands
-from imbue.mng_schedule.implementations.modal.deploy import detect_dockerfile_user
 from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
+from imbue.mng_schedule.implementations.modal.deploy import get_mng_dockerfile_path
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import resolve_commit_hash_for_deploy
@@ -57,7 +56,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
         trigger=trigger,
         cron_schedule="0 3 * * *",
         cron_timezone="America/Los_Angeles",
-        mng_install_commands=["RUN uv pip install --system mng mng-schedule"],
+        target_repo_path="/code/project",
     )
     assert result["app_name"] == "test-app"
     assert result["cron_schedule"] == "0 3 * * *"
@@ -65,7 +64,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
     assert result["trigger"]["name"] == "test"
     assert result["trigger"]["command"] == "CREATE"
     assert result["trigger"]["args"] == "--message hello"
-    assert result["mng_install_commands"] == ["RUN uv pip install --system mng mng-schedule"]
+    assert result["target_repo_path"] == "/code/project"
 
 
 def test_resolve_timezone_reads_etc_timezone(tmp_path: Path) -> None:
@@ -814,77 +813,6 @@ def test_stage_deploy_files_with_exclude_user_settings(
 # =============================================================================
 
 
-def test_build_mng_install_commands_skip() -> None:
-    """build_mng_install_commands returns empty list for SKIP mode."""
-    result = build_mng_install_commands(MngInstallMode.SKIP)
-    assert result == []
-
-
-def test_build_mng_install_commands_skip_ignores_dockerfile_user() -> None:
-    """build_mng_install_commands returns empty list for SKIP mode even with dockerfile_user."""
-    result = build_mng_install_commands(MngInstallMode.SKIP, dockerfile_user="nonroot")
-    assert result == []
-
-
-def test_build_mng_install_commands_package() -> None:
-    """build_mng_install_commands installs system deps, uv, and mng for PACKAGE mode."""
-    result = build_mng_install_commands(MngInstallMode.PACKAGE)
-    assert result[0] == "USER root"
-    assert "apt-get" in result[1]
-    assert "tmux" in result[1] and "jq" in result[1] and "curl" in result[1]
-    assert "uv/install.sh" in result[2]
-    assert "UV_INSTALL_DIR=/usr/local/bin" in result[2]
-    assert "uv pip install --system mng mng-schedule" in result[3]
-    # No user restore when dockerfile_user is None
-    assert len(result) == 4
-
-
-def test_build_mng_install_commands_package_restores_dockerfile_user() -> None:
-    """build_mng_install_commands restores the Dockerfile USER after PACKAGE installation."""
-    result = build_mng_install_commands(MngInstallMode.PACKAGE, dockerfile_user="appuser")
-    assert result[-1] == "USER appuser"
-    assert len(result) == 5
-
-
-def test_build_mng_install_commands_editable() -> None:
-    """build_mng_install_commands installs system deps, uv, extracts tarball, and does editable tool install."""
-    result = build_mng_install_commands(MngInstallMode.EDITABLE)
-    assert result[0] == "USER root"
-    assert "apt-get" in result[1]
-    assert "tmux" in result[1] and "jq" in result[1] and "curl" in result[1]
-    assert "uv/install.sh" in result[2]
-    assert "/mng_src/current.tar.gz" in result[3]
-    assert "/code/mng_editable" in result[3]
-    assert "uv tool install -e /code/mng_editable/libs/mng" in result[4]
-    # No user restore when dockerfile_user is None
-    assert len(result) == 5
-
-
-def test_build_mng_install_commands_editable_restores_user_before_tool_install() -> None:
-    """build_mng_install_commands restores the Dockerfile USER before the tool install for EDITABLE mode."""
-    result = build_mng_install_commands(MngInstallMode.EDITABLE, dockerfile_user="dev")
-    # User restore should come BEFORE tool install so the tool is owned by the runtime user
-    user_restore_idx = result.index("USER dev")
-    tool_install_idx = next(i for i, cmd in enumerate(result) if "uv tool install" in cmd)
-    assert user_restore_idx < tool_install_idx
-
-
-def test_build_mng_install_commands_system_deps_before_uv() -> None:
-    """build_mng_install_commands installs system deps (including curl) before uv."""
-    result = build_mng_install_commands(MngInstallMode.PACKAGE)
-    apt_idx = next(i for i, cmd in enumerate(result) if "apt-get" in cmd)
-    uv_idx = next(i for i, cmd in enumerate(result) if "uv/install.sh" in cmd)
-    assert apt_idx < uv_idx
-
-
-def test_build_mng_install_commands_uv_before_mng() -> None:
-    """build_mng_install_commands installs uv before mng."""
-    result = build_mng_install_commands(MngInstallMode.PACKAGE)
-    uv_idx = next(i for i, cmd in enumerate(result) if "uv/install.sh" in cmd)
-    mng_idx = next(i for i, cmd in enumerate(result) if "uv pip install" in cmd)
-    assert uv_idx < mng_idx
-
-
 def test_detect_mng_install_mode_returns_valid_mode() -> None:
     """detect_mng_install_mode should return either PACKAGE or EDITABLE."""
     result = detect_mng_install_mode()
@@ -918,64 +846,82 @@ def test_stage_deploy_files_does_not_stage_mng_source(
 
 
 # =============================================================================
-# _parse_dockerfile_user / detect_dockerfile_user Tests
+# get_mng_dockerfile_path Tests
 # =============================================================================
 
 
-def test_parse_dockerfile_user_returns_none_when_no_user_set() -> None:
-    """_parse_dockerfile_user returns None when no USER instruction is present."""
-    content = "FROM python:3.12\nRUN echo hello\n"
-    assert _parse_dockerfile_user(content) is None
+def test_get_mng_dockerfile_path_editable_returns_resources_dockerfile() -> None:
+    """get_mng_dockerfile_path returns the mng resources Dockerfile for EDITABLE mode."""
+    result = get_mng_dockerfile_path(MngInstallMode.EDITABLE)
+    assert result.exists()
+    assert result.name == "Dockerfile"
+    assert "resources" in str(result)
 
 
-def test_parse_dockerfile_user_returns_last_user() -> None:
-    """_parse_dockerfile_user returns the user from the last USER instruction."""
-    content = "FROM python:3.12\nUSER root\nRUN echo hello\nUSER appuser\n"
-    assert _parse_dockerfile_user(content) == "appuser"
+def test_get_mng_dockerfile_path_package_returns_resources_dockerfile() -> None:
+    """get_mng_dockerfile_path returns the mng resources Dockerfile for PACKAGE mode."""
+    result = get_mng_dockerfile_path(MngInstallMode.PACKAGE)
+    assert result.exists()
+    assert result.name == "Dockerfile"
 
 
-def test_parse_dockerfile_user_resets_on_from() -> None:
-    """_parse_dockerfile_user resets user context on FROM (multi-stage builds)."""
-    content = "FROM python:3.12 AS builder\nUSER builduser\nFROM python:3.12\nRUN echo hello\n"
-    assert _parse_dockerfile_user(content) is None
+def test_get_mng_dockerfile_path_skip_raises() -> None:
+    """get_mng_dockerfile_path raises for SKIP mode."""
+    with pytest.raises(ScheduleDeployError, match="SKIP mode is not supported"):
+        get_mng_dockerfile_path(MngInstallMode.SKIP)
 
 
-def test_parse_dockerfile_user_tracks_user_in_final_stage() -> None:
-    """_parse_dockerfile_user returns the user from the final stage of a multi-stage build."""
-    content = "FROM python:3.12 AS builder\nUSER builduser\nFROM python:3.12\nUSER runner\n"
-    assert _parse_dockerfile_user(content) == "runner"
+def test_get_mng_dockerfile_path_auto_raises() -> None:
+    """get_mng_dockerfile_path raises for AUTO mode."""
+    with pytest.raises(ScheduleDeployError, match="AUTO mode must be resolved"):
+        get_mng_dockerfile_path(MngInstallMode.AUTO)
 
 
-def test_parse_dockerfile_user_ignores_comments() -> None:
-    """_parse_dockerfile_user ignores commented-out USER instructions."""
-    content = "FROM python:3.12\n# USER ignored\nRUN echo hello\n"
-    assert _parse_dockerfile_user(content) is None
+# =============================================================================
+# _build_package_mode_dockerfile Tests
+# =============================================================================
 
 
-def test_parse_dockerfile_user_handles_uid_and_gid() -> None:
-    """_parse_dockerfile_user handles numeric USER values with optional group."""
-    content = "FROM python:3.12\nUSER 1000:1000\n"
-    assert _parse_dockerfile_user(content) == "1000:1000"
+def test_build_package_mode_dockerfile_replaces_monorepo_install() -> None:
+    """_build_package_mode_dockerfile replaces monorepo-specific steps with pip install."""
+    mng_dockerfile = (
+        "FROM python:3.11-slim\n"
+        "RUN apt-get update && apt-get install -y git\n"
+        "COPY . /code/\n"
+        "RUN mkdir -p /code/mng/ && tar -xzf /code/current.tar.gz -C /code/mng/\n"
+        "WORKDIR /code/mng/\n"
+        "RUN uv sync --all-packages\n"
+        "RUN uv tool install -e /code/mng/libs/mng\n"
+        'CMD ["sh", "-c", "tail -f /dev/null"]\n'
+    )
+    result = _build_package_mode_dockerfile(mng_dockerfile)
+
+    # Should contain the pip install replacement
+    assert "uv pip install --system mng mng-schedule" in result
+    # Should preserve the FROM and system deps
+    assert "FROM python:3.11-slim" in result
+    assert "apt-get update" in result
+    # Should NOT contain monorepo-specific steps
+    assert "COPY . /code/" not in result
+    assert "tar -xzf" not in result
+    assert "uv sync" not in result
+    assert "uv tool install -e" not in result
+    # Should preserve CMD
+    assert "CMD" in result
 
 
-def test_parse_dockerfile_user_case_insensitive() -> None:
-    """_parse_dockerfile_user handles case-insensitive USER and FROM instructions."""
-    content = "from python:3.12\nuser myuser\n"
-    assert _parse_dockerfile_user(content) == "myuser"
-
-
-def test_detect_dockerfile_user_reads_file(tmp_path: Path) -> None:
-    """detect_dockerfile_user reads a Dockerfile and returns the effective user."""
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text("FROM python:3.12\nUSER webapp\nRUN echo hello\n")
-    assert detect_dockerfile_user(dockerfile) == "webapp"
-
-
-def test_detect_dockerfile_user_returns_none_for_root_default(tmp_path: Path) -> None:
-    """detect_dockerfile_user returns None when no USER is set (root is the default)."""
-    dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text("FROM python:3.12\nRUN echo hello\n")
-    assert detect_dockerfile_user(dockerfile) is None
+def test_build_package_mode_dockerfile_preserves_env_vars() -> None:
+    """_build_package_mode_dockerfile preserves ENV instructions before the install section."""
+    mng_dockerfile = (
+        "FROM python:3.11-slim\n"
+        "ENV UV_LINK_MODE=copy\n"
+        "COPY . /code/\n"
+        "RUN tar -xzf /code/current.tar.gz -C /code/mng/\n"
+        "WORKDIR /code/mng/\n"
+        "RUN uv tool install -e /code/mng/libs/mng\n"
+    )
+    result = _build_package_mode_dockerfile(mng_dockerfile)
+    assert "ENV UV_LINK_MODE=copy" in result
 
 
 # =============================================================================
@@ -985,22 +931,18 @@ def test_detect_dockerfile_user_returns_none_for_root_default(tmp_path: Path) ->
 
 def test_resolve_commit_hash_reads_cached_file(tmp_path: Path) -> None:
     """resolve_commit_hash_for_deploy returns the cached hash when the file exists."""
-    deploy_build_path = tmp_path / "build"
-    deploy_build_path.mkdir()
-    commit_hash_file = deploy_build_path / "commit_hash"
+    commit_hash_file = tmp_path / "commit_hash"
     commit_hash_file.write_text("abc123def456")
 
-    result = resolve_commit_hash_for_deploy(deploy_build_path, repo_root=tmp_path)
+    result = resolve_commit_hash_for_deploy(commit_hash_file, repo_root=tmp_path)
     assert result == "abc123def456"
 
 
 def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
     """resolve_commit_hash_for_deploy ignores an empty cached file and resolves fresh."""
-    deploy_build_path = tmp_path / "build"
-    deploy_build_path.mkdir()
-    commit_hash_file = deploy_build_path / "commit_hash"
+    commit_hash_file = tmp_path / "commit_hash"
     commit_hash_file.write_text("   \n")
 
     # Will fail because tmp_path is not a git repo, proving it tried to resolve fresh
     with pytest.raises(ScheduleDeployError):
-        resolve_commit_hash_for_deploy(deploy_build_path, repo_root=tmp_path)
+        resolve_commit_hash_for_deploy(commit_hash_file, repo_root=tmp_path)

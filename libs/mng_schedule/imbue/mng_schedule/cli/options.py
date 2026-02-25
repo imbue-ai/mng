@@ -15,6 +15,7 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     snapshot_id: str | None
     full_copy: bool
     mng_install_mode: str
+    target_dir: str
     include_user_settings: bool | None
     include_project_settings: bool | None
     pass_env: tuple[str, ...]

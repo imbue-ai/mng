@@ -84,6 +84,13 @@ def add_trigger_options(command: Any) -> Any:
 
     # Code Packaging group
     command = optgroup.option(
+        "--target-dir",
+        "target_dir",
+        default="/code/project",
+        show_default=True,
+        help="Directory inside the container where the target repo will be extracted.",
+    )(command)
+    command = optgroup.option(
         "--full-copy",
         "full_copy",
         is_flag=True,

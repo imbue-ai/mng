@@ -176,6 +176,7 @@ def _deploy_modal(
             env_files=tuple(Path(f) for f in opts.env_files),
             uploads=parsed_uploads,
             mng_install_mode=MngInstallMode(opts.mng_install_mode.upper()),
+            target_repo_path=opts.target_dir,
         )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e
