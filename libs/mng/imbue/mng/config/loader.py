@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.agents.agent_registry import get_agent_config_class
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplate
@@ -20,17 +22,14 @@ from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
-from imbue.mng.config.data_types import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import split_cli_args_string
 from imbue.mng.config.plugin_registry import get_plugin_config_class
 from imbue.mng.config.pre_readers import find_local_config
 from imbue.mng.config.pre_readers import find_profile_dir_lightweight
 from imbue.mng.config.pre_readers import find_project_config
 from imbue.mng.config.pre_readers import get_user_config_path
-from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
@@ -105,25 +104,22 @@ def load_config(
     # Load user config from profile directory
     user_config_path = get_user_config_path(profile_dir)
     if user_config_path.exists():
-        try:
-            raw_user = _load_toml(user_config_path)
-            user_config = _parse_config(raw_user)
-            config = config.merge_with(user_config)
-        except ConfigNotFoundError:
-            pass
+        raw_user = _load_toml(user_config_path)
+        user_config = parse_config(raw_user)
+        config = config.merge_with(user_config)
 
     # Load project config from context_dir or auto-discover
     project_config_path = find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
-        project_config = _parse_config(raw_project)
+        project_config = parse_config(raw_project)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
     local_config_path = find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
-        local_config = _parse_config(raw_local)
+        local_config = parse_config(raw_local)
         config = config.merge_with(local_config)
 
     # Apply environment variable overrides
@@ -257,10 +253,9 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file."""
+    """Load and parse a TOML file. Raises ConfigParseError if the file is missing or malformed."""
     if not path.exists():
-        raise ConfigNotFoundError(f"Config file not found: {path}")
-
+        raise ConfigParseError(f"Config file not found: {path}")
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
@@ -469,7 +464,7 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def _parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(raw: dict[str, Any]) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.

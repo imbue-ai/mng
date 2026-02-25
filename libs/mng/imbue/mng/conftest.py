@@ -21,9 +21,9 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
@@ -39,6 +39,7 @@ from imbue.mng.utils.testing import delete_modal_volumes_in_environment
 from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_subprocess_test_env
 from imbue.mng.utils.testing import init_git_repo
+from imbue.mng.utils.testing import isolate_home
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -239,7 +240,7 @@ def setup_test_mng_env(
                 "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
             )
 
-    monkeypatch.setenv("HOME", str(tmp_home_dir))
+    isolate_home(tmp_home_dir, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)

@@ -27,8 +27,13 @@ from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
+from imbue.mng.config.loader import parse_config
+from imbue.mng.config.pre_readers import get_local_config_name
+from imbue.mng.config.pre_readers import get_project_config_name
+from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.errors import ConfigKeyNotFoundError
 from imbue.mng.errors import ConfigNotFoundError
+from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.utils.git_utils import find_git_worktree_root
@@ -62,20 +67,19 @@ def get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: C
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
-            # User config is in the active profile directory
             if profile_dir is None:
                 raise ConfigNotFoundError("profile_dir is required for USER scope")
-            return profile_dir / "settings.toml"
+            return get_user_config_path(profile_dir)
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for project config")
-            return git_root / f".{root_name}" / "settings.toml"
+            return git_root / get_project_config_name(root_name)
         case ConfigScope.LOCAL:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for local config")
-            return git_root / f".{root_name}" / "settings.local.toml"
+            return git_root / get_local_config_name(root_name)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -385,6 +389,9 @@ def _emit_key_not_found(key: str, output_opts: OutputOptions) -> None:
 def config_set(ctx: click.Context, key: str, value: str, **kwargs: Any) -> None:
     try:
         _config_set_impl(ctx, key, value, **kwargs)
+    except ConfigParseError as e:
+        logger.error("Invalid configuration: {}", e)
+        ctx.exit(1)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
@@ -408,6 +415,9 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
     # Parse and set the value
     parsed_value = _parse_value(value)
     set_nested_value(doc, key, parsed_value)
+
+    # Validate the resulting config before saving
+    parse_config(dict(doc.unwrap()))
 
     # Save the config
     save_config_file(config_path, doc)

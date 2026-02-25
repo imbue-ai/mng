@@ -2,38 +2,29 @@ import os
 import tomllib
 from pathlib import Path
 from typing import Any
-from typing import Final
+
+from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.errors import ProcessError
-
-# Constants duplicated from data_types.py to avoid importing heavy dependencies
-# (data_types pulls in pydantic, pluggy, and the full config model hierarchy).
-PROFILES_DIRNAME: Final[str] = "profiles"
-ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
-
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
+from imbue.mng.utils.git_utils import find_git_worktree_root
 
 # =============================================================================
 # Config File Discovery
 # =============================================================================
 
 
-def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file.
-
-    Raises FileNotFoundError if the file does not exist, or ValueError if
-    the TOML content is malformed.  These lightweight exception types avoid
-    importing the project's ConfigNotFoundError/ConfigParseError (which
-    depend on click and primitives).
-    """
+def _load_toml(path: Path) -> dict[str, Any] | None:
+    """Load and parse a TOML file, returning None if the file is missing or malformed."""
     if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
+        return None
     try:
         with open(path, "rb") as f:
             return tomllib.load(f)
     except tomllib.TOMLDecodeError as e:
-        raise ValueError(f"Failed to parse {path}: {e}") from e
+        logger.trace("Skipped malformed config file: {} ({})", path, e)
+        return None
 
 
 def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
@@ -42,20 +33,15 @@ def find_profile_dir_lightweight(base_dir: Path) -> Path | None:
     Returns the profile directory if it can be determined from existing files,
     or None otherwise.
     """
-    config_path = base_dir / ROOT_CONFIG_FILENAME
-    if not config_path.exists():
+    root_config = _load_toml(base_dir / ROOT_CONFIG_FILENAME)
+    if root_config is None:
         return None
-    try:
-        with open(config_path, "rb") as f:
-            root_config = tomllib.load(f)
-        profile_id = root_config.get("profile")
-        if not profile_id:
-            return None
-        profile_dir = base_dir / PROFILES_DIRNAME / profile_id
-        if profile_dir.exists() and profile_dir.is_dir():
-            return profile_dir
-    except tomllib.TOMLDecodeError:
-        pass
+    profile_id = root_config.get("profile")
+    if not profile_id:
+        return None
+    profile_dir = base_dir / PROFILES_DIRNAME / profile_id
+    if profile_dir.exists() and profile_dir.is_dir():
+        return profile_dir
     return None
 
 
@@ -64,31 +50,19 @@ def get_user_config_path(profile_dir: Path) -> Path:
     return profile_dir / "settings.toml"
 
 
-def _get_project_config_name(root_name: str) -> Path:
+def get_project_config_name(root_name: str) -> Path:
     """Get the project config relative path based on root name."""
     return Path(f".{root_name}") / "settings.toml"
 
 
-def _get_local_config_name(root_name: str) -> Path:
+def get_local_config_name(root_name: str) -> Path:
     """Get the local config relative path based on root name."""
     return Path(f".{root_name}") / "settings.local.toml"
 
 
 def _find_project_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
-    """Find the project root by looking for git worktree root.
-
-    Inlined from git_utils.find_git_worktree_root to avoid importing
-    loguru (which git_utils depends on).
-    """
-    cwd = start or Path.cwd()
-    try:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=cwd,
-        )
-        return Path(result.stdout.strip())
-    except ProcessError:
-        return None
+    """Find the project root by looking for git worktree root."""
+    return find_git_worktree_root(start, cg)
 
 
 def find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
@@ -96,7 +70,7 @@ def find_project_config(context_dir: Path | None, root_name: str, cg: Concurrenc
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
         return None
-    config_path = root / _get_project_config_name(root_name)
+    config_path = root / get_project_config_name(root_name)
     return config_path if config_path.exists() else None
 
 
@@ -105,7 +79,7 @@ def find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyG
     root = context_dir or _find_project_root(cg=cg)
     if root is None:
         return None
-    config_path = root / _get_local_config_name(root_name)
+    config_path = root / get_local_config_name(root_name)
     return config_path if config_path.exists() else None
 
 
@@ -120,7 +94,8 @@ def find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyG
 #
 # Note: logging is not yet configured when these run (setup_logging needs
 # OutputOptions and MngContext, which aren't available until after config
-# loading).
+# loading). Trace-level logs will only be visible with loguru's default
+# stderr sink if someone explicitly lowers the level.
 #
 # _resolve_config_file_paths returns the existing config file paths in
 # precedence order (user, project, local). Each pre-reader calls its own
@@ -140,9 +115,7 @@ def _resolve_config_file_paths() -> list[Path]:
     # User config
     profile_dir = find_profile_dir_lightweight(base_dir)
     if profile_dir is not None:
-        user_config_path = get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            paths.append(user_config_path)
+        paths.append(get_user_config_path(profile_dir))
 
     # Project + local config need the project root
     cg = ConcurrencyGroup(name="config-pre-reader")
@@ -177,9 +150,8 @@ def read_default_command(command_name: str) -> str:
 
 def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
     """Extract default_subcommand entries from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (FileNotFoundError, ValueError):
+    raw = _load_toml(path)
+    if raw is None:
         return {}
     raw_commands = raw.get("commands")
     if not isinstance(raw_commands, dict):
@@ -211,9 +183,8 @@ def read_disabled_plugins() -> frozenset[str]:
 
 def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
     """Extract plugin enabled/disabled state from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (FileNotFoundError, ValueError):
+    raw = _load_toml(path)
+    if raw is None:
         return {}
     raw_plugins = raw.get("plugins")
     if not isinstance(raw_plugins, dict):
@@ -247,9 +218,8 @@ def read_default_host_dir() -> Path:
     # Later values override earlier ones.
     host_dir: str | None = None
     for path in _resolve_config_file_paths():
-        try:
-            raw = _load_toml(path)
-        except (FileNotFoundError, ValueError):
+        raw = _load_toml(path)
+        if raw is None:
             continue
         value = raw.get("default_host_dir")
         if value is not None:

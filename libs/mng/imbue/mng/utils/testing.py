@@ -20,9 +20,9 @@ from click.testing import CliRunner
 from loguru import logger
 
 from imbue.mng.cli.create import create as create_command
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -44,6 +44,18 @@ def generate_test_environment_name() -> str:
     now = datetime.now(timezone.utc)
     timestamp = now.strftime("%Y-%m-%d-%H-%M-%S")
     return f"{TEST_ENV_PREFIX}{timestamp}"
+
+
+def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point HOME at a temporary directory and chdir into it.
+
+    This is the minimal test isolation needed to prevent tests from reading
+    or modifying the real home directory. Use this directly for lightweight
+    test suites (e.g. changelings). For full mng test isolation (MNG_HOST_DIR,
+    MNG_PREFIX, tmux server, etc.) use setup_test_mng_env instead.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
 
 
 def assert_home_is_temp_directory() -> None:
