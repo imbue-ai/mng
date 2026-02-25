@@ -34,7 +34,7 @@ PALETTE = [
     ("footer", "white", "dark blue"),
     # Agent states: only RUNNING and WAITING-needing-attention get color
     ("state_running", "light green", ""),
-    ("state_attention", "light red", ""),
+    ("state_attention", "light magenta", ""),
     # Section headings
     ("section_done", "light magenta", ""),
     ("section_cancelled", "dark gray", ""),
@@ -165,6 +165,7 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
     if entry.pr is not None:
         parts.append(f"  PR #{entry.pr.number}")
         parts.extend(_format_check_markup(entry))
+        parts.append(f"  {entry.pr.url}")
 
     return parts
 
