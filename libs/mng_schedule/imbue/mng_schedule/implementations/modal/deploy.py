@@ -720,6 +720,7 @@ def deploy_schedule(
                 is_finish_initial_run=is_finish,
                 env=env,
                 cron_runner_path=cron_runner_path,
+                mng_ctx=mng_ctx,
             )
 
     # Save the creation record to the provider's state volume.
