@@ -61,6 +61,7 @@ addopts = [
   "--cov=imbue.mng_opencode",
   "--cov=imbue.mng_pair",
   "--cov=imbue.mng_schedule",
+  "--cov=imbue.mng_tutor",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -144,6 +145,9 @@ omit = [
     # Schedule plugin cron runner and verification run on Modal and require infrastructure to test
     "libs/mng_schedule/imbue/mng_schedule/implementations/modal/cron_runner.py",
     "libs/mng_schedule/imbue/mng_schedule/implementations/modal/verification.py",
+    # Tutor TUI is interactive and should not have automated tests
+    "libs/mng_tutor/imbue/mng_tutor/tui.py",
+    "libs/mng_tutor/imbue/mng_tutor/cli.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]

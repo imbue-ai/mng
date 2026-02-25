@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate markdown documentation for mng CLI commands.
+"""Generate markdown documentation for mng CLI commands and the PyPI README.
 
 Usage:
     uv run python scripts/make_cli_docs.py
@@ -8,11 +8,15 @@ This script generates markdown documentation for all CLI commands
 and writes them to libs/mng/docs/commands/. It preserves option
 groups defined via click_option_group in the generated markdown.
 
+It also generates libs/mng/README.md from the top-level README.md
+by converting local relative paths to GitHub URLs (for PyPI rendering).
+
 All content comes from two sources:
 - Click command introspection (usage line, options, arguments)
 - CommandHelpMetadata (description, synopsis, examples, see also, etc.)
 """
 
+import re
 from pathlib import Path
 
 import click
@@ -588,11 +592,56 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
         print(f"Updated: {output_file}")
 
 
-def main() -> None:
-    # Base output directory
-    base_dir = Path(__file__).parent.parent / "libs" / "mng" / "docs" / "commands"
+GITHUB_BASE_URL = "https://github.com/imbue-ai/mng/blob/main/"
 
-    # Generate docs for each built-in command and plugin command
+# Matches markdown link targets: ](path) — but not absolute URLs, anchors, or mailto
+_RELATIVE_LINK_RE = re.compile(r"\]\((?!https?://|#|mailto:)([^)]+)\)")
+
+
+def _local_path_to_github_url(match: re.Match[str]) -> str:
+    """Convert a relative markdown link target to a GitHub URL."""
+    path = match.group(1)
+    return f"]({GITHUB_BASE_URL}{path})"
+
+
+def generate_pypi_readme(repo_root: Path) -> None:
+    """Generate libs/mng/README.md from the top-level README.md.
+
+    Reads the top-level README (which uses local relative paths) and writes
+    a version with GitHub absolute URLs for PyPI rendering.
+    """
+    source = repo_root / "README.md"
+    dest = repo_root / "libs" / "mng" / "README.md"
+
+    content = source.read_text()
+
+    # Convert local relative paths to GitHub URLs
+    content = _RELATIVE_LINK_RE.sub(_local_path_to_github_url, content)
+
+    # Add autogen comment at the top
+    generation_comment = (
+        "<!-- This file is auto-generated. Do not edit directly. -->\n"
+        "<!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->\n"
+        "<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->\n\n"
+    )
+    content = generation_comment + content
+
+    # Write only if changed
+    existing_content = dest.read_text() if dest.exists() else None
+    if content != existing_content:
+        dest.write_text(content)
+        print(f"Updated: {dest}")
+
+
+def main() -> None:
+    repo_root = Path(__file__).parent.parent
+
+    # Generate PyPI README from top-level README
+    generate_pypi_readme(repo_root)
+
+    # Generate CLI command docs
+    base_dir = repo_root / "libs" / "mng" / "docs" / "commands"
+
     for cmd in BUILTIN_COMMANDS + PLUGIN_COMMANDS:
         if cmd.name is not None:
             generate_command_doc(cmd.name, base_dir)
