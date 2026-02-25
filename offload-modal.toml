@@ -1,4 +1,8 @@
 # offload configuration for running mng tests on Modal
+
+# Format for constructing test IDs from JUnit XML (pytest uses name attribute directly)
+test_id_format = "{name}"
+
 [offload]
 max_parallel = 50
 test_timeout_secs = 60
