@@ -2481,7 +2481,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options)
+    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options).path
 
     # The generated path should be under host_dir/projects/
     assert str(work_dir_1).startswith(str(target_host.host_dir / "projects"))
@@ -2495,7 +2495,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2)
+    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2).path
 
     assert str(work_dir_2).startswith(str(target_host.host_dir / "projects"))
     assert work_dir_1 != work_dir_2
