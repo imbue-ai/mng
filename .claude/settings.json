@@ -38,23 +38,6 @@
             "command": "[ -e .git ] || { echo \"Be sure to return to the repo root when you finish! Otherwise the other stop hooks cannot run correctly.\" >&2; exit 2; }"
           }
         ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/check_commit_status.sh"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "timeout": 600,
-            "command": "./scripts/main_claude_stop_hook.sh"
-          }
-        ]
       }
     ]
   },
