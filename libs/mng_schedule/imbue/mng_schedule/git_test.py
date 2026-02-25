@@ -7,6 +7,7 @@ import pytest
 
 from imbue.mng_schedule.errors import ScheduleDeployError
 from imbue.mng_schedule.git import ensure_current_branch_is_pushed
+from imbue.mng_schedule.git import get_current_branch
 from imbue.mng_schedule.git import resolve_git_ref
 
 
@@ -77,7 +78,7 @@ def test_ensure_branch_is_pushed_fails_when_ahead(tmp_path: Path) -> None:
     subprocess.run(["git", "-C", str(repo_path), "add", "."], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(repo_path), "commit", "-m", "unpushed"], check=True, capture_output=True)
 
-    with pytest.raises(ScheduleDeployError, match="unpushed commit"):
+    with pytest.raises(ScheduleDeployError, match="unpushed commits"):
         ensure_current_branch_is_pushed(cwd=repo_path)
 
 
@@ -106,3 +107,38 @@ def test_ensure_branch_is_pushed_fails_on_detached_head(tmp_path: Path) -> None:
 
     with pytest.raises(ScheduleDeployError, match="detached HEAD"):
         ensure_current_branch_is_pushed(cwd=repo_path)
+
+
+# =============================================================================
+# get_current_branch tests
+# =============================================================================
+
+
+def test_get_current_branch_returns_branch_name(tmp_path: Path) -> None:
+    """get_current_branch should return the current branch name."""
+    _init_git_repo(tmp_path)
+    result = get_current_branch(cwd=tmp_path)
+    assert result == "master"
+
+
+def test_get_current_branch_raises_on_detached_head(tmp_path: Path) -> None:
+    """get_current_branch should raise on a detached HEAD."""
+    repo_path = tmp_path / "repo"
+    _init_git_repo(repo_path)
+
+    head_sha = subprocess.run(
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "-C", str(repo_path), "checkout", head_sha], check=True, capture_output=True)
+
+    with pytest.raises(ScheduleDeployError, match="detached HEAD"):
+        get_current_branch(cwd=repo_path)
+
+
+def test_get_current_branch_raises_outside_git_repo(tmp_path: Path) -> None:
+    """get_current_branch should raise when not in a git repository."""
+    with pytest.raises(ScheduleDeployError, match="Could not determine current branch"):
+        get_current_branch(cwd=tmp_path)

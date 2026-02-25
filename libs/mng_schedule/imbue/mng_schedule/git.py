@@ -24,36 +24,6 @@ def resolve_git_ref(ref: str, cwd: Path | None = None) -> str:
     return result.stdout.strip()
 
 
-def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
-    """Verify that the current branch has been pushed to the remote.
-
-    Checks that:
-    1. The current branch has a remote tracking branch
-    2. There are no unpushed commits (local is not ahead of remote)
-
-    Raises ScheduleDeployError if the branch is not fully pushed.
-    """
-    # Get current branch name
-    with ConcurrencyGroup(name="git-branch-name") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(f"Could not determine current branch: {result.stderr.strip()}") from None
-    branch_name = result.stdout.strip()
-
-    if branch_name == "HEAD":
-        raise ScheduleDeployError("Cannot deploy from a detached HEAD. Check out a branch first.") from None
-
-    # Check if there is anything unpushed on this branch:
-    with ConcurrencyGroup(name="git-upstream-check") as cg:
-        result = cg.run_process_to_completion(["git", "log", f"origin/{branch_name}..HEAD", "--oneline"], cwd=cwd)
-    if result.stdout.strip() or result.stderr.strip():
-        raise ScheduleDeployError("Some changes are not pushed")
-
-
 def get_current_branch(cwd: Path | None = None) -> str:
     """Get the current git branch name.
 
@@ -71,6 +41,33 @@ def get_current_branch(cwd: Path | None = None) -> str:
     if branch_name == "HEAD":
         raise ScheduleDeployError("Cannot deploy from a detached HEAD. Check out a branch first.") from None
     return branch_name
+
+
+def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
+    """Verify that the current branch has been pushed to the remote.
+
+    Checks that:
+    1. The current branch is not detached
+    2. The remote tracking branch (origin/<branch>) exists
+    3. There are no unpushed commits (local is not ahead of remote)
+
+    Raises ScheduleDeployError if the branch is not fully pushed.
+    """
+    branch_name = get_current_branch(cwd=cwd)
+
+    # Check if the remote tracking branch exists and if there are unpushed commits.
+    with ConcurrencyGroup(name="git-upstream-check") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "log", f"origin/{branch_name}..HEAD", "--oneline"],
+            is_checked_after=False,
+            cwd=cwd,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(
+            f"Branch '{branch_name}' has no remote tracking branch at origin/{branch_name}. Push the branch first."
+        ) from None
+    if result.stdout.strip():
+        raise ScheduleDeployError(f"Branch '{branch_name}' has unpushed commits. Push the branch first.") from None
 
 
 def get_current_mng_git_hash() -> str:
