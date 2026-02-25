@@ -456,6 +456,15 @@ class BaseAgent(AgentInterface):
             logger.trace("Submitted message successfully")
             return
 
+        pane_content = self._capture_pane_content(session_name)
+        if pane_content is not None:
+            logger.error(
+                "TUI send enter and wait timeout -- remote pane content:\n{}",
+                pane_content,
+            )
+        else:
+            logger.error("TUI send enter and wait timeout -- failed to capture remote pane content")
+
         raise SendMessageError(
             str(self.name),
             f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
