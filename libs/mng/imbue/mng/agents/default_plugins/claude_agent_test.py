@@ -16,6 +16,7 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_agent import PermissionDialogIndicator
 from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
 from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
@@ -2028,8 +2029,8 @@ def test_get_dialog_indicators_includes_permission_dialog(
     indicators = agent.get_dialog_indicators()
 
     assert len(indicators) >= 1
-    indicator_texts = [text for text, _description in indicators]
-    assert "Do you want to proceed?" in indicator_texts
+    assert isinstance(indicators[0], PermissionDialogIndicator)
+    assert indicators[0].get_match_string() == "Do you want to proceed?"
 
 
 def test_check_for_blocking_dialog_raises_when_permission_dialog_detected(
@@ -2054,7 +2055,7 @@ def test_check_for_blocking_dialog_raises_when_permission_dialog_detected(
         )
 
         # Should detect the dialog and raise
-        with pytest.raises(DialogDetectedError, match="permission dialog"):
+        with pytest.raises(DialogDetectedError, match="PermissionDialogIndicator"):
             agent._check_for_blocking_dialog(session_name)
     finally:
         cleanup_tmux_session(session_name)

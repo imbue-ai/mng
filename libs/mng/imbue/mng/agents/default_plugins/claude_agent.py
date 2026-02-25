@@ -21,6 +21,7 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
+from imbue.mng.agents.base_agent import DialogIndicator
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import add_claude_trust_for_path
@@ -404,6 +405,13 @@ def _has_api_credentials_available(
     return False
 
 
+class PermissionDialogIndicator(DialogIndicator):
+    """Detects Claude Code permission dialogs (e.g., tool approval prompts)."""
+
+    def get_match_string(self) -> str:
+        return "Do you want to proceed?"
+
+
 class ClaudeAgent(BaseAgent):
     """Agent implementation for Claude with session resumption support."""
 
@@ -441,14 +449,14 @@ class ClaudeAgent(BaseAgent):
         """
         return "Claude Code"
 
-    def get_dialog_indicators(self) -> Sequence[tuple[str, str]]:
+    def get_dialog_indicators(self) -> Sequence[DialogIndicator]:
         """Return Claude Code dialog indicators for runtime detection.
 
         Detects permission dialogs that appear mid-session when Claude Code
         asks for user consent before taking an action. These block automated
         input via tmux send-keys.
         """
-        return (("Do you want to proceed?", "permission dialog"),)
+        return (PermissionDialogIndicator(),)
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None

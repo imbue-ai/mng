@@ -1,6 +1,8 @@
 import json
 import shlex
 import time
+from abc import ABC
+from abc import abstractmethod
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import DialogDetectedError
@@ -40,6 +43,15 @@ _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Constants for signal-based synchronization
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
+
+
+class DialogIndicator(FrozenModel, ABC):
+    """Base class for dialog indicators that can block agent input."""
+
+    @abstractmethod
+    def get_match_string(self) -> str:
+        """Return the string to look for in the tmux pane content."""
+        ...
 
 
 class BaseAgent(AgentInterface):
@@ -275,12 +287,12 @@ class BaseAgent(AgentInterface):
         """
         return None
 
-    def get_dialog_indicators(self) -> Sequence[tuple[str, str]]:
+    def get_dialog_indicators(self) -> Sequence[DialogIndicator]:
         """Return dialog indicators to check for before sending messages.
 
-        Each indicator is a (text_to_match, description) pair. If the text is
-        found in the tmux pane content, a DialogDetectedError is raised with
-        the description.
+        Each indicator's get_match_string() is checked against the tmux pane
+        content. If a match is found, a DialogDetectedError is raised using
+        the indicator's class name as the description.
 
         Returns empty by default. Subclasses can override to detect
         agent-specific dialogs (e.g., permission prompts).
@@ -302,15 +314,17 @@ class BaseAgent(AgentInterface):
         if content is None:
             return
 
-        for indicator_text, dialog_description in indicators:
-            if indicator_text in content:
+        for indicator in indicators:
+            match_string = indicator.get_match_string()
+            if match_string in content:
+                description = type(indicator).__name__
                 logger.warning(
                     "Dialog detected in agent {} pane: {} (matched: {})",
                     self.name,
-                    dialog_description,
-                    indicator_text,
+                    description,
+                    match_string,
                 )
-                raise DialogDetectedError(str(self.name), dialog_description)
+                raise DialogDetectedError(str(self.name), description)
 
     def _raise_send_timeout(self, session_name: str, timeout_reason: str) -> NoReturn:
         """Check for a blocking dialog before raising a generic send timeout.
