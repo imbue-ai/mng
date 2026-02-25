@@ -56,14 +56,6 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Opt-in guard: only run if reviewer windows exist or autofix is enabled.
-# Without either, this agent has no review infrastructure, so exit cleanly.
-HAS_REVIEWER_WINDOWS=$(tmux list-windows -t "$TMUX_SESSION" -F '#W' 2>/dev/null \
-    | grep '^reviewer_' || true)
-if [[ -z "$HAS_REVIEWER_WINDOWS" ]] && [[ ! -f .autofix/enabled ]]; then
-    exit 0
-fi
-
 # Set up file logging before sourcing common
 if [[ -n "${MNG_AGENT_STATE_DIR:-}" ]]; then
     mkdir "$MNG_AGENT_STATE_DIR/logs" 2>/dev/null || true

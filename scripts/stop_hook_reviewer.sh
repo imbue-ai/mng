@@ -23,25 +23,9 @@ for window in $(tmux list-windows -t "$TMUX_SESSION" -F '#W' 2>/dev/null | grep 
 done
 
 if [[ ${#REVIEWER_PIDS[@]} -eq 0 ]]; then
-    if [[ -f .autofix/enabled ]]; then
-        log_info "No reviewer windows found, creating dynamic reviewer for autofix"
-        _log_to_file "INFO" "Creating dynamic reviewer_0 window for autofix"
-        tmux new-window -t "$TMUX_SESSION" -n "reviewer_0" -d \
-            'export IS_SANDBOX=1 && claude --dangerously-skip-permissions'
-        # Wait for Claude Code to be ready (look for the '>' prompt)
-        for i in $(seq 1 30); do
-            if tmux capture-pane -t "$TMUX_SESSION:reviewer_0" -p 2>/dev/null \
-                | grep -q '>'; then break; fi
-            sleep 1
-        done
-        "$SCRIPT_DIR/run_reviewer.sh" "$TMUX_SESSION" "reviewer_0" &
-        REVIEWER_PIDS+=($!)
-        _log_to_file "INFO" "Launched run_reviewer.sh for dynamic window=reviewer_0 (pid=${REVIEWER_PIDS[-1]})"
-    else
-        log_info "No reviewer windows found, skipping review"
-        _log_to_file "INFO" "No reviewer windows found, exiting with 0"
-        exit 0
-    fi
+    log_info "No reviewer windows found, skipping review"
+    _log_to_file "INFO" "No reviewer windows found, exiting with 0"
+    exit 0
 fi
 
 # Wait for all reviewer background jobs to complete

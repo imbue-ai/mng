@@ -10,7 +10,6 @@ Built-in plugins provide the following agent types:
 |------|---------|-------------|
 | `claude` | `claude` | [Claude Code](https://claude.ai/claude-code) - Anthropic's agentic coding tool. Includes session resumption support. |
 | `code-guardian` | `claude` | Extends `claude` with a skill that identifies code-level inconsistencies and produces a structured report. |
-| `coder` | `claude` | Extends `claude` with the autofix skill for automated code review and fixing via stop hooks. |
 | `codex` | `codex` | [Codex CLI](https://github.com/openai/codex) - OpenAI's coding assistant. |
 | `fixme-fairy` | `claude` | Extends `claude` with a skill that finds and fixes a random FIXME in the codebase. |
 
