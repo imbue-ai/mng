@@ -16,7 +16,7 @@ First, verify the target agent exists and check its current state (substituting 
 uv run mng list --include 'name == "AGENT_NAME"' --format '{name}: {state}'
 ```
 
-If no output is returned, the agent was not found by that exact name. Run `uv run mng list --format '{name}: {state}'` to see all agents. If the user's input was a description (e.g. "the agent working on X") rather than a name, check the agents and their git branches (the branch convention is `mng/<agent_name>-<provider>`) to figure out which one they meant. If there's an unambiguous match, use it. Otherwise, use AskUserQuestion to ask the user which agent they meant, presenting the plausible candidates.
+If no output is returned, the agent was not found by that exact name. Run `uv run mng list --format '{name}: {state}'` to see all agents. If the user's input was a description (e.g. "the agent working on X") rather than a name, check the agents and their git branches to figure out which one they meant. If there's an unambiguous match, use it. Otherwise, use AskUserQuestion to ask the user which agent they meant, presenting the plausible candidates.
 
 If the agent is already in WAITING, DONE, or STOPPED state, skip the polling loop and proceed directly to the follow-up task.
 
