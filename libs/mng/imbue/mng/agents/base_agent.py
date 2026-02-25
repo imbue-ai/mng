@@ -129,6 +129,10 @@ class BaseAgent(AgentInterface):
         data["labels"] = dict(labels)
         self._write_data(data)
 
+    def get_created_branch_name(self) -> str | None:
+        data = self._read_data()
+        return data.get("created_branch_name")
+
     def get_is_start_on_boot(self) -> bool:
         data = self._read_data()
         return data.get("start_on_boot", False)

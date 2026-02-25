@@ -28,6 +28,7 @@ from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.git_utils import parse_worktree_git_file
 
 
 @log_call
@@ -470,8 +471,24 @@ def _is_git_worktree(host: OnlineHostInterface, path: Path) -> bool:
 
 
 def _remove_git_worktree(host: OnlineHostInterface, work_dir_path: Path) -> None:
-    """Remove a git worktree using git worktree remove."""
-    cmd = f"git worktree remove --force {shlex.quote(str(work_dir_path))}"
+    """Remove a git worktree using git worktree remove.
+
+    Reads the .git file to find the main repo and runs the removal from there,
+    which is required for git to properly unregister the worktree.
+    """
+    main_repo: Path | None = None
+    git_file = work_dir_path / ".git"
+    try:
+        content = host.read_text_file(git_file)
+        main_repo = parse_worktree_git_file(content)
+    except (FileNotFoundError, OSError):
+        pass
+
+    if main_repo is not None:
+        cmd = f"git -C {shlex.quote(str(main_repo))} worktree remove --force {shlex.quote(str(work_dir_path))}"
+    else:
+        cmd = f"git worktree remove --force {shlex.quote(str(work_dir_path))}"
+
     result = host.execute_command(cmd)
 
     if not result.success:

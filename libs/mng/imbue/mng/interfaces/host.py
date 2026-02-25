@@ -403,7 +403,7 @@ class OnlineHostInterface(HostInterface, ABC):
         host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create and populate the work directory for a new agent."""
         ...
 
@@ -412,6 +412,7 @@ class OnlineHostInterface(HostInterface, ABC):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the state directory and metadata for a new agent."""
         ...
@@ -454,6 +455,16 @@ class OnlineHostInterface(HostInterface, ABC):
         persistent agent state (like Modal) will sync this to their storage.
         """
         ...
+
+
+class CreateWorkDirResult(FrozenModel):
+    """Result of creating an agent work directory."""
+
+    path: Path = Field(description="Path to the created work directory")
+    created_branch_name: str | None = Field(
+        default=None,
+        description="Name of the git branch created for this work directory, if any",
+    )
 
 
 class AgentGitOptions(FrozenModel):
