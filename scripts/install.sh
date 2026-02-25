@@ -237,10 +237,7 @@ else
 
     case "$completion_choice" in
         y|Y|"")
-            # Extract the python path from mng's shebang (the uv tool venv python)
-            MNG_BIN="$(command -v mng)"
-            MNG_PYTHON="$(head -1 "$MNG_BIN" | sed 's/^#!//')"
-            COMPLETION_SCRIPT="$("$MNG_PYTHON" -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
+            COMPLETION_SCRIPT="$(uv tool run --from mng python3 -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
             if [ -n "$COMPLETION_SCRIPT" ]; then
                 printf "\n%s\n" "$COMPLETION_SCRIPT" >> "$SHELL_RC"
                 info "Shell completion enabled in $SHELL_RC"
