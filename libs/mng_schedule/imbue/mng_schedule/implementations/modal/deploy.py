@@ -391,9 +391,9 @@ def stage_deploy_files(
 
     # Create both staging subdirectories unconditionally
     home_dir = staging_dir / "home"
-    home_dir.mkdir()
+    home_dir.mkdir(exist_ok=True)
     project_dir = staging_dir / "project"
-    project_dir.mkdir()
+    project_dir.mkdir(exist_ok=True)
 
     def resolve_staged_path(dest_str: str) -> Path:
         """Resolve a destination string to a staged path under home/ or project/."""
@@ -428,7 +428,7 @@ def stage_deploy_files(
     # Consolidate environment variables from all sources into a single .env file.
     # Precedence (lowest to highest): --env-file < --pass-env < plugin env vars
     secrets_dir = staging_dir / "secrets"
-    secrets_dir.mkdir()
+    secrets_dir.mkdir(exist_ok=True)
     _stage_consolidated_env(secrets_dir, mng_ctx=mng_ctx, pass_env=pass_env, env_files=env_files)
 
 
