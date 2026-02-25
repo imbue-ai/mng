@@ -20,11 +20,11 @@ from urwid.widget.text import Text
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
-from imbue.mng_pankan.data_types import AgentBoardEntry
-from imbue.mng_pankan.data_types import BoardSnapshot
-from imbue.mng_pankan.data_types import CheckStatus
-from imbue.mng_pankan.data_types import PrState
-from imbue.mng_pankan.fetcher import fetch_board_snapshot
+from imbue.pankan.data_types import AgentBoardEntry
+from imbue.pankan.data_types import BoardSnapshot
+from imbue.pankan.data_types import CheckStatus
+from imbue.pankan.data_types import PrState
+from imbue.pankan.fetcher import fetch_board_snapshot
 
 REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
 

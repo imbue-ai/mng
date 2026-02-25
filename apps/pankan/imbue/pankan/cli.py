@@ -7,7 +7,7 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng_pankan.tui import run_pankan
+from imbue.pankan.tui import run_pankan
 
 
 class PankanCliOptions(CommonCliOptions):

@@ -4,11 +4,11 @@ from pydantic import ValidationError
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng_pankan.data_types import AgentBoardEntry
-from imbue.mng_pankan.data_types import BoardSnapshot
-from imbue.mng_pankan.data_types import CheckStatus
-from imbue.mng_pankan.data_types import PrInfo
-from imbue.mng_pankan.data_types import PrState
+from imbue.pankan.data_types import AgentBoardEntry
+from imbue.pankan.data_types import BoardSnapshot
+from imbue.pankan.data_types import CheckStatus
+from imbue.pankan.data_types import PrInfo
+from imbue.pankan.data_types import PrState
 
 
 def test_pr_state_values() -> None:

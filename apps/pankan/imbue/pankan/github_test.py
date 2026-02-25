@@ -2,12 +2,12 @@ import json
 from unittest.mock import MagicMock
 
 from imbue.concurrency_group.errors import ProcessError
-from imbue.mng_pankan.data_types import CheckStatus
-from imbue.mng_pankan.data_types import PrState
-from imbue.mng_pankan.github import _parse_check_status
-from imbue.mng_pankan.github import _parse_pr
-from imbue.mng_pankan.github import _parse_pr_state
-from imbue.mng_pankan.github import fetch_all_prs
+from imbue.pankan.data_types import CheckStatus
+from imbue.pankan.data_types import PrState
+from imbue.pankan.github import _parse_check_status
+from imbue.pankan.github import _parse_pr
+from imbue.pankan.github import _parse_pr_state
+from imbue.pankan.github import fetch_all_prs
 
 # === _parse_pr_state ===
 

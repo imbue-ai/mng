@@ -10,11 +10,11 @@ from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.utils.git_utils import get_current_git_branch
-from imbue.mng_pankan.data_types import AgentBoardEntry
-from imbue.mng_pankan.data_types import BoardSnapshot
-from imbue.mng_pankan.data_types import PrInfo
-from imbue.mng_pankan.data_types import PrState
-from imbue.mng_pankan.github import fetch_all_prs
+from imbue.pankan.data_types import AgentBoardEntry
+from imbue.pankan.data_types import BoardSnapshot
+from imbue.pankan.data_types import PrInfo
+from imbue.pankan.data_types import PrState
+from imbue.pankan.github import fetch_all_prs
 
 
 def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:

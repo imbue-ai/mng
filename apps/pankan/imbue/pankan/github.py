@@ -6,9 +6,9 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
-from imbue.mng_pankan.data_types import CheckStatus
-from imbue.mng_pankan.data_types import PrInfo
-from imbue.mng_pankan.data_types import PrState
+from imbue.pankan.data_types import CheckStatus
+from imbue.pankan.data_types import PrInfo
+from imbue.pankan.data_types import PrState
 
 
 def fetch_all_prs(cg: ConcurrencyGroup) -> tuple[PrInfo, ...]:
