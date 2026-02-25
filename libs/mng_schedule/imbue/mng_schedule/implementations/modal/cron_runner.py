@@ -206,14 +206,6 @@ def run_scheduled_trigger() -> None:
             if value is not None:
                 os.environ[key] = value
 
-    # Set up GitHub authentication
-    print("Setting up GitHub authentication...")
-    os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
-    _run_and_stream(
-        "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null && gh auth setup-git",
-        is_shell=True,
-    )
-
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()
     args_str = trigger.get("args", "")
@@ -226,6 +218,8 @@ def run_scheduled_trigger() -> None:
     # so the agent host inherits these environment variables.
     if secrets_env.exists() and command in ("create", "start"):
         cmd.extend(["--host-env-file", str(secrets_env)])
+
+    print(f"Currently in {os.getcwd()}")
 
     print(f"Running: {' '.join(cmd)}")
     exit_code = _run_and_stream(
