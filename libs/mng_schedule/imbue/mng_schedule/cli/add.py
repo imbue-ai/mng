@@ -92,17 +92,24 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     else:
         git_image_hash_value = opts.git_image_hash
 
+    # Load the provider instance (before git ref resolution so unsupported
+    # providers fail with a clear message rather than a git error)
+    try:
+        provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
+    except MngError as e:
+        raise click.ClickException(f"Failed to load provider '{opts.provider}': {e}") from e
+
+    if not isinstance(provider, (LocalProviderInstance, ModalProviderInstance)):
+        raise click.ClickException(
+            f"Provider '{opts.provider}' (type {type(provider).__name__}) is not supported for schedules. "
+            "Supported providers: local, modal."
+        )
+
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
     # Resolve git ref to full SHA
     resolved_hash = resolve_git_ref(git_image_hash_value)
-
-    # Load the provider instance
-    try:
-        provider = get_provider_instance(ProviderInstanceName(opts.provider), mng_ctx)
-    except MngError as e:
-        raise click.ClickException(f"Failed to load provider '{opts.provider}': {e}") from e
 
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
@@ -118,11 +125,6 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         _deploy_local(trigger, mng_ctx, opts)
     elif isinstance(provider, ModalProviderInstance):
         _deploy_modal(trigger, mng_ctx, opts, provider)
-    else:
-        raise click.ClickException(
-            f"Provider '{opts.provider}' (type {type(provider).__name__}) is not supported for schedules. "
-            "Supported providers: local, modal."
-        )
 
 
 def _deploy_local(
