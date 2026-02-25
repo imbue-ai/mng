@@ -179,34 +179,3 @@ def read_disabled_plugins() -> frozenset[str]:
             if enabled_value is not None:
                 merged[plugin_name] = bool(enabled_value)
     return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
-
-
-# --- Default host dir pre-reader ---
-
-
-def read_default_host_dir() -> Path:
-    """Return the configured default host directory, expanded to an absolute path.
-
-    Precedence (highest to lowest):
-    1. MNG_HOST_DIR environment variable
-    2. default_host_dir from config files (user -> project -> local, last wins)
-    3. ~/.{root_name} fallback (root_name from MNG_ROOT_NAME, defaults to "mng")
-    """
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    if env_host_dir:
-        return Path(env_host_dir).expanduser()
-
-    # Read from config files in precedence order (lowest to highest).
-    # Later values override earlier ones.
-    host_dir: str | None = None
-    for raw in _resolve_config_files():
-        value = raw.get("default_host_dir")
-        if value is not None:
-            host_dir = str(value)
-
-    if host_dir is not None:
-        return Path(host_dir).expanduser()
-
-    # Fall back to ~/.{root_name}
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    return Path(f"~/.{root_name}").expanduser()
