@@ -218,9 +218,8 @@ else
     SHELL_TYPE="bash"
 fi
 
-# Check for both old-style (_MNG_COMPLETE) and new-style (_mng_complete) completion
 ALREADY_CONFIGURED=false
-if grep -qF '_MNG_COMPLETE' "$SHELL_RC" 2>/dev/null || grep -qF '_mng_complete' "$SHELL_RC" 2>/dev/null; then
+if grep -qF '_mng_complete' "$SHELL_RC" 2>/dev/null; then
     ALREADY_CONFIGURED=true
 fi
 
