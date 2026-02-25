@@ -237,14 +237,16 @@ else
 
     case "$completion_choice" in
         y|Y|"")
-            COMPLETION_SCRIPT="$(uv tool run --from mng python3 -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
+            # Extract the python path from mng's shebang (the uv tool venv python)
+            MNG_BIN="$(command -v mng)"
+            MNG_PYTHON="$(head -1 "$MNG_BIN" | sed 's/^#!//')"
+            COMPLETION_SCRIPT="$("$MNG_PYTHON" -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
             if [ -n "$COMPLETION_SCRIPT" ]; then
                 printf "\n%s\n" "$COMPLETION_SCRIPT" >> "$SHELL_RC"
                 info "Shell completion enabled in $SHELL_RC"
             else
                 warn "Could not generate completion script."
-                warn "You can set it up manually later with:"
-                warn "  uv tool run --from mng python3 -m imbue.mng.cli.complete --script $SHELL_TYPE >> $SHELL_RC"
+                warn "You can set it up manually later -- see: https://github.com/imbue-ai/mng#shell-completion"
             fi
             ;;
         *)
