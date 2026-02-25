@@ -181,7 +181,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     steps:
       - uses: actions/checkout@v6
@@ -196,6 +196,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
 
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -205,7 +210,7 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run acceptance tests
-        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "acceptance"' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "acceptance"' --no-cov -v --tb=short --splits 16 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
       - name: Upload test timing data
         if: always()
@@ -239,6 +244,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
+
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7

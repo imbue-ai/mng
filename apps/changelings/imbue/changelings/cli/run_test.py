@@ -19,6 +19,7 @@ from imbue.changelings.mng_commands import build_mng_create_command
 from imbue.changelings.mng_commands import get_agent_name_from_command
 from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
+from imbue.mng.utils.testing import isolate_home
 
 # -- get_agent_name_from_command tests --
 
@@ -376,7 +377,7 @@ _REQUIRED_ADD_ARGS = [
 @pytest.fixture
 def _isolated_changeling_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Set up an isolated HOME with a changeling registered in config."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    isolate_home(tmp_path, monkeypatch)
     runner = CliRunner()
     result = runner.invoke(add, _REQUIRED_ADD_ARGS)
     assert result.exit_code == 0, result.output
@@ -425,7 +426,7 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
-def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner) -> None:
+def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """Running a non-existent changeling locally should fail (mng not found)."""
     result = cli_runner.invoke(run, ["nonexistent-fairy", "--local"])
 
@@ -435,7 +436,7 @@ def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner) 
 
 
 @pytest.mark.usefixtures("_isolated_changeling_config")
-def test_run_cli_local_loads_existing_changeling_from_config(cli_runner: CliRunner) -> None:
+def test_run_cli_local_loads_existing_changeling_from_config(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """Running an existing changeling should load its config and attempt execution."""
     result = cli_runner.invoke(run, ["test-guardian", "--local"])
 
@@ -451,7 +452,7 @@ def test_run_cli_without_local_flag_attempts_modal(cli_runner: CliRunner) -> Non
     assert result.exit_code != 0
 
 
-def test_run_cli_with_overrides_applies_them(cli_runner: CliRunner) -> None:
+def test_run_cli_with_overrides_applies_them(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """CLI overrides should be applied when running."""
     # This will fail on execution but exercises the argument parsing path
     result = cli_runner.invoke(

@@ -16,12 +16,18 @@ from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_agent import _build_install_command_hint
 from imbue.mng.agents.default_plugins.claude_agent import _claude_json_has_primary_api_key
+from imbue.mng.agents.default_plugins.claude_agent import _get_claude_version
 from imbue.mng.agents.default_plugins.claude_agent import _has_api_credentials_available
+from imbue.mng.agents.default_plugins.claude_agent import _install_claude
+from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
+from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
+from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import EnvVar
 from imbue.mng.config.data_types import MngConfig
@@ -1465,6 +1471,69 @@ def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
 
 
 # =============================================================================
+# Remote Trust Tests
+# =============================================================================
+
+
+def test_provision_adds_trust_for_remote_work_dir(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should add hasTrustDialogAccepted for work_dir in the claude.json synced to remote hosts."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    assert transferred_config["projects"][str(temp_work_dir)]["hasTrustDialogAccepted"] is True
+
+
+def test_provision_preserves_existing_remote_project_config(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """provision should preserve existing project config when adding trust for remote work_dir."""
+    monkeypatch.chdir(tmp_path)
+
+    agent, _ = make_claude_agent(
+        local_provider,
+        tmp_path,
+        temp_mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False, sync_claude_json=True),
+        work_dir=temp_work_dir,
+    )
+
+    # Write trust with extra fields that should be preserved
+    _write_claude_trust(temp_work_dir)
+
+    host = cast(OnlineHostInterface, FakeHost(is_local=False, host_dir=tmp_path / "host_dir"))
+    agent.provision(host=host, options=CreateAgentOptions(agent_type=AgentTypeName("claude")), mng_ctx=temp_mng_ctx)
+
+    transferred_config = json.loads((tmp_path / ".claude.json").read_text())
+    project_entry = transferred_config["projects"][str(temp_work_dir)]
+    assert project_entry["hasTrustDialogAccepted"] is True
+    # Existing fields from _write_claude_trust should be preserved
+    assert project_entry["allowedTools"] == []
+
+
+# =============================================================================
 # macOS Keychain Credential Tests
 # =============================================================================
 
@@ -1569,3 +1638,375 @@ def test_has_api_credentials_ignores_credentials_file_on_remote_with_sync_disabl
         )
         is False
     )
+
+
+# =============================================================================
+# get_files_for_deploy Tests
+# =============================================================================
+
+
+def test_get_files_for_deploy_returns_generated_defaults_when_no_claude_files(
+    temp_mng_ctx: MngContext, tmp_path: Path
+) -> None:
+    """get_files_for_deploy returns generated defaults when no local claude config files exist."""
+    # Exclude project settings since the test repo_root may contain .claude/ files
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    # Always ships generated defaults for settings.json and claude.json
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data["hasCompletedOnboarding"] is True
+
+
+def test_get_files_for_deploy_includes_claude_json(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude.json with dialog-suppression fields when it exists."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude.json") in result
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data["test"] is True
+    assert claude_json_data["bypassPermissionsModeAccepted"] is True
+    assert claude_json_data["effortCalloutDismissed"] is True
+
+
+def test_get_files_for_deploy_includes_claude_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude/settings.json with skipDangerousModePermissionPrompt when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/settings.json") in result
+    settings_content = result[Path("~/.claude/settings.json")]
+    assert isinstance(settings_content, str)
+    settings_data = json.loads(settings_content)
+    assert settings_data["settings"] is True
+    assert settings_data["skipDangerousModePermissionPrompt"] is True
+
+
+def test_get_files_for_deploy_includes_claude_json_and_settings(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes both claude.json and settings.json when both exist."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    settings = claude_dir / "settings.json"
+    settings.write_text('{"settings": true}')
+
+    # Exclude project settings to avoid picking up .claude/*.local.* from the repo_root
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude.json") in result
+    assert Path("~/.claude/settings.json") in result
+
+
+def test_get_files_for_deploy_ships_defaults_when_user_settings_excluded(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy ships generated defaults even when include_user_settings is False."""
+    claude_json = Path.home() / ".claude.json"
+    claude_json.write_text('{"test": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True, repo_root=tmp_path
+    )
+
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But the local ~/.claude.json should NOT be used (generated defaults instead)
+    claude_json_content = result[Path("~/.claude.json")]
+    assert isinstance(claude_json_content, str)
+    claude_json_data = json.loads(claude_json_content)
+    assert claude_json_data.get("test") is None
+    assert claude_json_data["hasCompletedOnboarding"] is True
+
+
+def test_get_files_for_deploy_includes_project_local_settings(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy includes .claude/settings.local.json from the repo root."""
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=True, repo_root=tmp_path
+    )
+
+    assert Path(".claude/settings.local.json") in result
+    assert result[Path(".claude/settings.local.json")] == local_settings
+
+
+def test_get_files_for_deploy_excludes_project_settings_when_flag_false(
+    temp_mng_ctx: MngContext,
+    tmp_path: Path,
+) -> None:
+    """get_files_for_deploy skips project local files when include_project_settings is False, but always ships defaults."""
+    project_claude_dir = tmp_path / ".claude"
+    project_claude_dir.mkdir(parents=True, exist_ok=True)
+    local_settings = project_claude_dir / "settings.local.json"
+    local_settings.write_text('{"local": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=False, include_project_settings=False, repo_root=tmp_path
+    )
+
+    # Generated defaults are always shipped
+    assert Path("~/.claude/settings.json") in result
+    assert Path("~/.claude.json") in result
+    # But project local files should NOT be included
+    assert Path(".claude/settings.local.json") not in result
+
+
+def test_get_files_for_deploy_includes_skills_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/skills/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    skills_dir = claude_dir / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text("# My Skill")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/skills/my-skill/SKILL.md") in result
+    assert result[Path("~/.claude/skills/my-skill/SKILL.md")] == skill_file
+
+
+def test_get_files_for_deploy_includes_commands_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/commands/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    commands_dir = claude_dir / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    cmd_file = commands_dir / "my-command.md"
+    cmd_file.write_text("# Command")
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/commands/my-command.md") in result
+    assert result[Path("~/.claude/commands/my-command.md")] == cmd_file
+
+
+def test_get_files_for_deploy_includes_agents_directory(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes files from ~/.claude/agents/ recursively."""
+    claude_dir = Path.home() / ".claude"
+    agents_dir = claude_dir / "agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    agent_file = agents_dir / "my-agent.json"
+    agent_file.write_text('{"agent": true}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/agents/my-agent.json") in result
+    assert result[Path("~/.claude/agents/my-agent.json")] == agent_file
+
+
+def test_get_files_for_deploy_includes_credentials(temp_mng_ctx: MngContext, tmp_path: Path) -> None:
+    """get_files_for_deploy includes ~/.claude/.credentials.json when it exists."""
+    claude_dir = Path.home() / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+    credentials = claude_dir / ".credentials.json"
+    credentials.write_text('{"oauth_token": "test"}')
+
+    result = get_files_for_deploy(
+        mng_ctx=temp_mng_ctx, include_user_settings=True, include_project_settings=False, repo_root=tmp_path
+    )
+
+    assert Path("~/.claude/.credentials.json") in result
+    assert result[Path("~/.claude/.credentials.json")] == credentials
+
+
+# =============================================================================
+# Version Pinning Tests
+# =============================================================================
+
+
+def test_claude_agent_config_version_defaults_to_none() -> None:
+    """ClaudeAgentConfig.version should default to None."""
+    config = ClaudeAgentConfig()
+    assert config.version is None
+
+
+def test_claude_agent_config_version_can_be_set() -> None:
+    """ClaudeAgentConfig.version should accept a version string."""
+    config = ClaudeAgentConfig(version="2.1.50")
+    assert config.version == "2.1.50"
+
+
+def test_parse_claude_version_output_normal() -> None:
+    """_parse_claude_version_output should extract the version from standard output."""
+    assert _parse_claude_version_output("2.1.50 (Claude Code)") == "2.1.50"
+
+
+def test_parse_claude_version_output_version_only() -> None:
+    """_parse_claude_version_output should handle version-only output."""
+    assert _parse_claude_version_output("2.1.50") == "2.1.50"
+
+
+def test_parse_claude_version_output_with_whitespace() -> None:
+    """_parse_claude_version_output should handle leading/trailing whitespace."""
+    assert _parse_claude_version_output("  2.1.50 (Claude Code)\n") == "2.1.50"
+
+
+def test_parse_claude_version_output_empty() -> None:
+    """_parse_claude_version_output should return None for empty output."""
+    assert _parse_claude_version_output("") is None
+    assert _parse_claude_version_output("   ") is None
+
+
+def test_build_install_command_hint_no_version() -> None:
+    """_build_install_command_hint should return standard install command without version."""
+    assert _build_install_command_hint() == "curl -fsSL https://claude.ai/install.sh | bash"
+    assert _build_install_command_hint(None) == "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def test_build_install_command_hint_with_version() -> None:
+    """_build_install_command_hint should include version in install command."""
+    assert _build_install_command_hint("2.1.50") == "curl -fsSL https://claude.ai/install.sh | bash -s 2.1.50"
+
+
+def _make_command_tracking_host() -> tuple[OnlineHostInterface, list[str]]:
+    """Create a mock host that tracks executed commands.
+
+    Returns (host, executed_commands) where executed_commands is a list that
+    accumulates command strings passed to execute_command.
+    """
+    executed_commands: list[str] = []
+
+    def mock_execute_command(cmd: str, *args: object, **kwargs: object) -> SimpleNamespace:
+        executed_commands.append(cmd)
+        return SimpleNamespace(success=True, stdout="", stderr="")
+
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=mock_execute_command,
+        ),
+    )
+    return host, executed_commands
+
+
+def test_get_claude_version_returns_version_on_success() -> None:
+    """_get_claude_version should return the version string when claude --version succeeds."""
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                success=True,
+                stdout="2.1.50 (Claude Code)\n",
+                stderr="",
+            ),
+        ),
+    )
+
+    assert _get_claude_version(host) == "2.1.50"
+
+
+def test_get_claude_version_returns_none_on_failure() -> None:
+    """_get_claude_version should return None when claude --version fails."""
+    host = cast(
+        OnlineHostInterface,
+        SimpleNamespace(
+            execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                success=False,
+                stdout="",
+                stderr="command not found",
+            ),
+        ),
+    )
+
+    assert _get_claude_version(host) is None
+
+
+def test_provision_raises_on_version_mismatch(
+    local_provider: LocalProviderInstance,
+    tmp_path: Path,
+    temp_host_dir: Path,
+    temp_profile_dir: Path,
+    plugin_manager: "pluggy.PluginManager",
+    mng_test_prefix: str,
+) -> None:
+    """provision should raise when installed claude version does not match pinned version."""
+    config = MngConfig(
+        prefix=mng_test_prefix,
+        default_host_dir=temp_host_dir,
+    )
+    with ConcurrencyGroup(name="test-version-mismatch") as cg:
+        ctx = make_mng_ctx(config, plugin_manager, temp_profile_dir, concurrency_group=cg)
+        agent, _ = make_claude_agent(
+            local_provider,
+            tmp_path,
+            ctx,
+            agent_config=ClaudeAgentConfig(check_installation=True, version="99.99.99"),
+        )
+
+        # Simulate a host where claude is installed but at a different version.
+        host_with_wrong_version = cast(
+            OnlineHostInterface,
+            SimpleNamespace(
+                is_local=True,
+                execute_command=lambda cmd, *args, **kwargs: SimpleNamespace(
+                    success=True,
+                    stdout="2.1.50 (Claude Code)\n",
+                    stderr="",
+                ),
+            ),
+        )
+
+        options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+        with pytest.raises(PluginMngError, match="Claude version mismatch"):
+            agent.provision(host=host_with_wrong_version, options=options, mng_ctx=ctx)
+
+
+def test_install_claude_passes_version_to_command() -> None:
+    """_install_claude should pass the version to the install script via bash -s."""
+    host, executed_commands = _make_command_tracking_host()
+
+    _install_claude(host, version="2.1.50")
+
+    assert len(executed_commands) == 1
+    assert "bash -s 2.1.50" in executed_commands[0]
+
+
+def test_install_claude_without_version() -> None:
+    """_install_claude should not pass -s flag when no version is specified."""
+    host, executed_commands = _make_command_tracking_host()
+
+    _install_claude(host, version=None)
+
+    assert len(executed_commands) == 1
+    assert "bash -s" not in executed_commands[0]
+    assert "install.sh | bash" in executed_commands[0]

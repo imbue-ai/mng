@@ -57,6 +57,7 @@ from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import CreateWorkDirResult
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
@@ -911,7 +912,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
         with log_span("Creating agent work directory", copy_mode=str(copy_mode)):
@@ -927,7 +928,7 @@ class Host(BaseHost, OnlineHostInterface):
         source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         # Check if source and target are on the same host
         source_is_same_host = source_host.id == self.id
 
@@ -952,10 +953,12 @@ class Host(BaseHost, OnlineHostInterface):
         if is_generated_work_dir:
             self._add_generated_work_dir(target_path)
 
+        created_branch_name: str | None = None
+
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
             logger.debug("Skipped file transfer: source and target are the same path")
-            return target_path
+            return CreateWorkDirResult(path=target_path)
 
         # Check if source has a .git directory
         if source_host.is_local:
@@ -976,7 +979,7 @@ class Host(BaseHost, OnlineHostInterface):
                 self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
-                self._transfer_git_repo(source_host, source_path, target_path, options)
+                created_branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
                 self._transfer_extra_files(source_host, source_path, target_path, options)
 
         # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
@@ -993,7 +996,7 @@ class Host(BaseHost, OnlineHostInterface):
                 exclude_git=has_git_options,
             )
 
-        return target_path
+        return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
 
     def _transfer_git_repo(
         self,
@@ -1001,8 +1004,11 @@ class Host(BaseHost, OnlineHostInterface):
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
-    ) -> None:
-        """Transfer a git repository from source to target."""
+    ) -> str:
+        """Transfer a git repository from source to target.
+
+        Returns the name of the branch created on the target.
+        """
         new_branch_name = self._determine_branch_name(options)
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
@@ -1074,6 +1080,8 @@ class Host(BaseHost, OnlineHostInterface):
             copy_git_info_exclude = options.git.copy_git_info_exclude if options.git else False
             if copy_git_info_exclude:
                 self._transfer_git_info_exclude(source_host, source_path, target_path)
+
+        return new_branch_name
 
     def _transfer_git_info_exclude(
         self,
@@ -1369,7 +1377,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create a work_dir using git worktree.
 
         Worktrees are placed at ~/.mng/worktrees/<agent-id>/ by default.
@@ -1399,7 +1407,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Track generated work directories at the host level
             self._add_generated_work_dir(work_dir_path)
 
-            return work_dir_path
+            return CreateWorkDirResult(path=work_dir_path, created_branch_name=branch_name)
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
@@ -1416,6 +1424,7 @@ class Host(BaseHost, OnlineHostInterface):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
@@ -1470,6 +1479,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "permissions": [],
                 "start_on_boot": False,
                 "labels": dict(options.label_options.labels),
+                "created_branch_name": created_branch_name,
             }
 
             data_path = state_dir / "data.json"
@@ -2148,8 +2158,8 @@ Welcome to your first agent!
 
 Mng runs your agents in tmux sessions,
 and I can see you're already a tmux user.
-Here are some tips for using nested tmux sessions:
-https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/nested_tmux.md
+Here are some tips for using mng alongside tmux:
+https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/tmux_users.md
 
 The config file for mng's tmux sessions is ~/.mng/tmux.conf.
 Among other things, it sets up some extra keybindings:

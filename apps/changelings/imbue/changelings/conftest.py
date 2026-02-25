@@ -5,12 +5,26 @@ import pytest
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.primitives import ChangelingName
+from imbue.mng.utils.testing import isolate_home
+
+_REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 @pytest.fixture(autouse=True)
 def _isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate config operations to a temporary home directory."""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    isolate_home(tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def imbue_repo_cwd(monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Change working directory to the imbue repo root.
+
+    Use this for tests that need to run git commands against the real repository
+    (e.g. finding the repo root, getting commit hashes, or getting remote URLs).
+    """
+    monkeypatch.chdir(_REPO_ROOT)
+    return _REPO_ROOT
 
 
 def make_test_changeling(

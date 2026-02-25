@@ -252,7 +252,17 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
 
 @pytest.hookimpl(trylast=True)
 def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Check that the total test session time is under the configured limit."""
+    """Check that the total test session time is under the configured limit.
+
+    Prints per-test durations before checking the limit so that timing data
+    is always visible in CI output, even when the suite exceeds the limit.
+    """
+    # Print test durations before checking the time limit, so they are
+    # visible in the CI output even when pytest.exit() aborts the session.
+    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if terminalreporter is not None:
+        _print_test_durations_for_ci(terminalreporter)
+
     if hasattr(session, "start_time"):
         duration = time.time() - session.start_time
 
@@ -542,6 +552,33 @@ def _print_test_durations_for_ci(
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML name to the full test ID for exact matching with offload.
+
+    Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
+    otherwise falls back to pytest's nodeid directly.
+    """
+    offload_root = os.environ.get("OFFLOAD_ROOT")
+
+    if offload_root:
+        # Build full test ID: relative_path::class::method or relative_path::method
+        fspath = str(request.node.fspath)
+        rel_path = os.path.relpath(fspath, offload_root)
+        nodeid_parts = request.node.nodeid.split("::")
+        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        test_id = "::".join([rel_path] + nodeid_parts[1:])
+    else:
+        test_id = request.node.nodeid
+
+    record_xml_attribute("name", test_id)
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
@@ -567,3 +604,5 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    # Register the JUnit test ID fixture (with public name for pytest discovery)
+    namespace["set_junit_test_id"] = _set_junit_test_id
