@@ -369,14 +369,14 @@ def _has_api_credentials_available(
     Returns True if any credential source is detected, False otherwise.
     """
     # Local hosts inherit the process environment via tmux
-    if host.is_local and (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+    if host.is_local and os.environ.get("ANTHROPIC_API_KEY"):
         return True
 
     for env_var in options.environment.env_vars:
-        if env_var.key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        if env_var.key == "ANTHROPIC_API_KEY":
             return True
 
-    if host.get_env_var("ANTHROPIC_API_KEY") or host.get_env_var("ANTHROPIC_AUTH_TOKEN"):
+    if host.get_env_var("ANTHROPIC_API_KEY"):
         return True
 
     # Check credentials file or macOS keychain (OAuth tokens)
@@ -918,6 +918,13 @@ def get_files_for_deploy(
     FIXED_TIME = datetime(2026, 2, 23, 3, 4, 7, tzinfo=timezone.utc)
     # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
     claude_json_data = _build_claude_json_for_remote(False, repo_root, None, current_time=FIXED_TIME)
+    # also inject our API key here, since deployed versions need it
+    user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+    api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
+    if api_key:
+        approved_keys = claude_json_data.setdefault("customApiKeyResponses", {})
+        approved_keys["approved"] = [api_key[-20:]]
+        approved_keys["rejected"] = []
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
@@ -952,12 +959,12 @@ def modify_env_vars_for_deploy(
     env_vars: dict[str, str],
 ) -> None:
     user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
-    if "ANTHROPIC_AUTH_TOKEN" not in env_vars:
+    if "ANTHROPIC_API_KEY" not in env_vars:
         token = user_claude_json_data.get("primaryApiKey", "")
         if not token:
             raise UserInputError(
-                "ANTHROPIC_AUTH_TOKEN environment variable is not set and no API key found in ~/.claude.json. You must provide credentials to authenticate with Claude Code in order for the deployment to work."
+                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. You must provide credentials to authenticate with Claude Code in order for the deployment to work."
             )
         else:
-            env_vars["ANTHROPIC_AUTH_TOKEN"] = token
+            env_vars["ANTHROPIC_API_KEY"] = token
     env_vars["IS_SANDBOX"] = "1"
