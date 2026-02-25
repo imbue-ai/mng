@@ -7,18 +7,19 @@ from click.testing import CliRunner
 from imbue.mng_schedule.cli.commands import schedule
 
 
-def test_schedule_add_requires_command(
+def test_schedule_add_defaults_command_to_create(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add requires --command."""
+    """Test that schedule add defaults --command to 'create' (no error about missing --command)."""
     result = cli_runner.invoke(
         schedule,
         ["add"],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
-    assert "--command is required" in result.output
+    # Should fail due to missing --schedule, not --command
+    assert "--schedule is required" in result.output
 
 
 def test_schedule_add_requires_schedule(
@@ -245,11 +246,11 @@ def test_schedule_add_rejects_invalid_verify_value(
     assert "Invalid value" in result.output
 
 
-def test_schedule_add_snapshot_raises_not_implemented(
+def test_schedule_add_snapshot_proceeds_to_deploy(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --snapshot raises NotImplementedError."""
+    """Test that --snapshot is accepted and proceeds past option parsing to deploy."""
     result = cli_runner.invoke(
         schedule,
         [
@@ -265,16 +266,17 @@ def test_schedule_add_snapshot_raises_not_implemented(
         ],
         obj=plugin_manager,
     )
+    # Should fail at deploy (no git repo / modal setup), not at option parsing
     assert result.exit_code != 0
-    assert isinstance(result.exception, NotImplementedError)
-    assert "--snapshot is not yet implemented" in str(result.exception)
+    assert not isinstance(result.exception, NotImplementedError)
+    assert not isinstance(result.exception, click.UsageError)
 
 
-def test_schedule_add_full_copy_raises_not_implemented(
+def test_schedule_add_full_copy_proceeds_to_deploy(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --full-copy raises NotImplementedError."""
+    """Test that --full-copy is accepted and proceeds past option parsing to deploy."""
     result = cli_runner.invoke(
         schedule,
         [
@@ -289,6 +291,32 @@ def test_schedule_add_full_copy_raises_not_implemented(
         ],
         obj=plugin_manager,
     )
+    # Should fail at deploy (no git repo / modal setup), not at option parsing
     assert result.exit_code != 0
-    assert isinstance(result.exception, NotImplementedError)
-    assert "--full-copy is not yet implemented" in str(result.exception)
+    assert not isinstance(result.exception, NotImplementedError)
+    assert not isinstance(result.exception, click.UsageError)
+
+
+def test_schedule_add_snapshot_and_full_copy_are_mutually_exclusive(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --snapshot and --full-copy cannot be used together."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--snapshot",
+            "snap-123",
+            "--full-copy",
+        ],
+        obj=plugin_manager,
+    )
+    assert result.exit_code != 0
+    assert "--snapshot and --full-copy are mutually exclusive" in result.output

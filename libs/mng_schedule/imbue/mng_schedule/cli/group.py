@@ -3,7 +3,14 @@ from typing import Any
 import click
 from click_option_group import optgroup
 
-from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.default_command_group import DefaultCommandGroup
+
+
+class ScheduleDefaultGroup(DefaultCommandGroup):
+    """Schedule command group that defaults to 'add' when no subcommand is given."""
+
+    _default_command: str = "add"
+
 
 # =============================================================================
 # Shared option decorator
@@ -127,7 +134,8 @@ def add_trigger_options(command: Any) -> Any:
         "--command",
         "command",
         type=click.Choice(["create", "start", "message", "exec"], case_sensitive=False),
-        default=None,
+        default="create",
+        show_default=True,
         help="Which mng command to run when triggered.",
     )(command)
     command = optgroup.option(
@@ -159,10 +167,9 @@ def resolve_positional_name(ctx: click.Context) -> None:
 # =============================================================================
 
 
-@click.group(name="schedule")
-@add_common_options
+@click.group(name="schedule", cls=ScheduleDefaultGroup)
 @click.pass_context
-def schedule(ctx: click.Context, **kwargs: Any) -> None:
+def schedule(ctx: click.Context) -> None:
     """Schedule invocations of mng commands.
 
     Manage cron-scheduled triggers that run mng commands (create, start,

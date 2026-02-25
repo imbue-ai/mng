@@ -70,18 +70,14 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     # Validate required options for add
-    if opts.command is None:
-        raise click.UsageError("--command is required for schedule add")
     if opts.schedule_cron is None:
         raise click.UsageError("--schedule is required for schedule add")
     if opts.provider is None:
         raise click.UsageError("--provider is required for schedule add")
 
-    # Code packaging strategy validation
-    if opts.snapshot_id is not None:
-        raise NotImplementedError("--snapshot is not yet implemented for schedule add")
-    if opts.full_copy:
-        raise NotImplementedError("--full-copy is not yet implemented for schedule add")
+    # Code packaging strategy validation: --snapshot and --full-copy are mutually exclusive
+    if opts.snapshot_id is not None and opts.full_copy:
+        raise click.UsageError("--snapshot and --full-copy are mutually exclusive")
 
     # Load the provider instance
     try:
@@ -98,10 +94,19 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
+    # Build trigger args, injecting --snapshot if provided.
+    # For local deployment, this ensures the wrapper script passes it through
+    # to the mng create command. For modal deployment, the cron_runner handles
+    # snapshot injection separately via the deploy config.
+    trigger_args = opts.args or ""
+    if opts.snapshot_id is not None and opts.provider == "local":
+        snapshot_arg = f"--snapshot {opts.snapshot_id}"
+        trigger_args = f"{trigger_args} {snapshot_arg}".strip() if trigger_args else snapshot_arg
+
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
         command=ScheduledMngCommand(opts.command.upper()),
-        args=opts.args or "",
+        args=trigger_args,
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,
         is_enabled=opts.enabled if opts.enabled is not None else True,
@@ -176,6 +181,8 @@ def _deploy_modal(
             env_files=tuple(Path(f) for f in opts.env_files),
             uploads=parsed_uploads,
             mng_install_mode=MngInstallMode(opts.mng_install_mode.upper()),
+            snapshot_id=opts.snapshot_id,
+            full_copy=opts.full_copy,
         )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e

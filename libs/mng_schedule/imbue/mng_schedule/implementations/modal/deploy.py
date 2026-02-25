@@ -116,6 +116,29 @@ def _ensure_modal_environment(environment_name: str) -> None:
         ) from None
 
 
+def package_working_directory(source_dir: Path, dest_dir: Path) -> None:
+    """Package the entire working directory into a tarball for full-copy deployment.
+
+    Creates <dest_dir>/current.tar.gz containing the full contents of source_dir.
+    This is simpler than git-based packaging but includes all files (including
+    untracked and uncommitted changes).
+
+    Raises ScheduleDeployError if packaging fails.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    tarball = dest_dir / "current.tar.gz"
+
+    with ConcurrencyGroup(name="package-full-copy") as cg:
+        result = cg.run_process_to_completion(
+            ["tar", "czf", str(tarball), "-C", str(source_dir), "."],
+            is_checked_after=False,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(
+            f"Failed to package working directory at {source_dir}: {(result.stdout + result.stderr).strip()}"
+        ) from None
+
+
 def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) -> None:
     """Package the repo at a specific commit into a tarball using make_tar_of_repo.sh.
 
@@ -505,15 +528,23 @@ def build_deploy_config(
     cron_schedule: str,
     cron_timezone: str,
     mng_install_commands: list[str],
+    snapshot_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build the deploy configuration dict that gets baked into the Modal image."""
-    return {
+    """Build the deploy configuration dict that gets baked into the Modal image.
+
+    When snapshot_id is set, cron_runner.py will build a minimal image (without the
+    project Dockerfile) and pass --snapshot to the mng create command.
+    """
+    config: dict[str, Any] = {
         "app_name": app_name,
         "trigger": json.loads(trigger.model_dump_json()),
         "cron_schedule": cron_schedule,
         "cron_timezone": cron_timezone,
         "mng_install_commands": mng_install_commands,
     }
+    if snapshot_id is not None:
+        config["snapshot_id"] = snapshot_id
+    return config
 
 
 def _save_schedule_creation_record(
@@ -611,13 +642,15 @@ def deploy_schedule(
     env_files: Sequence[Path] = (),
     uploads: Sequence[tuple[Path, str]] = (),
     mng_install_mode: MngInstallMode = MngInstallMode.AUTO,
+    snapshot_id: str | None = None,
+    full_copy: bool = False,
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
     Full deployment flow:
     1. Find repo root and derive Modal environment name
     2. Resolve mng install mode (auto-detect if needed)
-    3. Resolve commit hash (from cache or HEAD) and package repo into a tarball
+    3. Package project code (git-based, full-copy, or skip for snapshot)
     4. Stage deploy files (collected from plugins via hook) and env vars
     5. For editable installs, separately package mng source (as its own layer)
     6. Write deploy config as a single JSON file
@@ -626,12 +659,19 @@ def deploy_schedule(
     9. Save creation record to the provider's state volume
     10. Return the Modal app name
 
+    Code packaging strategies:
+    - Default (git): Resolves HEAD commit, verifies branch is pushed, packages tarball
+    - full_copy: Tars the entire working directory (no git requirements)
+    - snapshot_id: Skips code packaging entirely; the agent will use the snapshot
+
     Verification must happen inside this function (before the temp directory is
     cleaned up) because modal run requires the same build-time env vars that
     point to local filesystem paths within the temp directory.
 
     Raises ScheduleDeployError if any step fails.
     """
+    is_snapshot_mode = snapshot_id is not None
+
     # FIXME: hmm--we should not be assuming that we're calling deploy from inside the target repo. Allow this to be specified in the CLI
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
@@ -650,24 +690,34 @@ def deploy_schedule(
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
 
-    # Resolve the commit hash for packaging: uses a cached value if available,
-    # otherwise determines the current HEAD and verifies the branch is pushed.
-    commit_hash = resolve_commit_hash_for_deploy(deploy_build_path, repo_root)
-    # Update the trigger with the resolved hash for record-keeping
-    trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
-    logger.info("Using commit {} for code packaging", commit_hash)
-
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
-    # Package repo into build context
+    # Code packaging: choose strategy based on flags
     build_dir = deploy_build_path / "build"
-    with log_span("Packaging repo at commit {}", commit_hash):
-        package_repo_at_commit(commit_hash, build_dir, repo_root)
-
-    tarball = build_dir / "current.tar.gz"
-    if not tarball.exists():
-        raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
+    if is_snapshot_mode:
+        # Snapshot mode: skip code packaging entirely. The agent will be created
+        # from the snapshot, so no project code needs to be baked into the image.
+        logger.info("Snapshot mode: skipping code packaging (snapshot_id={})", snapshot_id)
+    elif full_copy:
+        # Full-copy mode: tar up the entire working directory.
+        with log_span("Packaging working directory (full copy)"):
+            package_working_directory(repo_root, build_dir)
+        tarball = build_dir / "current.tar.gz"
+        if not tarball.exists():
+            raise ScheduleDeployError(
+                f"Expected tarball at {tarball} after full-copy packaging, but it was not found"
+            ) from None
+    else:
+        # Default git-based mode: resolve commit hash and package at that commit.
+        commit_hash = resolve_commit_hash_for_deploy(deploy_build_path, repo_root)
+        trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
+        logger.info("Using commit {} for code packaging", commit_hash)
+        with log_span("Packaging repo at commit {}", commit_hash):
+            package_repo_at_commit(commit_hash, build_dir, repo_root)
+        tarball = build_dir / "current.tar.gz"
+        if not tarball.exists():
+            raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
 
     # Stage deploy files (collected from plugins via hook)
     staging_dir = deploy_build_path / "staging"
@@ -700,16 +750,20 @@ def deploy_schedule(
                 f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
             ) from None
 
-    # Resolve the Dockerfile path (default: .mng/Dockerfile)
+    # Resolve the Dockerfile path. Required for git-based and full-copy modes
+    # (where the project code is baked into the image). Snapshot mode builds
+    # a minimal image and does not need the project Dockerfile.
     dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
-    if not dockerfile_path.exists():
-        raise ScheduleDeployError(
-            f"Dockerfile not found at {dockerfile_path}. "
-            "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
-        ) from None
+    dockerfile_user: str | None = None
+    if not is_snapshot_mode:
+        if not dockerfile_path.exists():
+            raise ScheduleDeployError(
+                f"Dockerfile not found at {dockerfile_path}. "
+                "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
+            ) from None
+        dockerfile_user = detect_dockerfile_user(dockerfile_path)
 
     # Write deploy config as a single JSON file into the staging dir
-    dockerfile_user = detect_dockerfile_user(dockerfile_path)
     mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
     deploy_config = build_deploy_config(
         app_name=app_name,
@@ -717,6 +771,7 @@ def deploy_schedule(
         cron_schedule=trigger.schedule_cron,
         cron_timezone=cron_timezone,
         mng_install_commands=mng_install_cmds,
+        snapshot_id=snapshot_id,
     )
     deploy_config_json = json.dumps(deploy_config)
     (staging_dir / "deploy_config.json").write_text(deploy_config_json)
@@ -724,9 +779,10 @@ def deploy_schedule(
     # Build env vars: deploy config as single JSON + local-only paths for image building
     env = os.environ.copy()
     env["SCHEDULE_DEPLOY_CONFIG"] = deploy_config_json
-    env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
     env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
-    env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
+    if not is_snapshot_mode:
+        env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
+        env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
     if mng_src_dir is not None:
         env["SCHEDULE_MNG_SRC_DIR"] = str(mng_src_dir)
 

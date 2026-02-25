@@ -65,9 +65,9 @@ The `mng schedule` plugin takes care of #2 through #4 automatically, and ensures
 
 There are three strategies for ensuring that the project code and data is available to the agent when running a `create` command in a scheduled environment like Modal:
 
-1. Pass `--snapshot <snapshot-id>` to `mng schedule add`. If this is provided, the snapshot is used directly as the code source for the agent (though you may want to have your agent update itself when it runs, since the snapshot will grow outdated over time). **Not yet implemented.**
+1. Pass `--snapshot <snapshot-id>` to `mng schedule add`. If this is provided, the snapshot is used directly as the code source for the agent (though you may want to have your agent update itself when it runs, since the snapshot will grow outdated over time). In snapshot mode, the deployed function uses a minimal image without the project Dockerfile, and passes `--snapshot` through to the `mng create` command.
 2. **(Default)** The git-based packaging strategy. On first deploy, the current HEAD commit hash is automatically resolved and the plugin verifies that the branch has been pushed to the remote. The resolved hash is cached in `~/.mng/build/<repo-hash>/commit_hash` so that subsequent deploys from the same repo reuse the same commit hash (delete the file to force re-resolution). The code at that commit is packaged into a tarball, and the Dockerfile at `.mng/Dockerfile` is used for building the Modal images (for both the deployed function and the agents it creates).
-3. Pass `--full-copy` to `mng schedule add`, which will copy the entire codebase into the Modal App's storage during deployment, and then make that available to the agent when it runs. This is the simplest option to set up, but it can be slow for large codebases and may include a lot of unnecessary files. **Not yet implemented.**
+3. Pass `--full-copy` to `mng schedule add`, which will copy the entire codebase into the Modal App's storage during deployment, and then make that available to the agent when it runs. This is the simplest option to set up, but it can be slow for large codebases and may include a lot of unnecessary files. Unlike the git-based strategy, this does not require the branch to be pushed or changes to be committed.
 
 ### 2. Ensuring `mng` CLI availability for remote execution
 

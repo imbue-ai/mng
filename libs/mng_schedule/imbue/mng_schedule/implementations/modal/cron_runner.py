@@ -67,10 +67,12 @@ if modal.is_local():
     _deploy_config_json: str = _require_env("SCHEDULE_DEPLOY_CONFIG")
     _deploy_config: dict[str, Any] = json.loads(_deploy_config_json)
 
-    # Local filesystem paths only needed at deploy time for image building
-    _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
+    # Local filesystem paths only needed at deploy time for image building.
+    # In snapshot mode, BUILD_CONTEXT_DIR and DOCKERFILE are not set because
+    # the image is built without the project Dockerfile.
+    _BUILD_CONTEXT_DIR: str = os.environ.get("SCHEDULE_BUILD_CONTEXT_DIR", "")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
-    _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
+    _DOCKERFILE: str = os.environ.get("SCHEDULE_DOCKERFILE", "")
     # Optional: path to mng source tarball directory (for editable installs)
     _MNG_SRC_DIR: str = os.environ.get("SCHEDULE_MNG_SRC_DIR", "")
 else:
@@ -91,6 +93,11 @@ _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
 # This ensures a single source of truth for the install logic.
 _MNG_INSTALL_COMMANDS: list[str] = _deploy_config.get("mng_install_commands", [])
 
+# Optional snapshot ID: when set, the agent is created from a snapshot instead
+# of from embedded project code. In this mode, the image is built without the
+# project Dockerfile (just mng + config).
+_SNAPSHOT_ID: str | None = _deploy_config.get("snapshot_id")
+
 
 # --- Image definition ---
 # The image is built from the project's Dockerfile, which already installs
@@ -110,23 +117,44 @@ _MNG_INSTALL_COMMANDS: list[str] = _deploy_config.get("mng_install_commands", []
 # from /mng_src/.
 
 if modal.is_local():
-    _image = (
-        modal.Image.from_dockerfile(
-            _DOCKERFILE,
-            context_dir=_BUILD_CONTEXT_DIR,
+    if _SNAPSHOT_ID is not None:
+        # Snapshot mode: build a minimal image without the project Dockerfile.
+        # The agent will be created from the snapshot, so the image only needs
+        # mng installed and config files staged.
+        _image = (
+            modal.Image.debian_slim()
+            .add_local_dir(
+                _STAGING_DIR,
+                "/staging",
+                copy=True,
+            )
+            .dockerfile_commands(
+                [
+                    "RUN mkdir -p $HOME",
+                    "RUN cp -a /staging/home/. $HOME/",
+                ]
+            )
         )
-        .add_local_dir(
-            _STAGING_DIR,
-            "/staging",
-            copy=True,
+    else:
+        # Git-based or full-copy mode: build from the project Dockerfile with
+        # the code tarball in the build context.
+        _image = (
+            modal.Image.from_dockerfile(
+                _DOCKERFILE,
+                context_dir=_BUILD_CONTEXT_DIR,
+            )
+            .add_local_dir(
+                _STAGING_DIR,
+                "/staging",
+                copy=True,
+            )
+            .dockerfile_commands(
+                [
+                    "RUN cp -a /staging/home/. $HOME/",
+                    "RUN cp -a /staging/project/. .",
+                ]
+            )
         )
-        .dockerfile_commands(
-            [
-                "RUN cp -a /staging/home/. $HOME/",
-                "RUN cp -a /staging/project/. .",
-            ]
-        )
-    )
     # Add mng source as a separate layer for editable installs. This is
     # intentionally a separate layer so that iterating on mng code only
     # invalidates this layer, not the staging layer above.
@@ -215,11 +243,15 @@ def run_scheduled_trigger() -> None:
         is_shell=True,
     )
 
-    # make sure we fetch and check out the latest code
-    branch_name = "josh/schedule_fixes"
-    _run_and_stream(["git", "fetch", "origin", branch_name])
-    _run_and_stream(["git", "checkout", branch_name])
-    _run_and_stream(["git", "merge", f"origin/{branch_name}"])
+    # In non-snapshot mode, fetch and check out the latest code from git.
+    # In snapshot mode, the agent will be created from the snapshot directly
+    # so no project code checkout is needed.
+    snapshot_id = _deploy_config.get("snapshot_id")
+    if snapshot_id is None:
+        branch_name = "josh/schedule_fixes"
+        _run_and_stream(["git", "fetch", "origin", branch_name])
+        _run_and_stream(["git", "checkout", branch_name])
+        _run_and_stream(["git", "merge", f"origin/{branch_name}"])
 
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()
@@ -232,6 +264,11 @@ def run_scheduled_trigger() -> None:
     cmd = ["uv", "run", "mng", command]
     if formatted_args_str:
         cmd.extend(shlex.split(formatted_args_str))
+
+    # In snapshot mode, pass --snapshot to the mng create command so the agent
+    # is created from the snapshot rather than from embedded code.
+    if snapshot_id is not None:
+        cmd.extend(["--snapshot", snapshot_id])
 
     # Also pass the secrets env file via --host-env-file for create/start commands
     # so the agent host inherits these environment variables.
