@@ -1,4 +1,6 @@
 from collections.abc import Hashable
+from concurrent.futures import Future
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from datetime import timezone
 from typing import Any
@@ -101,7 +103,8 @@ class _PankanState(MutableModel):
     footer_text: Any  # urwid Text widget
     loop: Any = None  # urwid MainLoop, set after construction
     spinner_index: int = 0
-    is_refreshing: bool = False
+    refresh_future: Future[BoardSnapshot] | None = None
+    executor: ThreadPoolExecutor | None = None
 
 
 class _PankanInputHandler(MutableModel):
@@ -116,36 +119,73 @@ class _PankanInputHandler(MutableModel):
         if key in ("q", "Q", "ctrl c"):
             raise ExitMainLoop()
         if key in ("r", "R"):
-            if not self.state.is_refreshing and self.state.loop is not None:
-                self.state.is_refreshing = True
-                self.state.spinner_index = 0
-                _start_spinner(self.state.loop, self.state)
-                # Defer refresh to next iteration so spinner draw happens first
-                self.state.loop.set_alarm_in(0, _on_refresh_alarm, self.state)
+            if self.state.refresh_future is None and self.state.loop is not None:
+                _start_refresh(self.state.loop, self.state)
             return True
         if key in ("up", "down", "page up", "page down", "home", "end"):
             return None
         return True
 
 
-def _start_spinner(loop: MainLoop, state: _PankanState) -> None:
-    """Start the spinner animation in the footer."""
-    _update_spinner(loop, state)
+def _start_refresh(loop: MainLoop, state: _PankanState) -> None:
+    """Start a background refresh and begin the spinner animation."""
+    if state.executor is None:
+        state.executor = ThreadPoolExecutor(max_workers=1)
+    state.spinner_index = 0
+    state.refresh_future = state.executor.submit(fetch_board_snapshot, state.mng_ctx)
+    _schedule_spinner_tick(loop, state)
 
 
-def _update_spinner(loop: MainLoop, state: _PankanState) -> None:
-    """Update the spinner frame and schedule the next tick."""
-    if not state.is_refreshing:
-        return
-    frame = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-    state.footer_text.set_text(f"  Refreshing {frame}")
-    state.spinner_index += 1
+def _schedule_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
+    """Schedule the next spinner tick."""
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_spinner_tick, state)
 
 
 def _on_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
-    """Alarm callback for spinner animation."""
-    _update_spinner(loop, state)
+    """Alarm callback: update spinner, check if fetch is done."""
+    if state.refresh_future is None:
+        return
+
+    if state.refresh_future.done():
+        _finish_refresh(loop, state)
+        return
+
+    # Animate spinner
+    frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
+    state.footer_text.set_text(f"  Refreshing {frame_char}")
+    state.spinner_index += 1
+    _schedule_spinner_tick(loop, state)
+
+
+def _finish_refresh(loop: MainLoop, state: _PankanState) -> None:
+    """Complete a background refresh: update snapshot and display."""
+    if state.refresh_future is None:
+        return
+
+    try:
+        state.snapshot = state.refresh_future.result()
+    except Exception as e:
+        logger.debug("Refresh failed: {}", e)
+        # Keep the old snapshot, just report the error
+        if state.snapshot is not None:
+            state.snapshot = BoardSnapshot(
+                entries=state.snapshot.entries,
+                errors=(*state.snapshot.errors, f"Refresh failed: {e}"),
+                fetch_time_seconds=state.snapshot.fetch_time_seconds,
+            )
+    finally:
+        state.refresh_future = None
+
+    _refresh_display(state)
+
+    now = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
+    if state.snapshot is not None:
+        elapsed = f"{state.snapshot.fetch_time_seconds:.1f}s"
+        state.footer_text.set_text(f"  Last refresh: {now} (took {elapsed}) | r: refresh | q: quit")
+    else:
+        state.footer_text.set_text(f"  Last refresh: {now} | r: refresh | q: quit")
+
+    _schedule_next_refresh(loop, state)
 
 
 def _classify_entry(entry: AgentBoardEntry) -> BoardSection:
@@ -271,26 +311,15 @@ def _refresh_display(state: _PankanState) -> None:
     state.frame.body = body
 
 
-def _do_refresh(state: _PankanState) -> None:
-    """Fetch new data and update the display."""
-    state.snapshot = fetch_board_snapshot(state.mng_ctx)
-    state.is_refreshing = False
-    _refresh_display(state)
-
-    now = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
-    elapsed = f"{state.snapshot.fetch_time_seconds:.1f}s"
-    state.footer_text.set_text(f"  Last refresh: {now} (took {elapsed}) | r: refresh | q: quit")
-
-
-def _on_refresh_alarm(loop: MainLoop, state: _PankanState) -> None:
-    """Alarm callback for periodic and manual refresh."""
-    _do_refresh(state)
-    _schedule_next_refresh(loop, state)
-
-
 def _schedule_next_refresh(loop: MainLoop, state: _PankanState) -> None:
     """Schedule the next auto-refresh alarm."""
-    loop.set_alarm_in(REFRESH_INTERVAL_SECONDS, _on_refresh_alarm, state)
+    loop.set_alarm_in(REFRESH_INTERVAL_SECONDS, _on_auto_refresh_alarm, state)
+
+
+def _on_auto_refresh_alarm(loop: MainLoop, state: _PankanState) -> None:
+    """Alarm callback for periodic auto-refresh."""
+    if state.refresh_future is None:
+        _start_refresh(loop, state)
 
 
 def run_pankan(mng_ctx: MngContext) -> None:
@@ -322,13 +351,13 @@ def run_pankan(mng_ctx: MngContext) -> None:
     loop = MainLoop(frame, palette=PALETTE, unhandled_input=input_handler, screen=screen)
     state.loop = loop
 
-    # Initial data load + schedule periodic refresh
-    state.is_refreshing = True
-    _start_spinner(loop, state)
-    loop.set_alarm_in(0, _on_refresh_alarm, state)
+    # Initial data load with spinner
+    _start_refresh(loop, state)
 
     logger.disable("imbue")
     try:
         loop.run()
     finally:
         logger.enable("imbue")
+        if state.executor is not None:
+            state.executor.shutdown(wait=False)
