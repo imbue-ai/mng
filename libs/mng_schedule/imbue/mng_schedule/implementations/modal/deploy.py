@@ -617,7 +617,7 @@ def deploy_schedule(
     Full deployment flow:
     1. Find repo root and derive Modal environment name
     2. Resolve mng install mode (auto-detect if needed)
-    3. Package repo at the specified commit into a tarball
+    3. Resolve commit hash (from cache or HEAD) and package repo into a tarball
     4. Stage deploy files (collected from plugins via hook) and env vars
     5. For editable installs, separately package mng source (as its own layer)
     6. Write deploy config as a single JSON file

@@ -11,8 +11,12 @@ from imbue.mng_schedule.git import resolve_git_ref
 
 
 def _init_git_repo(path: Path) -> None:
-    """Initialize a git repo with an initial commit."""
-    subprocess.run(["git", "init", str(path)], check=True, capture_output=True)
+    """Initialize a git repo with an initial commit.
+
+    Explicitly sets init.defaultBranch to 'master' so the test is
+    deterministic regardless of the system git configuration.
+    """
+    subprocess.run(["git", "init", "--initial-branch=master", str(path)], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(path), "config", "user.email", "test@test.com"], check=True, capture_output=True)
     subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True, capture_output=True)
     (path / "README.md").write_text("init")
