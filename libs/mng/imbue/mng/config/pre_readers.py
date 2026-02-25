@@ -115,9 +115,7 @@ def _resolve_config_file_paths() -> list[Path]:
     # User config
     profile_dir = find_profile_dir_lightweight(base_dir)
     if profile_dir is not None:
-        user_config_path = get_user_config_path(profile_dir)
-        if user_config_path.exists():
-            paths.append(user_config_path)
+        paths.append(get_user_config_path(profile_dir))
 
     # Project + local config need the project root
     cg = ConcurrencyGroup(name="config-pre-reader")
