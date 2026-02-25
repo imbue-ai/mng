@@ -66,6 +66,9 @@ fi
 # remove the old files
 rm -rf $REVIEW_DONE_MARKER
 rm -rf $REVIEW_OUTPUT_FILE
+if [[ "$IS_AUTOFIX" == "true" ]]; then
+    rm -f .autofix/result
+fi
 
 # Override console log functions to include window name prefix
 log_error() {
