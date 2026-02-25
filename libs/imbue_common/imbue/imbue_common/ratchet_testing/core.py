@@ -165,6 +165,25 @@ def _parse_file_ast(file_path: Path) -> ast.Module | None:
 
 
 @lru_cache(maxsize=None)
+def _get_ast_nodes_by_type(file_path: Path) -> dict[type, list[ast.AST]]:
+    """Walk the AST once per file and cache all nodes grouped by type.
+
+    This avoids redundant ast.walk() calls when multiple ratchet checks
+    need to inspect nodes from the same file.
+    """
+    tree = _parse_file_ast(file_path)
+    if tree is None:
+        return {}
+    nodes_by_type: dict[type, list[ast.AST]] = {}
+    for node in ast.walk(tree):
+        node_type = type(node)
+        if node_type not in nodes_by_type:
+            nodes_by_type[node_type] = []
+        nodes_by_type[node_type].append(node)
+    return nodes_by_type
+
+
+@lru_cache(maxsize=None)
 def _get_file_blame_dates(file_path: Path) -> dict[int, datetime]:
     """Run git blame once for an entire file and return a mapping of line_number -> commit_date.
 
@@ -299,6 +318,7 @@ def clear_ratchet_caches() -> None:
     _get_all_files_with_extension.cache_clear()
     _read_file_contents.cache_clear()
     _parse_file_ast.cache_clear()
+    _get_ast_nodes_by_type.cache_clear()
     _get_file_blame_dates.cache_clear()
 
 
