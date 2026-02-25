@@ -36,7 +36,7 @@
 # Optional environment variables at deploy time:
 # - SCHEDULE_MNG_SRC_DIR: Local path to mng source tarball directory (for editable installs).
 #   When set, the mng source is added as a separate Docker layer for better cache isolation.
-
+import datetime
 import json
 import os
 import shlex
@@ -225,9 +225,13 @@ def run_scheduled_trigger() -> None:
     command = trigger["command"].lower()
     args_str = trigger.get("args", "")
 
+    # format the initial message
+    now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
+    formatted_args_str = args_str.format(DATE=now_str)
+
     cmd = ["uv", "run", "mng", command]
-    if args_str:
-        cmd.extend(shlex.split(args_str))
+    if formatted_args_str:
+        cmd.extend(shlex.split(formatted_args_str))
 
     # Also pass the secrets env file via --host-env-file for create/start commands
     # so the agent host inherits these environment variables.
