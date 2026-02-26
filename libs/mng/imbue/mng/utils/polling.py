@@ -85,6 +85,6 @@ def run_periodically(
     # so poll_until keeps looping at the given interval.
     poll_until(
         condition=lambda: (fn(), False)[1],
-        timeout=365 * 24 * 3600.0,
+        timeout=100 * 365 * 24 * 3600.0,
         poll_interval=interval,
     )
