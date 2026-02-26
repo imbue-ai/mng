@@ -33,8 +33,6 @@ from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
 
 USER_ID_FILENAME: Final[str] = "user_id"
-PROFILES_DIRNAME: Final[str] = "profiles"
-ROOT_CONFIG_FILENAME: Final[str] = "config.toml"
 
 # 7 days in seconds
 _DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS: Final[float] = 60.0 * 60.0 * 24.0 * 7.0
