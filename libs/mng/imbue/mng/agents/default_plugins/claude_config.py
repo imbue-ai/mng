@@ -1,9 +1,7 @@
 import copy
 import fcntl
 import json
-import os
 import shutil
-import tempfile
 from collections.abc import Generator
 from collections.abc import Mapping
 from contextlib import contextmanager
@@ -14,6 +12,7 @@ from loguru import logger
 
 from imbue.imbue_common.pure import pure
 from imbue.mng.errors import ConfigError
+from imbue.mng.utils.file_utils import atomic_write
 
 
 class ClaudeDirectoryNotTrustedError(ConfigError):
@@ -101,34 +100,15 @@ def _read_claude_config(config_path: Path) -> dict[str, Any]:
 def _write_claude_config_atomic(config_path: Path, config: dict[str, Any]) -> None:
     """Atomically write config to ~/.claude.json with backup.
 
-    Creates a backup of the existing file (if any), writes to a temp file,
-    then atomically renames. Caller must hold the config lock.
-
-    Note: NamedTemporaryFile creates files with 0600 permissions, and rename()
-    preserves those, so ~/.claude.json may end up with different permissions than
-    the original. 0600 is reasonable for a user config file, but could be an issue
-    if something expects group/other-readable permissions.
+    Creates a backup of the existing file (if any), then atomically writes
+    the new content. Caller must hold the config lock.
     """
     if config_path.exists():
         backup_path = get_claude_config_backup_path()
         shutil.copy2(config_path, backup_path)
         logger.trace("Created backup of Claude config at {}", backup_path)
 
-    config_dir = config_path.parent
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        dir=config_dir,
-        prefix=".claude.json.",
-        suffix=".tmp",
-        delete=False,
-    ) as tmp_file:
-        json.dump(config, tmp_file, indent=2)
-        tmp_file.write("\n")
-        tmp_file.flush()
-        os.fsync(tmp_file.fileno())
-        tmp_path = Path(tmp_file.name)
-
-    tmp_path.rename(config_path)
+    atomic_write(config_path, json.dumps(config, indent=2) + "\n")
 
 
 # =============================================================================

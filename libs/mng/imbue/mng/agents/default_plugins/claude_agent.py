@@ -40,6 +40,7 @@ from imbue.mng.errors import AgentStartError
 from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
+from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import is_macos
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import FileTransferSpec
@@ -145,13 +146,18 @@ def _build_settings_json_content(sync_local: bool) -> str:
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
+        if data.get("fastMode") is True:
+            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
+            data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
     data["skipDangerousModePermissionPrompt"] = True
     return json.dumps(data, indent=2) + "\n"
 
 
-def _build_claude_json_for_remote(sync_local: bool, work_dir: Path, version: str | None) -> dict[str, Any]:
+def _build_claude_json_for_remote(
+    sync_local: bool, work_dir: Path, version: str | None, current_time: datetime | None = None
+) -> dict[str, Any]:
     """Build ~/.claude.json data for remote deployment.
 
     Uses the local file as a base when sync_local is True and the file exists,
@@ -166,7 +172,7 @@ def _build_claude_json_for_remote(sync_local: bool, work_dir: Path, version: str
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
     else:
-        data = _generate_claude_json(version)
+        data = _generate_claude_json(version, current_time=current_time)
     data["bypassPermissionsModeAccepted"] = True
     data["effortCalloutDismissed"] = True
     # Add trust for the remote work_dir so Claude doesn't show the
@@ -917,20 +923,25 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Removed Claude trust entry for {}", self.work_dir)
 
 
-def _generate_claude_home_settings():
-    # ~/.claude/settings.json
+def _generate_claude_home_settings() -> dict[str, Any]:
+    """default contents for ~/.claude/settings.json"""
     return {"skipDangerousModePermissionPrompt": True}
 
 
-def _generate_claude_json(version: str | None):
-    # ~/.claude.json
+def _generate_claude_json(version: str | None, current_time: datetime | None = None) -> dict[str, Any]:
+    """default contents for ~/.claude.json"""
     if version is None:
         version = "2.1.50"
-    current_time = datetime.now(timezone.utc)
-    current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    current_time_millis = int(current_time.timestamp() * 1000)
-    cache_time_millis = current_time_millis + 50 + random.random() * 1000
-    change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    if current_time is None:
+        current_time = datetime.now(timezone.utc)
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        current_time_millis = int(current_time.timestamp() * 1000)
+        cache_time_millis = current_time_millis + 50 + random.random() * 1000
+        change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    else:
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        cache_time_millis = int(current_time.timestamp() * 1000) + 50
+        change_log_time_millis = cache_time_millis + 500
     return {
         "numStartups": 1,
         "installMethod": "native",
@@ -978,8 +989,17 @@ def get_files_for_deploy(
 
     # Always ship ~/.claude/settings.json and ~/.claude.json
     files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
+    # we set the time to a constant for better caching:
+    FIXED_TIME = datetime(2026, 2, 23, 3, 4, 7, tzinfo=timezone.utc)
     # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
-    claude_json_data = _build_claude_json_for_remote(include_user_settings, repo_root, None)
+    claude_json_data = _build_claude_json_for_remote(False, repo_root, None, current_time=FIXED_TIME)
+    # also inject our API key here, since deployed versions need it
+    user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+    api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
+    if api_key:
+        approved_keys = claude_json_data.setdefault("customApiKeyResponses", {})
+        approved_keys["approved"] = [api_key[-20:]]
+        approved_keys["rejected"] = []
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
@@ -1013,5 +1033,13 @@ def modify_env_vars_for_deploy(
     mng_ctx: MngContext,
     env_vars: dict[str, str],
 ) -> None:
-    """Set IS_SANDBOX=1 for Claude agent deployments."""
+    if "ANTHROPIC_API_KEY" not in env_vars:
+        user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+        token = user_claude_json_data.get("primaryApiKey", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not token:
+            raise UserInputError(
+                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. "
+                "You must provide credentials to authenticate with Claude Code in order for the deployment to work."
+            )
+        env_vars["ANTHROPIC_API_KEY"] = token
     env_vars["IS_SANDBOX"] = "1"

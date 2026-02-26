@@ -2,7 +2,7 @@ from typing import Any
 
 import click
 
-from imbue.mng.config.loader import read_default_command
+from imbue.mng.config.pre_readers import read_default_command
 
 
 class DefaultCommandGroup(click.Group):

@@ -14,6 +14,8 @@ from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.data_types import GcResourceTypes
 from imbue.mng.api.data_types import GcResult
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostAuthenticationError
+from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import BuildCacheInfo
@@ -133,6 +135,9 @@ def gc_work_dirs(
                 except HostOfflineError:
                     logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
                     continue
+                except HostAuthenticationError:
+                    logger.trace("Skipped work dir GC because host authentication failed", host_id=host.id)
+                    continue
 
                 for work_dir_info in orphaned_dirs:
                     try:
@@ -195,10 +200,18 @@ def gc_machines(
                     if host.is_local:
                         continue
 
-                    agent_refs = host.get_agent_references()
-
-                    # Only consider hosts with no agents
-                    if len(agent_refs) > 0:
+                    try:
+                        # Only consider online hosts with no agents
+                        agent_refs = host.get_agent_references()
+                        if len(agent_refs) > 0:
+                            continue
+                    except HostAuthenticationError:
+                        # hosts that fail to authenticate should be destroyed--we assume all hosts are reachable
+                        logger.warning("Failed to authenticate with host during GC, destroying: {}", host.id)
+                        host = host.to_offline_host()
+                    except HostConnectionError as e:
+                        # we skip hosts that suddenly appear offline for now--it's hard to tell exactly what happened
+                        logger.warning("Failed to connect to host {} during gc, skipping: {}", host.id, e)
                         continue
 
                     if not dry_run:

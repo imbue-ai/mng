@@ -166,6 +166,22 @@ def get_git_author_info(path: Path, cg: ConcurrencyGroup) -> tuple[str | None, s
     return _get_git_config_value(path, "user.name", cg), _get_git_config_value(path, "user.email", cg)
 
 
+def get_git_remote_url(path: Path, remote_name: str, cg: ConcurrencyGroup) -> str | None:
+    """Get the URL of a git remote for the repository at the given path.
+
+    Returns None if the remote does not exist or the path is not a git repo.
+    """
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "remote", "get-url", remote_name],
+            cwd=path,
+        )
+    except ProcessError:
+        return None
+    url = result.stdout.strip()
+    return url if url else None
+
+
 def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | None:
     """Find the git worktree root."""
     cwd = start or Path.cwd()
