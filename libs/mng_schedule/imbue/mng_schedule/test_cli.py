@@ -7,18 +7,34 @@ from click.testing import CliRunner
 from imbue.mng_schedule.cli.commands import schedule
 
 
-def test_schedule_add_requires_command(
+def test_schedule_defaults_to_add_subcommand(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add requires --command."""
+    """Test that 'mng schedule' without a subcommand defaults to 'add'."""
+    result = cli_runner.invoke(
+        schedule,
+        [],
+        obj=plugin_manager,
+    )
+    # Should fail for missing --schedule (from add), not "No such command"
+    assert result.exit_code != 0
+    assert "--schedule is required" in result.output
+
+
+def test_schedule_add_defaults_command_to_create(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that schedule add defaults --command to 'create' when not specified."""
     result = cli_runner.invoke(
         schedule,
         ["add"],
         obj=plugin_manager,
     )
+    # Should fail for missing --schedule, not missing --command
     assert result.exit_code != 0
-    assert "--command is required" in result.output
+    assert "--schedule is required" in result.output
 
 
 def test_schedule_add_requires_schedule(
@@ -64,35 +80,11 @@ def test_schedule_add_rejects_unsupported_provider(
             "0 2 * * *",
             "--provider",
             "ssh",
-            "--git-image-hash",
-            "HEAD",
         ],
         obj=plugin_manager,
     )
     assert result.exit_code != 0
     assert "not supported for schedules" in result.output
-
-
-def test_schedule_add_requires_git_image_hash_for_modal(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that schedule add requires --git-image-hash when provider is modal."""
-    result = cli_runner.invoke(
-        schedule,
-        [
-            "add",
-            "--command",
-            "create",
-            "--schedule",
-            "0 2 * * *",
-            "--provider",
-            "modal",
-        ],
-        obj=plugin_manager,
-    )
-    assert result.exit_code != 0
-    assert "--git-image-hash is required" in result.output
 
 
 def test_schedule_update_raises_not_implemented(
@@ -162,7 +154,7 @@ def test_schedule_add_and_update_share_options(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that add and update accept the same trigger options (including --git-image-hash)."""
+    """Test that add and update accept the same trigger options."""
     shared_args = [
         "--name",
         "test-trigger",
@@ -174,11 +166,9 @@ def test_schedule_add_and_update_share_options(
         "modal",
         "--verify",
         "none",
-        "--git-image-hash",
-        "HEAD",
     ]
 
-    # add will fail trying to resolve git ref in the test env (no git repo)
+    # add will fail trying to load the modal provider in the test env
     # but it should not be a UsageError or click error
     add_result = cli_runner.invoke(
         schedule,
@@ -212,8 +202,6 @@ def test_schedule_add_accepts_verify_none(
             "0 2 * * *",
             "--provider",
             "modal",
-            "--git-image-hash",
-            "HEAD",
             "--verify",
             "none",
         ],
@@ -239,8 +227,6 @@ def test_schedule_add_accepts_verify_full(
             "0 2 * * *",
             "--provider",
             "modal",
-            "--git-image-hash",
-            "HEAD",
             "--verify",
             "full",
         ],
@@ -266,8 +252,6 @@ def test_schedule_add_rejects_invalid_verify_value(
             "0 2 * * *",
             "--provider",
             "modal",
-            "--git-image-hash",
-            "HEAD",
             "--verify",
             "invalid",
         ],
@@ -277,11 +261,11 @@ def test_schedule_add_rejects_invalid_verify_value(
     assert "Invalid value" in result.output
 
 
-def test_schedule_add_accepts_git_image_hash(
+def test_schedule_add_snapshot_raises_not_implemented(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add accepts --git-image-hash option."""
+    """Test that --snapshot raises NotImplementedError."""
     result = cli_runner.invoke(
         schedule,
         [
@@ -292,12 +276,36 @@ def test_schedule_add_accepts_git_image_hash(
             "0 2 * * *",
             "--provider",
             "modal",
-            "--git-image-hash",
-            "HEAD",
+            "--snapshot",
+            "snap-123",
         ],
         obj=plugin_manager,
     )
-    # Should get past validation (fails at deploy since no git repo in test env)
     assert result.exit_code != 0
-    # Should NOT be a UsageError about missing options
-    assert not isinstance(result.exception, click.UsageError)
+    assert isinstance(result.exception, NotImplementedError)
+    assert "--snapshot is not yet implemented" in str(result.exception)
+
+
+def test_schedule_add_full_copy_accepted(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --full-copy is accepted and does not raise NotImplementedError."""
+    result = cli_runner.invoke(
+        schedule,
+        [
+            "add",
+            "--command",
+            "create",
+            "--schedule",
+            "0 2 * * *",
+            "--provider",
+            "modal",
+            "--full-copy",
+            "--no-auto-merge",
+        ],
+        obj=plugin_manager,
+    )
+    # Should fail at deploy (provider loading), not NotImplementedError
+    assert result.exit_code != 0
+    assert not isinstance(result.exception, NotImplementedError)

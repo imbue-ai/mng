@@ -20,9 +20,9 @@ from click.testing import CliRunner
 from loguru import logger
 
 from imbue.mng.cli.create import create as create_command
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -110,6 +110,23 @@ def get_subprocess_test_env(
     if host_dir is not None:
         env["MNG_HOST_DIR"] = str(host_dir)
     return env
+
+
+def run_mng_subprocess(
+    *args: str,
+    timeout: float = 120,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a mng CLI command via subprocess."""
+    return subprocess.run(
+        ["uv", "run", "mng", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+        cwd=cwd,
+    )
 
 
 def _get_descendant_pids(pid: str) -> list[str]:

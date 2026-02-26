@@ -34,6 +34,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MODEL_COP
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MONKEYPATCH_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NAMEDTUPLE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NUM_PREFIX
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_OS_FORK
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
@@ -67,7 +68,7 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 # Exclude this test file from ratchet scans to prevent self-referential matches
 _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
-# Group all ratchet tests onto a single xdist worker to benefit from LRU caching.
+# Group all ratchet tests onto a single xdist worker to benefit from LRU caching
 pytestmark = pytest.mark.xdist_group(name="ratchets")
 
 
@@ -115,7 +116,7 @@ def test_prevent_global_keyword() -> None:
 
 def test_prevent_bare_print() -> None:
     chunks = check_ratchet_rule(PREVENT_BARE_PRINT, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(10), PREVENT_BARE_PRINT.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_BARE_PRINT.format_failure(chunks)
 
 
 # --- Exception handling ---
@@ -128,7 +129,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
@@ -138,7 +139,7 @@ def test_prevent_base_exception_catch() -> None:
 
 def test_prevent_builtin_exception_raises() -> None:
     chunks = check_ratchet_rule(PREVENT_BUILTIN_EXCEPTION_RAISES, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_BUILTIN_EXCEPTION_RAISES.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_BUILTIN_EXCEPTION_RAISES.format_failure(chunks)
 
 
 # --- Import style ---
@@ -146,7 +147,7 @@ def test_prevent_builtin_exception_raises() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_relative_imports() -> None:
@@ -220,7 +221,7 @@ def test_prevent_num_prefix() -> None:
 
 def test_prevent_trailing_comments() -> None:
     chunks = check_ratchet_rule(PREVENT_TRAILING_COMMENTS, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_TRAILING_COMMENTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_TRAILING_COMMENTS.format_failure(chunks)
 
 
 def test_prevent_init_docstrings() -> None:
@@ -250,7 +251,7 @@ def test_prevent_literal_with_multiple_options() -> None:
 
 def test_prevent_bare_generic_types() -> None:
     chunks = check_ratchet_rule(PREVENT_BARE_GENERIC_TYPES, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_BARE_GENERIC_TYPES.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_BARE_GENERIC_TYPES.format_failure(chunks)
 
 
 def test_prevent_typing_builtin_imports() -> None:
@@ -268,7 +269,7 @@ def test_prevent_short_uuid_ids() -> None:
 
 def test_prevent_model_copy() -> None:
     chunks = check_ratchet_rule(PREVENT_MODEL_COPY, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_MODEL_COPY.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_MODEL_COPY.format_failure(chunks)
 
 
 # --- Logging ---
@@ -281,7 +282,7 @@ def test_prevent_fstring_logging() -> None:
 
 def test_prevent_click_echo() -> None:
     chunks = check_ratchet_rule(PREVENT_CLICK_ECHO, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(4), PREVENT_CLICK_ECHO.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_CLICK_ECHO.format_failure(chunks)
 
 
 # --- Testing conventions ---
@@ -311,13 +312,24 @@ def test_prevent_pytest_mark_integration() -> None:
 # --- Process management ---
 
 
+def test_prevent_os_fork() -> None:
+    """Prevent usage of os.fork and os.forkpty.
+
+    Forking is incompatible with threading: a forked child inherits only the calling
+    thread, leaving mutexes held by other threads permanently locked and shared state
+    inconsistent. Code should use the subprocess module to launch subprocesses instead.
+    """
+    chunks = check_ratchet_rule(PREVENT_OS_FORK, _get_changelings_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_OS_FORK.format_failure(chunks)
+
+
 def test_prevent_direct_subprocess_usage() -> None:
     """Prevent direct usage of subprocess and os process-spawning functions.
 
     Test files are excluded from this check.
     """
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_changelings_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(8), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 # --- AST-based ratchets ---

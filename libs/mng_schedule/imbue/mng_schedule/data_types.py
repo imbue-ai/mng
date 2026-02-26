@@ -49,7 +49,7 @@ class ScheduleTriggerDefinition(FrozenModel):
     schedule_cron: str = Field(description="Cron expression defining when the command runs")
     provider: str = Field(description="Provider on which to run the scheduled command (e.g. 'modal')")
     is_enabled: bool = Field(default=True, description="Whether this schedule is active")
-    git_image_hash: str = Field(description="Git commit SHA for packaging project code into the image")
+    git_image_hash: str = Field(default="", description="Git commit SHA for packaging project code into the image")
 
 
 class ScheduleCreationRecord(FrozenModel):
