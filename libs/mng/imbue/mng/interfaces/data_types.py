@@ -38,7 +38,7 @@ from imbue.mng.primitives import VolumeId
 
 # Canonical mapping from IdleMode to the activity sources it enables.
 # hosts/common.py has a duplicate of this mapping via get_activity_sources_for_idle_mode.
-_ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
+ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
     IdleMode.IO: (
         ActivitySource.USER,
         ActivitySource.AGENT,
@@ -80,17 +80,17 @@ _ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]
 }
 
 # Reverse mapping: frozenset of activity sources -> IdleMode
-_IDLE_MODE_BY_ACTIVITY_SOURCES: Final[dict[frozenset[ActivitySource], IdleMode]] = {
-    frozenset(sources): mode for mode, sources in _ACTIVITY_SOURCES_BY_IDLE_MODE.items()
+IDLE_MODE_BY_ACTIVITY_SOURCES: Final[dict[frozenset[ActivitySource], IdleMode]] = {
+    frozenset(sources): mode for mode, sources in ACTIVITY_SOURCES_BY_IDLE_MODE.items()
 }
 
 
-def _get_idle_mode_for_activity_sources(activity_sources: tuple[ActivitySource, ...]) -> IdleMode:
+def get_idle_mode_for_activity_sources(activity_sources: tuple[ActivitySource, ...]) -> IdleMode:
     """Derive the IdleMode from a set of activity sources.
 
     Returns CUSTOM if the activity sources don't match any known IdleMode preset.
     """
-    return _IDLE_MODE_BY_ACTIVITY_SOURCES.get(frozenset(activity_sources), IdleMode.CUSTOM)
+    return IDLE_MODE_BY_ACTIVITY_SOURCES.get(frozenset(activity_sources), IdleMode.CUSTOM)
 
 
 class PyinfraConnector:
@@ -230,7 +230,7 @@ class ActivityConfig(FrozenModel):
 
     idle_timeout_seconds: int = Field(description="Maximum idle time before stopping")
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
+        default=ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
 
@@ -238,7 +238,7 @@ class ActivityConfig(FrozenModel):
     @cached_property
     def idle_mode(self) -> IdleMode:
         """Derived from activity_sources."""
-        return _get_idle_mode_for_activity_sources(self.activity_sources)
+        return get_idle_mode_for_activity_sources(self.activity_sources)
 
 
 class HostConfig(FrozenModel):
@@ -261,7 +261,7 @@ class CertifiedHostData(FrozenModel):
         description="Maximum idle time before stopping",
     )
     activity_sources: tuple[ActivitySource, ...] = Field(
-        default=_ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
+        default=ACTIVITY_SOURCES_BY_IDLE_MODE[IdleMode.IO],
         description="Activity sources that count toward keeping host active",
     )
 
@@ -289,7 +289,7 @@ class CertifiedHostData(FrozenModel):
     @cached_property
     def idle_mode(self) -> IdleMode:
         """Derived from activity_sources."""
-        return _get_idle_mode_for_activity_sources(self.activity_sources)
+        return get_idle_mode_for_activity_sources(self.activity_sources)
 
     max_host_age: int | None = Field(
         default=None,
@@ -563,7 +563,7 @@ class HostLifecycleOptions(FrozenModel):
         """Convert to ActivityConfig, using provided defaults for None values.
 
         When activity_sources is not explicitly provided, it is derived from the
-        resolved idle_mode using _ACTIVITY_SOURCES_BY_IDLE_MODE. This ensures
+        resolved idle_mode using ACTIVITY_SOURCES_BY_IDLE_MODE. This ensures
         that specifying --idle-mode boot results in only BOOT activity being monitored,
         without needing to also explicitly specify --activity-sources boot.
         """
@@ -572,7 +572,7 @@ class HostLifecycleOptions(FrozenModel):
         if self.activity_sources is not None:
             resolved_activity_sources = self.activity_sources
         else:
-            resolved_activity_sources = _ACTIVITY_SOURCES_BY_IDLE_MODE[resolved_idle_mode]
+            resolved_activity_sources = ACTIVITY_SOURCES_BY_IDLE_MODE[resolved_idle_mode]
 
         return ActivityConfig(
             idle_timeout_seconds=self.idle_timeout_seconds
