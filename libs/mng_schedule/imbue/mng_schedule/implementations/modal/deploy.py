@@ -782,6 +782,11 @@ def deploy_schedule(
             effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
             effective_dockerfile_path.write_text(package_mode_content)
             logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
+        case MngInstallMode.AUTO:
+            raise ScheduleDeployError(
+                "MngInstallMode.AUTO should have been resolved before reaching this point. "
+                "Call resolve_mng_install_mode() first."
+            )
         case _ as unreachable:
             assert_never(unreachable)
 
