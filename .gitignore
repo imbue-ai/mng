@@ -253,7 +253,6 @@ scripts/notify_user.local.sh
 .mng/dev/secrets/
 
 # Offload caches and local files
-.offload-image-cache
 .offload/**
 test-results/**
 current.tar.gz
