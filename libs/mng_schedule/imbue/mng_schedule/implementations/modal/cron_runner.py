@@ -100,6 +100,7 @@ if modal.is_local():
         [
             f"RUN mkdir -p {_TARGET_REPO_PATH} && tar -xzf /target_repo/current.tar.gz -C {_TARGET_REPO_PATH} && rm -rf /target_repo",
             f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}",
+            f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}/.git",
             f"WORKDIR {_TARGET_REPO_PATH}",
         ]
     )
