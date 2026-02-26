@@ -5,14 +5,16 @@ from typing import Any
 
 import click
 import pluggy
+from pydantic import Field
 
-from imbue.mng.api.data_types import OnBeforeCreateArgs
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.cli.data_types import OptionStackItem
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import HostInterface
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_backend import ProviderBackendInterface
 from imbue.mng.primitives import HostName
@@ -318,6 +320,26 @@ def modify_env_vars_for_deploy(
     delete keys (via pop/del) to remove them. Plugins are called in
     registration order, so later plugins see changes made by earlier ones.
     """
+
+
+class OnBeforeCreateArgs(FrozenModel):
+    """Arguments passed to and returned from the on_before_create hook.
+
+    This bundles all the modifiable arguments to the create() API function.
+    Plugins can return a modified copy of this object to change the create behavior.
+
+    Note: source_host is not included because it represents the resolved source
+    location which should not typically be modified by plugins. The source_path
+    within the resolved location can still be modified if needed via the path field.
+    """
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    target_host: OnlineHostInterface | NewHostOptions = Field(
+        description="The target host (or options to create one) for the agent"
+    )
+    agent_options: CreateAgentOptions = Field(description="Options for creating the agent")
+    create_work_dir: bool = Field(description="Whether to create a work directory")
 
 
 @hookspec

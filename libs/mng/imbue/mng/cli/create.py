@@ -23,10 +23,6 @@ from imbue.mng.api.connect import run_connect_command
 from imbue.mng.api.create import create as api_create
 from imbue.mng.api.data_types import ConnectionOptions
 from imbue.mng.api.data_types import CreateAgentResult
-from imbue.mng.api.data_types import HostEnvironmentOptions
-from imbue.mng.api.data_types import HostLifecycleOptions
-from imbue.mng.api.data_types import NewHostBuildOptions
-from imbue.mng.api.data_types import NewHostOptions
 from imbue.mng.api.data_types import SourceLocation
 from imbue.mng.api.find import ensure_agent_started
 from imbue.mng.api.find import ensure_host_started
@@ -52,6 +48,7 @@ from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import AgentDataOptions
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentGitOptions
@@ -62,7 +59,10 @@ from imbue.mng.interfaces.host import AgentProvisioningOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mng.interfaces.host import FileModificationSpec
+from imbue.mng.interfaces.host import HostEnvironmentOptions
 from imbue.mng.interfaces.host import NamedCommand
+from imbue.mng.interfaces.host import NewHostBuildOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.host import UploadFileSpec
 from imbue.mng.primitives import ActivitySource

@@ -37,7 +37,7 @@ from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import VolumeId
 
 # Canonical mapping from IdleMode to the activity sources it enables.
-# This must stay in sync with get_activity_sources_for_idle_mode in hosts/common.py.
+# hosts/common.py has a duplicate of this mapping via get_activity_sources_for_idle_mode.
 _ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
     IdleMode.IO: (
         ActivitySource.USER,
@@ -532,3 +532,51 @@ class FileTransferSpec(FrozenModel):
     is_required: bool = Field(
         description="If True, provisioning fails if local file doesn't exist. If False, skipped if missing."
     )
+
+
+class HostLifecycleOptions(FrozenModel):
+    """Lifecycle and idle detection options for the host.
+
+    These options control when a host is considered idle and should be shut down.
+    All fields are optional; when None, provider defaults are used.
+    """
+
+    idle_timeout_seconds: int | None = Field(
+        default=None,
+        description="Shutdown after idle for N seconds (None for provider default)",
+    )
+    idle_mode: IdleMode | None = Field(
+        default=None,
+        description="When to consider host idle (None for provider default)",
+    )
+    activity_sources: tuple[ActivitySource, ...] | None = Field(
+        default=None,
+        description="Activity sources for idle detection (None for provider default)",
+    )
+
+    def to_activity_config(
+        self,
+        default_idle_timeout_seconds: int,
+        default_idle_mode: IdleMode,
+        default_activity_sources: tuple[ActivitySource, ...],
+    ) -> ActivityConfig:
+        """Convert to ActivityConfig, using provided defaults for None values.
+
+        When activity_sources is not explicitly provided, it is derived from the
+        resolved idle_mode using _ACTIVITY_SOURCES_BY_IDLE_MODE. This ensures
+        that specifying --idle-mode boot results in only BOOT activity being monitored,
+        without needing to also explicitly specify --activity-sources boot.
+        """
+        resolved_idle_mode = self.idle_mode if self.idle_mode is not None else default_idle_mode
+
+        if self.activity_sources is not None:
+            resolved_activity_sources = self.activity_sources
+        else:
+            resolved_activity_sources = _ACTIVITY_SOURCES_BY_IDLE_MODE[resolved_idle_mode]
+
+        return ActivityConfig(
+            idle_timeout_seconds=self.idle_timeout_seconds
+            if self.idle_timeout_seconds is not None
+            else default_idle_timeout_seconds,
+            activity_sources=resolved_activity_sources,
+        )
