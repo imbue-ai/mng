@@ -1,3 +1,4 @@
+import shlex
 import sys
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,7 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
@@ -15,6 +17,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.instance import ModalProviderInstance
+from imbue.mng.providers.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng_schedule.cli.group import add_trigger_options
 from imbue.mng_schedule.cli.group import resolve_positional_name
 from imbue.mng_schedule.cli.group import schedule
@@ -28,6 +31,133 @@ from imbue.mng_schedule.implementations.local.deploy import deploy_local_schedul
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 
+# =============================================================================
+# Auto-fix and safety check logic
+# =============================================================================
+
+
+@pure
+def _split_args_at_separator(parts: list[str]) -> tuple[list[str], list[str]]:
+    """Split a list of args at the first '--' separator.
+
+    Returns (mng_args, passthrough_args) where passthrough_args includes
+    the '--' separator itself.
+    """
+    try:
+        separator_idx = parts.index("--")
+        return parts[:separator_idx], parts[separator_idx:]
+    except ValueError:
+        return parts, []
+
+
+@pure
+def _has_flag(mng_args: list[str], flag: str, negative_flag: str | None = None) -> bool:
+    """Check if a flag (or its negative counterpart) is present in the args."""
+    if flag in mng_args:
+        return True
+    if negative_flag is not None and negative_flag in mng_args:
+        return True
+    return False
+
+
+@pure
+def _has_tag_with_key(mng_args: list[str], tag_key: str) -> bool:
+    """Check if a --tag with the given key prefix exists in the args."""
+    for i, part in enumerate(mng_args):
+        if part == "--tag" and i + 1 < len(mng_args) and mng_args[i + 1].startswith(f"{tag_key}="):
+            return True
+    return False
+
+
+@pure
+def auto_fix_create_args(
+    args: str,
+    trigger_name: str,
+    ssh_public_key: str | None,
+) -> str:
+    """Auto-fix args for a create command to ensure they work as expected.
+
+    Adds the following flags if not already present:
+    - --no-connect: so we don't try to automatically connect
+    - --await-ready: to make sure the command actually worked
+    - --authorized-key <key>: so you can connect to the host via SSH
+    - --tag SCHEDULE=<name>: to make it easy to filter scheduled agents
+
+    Only the mng args (before any '--' separator) are checked and modified.
+    """
+    parts = shlex.split(args) if args else []
+    mng_args, passthrough_args = _split_args_at_separator(parts)
+
+    if not _has_flag(mng_args, "--no-connect", "--connect"):
+        mng_args.append("--no-connect")
+
+    if not _has_flag(mng_args, "--await-ready", "--no-await-ready"):
+        mng_args.append("--await-ready")
+
+    if ssh_public_key is not None and not _has_flag(mng_args, "--authorized-key"):
+        mng_args.extend(["--authorized-key", ssh_public_key])
+
+    if not _has_tag_with_key(mng_args, "SCHEDULE"):
+        mng_args.extend(["--tag", f"SCHEDULE={trigger_name}"])
+
+    return shlex.join(mng_args + passthrough_args)
+
+
+@pure
+def check_safe_create_command(args: str) -> str | None:
+    """Check that create command args are safe for scheduled execution.
+
+    Returns None if args are safe, or an error message string if not.
+
+    Currently checks:
+    - Either --new-branch with a {DATE} placeholder in its value, or --reuse
+      must be specified, so that each scheduled run doesn't conflict.
+    """
+    parts = shlex.split(args) if args else []
+    mng_args, _passthrough_args = _split_args_at_separator(parts)
+
+    if "--reuse" in mng_args:
+        return None
+
+    # Check for --new-branch with a {DATE} placeholder in its value.
+    # --new-branch can appear as either "--new-branch value" (two tokens)
+    # or just "--new-branch" (flag mode, no value). We need the value to
+    # contain {DATE}.
+    for i, part in enumerate(mng_args):
+        if part == "--new-branch" and i + 1 < len(mng_args):
+            next_arg = mng_args[i + 1]
+            # If the next arg looks like another flag, --new-branch was used
+            # as a flag (no value), so skip it.
+            if not next_arg.startswith("-") and "{DATE}" in next_arg:
+                return None
+
+    return (
+        "Create command should either use --new-branch with a {DATE} placeholder "
+        "(e.g. --new-branch 'my-branch-{DATE}') or --reuse to avoid creating "
+        "conflicting agents/branches on each scheduled run."
+    )
+
+
+def _get_provider_ssh_public_key(
+    provider: LocalProviderInstance | ModalProviderInstance,
+    mng_ctx: MngContext,
+) -> str | None:
+    """Get the SSH public key for the given provider, or None if not applicable.
+
+    For modal: loads or creates the modal_ssh_key keypair and returns the public key.
+    For local: returns None (local provider doesn't use SSH for agent connections).
+    """
+    if isinstance(provider, ModalProviderInstance):
+        keys_dir = mng_ctx.profile_dir / "providers" / "modal"
+        _private_key_path, public_key_content = load_or_create_ssh_keypair(keys_dir, key_name="modal_ssh_key")
+        return public_key_content
+    return None
+
+
+# =============================================================================
+# CLI command
+# =============================================================================
+
 
 @schedule.command(name="add")
 @add_trigger_options
@@ -36,6 +166,22 @@ from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
     "--update",
     is_flag=True,
     help="If a schedule with the same name already exists, update it instead of failing.",
+)
+@optgroup.option(
+    "--auto-fix-args/--no-auto-fix-args",
+    "auto_fix_args",
+    default=True,
+    show_default=True,
+    help="Automatically add args to create commands to make sure they work as expected "
+    "(e.g. --no-connect, --await-ready, --authorized-key, --tag SCHEDULE=<name>).",
+)
+@optgroup.option(
+    "--ensure-safe-commands/--no-ensure-safe-commands",
+    "ensure_safe_commands",
+    default=True,
+    show_default=True,
+    help="Error if the scheduled command looks unsafe (e.g. missing --new-branch {DATE} or --reuse). "
+    "Pass --no-ensure-safe-commands to downgrade these errors to warnings.",
 )
 @add_common_options
 @click.pass_context
@@ -98,10 +244,27 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Generate name if not provided
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
+    command = ScheduledMngCommand(opts.command.upper())
+    args = opts.args or ""
+
+    # Apply auto-fix and safety checks for create commands
+    if command == ScheduledMngCommand.CREATE:
+        if opts.auto_fix_args:
+            ssh_public_key = _get_provider_ssh_public_key(provider, mng_ctx)
+            args = auto_fix_create_args(args, trigger_name, ssh_public_key)
+            logger.info("Auto-fixed args for create command: {}", args)
+
+        safety_issue = check_safe_create_command(args)
+        if safety_issue is not None:
+            if opts.ensure_safe_commands:
+                raise click.UsageError(safety_issue)
+            else:
+                logger.warning(safety_issue)
+
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
-        command=ScheduledMngCommand(opts.command.upper()),
-        args=opts.args or "",
+        command=command,
+        args=args,
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,
         is_enabled=opts.enabled if opts.enabled is not None else True,

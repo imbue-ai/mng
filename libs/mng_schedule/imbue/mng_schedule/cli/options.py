@@ -31,6 +31,8 @@ class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
 
     name: str | None
     update: bool
+    auto_fix_args: bool
+    ensure_safe_commands: bool
 
 
 class ScheduleRemoveCliOptions(CommonCliOptions):

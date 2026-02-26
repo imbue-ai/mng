@@ -21,6 +21,9 @@ def schedule_update(ctx: click.Context, **kwargs: Any) -> None:
     """
     resolve_positional_name(ctx)
     ctx.params["update"] = True
+    # Set defaults for add-specific fields that are not on the update command
+    ctx.params.setdefault("auto_fix_args", True)
+    ctx.params.setdefault("ensure_safe_commands", True)
     _mng_ctx, _output_opts, _opts = setup_command_context(
         ctx=ctx,
         command_name="schedule_update",
