@@ -5,6 +5,7 @@ from pydantic import Field
 
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ProviderInstanceName
@@ -71,3 +72,28 @@ class BoardSnapshot(FrozenModel):
     entries: tuple[AgentBoardEntry, ...] = Field(description="All agent board entries")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during fetch")
     fetch_time_seconds: float = Field(description="Time taken to fetch data")
+
+
+class CustomCommand(FrozenModel):
+    """A user-defined custom command for the kanpan board."""
+
+    name: str = Field(description="Display name shown in the status bar")
+    command: str = Field(description="Shell command to run (agent name is appended)")
+    trigger_refresh: bool = Field(default=False, description="Whether to trigger a board refresh after completion")
+
+
+class KanpanPluginConfig(PluginConfig):
+    """Configuration for the kanpan plugin."""
+
+    commands: dict[str, CustomCommand] = Field(
+        default_factory=dict,
+        description="Custom commands keyed by their trigger key",
+    )
+
+    def merge_with(self, override: "PluginConfig") -> "KanpanPluginConfig":
+        """Merge this config with an override config."""
+        if not isinstance(override, KanpanPluginConfig):
+            return self
+        merged_enabled = override.enabled if override.enabled is not None else self.enabled
+        merged_commands = {**self.commands, **override.commands}
+        return KanpanPluginConfig(enabled=merged_enabled, commands=merged_commands)

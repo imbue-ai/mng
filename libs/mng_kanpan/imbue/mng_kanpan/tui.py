@@ -25,10 +25,13 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import PluginName
 from imbue.mng_kanpan.data_types import AgentBoardEntry
 from imbue.mng_kanpan.data_types import BoardSection
 from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.data_types import CheckStatus
+from imbue.mng_kanpan.data_types import CustomCommand
+from imbue.mng_kanpan.data_types import KanpanPluginConfig
 from imbue.mng_kanpan.data_types import PrState
 from imbue.mng_kanpan.fetcher import fetch_board_snapshot
 from imbue.mng_kanpan.fetcher import toggle_agent_mute
@@ -145,6 +148,8 @@ class _KanpanState(MutableModel):
     focused_agent_name: AgentName | None = None
     # Steady-state footer left text (restored after transient messages)
     steady_footer_text: str = "  Loading..."
+    # Custom commands from plugin config
+    custom_commands: dict[str, CustomCommand] = {}
 
 
 class _KanpanInputHandler(MutableModel):
@@ -170,6 +175,10 @@ class _KanpanInputHandler(MutableModel):
             return True
         if key in ("m", "M"):
             _mute_focused_agent(self.state)
+            return True
+        # Check custom commands (case-insensitive)
+        if key.lower() in self.state.custom_commands:
+            _run_custom_command(self.state, self.state.custom_commands[key.lower()])
             return True
         if key == "up":
             if _is_focus_on_first_selectable(self.state):
@@ -412,6 +421,56 @@ def _on_mute_persist_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool]
             _show_transient_message(state, f"  Failed to persist mute for {agent_name}: {e}")
     else:
         loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_persist_poll, data)
+
+
+def _run_custom_command(state: _KanpanState, cmd: CustomCommand) -> None:
+    """Run a user-defined custom command on the focused agent."""
+    entry = _get_focused_entry(state)
+    if entry is None:
+        return
+    if state.executor is None:
+        state.executor = ThreadPoolExecutor(max_workers=1)
+
+    agent_name = entry.name
+    full_command = f"{cmd.command} {agent_name}"
+    state.footer_left.set_text(f"  Running {cmd.name} on {agent_name}...")
+
+    def _do_run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            full_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+    future = state.executor.submit(_do_run)
+    if state.loop is not None:
+        state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_custom_command_poll, (state, future, cmd, agent_name))
+
+
+def _on_custom_command_poll(
+    loop: MainLoop, data: tuple[_KanpanState, Future[subprocess.CompletedProcess[str]], CustomCommand, AgentName]
+) -> None:
+    """Poll for custom command completion."""
+    state, future, cmd, agent_name = data
+    if future.done():
+        try:
+            result = future.result()
+            if result.returncode == 0:
+                _show_transient_message(state, f"  {cmd.name} completed for {agent_name}")
+            else:
+                stderr = result.stderr.strip()
+                _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {stderr}")
+        except Exception as e:
+            _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {e}")
+        if cmd.trigger_refresh and state.refresh_future is None:
+            _start_refresh(loop, state)
+    else:
+        frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
+        state.footer_left.set_text(f"  Running {cmd.name} on {agent_name} {frame_char}")
+        state.spinner_index += 1
+        loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_custom_command_poll, data)
 
 
 def _show_transient_message(state: _KanpanState, message: str) -> None:
@@ -681,10 +740,27 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
+def _load_custom_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
+    """Load custom commands from plugin config."""
+    plugin_name = PluginName("kanpan")
+    if plugin_name not in mng_ctx.config.plugins:
+        return {}
+    config = mng_ctx.config.plugins[plugin_name]
+    if not isinstance(config, KanpanPluginConfig):
+        return {}
+    return dict(config.commands)
+
+
 def run_kanpan(mng_ctx: MngContext) -> None:
-    """Run the pankan TUI board."""
+    """Run the kanpan TUI board."""
+    custom_commands = _load_custom_commands(mng_ctx)
+
+    # Build footer keybindings: custom commands first, then built-in
+    custom_parts = [f"{key}: {cmd.name}" for key, cmd in custom_commands.items()]
+    builtin_parts = ["m: mute", "p: push", "d: delete", "q: quit"]
+    keybindings = "  ".join(custom_parts + builtin_parts) + "  "
+
     footer_left = Text("  Loading...")
-    keybindings = "m: mute  p: push  d: delete  q: quit  "
     footer_right = Text(keybindings, align="right")
     pack: int = len(keybindings)
     footer_columns = Columns([footer_left, (pack, footer_right)])
@@ -705,6 +781,7 @@ def run_kanpan(mng_ctx: MngContext) -> None:
         frame=frame,
         footer_left=footer_left,
         footer_right=footer_right,
+        custom_commands=custom_commands,
     )
 
     input_handler = _KanpanInputHandler(state=state)
