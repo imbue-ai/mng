@@ -1,4 +1,5 @@
 from enum import auto
+from pathlib import Path
 
 from pydantic import Field
 
@@ -54,8 +55,13 @@ class AgentBoardEntry(FrozenModel):
     name: AgentName = Field(description="Agent name")
     state: AgentLifecycleState = Field(description="Agent lifecycle state")
     provider_name: ProviderInstanceName = Field(description="Provider instance name")
+    work_dir: Path | None = Field(default=None, description="Local work directory (None for remote agents)")
     branch: str | None = Field(default=None, description="Git branch for this agent")
     pr: PrInfo | None = Field(default=None, description="Associated GitHub PR, if any")
+    commits_ahead: int | None = Field(
+        default=None, description="Commits ahead of remote tracking branch (None if unknown/no upstream)"
+    )
+    create_pr_url: str | None = Field(default=None, description="URL to create a new PR for this branch")
 
 
 class BoardSnapshot(FrozenModel):

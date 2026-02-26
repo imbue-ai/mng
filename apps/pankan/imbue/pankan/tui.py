@@ -131,9 +131,11 @@ class _PankanState(MutableModel):
     refresh_future: Future[BoardSnapshot] | None = None
     delete_future: Future[subprocess.CompletedProcess[str]] | None = None
     deleting_agent_name: AgentName | None = None
+    push_future: Future[subprocess.CompletedProcess[str]] | None = None
+    pushing_agent_name: AgentName | None = None
     executor: ThreadPoolExecutor | None = None
-    # Maps list walker index -> AgentName for selectable agent entries
-    index_to_agent: dict[int, AgentName] = {}
+    # Maps list walker index -> AgentBoardEntry for selectable agent entries
+    index_to_entry: dict[int, AgentBoardEntry] = {}
     list_walker: Any = None  # SimpleFocusListWalker, set during display build
 
 
@@ -155,19 +157,22 @@ class _PankanInputHandler(MutableModel):
         if key in ("d", "D"):
             _delete_focused_agent(self.state)
             return True
+        if key in ("p", "P"):
+            _push_focused_agent(self.state)
+            return True
         if key in ("up", "down", "page up", "page down", "home", "end"):
             return None
         return True
 
 
-def _get_focused_agent_name(state: _PankanState) -> AgentName | None:
-    """Get the agent name of the currently focused entry, or None."""
+def _get_focused_entry(state: _PankanState) -> AgentBoardEntry | None:
+    """Get the AgentBoardEntry of the currently focused entry, or None."""
     if state.list_walker is None:
         return None
     _, focus_index = state.list_walker.get_focus()
     if focus_index is None:
         return None
-    return state.index_to_agent.get(focus_index)
+    return state.index_to_entry.get(focus_index)
 
 
 def _run_destroy(agent_name: str) -> subprocess.CompletedProcess[str]:
@@ -184,9 +189,10 @@ def _delete_focused_agent(state: _PankanState) -> None:
     """Start async deletion of the currently focused agent via mng destroy."""
     if state.delete_future is not None:
         return  # Already deleting
-    agent_name = _get_focused_agent_name(state)
-    if agent_name is None:
+    entry = _get_focused_entry(state)
+    if entry is None:
         return
+    agent_name = entry.name
     if state.executor is None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
@@ -232,6 +238,77 @@ def _finish_delete(loop: MainLoop, state: _PankanState) -> None:
     finally:
         state.delete_future = None
         state.deleting_agent_name = None
+
+    # Trigger a refresh to update the board
+    if state.refresh_future is None:
+        _start_refresh(loop, state)
+
+
+def _run_git_push(work_dir: str) -> subprocess.CompletedProcess[str]:
+    """Run git push in an agent's work_dir. Called from a background thread."""
+    return subprocess.run(
+        ["git", "push", "-u", "origin", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=work_dir,
+        timeout=60,
+    )
+
+
+def _push_focused_agent(state: _PankanState) -> None:
+    """Start async push of the currently focused agent's branch."""
+    if state.push_future is not None:
+        return  # Already pushing
+    entry = _get_focused_entry(state)
+    if entry is None:
+        return
+    if entry.work_dir is None:
+        state.footer_left.set_text(f"  Cannot push: {entry.name} has no local work_dir")
+        return
+    if state.executor is None:
+        state.executor = ThreadPoolExecutor(max_workers=1)
+
+    state.pushing_agent_name = entry.name
+    state.footer_left.set_text(f"  Pushing {entry.name}...")
+    state.push_future = state.executor.submit(_run_git_push, str(entry.work_dir))
+
+    if state.loop is not None:
+        state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_push_poll, state)
+
+
+def _on_push_poll(loop: MainLoop, state: _PankanState) -> None:
+    """Poll for push completion."""
+    if state.push_future is None:
+        return
+
+    if state.push_future.done():
+        _finish_push(loop, state)
+        return
+
+    frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
+    state.footer_left.set_text(f"  Pushing {state.pushing_agent_name} {frame_char}")
+    state.spinner_index += 1
+    loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_push_poll, state)
+
+
+def _finish_push(loop: MainLoop, state: _PankanState) -> None:
+    """Complete a background push."""
+    if state.push_future is None:
+        return
+
+    agent_name = state.pushing_agent_name
+    try:
+        result = state.push_future.result()
+        if result.returncode == 0:
+            state.footer_left.set_text(f"  Pushed {agent_name}")
+        else:
+            stderr = result.stderr.strip()
+            state.footer_left.set_text(f"  Failed to push {agent_name}: {stderr}")
+    except Exception as e:
+        state.footer_left.set_text(f"  Failed to push {agent_name}: {e}")
+    finally:
+        state.push_future = None
+        state.pushing_agent_name = None
 
     # Trigger a refresh to update the board
     if state.refresh_future is None:
@@ -340,10 +417,19 @@ def _format_check_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, s
     return [f"  CI {entry.pr.check_status.lower()}"]
 
 
+def _format_push_status(entry: AgentBoardEntry) -> str:
+    """Build text for push status indicator."""
+    if entry.commits_ahead is None:
+        return "  [not pushed]"
+    if entry.commits_ahead == 0:
+        return "  [up to date]"
+    return f"  [{entry.commits_ahead} unpushed]"
+
+
 def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[str | tuple[Hashable, str]]:
     """Build urwid text markup for a single agent line.
 
-    Shows: name, agent state, PR info (number + CI status + URL if applicable).
+    Shows: name, agent state, push status, PR info or create-PR link.
     """
     state_attr = _get_state_attr(entry, section)
     state_text = f"{entry.state:<10}"
@@ -355,10 +441,16 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
     else:
         parts.append(state_text)
 
+    # Push status for local agents
+    if entry.work_dir is not None:
+        parts.append(_format_push_status(entry))
+
     if entry.pr is not None:
         parts.append(f"  PR #{entry.pr.number}")
         parts.extend(_format_check_markup(entry))
         parts.append(f"  {entry.pr.url}")
+    elif entry.create_pr_url is not None and entry.commits_ahead == 0:
+        parts.append(f"  create PR: {entry.create_pr_url}")
 
     return parts
 
@@ -377,11 +469,11 @@ def _format_section_heading(section: BoardSection, count: int) -> list[str | tup
 def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap | Text | Divider]:
     """Build the urwid widget list from a BoardSnapshot, grouped by PR state.
 
-    Returns a SimpleFocusListWalker and populates state.index_to_agent with the
+    Returns a SimpleFocusListWalker and populates state.index_to_entry with the
     mapping from list walker index to agent name for selectable entries.
     """
     snapshot = state.snapshot
-    state.index_to_agent = {}
+    state.index_to_entry = {}
 
     walker: SimpleFocusListWalker[AttrMap | Text | Divider] = SimpleFocusListWalker([])
 
@@ -416,7 +508,7 @@ def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap |
             for attr in _AGENT_LINE_ATTRS:
                 focus_map[attr] = f"{attr}_focus"
             walker.append(AttrMap(item, None, focus_map=focus_map))
-            state.index_to_agent[idx] = entry.name
+            state.index_to_entry[idx] = entry
 
     if not has_content:
         walker.append(Text("No agents found."))
@@ -452,8 +544,9 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _PankanState) -> None:
 def run_pankan(mng_ctx: MngContext) -> None:
     """Run the pankan TUI board."""
     footer_left = Text("  Loading...")
-    footer_right = Text("d: delete  q: quit  ", align="right")
-    pack: int = len("d: delete  q: quit  ")
+    keybindings = "p: push  d: delete  q: quit  "
+    footer_right = Text(keybindings, align="right")
+    pack: int = len(keybindings)
     footer_columns = Columns([footer_left, (pack, footer_right)])
     footer = Pile([Divider(), AttrMap(footer_columns, "footer")])
 

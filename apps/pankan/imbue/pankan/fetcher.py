@@ -1,9 +1,11 @@
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.list import list_agents
 from imbue.mng.config.data_types import MngContext
@@ -42,18 +44,28 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
         errors.append(pr_result.error)
     pr_by_branch = _build_pr_branch_index(pr_result.prs)
 
+    # Detect GitHub repo for PR creation URLs
+    repo_path = _get_github_repo_path(gh_cwd, cg) if gh_cwd is not None else None
+
     # Build board entries with branch and PR info
     entries: list[AgentBoardEntry] = []
     for agent in result.agents:
         branch = _resolve_agent_branch(agent, cg)
         pr = pr_by_branch.get(branch) if branch else None
+        is_local = agent.host.provider_name == LOCAL_PROVIDER_NAME
+        local_work_dir = agent.work_dir if is_local and agent.work_dir.exists() else None
+        commits_ahead = _get_commits_ahead(local_work_dir, cg) if local_work_dir is not None else None
+        create_pr_url = _build_create_pr_url(repo_path, branch) if repo_path and branch and pr is None else None
         entries.append(
             AgentBoardEntry(
                 name=agent.name,
                 state=agent.state,
                 provider_name=agent.host.provider_name,
+                work_dir=local_work_dir,
                 branch=branch,
                 pr=pr,
+                commits_ahead=commits_ahead,
+                create_pr_url=create_pr_url,
             )
         )
 
@@ -93,6 +105,76 @@ def _resolve_agent_branch(agent: AgentInfo, cg: ConcurrencyGroup) -> str | None:
 
     # Fallback: naming convention
     return f"mng/{agent.name}-{agent.host.provider_name}"
+
+
+def _get_commits_ahead(work_dir: Path | None, cg: ConcurrencyGroup) -> int | None:
+    """Get the number of commits the local branch is ahead of its remote tracking branch.
+
+    Returns None if no upstream is configured or the check fails.
+    Returns 0 if the branch is up to date with the remote.
+    """
+    if work_dir is None:
+        return None
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "rev-list", "--count", "@{upstream}..HEAD"],
+            cwd=work_dir,
+        )
+        return int(result.stdout.strip())
+    except (ProcessError, ValueError):
+        return None
+
+
+def _get_github_repo_path(work_dir: Path, cg: ConcurrencyGroup) -> str | None:
+    """Get the GitHub owner/repo path from a git repository's remote URL.
+
+    Returns a string like "owner/repo", or None if the remote is not GitHub
+    or cannot be determined.
+    """
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "remote", "get-url", "origin"],
+            cwd=work_dir,
+        )
+        return _parse_github_repo_path(result.stdout.strip())
+    except ProcessError:
+        return None
+
+
+@pure
+def _parse_github_repo_path(remote_url: str) -> str | None:
+    """Extract owner/repo from a GitHub remote URL.
+
+    Supports SSH (git@github.com:owner/repo.git) and
+    HTTPS (https://github.com/owner/repo.git) formats.
+    """
+    # SSH format: git@github.com:owner/repo.git
+    if remote_url.startswith("git@github.com:"):
+        path = remote_url[len("git@github.com:") :]
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path
+
+    # HTTPS format: https://github.com/owner/repo.git
+    parsed = urlparse(remote_url)
+    if parsed.hostname == "github.com":
+        path = parsed.path.lstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path
+
+    return None
+
+
+@pure
+def _build_create_pr_url(repo_path: str | None, branch: str | None) -> str | None:
+    """Build a GitHub URL for creating a new PR from the given branch.
+
+    Returns None if repo_path or branch is not available.
+    """
+    if repo_path is None or branch is None:
+        return None
+    return f"https://github.com/{repo_path}/compare/{branch}?expand=1"
 
 
 @pure
