@@ -51,9 +51,8 @@ def _forward_output(line: str, is_stdout: bool) -> None:
     if is_stdout:
         logger.log(LogLevel.BUILD.value, "{}", line.rstrip(), source="modal deploy")
     else:
-        stream = sys.stdout if is_stdout else sys.stderr
-        stream.write(line)
-        stream.flush()
+        sys.stderr.write(line)
+        sys.stderr.flush()
 
 
 @pure
