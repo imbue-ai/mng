@@ -474,7 +474,6 @@ _TEST_MODULE_GLOBS: Final[tuple[str, ...]] = (
     "conftest",
     "testing",
     "plugin_testing",
-    "test_fixtures",
 )
 
 
