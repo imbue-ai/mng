@@ -37,7 +37,7 @@ from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import VolumeId
 
 # Canonical mapping from IdleMode to the activity sources it enables.
-# hosts/common.py has a duplicate of this mapping via get_activity_sources_for_idle_mode.
+# hosts/common.py delegates to this mapping via get_activity_sources_for_idle_mode().
 ACTIVITY_SOURCES_BY_IDLE_MODE: Final[dict[IdleMode, tuple[ActivitySource, ...]]] = {
     IdleMode.IO: (
         ActivitySource.USER,
