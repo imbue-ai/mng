@@ -252,7 +252,17 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
 
 @pytest.hookimpl(trylast=True)
 def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Check that the total test session time is under the configured limit."""
+    """Check that the total test session time is under the configured limit.
+
+    Prints per-test durations before checking the limit so that timing data
+    is always visible in CI output, even when the suite exceeds the limit.
+    """
+    # Print test durations before checking the time limit, so they are
+    # visible in the CI output even when pytest.exit() aborts the session.
+    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if terminalreporter is not None:
+        _print_test_durations_for_ci(terminalreporter)
+
     if hasattr(session, "start_time"):
         duration = time.time() - session.start_time
 
