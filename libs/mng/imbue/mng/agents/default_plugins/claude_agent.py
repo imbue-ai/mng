@@ -538,14 +538,7 @@ class ClaudeAgent(BaseAgent):
         for indicator in self._DIALOG_INDICATORS:
             match_string = indicator.get_match_string()
             if match_string in content:
-                description = indicator.get_description()
-                logger.warning(
-                    "Dialog detected in agent {} pane: {} (matched: {})",
-                    self.name,
-                    description,
-                    match_string,
-                )
-                raise DialogDetectedError(str(self.name), description)
+                raise DialogDetectedError(str(self.name), indicator.get_description())
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
