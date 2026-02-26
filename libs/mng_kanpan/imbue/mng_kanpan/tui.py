@@ -449,7 +449,7 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
         parts.append(f"  PR #{entry.pr.number}")
         parts.extend(_format_check_markup(entry))
         parts.append(f"  {entry.pr.url}")
-    elif entry.create_pr_url is not None and entry.commits_ahead == 0:
+    elif entry.create_pr_url is not None:
         parts.append(f"  create PR: {entry.create_pr_url}")
 
     return parts
