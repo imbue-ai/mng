@@ -28,7 +28,7 @@ from imbue.mng.interfaces.volume import Volume
 from imbue.mng.primitives import HostId
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng.utils.interactive_subprocess import popen_interactive_subprocess
-from imbue.mng.utils.polling import poll_until
+from imbue.mng.utils.polling import run_periodically
 
 FOLLOW_POLL_INTERVAL_SECONDS: Final[float] = 1.0
 
@@ -407,11 +407,10 @@ def _follow_log_file_via_volume(
 
     state = _FollowState(previous_length=len(content))
 
-    # Poll indefinitely until interrupted (KeyboardInterrupt propagates out)
-    poll_until(
-        condition=lambda: _check_for_new_content(target, log_file_name, on_new_content, state),
-        timeout=365 * 24 * 3600.0,
-        poll_interval=FOLLOW_POLL_INTERVAL_SECONDS,
+    # Run indefinitely until interrupted (KeyboardInterrupt propagates out)
+    run_periodically(
+        fn=lambda: _check_for_new_content(target, log_file_name, on_new_content, state),
+        interval=FOLLOW_POLL_INTERVAL_SECONDS,
     )
 
 

@@ -1,3 +1,7 @@
+<!-- This file is auto-generated. Do not edit directly. -->
+<!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->
+<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->
+
 # mng: build your team of AI engineering agents
 
 **installation:**
@@ -38,8 +42,8 @@ user    0m1.181s
 sys     0m0.227s
 
 > time mng list
-NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS                                                                                                                                                             
-local-hello    RUNNING     @local      local       RUNNING     project=mng                                                                                                                                                        
+NAME           STATE       HOST        PROVIDER    HOST STATE  LABELS
+local-hello    RUNNING     @local      local       RUNNING     project=mng
 
 real    0m1.773s
 user    0m0.955s
@@ -154,21 +158,19 @@ git clone git@github.com:imbue-ai/mng.git && cd mng && uv sync --all-packages &&
 
 ## Shell Completion
 
-`mng` supports tab completion for commands and agent names in bash, zsh, and fish.
+`mng` supports tab completion for commands, options, and agent names in bash and zsh.
+Shell completion is configured automatically by the install script (`scripts/install.sh`).
 
-**Zsh** (add to `~/.zshrc`):
+To set up manually, generate the completion script and append it to your shell rc file:
+
+**Zsh** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=zsh_source mng)"
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script zsh >> ~/.zshrc
 ```
 
-**Bash** (add to `~/.bashrc`):
+**Bash** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=bash_source mng)"
-```
-
-**Fish** (run once):
-```bash
-_MNG_COMPLETE=fish_source mng > ~/.config/fish/completions/mng.fish
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script bash >> ~/.bashrc
 ```
 
 Note: `mng` must be installed on your PATH for completion to work (not invoked via `uv run`).
@@ -254,7 +256,7 @@ See [`architecture.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/
 2. Follow the "principle of least privilege": only expose the minimal set of API tokens and secrets for each agent, and restrict their access (eg to the network) as much as possible.
 3. Avoid storing sensitive data in agents' filesystems (or encrypt it if necessary).
 
-See [`./docs/security_model.md`](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details on our security model.
+See our [security model](https://github.com/imbue-ai/mng/blob/main/libs/mng/docs/security_model.md) for more details.
 
 <!--
 ## Learning more

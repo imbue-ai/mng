@@ -14,6 +14,8 @@ from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.data_types import GcResourceTypes
 from imbue.mng.api.data_types import GcResult
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostAuthenticationError
+from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import BuildCacheInfo
@@ -26,6 +28,7 @@ from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.git_utils import parse_worktree_git_file
 
 
 @log_call
@@ -132,6 +135,9 @@ def gc_work_dirs(
                 except HostOfflineError:
                     logger.trace("Skipped work dir GC because host is offline", host_id=host.id)
                     continue
+                except HostAuthenticationError:
+                    logger.trace("Skipped work dir GC because host authentication failed", host_id=host.id)
+                    continue
 
                 for work_dir_info in orphaned_dirs:
                     try:
@@ -194,10 +200,18 @@ def gc_machines(
                     if host.is_local:
                         continue
 
-                    agent_refs = host.get_agent_references()
-
-                    # Only consider hosts with no agents
-                    if len(agent_refs) > 0:
+                    try:
+                        # Only consider online hosts with no agents
+                        agent_refs = host.get_agent_references()
+                        if len(agent_refs) > 0:
+                            continue
+                    except HostAuthenticationError:
+                        # hosts that fail to authenticate should be destroyed--we assume all hosts are reachable
+                        logger.warning("Failed to authenticate with host during GC, destroying: {}", host.id)
+                        host = host.to_offline_host()
+                    except HostConnectionError as e:
+                        # we skip hosts that suddenly appear offline for now--it's hard to tell exactly what happened
+                        logger.warning("Failed to connect to host {} during gc, skipping: {}", host.id, e)
                         continue
 
                     if not dry_run:
@@ -457,8 +471,24 @@ def _is_git_worktree(host: OnlineHostInterface, path: Path) -> bool:
 
 
 def _remove_git_worktree(host: OnlineHostInterface, work_dir_path: Path) -> None:
-    """Remove a git worktree using git worktree remove."""
-    cmd = f"git worktree remove --force {shlex.quote(str(work_dir_path))}"
+    """Remove a git worktree using git worktree remove.
+
+    Reads the .git file to find the main repo and runs the removal from there,
+    which is required for git to properly unregister the worktree.
+    """
+    main_repo: Path | None = None
+    git_file = work_dir_path / ".git"
+    try:
+        content = host.read_text_file(git_file)
+        main_repo = parse_worktree_git_file(content)
+    except (FileNotFoundError, OSError):
+        pass
+
+    if main_repo is not None:
+        cmd = f"git -C {shlex.quote(str(main_repo))} worktree remove --force {shlex.quote(str(work_dir_path))}"
+    else:
+        cmd = f"git worktree remove --force {shlex.quote(str(work_dir_path))}"
+
     result = host.execute_command(cmd)
 
     if not result.success:

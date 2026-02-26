@@ -9,6 +9,49 @@ from imbue.imbue_common.pure import pure
 from imbue.mng.errors import MngError
 
 
+@pure
+def parse_worktree_git_file(content: str) -> Path | None:
+    """Parse the content of a worktree's .git file to find the source repo.
+
+    A worktree's .git file contains a line like:
+        gitdir: /path/to/main/repo/.git/worktrees/<id>
+
+    Returns the source repo directory, or None if the content doesn't match.
+    """
+    content = content.strip()
+    if not content.startswith("gitdir: "):
+        return None
+
+    gitdir = Path(content.removeprefix("gitdir: ").strip())
+    # gitdir points to: <repo>/.git/worktrees/<agent-id>
+    dot_git = gitdir.parent.parent
+    if dot_git.name != ".git":
+        return None
+    return dot_git.parent
+
+
+def find_source_repo_of_worktree(worktree_path: Path) -> Path | None:
+    """Find the source repository of a git worktree by reading its .git file.
+
+    Returns the source repo directory, or None if the path is not a worktree.
+    """
+    try:
+        content = (worktree_path / ".git").read_text()
+    except (FileNotFoundError, OSError):
+        return None
+    return parse_worktree_git_file(content)
+
+
+def remove_worktree(worktree_path: Path, source_repo_path: Path, cg: ConcurrencyGroup) -> None:
+    """Remove a git worktree, running git from the source repository.
+
+    Raises ProcessError if the removal fails.
+    """
+    cg.run_process_to_completion(
+        ["git", "-C", str(source_repo_path), "worktree", "remove", "--force", str(worktree_path)],
+    )
+
+
 def get_current_git_branch(path: Path | None, cg: ConcurrencyGroup) -> str | None:
     """Get the current git branch name for the repository at the given path.
 
@@ -121,6 +164,22 @@ def _get_git_config_value(path: Path, key: str, cg: ConcurrencyGroup) -> str | N
 def get_git_author_info(path: Path, cg: ConcurrencyGroup) -> tuple[str | None, str | None]:
     """Get the git author name and email for the repository at the given path."""
     return _get_git_config_value(path, "user.name", cg), _get_git_config_value(path, "user.email", cg)
+
+
+def get_git_remote_url(path: Path, remote_name: str, cg: ConcurrencyGroup) -> str | None:
+    """Get the URL of a git remote for the repository at the given path.
+
+    Returns None if the remote does not exist or the path is not a git repo.
+    """
+    try:
+        result = cg.run_process_to_completion(
+            ["git", "remote", "get-url", remote_name],
+            cwd=path,
+        )
+    except ProcessError:
+        return None
+    url = result.stdout.strip()
+    return url if url else None
 
 
 def find_git_worktree_root(start: Path | None, cg: ConcurrencyGroup) -> Path | None:

@@ -1577,7 +1577,7 @@ def test_create_work_dir_same_path_no_transfer(host_with_temp_dir: tuple[Host, P
         target_path=source_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == source_path
     assert (work_dir / "test_file.txt").read_text() == "original content"
@@ -1602,7 +1602,7 @@ def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path])
         target_path=target_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content1"
@@ -1631,7 +1631,7 @@ def test_create_work_dir_copy_with_git(
         target_path=target_path,
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "tracked content"
@@ -1669,7 +1669,7 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
         git=AgentGitOptions(is_git_synced=False),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content"
@@ -1710,7 +1710,7 @@ def test_create_work_dir_copy_with_untracked_files(
         git=AgentGitOptions(is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
@@ -1744,7 +1744,7 @@ def test_create_work_dir_copy_with_gitignored_files(
         git=AgentGitOptions(is_include_gitignored=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
@@ -1777,7 +1777,7 @@ def test_create_work_dir_copy_with_renamed_file(
         git=AgentGitOptions(is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # After git transfer and rsync, the renamed file should be present
@@ -1807,7 +1807,7 @@ def test_create_work_dir_generates_new_branch(
         git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file.txt").read_text() == "content"
@@ -1821,6 +1821,91 @@ def test_create_work_dir_generates_new_branch(
     )
     assert result.returncode == 0
     assert result.stdout.strip().startswith("test/")
+
+
+def test_create_work_dir_preserves_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer preserves the origin remote from the source repo."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    # Add an origin remote to the source repo
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/owner/repo.git"],
+        cwd=source_path,
+        check=True,
+        capture_output=True,
+    )
+
+    target_path = temp_dir / "target_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Check that origin remote was preserved on the target
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "https://github.com/owner/repo.git"
+
+
+def test_create_work_dir_works_without_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer works when the source repo has no origin remote."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    target_path = temp_dir / "target_no_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("no-origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Verify no origin remote exists (since source had none)
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
 
 
 # =============================================================================
@@ -2156,7 +2241,7 @@ def test_rsync_extra_args_parsing(host_with_temp_dir: tuple[Host, Path]) -> None
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "file1.txt").read_text() == "content1"
@@ -2189,7 +2274,7 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "normal.txt").read_text() == "normal content"
@@ -2224,7 +2309,7 @@ def test_transfer_extra_files_with_many_files(
         git=AgentGitOptions(is_git_synced=True, is_include_unclean=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     assert (work_dir / "tracked.txt").read_text() == "tracked"
@@ -2383,7 +2468,7 @@ def test_rsync_does_not_delete_existing_files_by_default(host_with_temp_dir: tup
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # New file should be copied
@@ -2419,7 +2504,7 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
         ),
     )
 
-    work_dir = host.create_agent_work_dir(host, source_path, options)
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
 
     assert work_dir == target_path
     # New file should be copied
@@ -2481,7 +2566,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options)
+    work_dir_1 = target_host.create_agent_work_dir(source_host, source_path, options).path
 
     # The generated path should be under host_dir/projects/
     assert str(work_dir_1).startswith(str(target_host.host_dir / "projects"))
@@ -2495,7 +2580,7 @@ def test_create_work_dir_cross_host_generates_unique_paths(
         data_options=AgentDataOptions(is_rsync_enabled=True),
     )
 
-    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2)
+    work_dir_2 = target_host.create_agent_work_dir(source_host, source_path, options_2).path
 
     assert str(work_dir_2).startswith(str(target_host.host_dir / "projects"))
     assert work_dir_1 != work_dir_2
