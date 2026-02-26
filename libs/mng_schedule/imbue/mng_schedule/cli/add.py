@@ -53,20 +53,37 @@ def _split_args_at_separator(parts: Sequence[str]) -> tuple[list[str], list[str]
 
 
 @pure
+def _arg_matches(arg: str, flag: str) -> bool:
+    """Check if an arg matches a flag, handling both '--flag' and '--flag=value' forms."""
+    return arg == flag or arg.startswith(f"{flag}=")
+
+
+@pure
 def _has_flag(mng_args: Sequence[str], flag: str, negative_flag: str | None = None) -> bool:
-    """Check if a flag (or its negative counterpart) is present in the args."""
-    if flag in mng_args:
-        return True
-    if negative_flag is not None and negative_flag in mng_args:
-        return True
+    """Check if a flag (or its negative counterpart) is present in the args.
+
+    Handles both '--flag' and '--flag=value' forms.
+    """
+    for arg in mng_args:
+        if _arg_matches(arg, flag):
+            return True
+        if negative_flag is not None and _arg_matches(arg, negative_flag):
+            return True
     return False
 
 
 @pure
 def _has_tag_with_key(mng_args: Sequence[str], tag_key: str) -> bool:
-    """Check if a --tag with the given key prefix exists in the args."""
+    """Check if a --tag with the given key prefix exists in the args.
+
+    Handles both '--tag KEY=VALUE' (two tokens) and '--tag=KEY=VALUE' (single token) forms.
+    """
     for i, part in enumerate(mng_args):
+        # Two-token form: --tag KEY=VALUE
         if part == "--tag" and i + 1 < len(mng_args) and mng_args[i + 1].startswith(f"{tag_key}="):
+            return True
+        # Single-token form: --tag=KEY=VALUE
+        if part.startswith(f"--tag={tag_key}="):
             return True
     return False
 
@@ -118,15 +135,22 @@ def check_safe_create_command(args: str) -> str | None:
     parts = shlex.split(args) if args else []
     mng_args, _passthrough_args = _split_args_at_separator(parts)
 
-    if "--reuse" in mng_args:
+    if _has_flag(mng_args, "--reuse"):
         return None
 
     # Check for --new-branch with a {DATE} placeholder in its value.
-    # --new-branch can appear as either "--new-branch value" (two tokens)
-    # or just "--new-branch" (flag mode, no value). We need the value to
-    # contain {DATE}.
+    # Handles three forms:
+    # 1. "--new-branch value" (two tokens, space-separated)
+    # 2. "--new-branch=value" (single token, equals-separated)
+    # 3. "--new-branch" alone (flag mode, no value -- not sufficient)
     for i, part in enumerate(mng_args):
-        if part == "--new-branch" and i + 1 < len(mng_args):
+        # Single-token form: --new-branch=value
+        if part.startswith("--new-branch="):
+            branch_value = part[len("--new-branch=") :]
+            if "{DATE}" in branch_value:
+                return None
+        # Two-token form: --new-branch value
+        elif part == "--new-branch" and i + 1 < len(mng_args):
             next_arg = mng_args[i + 1]
             # If the next arg looks like another flag, --new-branch was used
             # as a flag (no value), so skip it.

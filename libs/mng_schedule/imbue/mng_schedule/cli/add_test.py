@@ -63,6 +63,16 @@ class TestAutoFixCreateArgs:
         key_idx = parts.index("--authorized-key")
         assert parts[key_idx + 1] == "existing-key"
 
+    def test_skips_authorized_key_when_present_in_equals_form(self) -> None:
+        result = auto_fix_create_args(
+            "my-agent --authorized-key=existing-key",
+            "trigger-1",
+            ssh_public_key="ssh-rsa AAAAB3... user@host",
+        )
+        parts = shlex.split(result)
+        # Should not add a duplicate --authorized-key
+        assert sum(1 for p in parts if p.startswith("--authorized-key")) == 1
+
     def test_skips_authorized_key_when_no_ssh_key(self) -> None:
         result = auto_fix_create_args("my-agent", "trigger-1", ssh_public_key=None)
         parts = shlex.split(result)
@@ -81,6 +91,12 @@ class TestAutoFixCreateArgs:
         assert parts.count("--tag") == 1
         tag_idx = parts.index("--tag")
         assert parts[tag_idx + 1] == "SCHEDULE=custom"
+
+    def test_skips_schedule_tag_when_present_in_equals_form(self) -> None:
+        result = auto_fix_create_args("my-agent --tag=SCHEDULE=custom", "nightly-build", ssh_public_key=None)
+        parts = shlex.split(result)
+        # Should not add a duplicate --tag SCHEDULE=...
+        assert sum(1 for p in parts if "SCHEDULE=" in p) == 1
 
     def test_preserves_passthrough_args(self) -> None:
         result = auto_fix_create_args("my-agent --reuse -- --model opus", "trigger-1", ssh_public_key=None)
@@ -131,6 +147,14 @@ class TestCheckSafeCreateCommand:
     def test_passes_with_new_branch_date_placeholder(self) -> None:
         result = check_safe_create_command("my-agent --new-branch 'agent-run-{DATE}' --in modal")
         assert result is None
+
+    def test_passes_with_new_branch_equals_date_placeholder(self) -> None:
+        result = check_safe_create_command("my-agent --new-branch=agent-run-{DATE} --in modal")
+        assert result is None
+
+    def test_fails_with_new_branch_equals_without_date(self) -> None:
+        result = check_safe_create_command("my-agent --new-branch=static-branch --in modal")
+        assert result is not None
 
     def test_fails_without_reuse_or_new_branch(self) -> None:
         result = check_safe_create_command("my-agent --in modal")
