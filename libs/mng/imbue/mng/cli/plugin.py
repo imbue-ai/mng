@@ -1,6 +1,7 @@
 import importlib.metadata
 import json
 import os
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -37,14 +38,16 @@ from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import PluginSpecifierError
-from imbue.mng.install_dir import build_uv_add_command
-from imbue.mng.install_dir import build_uv_add_command_for_git
-from imbue.mng.install_dir import build_uv_add_command_for_path
-from imbue.mng.install_dir import build_uv_remove_command
-from imbue.mng.install_dir import get_install_venv_python
-from imbue.mng.install_dir import require_install_dir
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import PluginName
+from imbue.mng.uv_tool import build_uv_tool_install_add
+from imbue.mng.uv_tool import build_uv_tool_install_add_git
+from imbue.mng.uv_tool import build_uv_tool_install_add_path
+from imbue.mng.uv_tool import build_uv_tool_install_remove
+from imbue.mng.uv_tool import get_base_requirement
+from imbue.mng.uv_tool import get_extra_requirements
+from imbue.mng.uv_tool import read_receipt_requirements
+from imbue.mng.uv_tool import require_uv_tool_receipt
 
 # Default fields to display
 DEFAULT_FIELDS: Final[tuple[str, ...]] = ("name", "version", "description", "enabled")
@@ -240,13 +243,10 @@ def _parse_pypi_package_name(specifier: str) -> str | None:
     return req.name
 
 
-def _get_installed_package_names(concurrency_group: Any, python_path: Path) -> set[str]:
-    """Get the set of currently installed package names via ``uv pip list``.
-
-    Uses the given Python interpreter path to query packages in that venv.
-    """
+def _get_installed_package_names(concurrency_group: Any) -> set[str]:
+    """Get the set of currently installed package names via ``uv pip list``."""
     result = concurrency_group.run_process_to_completion(
-        ("uv", "pip", "list", "--python", str(python_path), "--format", "json")
+        ("uv", "pip", "list", "--python", sys.executable, "--format", "json")
     )
     packages = json.loads(result.stdout)
     return {pkg["name"] for pkg in packages}
@@ -493,31 +493,39 @@ def _plugin_add_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
-    # Validate arguments before checking install dir so users get clear
-    # argument-validation errors rather than an install-dir error.
+    # Validate arguments before checking uv tool receipt so users get clear
+    # argument-validation errors rather than a "not installed via uv tool" error.
     source = _parse_add_source(opts)
 
-    install_dir = require_install_dir()
-    python_path = get_install_venv_python(install_dir)
+    receipt_path = require_uv_tool_receipt()
+    requirements = read_receipt_requirements(receipt_path)
+    base = get_base_requirement(requirements)
+    extras = get_extra_requirements(requirements)
 
-    # Build the uv add command and determine the display specifier
+    # Build the uv tool install command and determine the display specifier
     match source:
         case _PathSource(path=path):
+            resolved_path = str(Path(path).expanduser().resolve())
             specifier = path
-            command = build_uv_add_command_for_path(install_dir, path)
+            try:
+                package_name = _read_package_name_from_pyproject(path)
+            except PluginSpecifierError:
+                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
+                package_name = path
+            command = build_uv_tool_install_add_path(base, extras, resolved_path, package_name)
         case _GitSource(url=url):
             specifier = url
-            command = build_uv_add_command_for_git(install_dir, url)
+            command = build_uv_tool_install_add_git(base, extras, url)
         case _PypiSource(name=name):
             specifier = name
-            command = build_uv_add_command(install_dir, name)
+            command = build_uv_tool_install_add(base, extras, name)
         case _ as unreachable:
             assert_never(unreachable)
 
     # For git installs, snapshot installed packages before install so we can diff afterward
     packages_before: set[str] | None = None
     if isinstance(source, _GitSource):
-        packages_before = _get_installed_package_names(mng_ctx.concurrency_group, python_path)
+        packages_before = _get_installed_package_names(mng_ctx.concurrency_group)
 
     with log_span("Installing plugin package '{}'", specifier):
         try:
@@ -532,15 +540,11 @@ def _plugin_add_impl(ctx: click.Context) -> None:
     match source:
         case _PypiSource(name=name):
             resolved_package_name = _parse_pypi_package_name(name) or name
-        case _PathSource(path=path):
-            try:
-                resolved_package_name = _read_package_name_from_pyproject(path)
-            except PluginSpecifierError:
-                logger.debug("Could not read package name from pyproject.toml at '{}', using raw path", path)
-                resolved_package_name = path
+        case _PathSource():
+            resolved_package_name = package_name
         case _GitSource(url=url):
             assert packages_before is not None
-            packages_after = _get_installed_package_names(mng_ctx.concurrency_group, python_path)
+            packages_after = _get_installed_package_names(mng_ctx.concurrency_group)
             new_packages = packages_after - packages_before
             resolved_package_name = next(iter(new_packages)) if new_packages else url
         case _ as unreachable:
@@ -558,11 +562,14 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
         command_class=PluginCliOptions,
     )
 
-    # Validate arguments before checking install dir so users get clear
-    # argument-validation errors rather than an install-dir error.
+    # Validate arguments before checking uv tool receipt so users get clear
+    # argument-validation errors rather than a "not installed via uv tool" error.
     source = _parse_remove_source(opts)
 
-    install_dir = require_install_dir()
+    receipt_path = require_uv_tool_receipt()
+    requirements = read_receipt_requirements(receipt_path)
+    base = get_base_requirement(requirements)
+    extras = get_extra_requirements(requirements)
 
     match source:
         case _PathSource(path=path):
@@ -576,7 +583,12 @@ def _plugin_remove_impl(ctx: click.Context) -> None:
         case _ as unreachable:
             assert_never(unreachable)
 
-    command = build_uv_remove_command(install_dir, package_name)
+    # Verify the package is actually a dependency before trying to remove
+    extra_names = {r.name for r in extras}
+    if package_name not in extra_names:
+        raise AbortError(f"Package '{package_name}' is not installed as a plugin")
+
+    command = build_uv_tool_install_remove(base, extras, package_name)
 
     with log_span("Removing plugin package '{}'", package_name):
         try:

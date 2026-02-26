@@ -432,8 +432,11 @@ _WORKSPACE_PACKAGES = (
 def isolated_mng_venv(tmp_path: Path) -> Path:
     """Create a temporary venv with mng installed for subprocess-based tests.
 
-    Returns the venv directory. Use `venv / "bin" / "mng"` to run mng
-    commands, or `venv / "bin" / "python"` for the interpreter.
+    Returns the venv directory. Use ``venv / "bin" / "mng"`` to run mng
+    commands, or ``venv / "bin" / "python"`` for the interpreter.
+
+    Writes a ``uv-receipt.toml`` so that ``require_uv_tool_receipt()``
+    recognises this venv as a uv-tool-managed installation.
 
     This fixture is useful for tests that install/uninstall packages and
     need full isolation from the main workspace venv.
@@ -451,42 +454,17 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
             ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
         )
 
-    return venv_dir
-
-
-@pytest.fixture
-def isolated_mng_install_dir(tmp_path: Path, mng_test_root_name: str) -> Path:
-    """Create a temporary mng install directory for subprocess-based tests.
-
-    Creates the install directory structure that ``require_install_dir()``
-    expects: ``<HOME>/.<root_name>/install/`` containing a pyproject.toml
-    and a ``.venv`` with workspace packages installed.
-
-    Returns the install directory (parent of .venv). Run mng via
-    ``install_dir / ".venv" / "bin" / "mng"``.
-    """
-    install_dir = tmp_path / f".{mng_test_root_name}" / "install"
-    install_dir.mkdir(parents=True)
-
-    pyproject_content = (
-        '[project]\nname = "mng-install"\nversion = "0.0.0"\nrequires-python = ">=3.11"\ndependencies = ["mng"]\n'
+    # Write a uv-receipt.toml so plugin add/remove recognise this as a
+    # uv-tool-managed venv (the receipt lives at sys.prefix root).
+    receipt_content = (
+        '[tool]\nrequirements = [{ name = "mng" }]\n'
+        "entrypoints = [\n"
+        f'    {{ name = "mng", install-path = "{venv_dir / "bin" / "mng"}", from = "mng" }},\n'
+        "]\n"
     )
-    (install_dir / "pyproject.toml").write_text(pyproject_content)
+    (venv_dir / "uv-receipt.toml").write_text(receipt_content)
 
-    venv_dir = install_dir / ".venv"
-
-    install_args: list[str] = []
-    for pkg in _WORKSPACE_PACKAGES:
-        install_args.extend(["-e", str(pkg)])
-
-    cg = ConcurrencyGroup(name="isolated-install-setup")
-    with cg:
-        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
-        cg.run_process_to_completion(
-            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
-        )
-
-    return install_dir
+    return venv_dir
 
 
 @pytest.fixture(autouse=True)

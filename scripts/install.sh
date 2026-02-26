@@ -199,50 +199,12 @@ fi
 
 # ── Install mng ──────────────────────────────────────────────────────────────
 
-MNG_INSTALL_DIR="${HOME}/.mng/install"
-
-info "Setting up mng install directory at ${MNG_INSTALL_DIR}..."
-
-mkdir -p "${MNG_INSTALL_DIR}"
-
-# Write the pyproject.toml if it doesn't exist
-if [ ! -f "${MNG_INSTALL_DIR}/pyproject.toml" ]; then
-    cat > "${MNG_INSTALL_DIR}/pyproject.toml" << 'PYPROJECT'
-[project]
-name = "mng-install"
-version = "0.0.0"
-requires-python = ">=3.11"
-dependencies = ["mng"]
-PYPROJECT
-fi
-
-# Sync the project (creates .venv and installs mng + dependencies)
 info "Installing mng..."
-uv sync --project "${MNG_INSTALL_DIR}"
-
-# Create symlink for the mng binary
-MNG_BIN="${MNG_INSTALL_DIR}/.venv/bin/mng"
-SYMLINK_TARGET="${HOME}/.local/bin/mng"
-
-if [ -f "$MNG_BIN" ]; then
-    mkdir -p "${HOME}/.local/bin"
-    # Remove existing symlink/file if present (handles upgrades from uv tool install)
-    rm -f "$SYMLINK_TARGET"
-    ln -s "$MNG_BIN" "$SYMLINK_TARGET"
-    info "Symlinked mng to ${SYMLINK_TARGET}"
-else
-    warn "mng binary not found at ${MNG_BIN}"
-fi
-
-# Clean up old uv tool installation if present
-if uv tool list 2>/dev/null | grep -q "^mng "; then
-    info "Removing old uv tool installation of mng..."
-    uv tool uninstall mng 2>/dev/null || true
-fi
+uv tool install mng
 
 if ! command -v mng &>/dev/null; then
     warn "mng was installed but is not on PATH."
-    warn "Ensure ~/.local/bin is on your PATH:"
+    warn "You may need to add ~/.local/bin to your PATH:"
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
 

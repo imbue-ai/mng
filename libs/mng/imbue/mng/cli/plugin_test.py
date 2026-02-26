@@ -458,13 +458,9 @@ def test_parse_pypi_package_name_invalid_format() -> None:
 
 def test_get_installed_package_names_returns_package_names() -> None:
     """_get_installed_package_names should return a set of installed package names."""
-    python_path = Path("/tmp/test-venv/bin/python")
 
     class FakeConcurrencyGroup:
         def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
-            assert "--python" in command
-            assert str(python_path) in command
-
             class Result:
                 stdout = json.dumps(
                     [
@@ -476,13 +472,12 @@ def test_get_installed_package_names_returns_package_names() -> None:
 
             return Result()
 
-    names = _get_installed_package_names(FakeConcurrencyGroup(), python_path)
+    names = _get_installed_package_names(FakeConcurrencyGroup())
     assert names == {"mng", "mng-opencode", "pluggy"}
 
 
 def test_get_installed_package_names_empty_list() -> None:
     """_get_installed_package_names should return an empty set when no packages are installed."""
-    python_path = Path("/tmp/test-venv/bin/python")
 
     class FakeConcurrencyGroup:
         def run_process_to_completion(self, command: tuple[str, ...]) -> Any:
@@ -491,7 +486,7 @@ def test_get_installed_package_names_empty_list() -> None:
 
             return Result()
 
-    names = _get_installed_package_names(FakeConcurrencyGroup(), python_path)
+    names = _get_installed_package_names(FakeConcurrencyGroup())
     assert names == set()
 
 
