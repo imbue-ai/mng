@@ -18,13 +18,14 @@ timeout_secs = 600
 [framework]
 type = "default"
 # Discover tests locally using pytest --collect-only, exclude acceptance and release tests
-discover_command = "uv run pytest --collect-only -q 2>/dev/null -m'not release and not docker' | grep '::'"
+discover_command = "uv run pytest --collect-only -q 2>/dev/null {filters} | grep '::'"
 # Run tests in the sandbox (source is baked into /app)
-run_command = "cd /code/mng && git fetch origin ${LAST_COMMIT_SHA} && git checkout ${LAST_COMMIT_SHA} && git apply /offload-upload/patch --allow-empty && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml=/tmp/junit.xml {tests}"
+run_command = "cd /code/mng && git fetch origin ${LAST_COMMIT_SHA} && git checkout ${LAST_COMMIT_SHA} && git apply /offload-upload/patch --allow-empty && uv sync --all-packages && uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --junitxml={result_file} {tests}"
 test_id_format = "{name}"
 
 [groups.all]
 retry_count = 4
+filters = "-m'not release and not docker'"
 
 [report]
 output_dir = "test-results"

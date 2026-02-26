@@ -46,12 +46,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             ~/.cargo/bin/offload
-          key: cargo-offload-0.3.3-${{ runner.os }}
+          key: cargo-offload-0.3.4-${{ runner.os }}
 
       - name: Install offload
         run: |
           if ! command -v offload &> /dev/null; then
-            cargo install offload@0.3.3
+            cargo install offload@0.3.4
           fi
 
       - name: Run acceptance tests via offload
