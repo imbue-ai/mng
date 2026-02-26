@@ -750,7 +750,15 @@ def _load_custom_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
     config = mng_ctx.config.plugins[plugin_name]
     if not isinstance(config, KanpanPluginConfig):
         return {}
-    return dict(config.commands)
+    # Config loader uses model_construct() which bypasses validation,
+    # so nested dicts may not be parsed into CustomCommand objects.
+    result: dict[str, CustomCommand] = {}
+    for key, value in config.commands.items():
+        if isinstance(value, CustomCommand):
+            result[key] = value
+        elif isinstance(value, dict):
+            result[key] = CustomCommand(**value)
+    return result
 
 
 def run_kanpan(mng_ctx: MngContext) -> None:
