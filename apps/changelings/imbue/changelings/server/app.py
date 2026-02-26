@@ -13,6 +13,7 @@ from fastapi import WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.responses import Response
 from loguru import logger
+from websockets import ClientConnection
 
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
@@ -59,13 +60,14 @@ def _check_auth_cookie(
 
 
 def _get_authenticated_changeling_names(
-    request: Request,
+    cookies: Mapping[str, str],
     auth_store: AuthStoreInterface,
+    backend_resolver: BackendResolverInterface,
 ) -> list[ChangelingName]:
-    """Extract changeling names from valid auth cookies in the request."""
+    """Extract changeling names from valid auth cookies."""
     signing_key = auth_store.get_signing_key()
     known_names = auth_store.list_changeling_names_with_valid_codes()
-    resolver_names = request.app.state.backend_resolver.list_known_changeling_names()
+    resolver_names = backend_resolver.list_known_changeling_names()
 
     all_candidate_names: set[str] = set()
     for name in known_names:
@@ -77,7 +79,7 @@ def _get_authenticated_changeling_names(
     for candidate_name_str in sorted(all_candidate_names):
         candidate_name = ChangelingName(candidate_name_str)
         cookie_name = get_cookie_name_for_changeling(candidate_name)
-        cookie_value = request.cookies.get(cookie_name)
+        cookie_value = cookies.get(cookie_name)
         if cookie_value is not None:
             verified = verify_signed_cookie_value(
                 cookie_value=cookie_value,
@@ -87,6 +89,59 @@ def _get_authenticated_changeling_names(
                 authenticated.append(candidate_name)
 
     return authenticated
+
+
+async def _forward_client_to_backend(
+    client_websocket: WebSocket,
+    backend_ws: ClientConnection,
+) -> None:
+    """Forward messages from the client WebSocket to the backend."""
+    try:
+        data = await client_websocket.receive()
+        while data:
+            if "text" in data:
+                await backend_ws.send(data["text"])
+            elif "bytes" in data:
+                await backend_ws.send(data["bytes"])
+            else:
+                pass
+            data = await client_websocket.receive()
+    except WebSocketDisconnect:
+        await backend_ws.close()
+
+
+async def _forward_backend_to_client(
+    client_websocket: WebSocket,
+    backend_ws: ClientConnection,
+    changeling_name: str,
+) -> None:
+    """Forward messages from the backend WebSocket to the client."""
+    try:
+        async for msg in backend_ws:
+            if isinstance(msg, str):
+                await client_websocket.send_text(msg)
+            else:
+                await client_websocket.send_bytes(msg)
+    except websockets.exceptions.ConnectionClosed:
+        logger.debug("Backend WebSocket closed for {}", changeling_name)
+
+
+@asynccontextmanager
+async def _managed_lifespan(
+    inner_app: FastAPI,
+    is_externally_managed_client: bool,
+) -> AsyncGenerator[None, None]:
+    """Manage the httpx client lifecycle for the forwarding server."""
+    if not is_externally_managed_client:
+        inner_app.state.http_client = httpx.AsyncClient(
+            follow_redirects=False,
+            timeout=_PROXY_TIMEOUT_SECONDS,
+        )
+    try:
+        yield
+    finally:
+        if not is_externally_managed_client:
+            await inner_app.state.http_client.aclose()
 
 
 def create_forwarding_server(
@@ -99,16 +154,8 @@ def create_forwarding_server(
 
     @asynccontextmanager
     async def _lifespan(inner_app: FastAPI) -> AsyncGenerator[None, None]:
-        if not is_externally_managed_client:
-            inner_app.state.http_client = httpx.AsyncClient(
-                follow_redirects=False,
-                timeout=_PROXY_TIMEOUT_SECONDS,
-            )
-        try:
+        async with _managed_lifespan(inner_app=inner_app, is_externally_managed_client=is_externally_managed_client):
             yield
-        finally:
-            if not is_externally_managed_client:
-                await inner_app.state.http_client.aclose()
 
     app = FastAPI(lifespan=_lifespan)
 
@@ -159,8 +206,9 @@ def create_forwarding_server(
     @app.get("/")
     def landing_page(request: Request) -> Response:
         authenticated_names = _get_authenticated_changeling_names(
-            request=request,
+            cookies=request.cookies,
             auth_store=auth_store,
+            backend_resolver=backend_resolver,
         )
         html = render_landing_page(accessible_changeling_names=authenticated_names)
         return HTMLResponse(content=html)
@@ -268,34 +316,16 @@ def create_forwarding_server(
 
         try:
             async with websockets.connect(ws_url) as backend_ws:
-
-                async def _forward_client_to_backend_raw() -> None:
-                    try:
-                        data = await websocket.receive()
-                        while data:
-                            if "text" in data:
-                                await backend_ws.send(data["text"])
-                            elif "bytes" in data:
-                                await backend_ws.send(data["bytes"])
-                            else:
-                                pass
-                            data = await websocket.receive()
-                    except WebSocketDisconnect:
-                        await backend_ws.close()
-
-                async def _forward_backend_to_client() -> None:
-                    try:
-                        async for msg in backend_ws:
-                            if isinstance(msg, str):
-                                await websocket.send_text(msg)
-                            else:
-                                await websocket.send_bytes(msg)
-                    except websockets.exceptions.ConnectionClosed:
-                        logger.debug("Backend WebSocket closed for {}", changeling_name)
-
                 await asyncio.gather(
-                    _forward_client_to_backend_raw(),
-                    _forward_backend_to_client(),
+                    _forward_client_to_backend(
+                        client_websocket=websocket,
+                        backend_ws=backend_ws,
+                    ),
+                    _forward_backend_to_client(
+                        client_websocket=websocket,
+                        backend_ws=backend_ws,
+                        changeling_name=changeling_name,
+                    ),
                 )
 
         except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
