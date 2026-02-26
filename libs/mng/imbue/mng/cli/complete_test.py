@@ -259,15 +259,15 @@ def test_get_completions_option_choices(
     """Completing values for an option with choices."""
     data = _make_cache_data(
         commands=["list"],
-        options_by_command={"list": ["--format", "--help"]},
-        option_choices={"list.--format": ["json", "table", "jsonl"]},
+        options_by_command={"list": ["--help", "--on-error"]},
+        option_choices={"list.--on-error": ["abort", "continue"]},
     )
     _write_command_cache(completion_cache_dir, data)
-    set_comp_env("mng list --format ", "3")
+    set_comp_env("mng list --on-error ", "3")
 
     result = _get_completions()
 
-    assert result == ["json", "table", "jsonl"]
+    assert result == ["abort", "continue"]
 
 
 def test_get_completions_option_choices_with_prefix(
@@ -277,15 +277,15 @@ def test_get_completions_option_choices_with_prefix(
     """Completing values for an option with choices and a prefix."""
     data = _make_cache_data(
         commands=["list"],
-        options_by_command={"list": ["--format", "--help"]},
-        option_choices={"list.--format": ["json", "table", "jsonl"]},
+        options_by_command={"list": ["--help", "--on-error"]},
+        option_choices={"list.--on-error": ["abort", "continue"]},
     )
     _write_command_cache(completion_cache_dir, data)
-    set_comp_env("mng list --format j", "3")
+    set_comp_env("mng list --on-error a", "3")
 
     result = _get_completions()
 
-    assert result == ["json", "jsonl"]
+    assert result == ["abort"]
 
 
 def test_get_completions_subcommand_options(
