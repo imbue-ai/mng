@@ -108,6 +108,8 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     )
 
     if isinstance(provider, LocalProviderInstance):
+        if opts.full_copy:
+            logger.warning("--full-copy has no effect for the local provider (code is run from the current directory)")
         _deploy_local(trigger, mng_ctx, opts)
     elif isinstance(provider, ModalProviderInstance):
         _deploy_modal(trigger, mng_ctx, opts, provider)

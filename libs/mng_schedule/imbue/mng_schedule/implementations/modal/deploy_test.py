@@ -1,6 +1,8 @@
 """Unit tests for deploy.py and verification.py pure functions."""
 
 import json
+import subprocess
+import tarfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -992,8 +994,6 @@ def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
 
 def test_try_get_repo_root_returns_path_in_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """try_get_repo_root returns a Path when inside a git repository."""
-    import subprocess
-
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
     subprocess.run(["git", "init", str(repo_dir)], check=True, capture_output=True)
@@ -1037,8 +1037,6 @@ def test_package_directory_as_tarball_creates_tarball(tmp_path: Path) -> None:
 
 def test_package_directory_as_tarball_contents_extractable(tmp_path: Path) -> None:
     """package_directory_as_tarball produces a tarball that extracts correctly."""
-    import tarfile
-
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     (source_dir / "hello.txt").write_text("hello world")

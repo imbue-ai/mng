@@ -656,11 +656,17 @@ def deploy_schedule(
        extracted to target_repo_path (default /code/project), with WORKDIR set
        to that location.
 
+    Code packaging modes (controlled by is_full_copy):
+    - Incremental (default): resolves a git commit hash and packages the repo
+      at that commit. Requires a git repo with a pushed branch.
+    - Full copy (is_full_copy=True): packages the entire project directory
+      as-is without git. Works both inside and outside git repos.
+
     Full deployment flow:
-    1. Find repo root and derive Modal environment name
+    1. Find project root (git root, or cwd for full-copy outside a git repo)
     2. Resolve mng install mode (auto-detect if needed)
-    3. Build the mng base image (EDITABLE: package monorepo, PACKAGE: modified Dockerfile)
-    4. Resolve target repo commit hash and package into a tarball
+    3. Package target repo (incremental: via git commit, full-copy: entire directory)
+    4. Build the mng base image (EDITABLE: package monorepo, PACKAGE: modified Dockerfile)
     5. Stage deploy files (collected from plugins via hook) and env vars
     6. Write deploy config as a single JSON file
     7. Run modal deploy cron_runner.py with --env for the correct Modal environment
