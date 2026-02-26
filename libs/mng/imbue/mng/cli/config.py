@@ -35,6 +35,7 @@ from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.file_utils import atomic_write
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.interactive_subprocess import run_interactive_subprocess
 
@@ -100,10 +101,8 @@ def load_config_file_tomlkit(path: Path) -> tomlkit.TOMLDocument:
 
 
 def save_config_file(path: Path, doc: tomlkit.TOMLDocument) -> None:
-    """Save a TOML config file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        tomlkit.dump(doc, f)
+    """Save a TOML config file atomically."""
+    atomic_write(path, tomlkit.dumps(doc))
 
 
 def _get_nested_value(data: dict[str, Any], key_path: str) -> Any:
@@ -566,7 +565,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
     # Create the config file if it doesn't exist
     if not config_path.exists():
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_get_config_template())
+        atomic_write(config_path, _get_config_template())
 
     # Get the editor
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"

@@ -31,6 +31,7 @@ from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
+from imbue.mng.utils.file_utils import atomic_write
 
 USER_ID_FILENAME: Final[str] = "user_id"
 
@@ -745,5 +746,5 @@ def get_or_create_user_id(profile_dir: Path) -> UserId:
         else:
             # Generate a new user ID
             user_id = uuid4().hex
-        user_id_file.write_text(user_id)
+        atomic_write(user_id_file, user_id)
     return UserId(user_id)
