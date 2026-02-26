@@ -1,9 +1,11 @@
 import asyncio
 from collections.abc import AsyncGenerator
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from typing import Final
 
 import httpx
+import websockets
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi import WebSocket
@@ -38,6 +40,24 @@ _EXCLUDED_RESPONSE_HEADERS: Final[frozenset[str]] = frozenset(
 )
 
 
+def _check_auth_cookie(
+    cookies: Mapping[str, str],
+    changeling_name: ChangelingName,
+    auth_store: AuthStoreInterface,
+) -> bool:
+    """Check whether the given cookies contain a valid auth cookie for the changeling."""
+    signing_key = auth_store.get_signing_key()
+    cookie_name = get_cookie_name_for_changeling(changeling_name)
+    cookie_value = cookies.get(cookie_name)
+    if cookie_value is None:
+        return False
+    verified = verify_signed_cookie_value(
+        cookie_value=cookie_value,
+        signing_key=signing_key,
+    )
+    return verified == changeling_name
+
+
 def _get_authenticated_changeling_names(
     request: Request,
     auth_store: AuthStoreInterface,
@@ -67,42 +87,6 @@ def _get_authenticated_changeling_names(
                 authenticated.append(candidate_name)
 
     return authenticated
-
-
-def _is_authenticated_for_changeling(
-    request: Request,
-    changeling_name: ChangelingName,
-    auth_store: AuthStoreInterface,
-) -> bool:
-    """Check whether the request has a valid auth cookie for the given changeling."""
-    signing_key = auth_store.get_signing_key()
-    cookie_name = get_cookie_name_for_changeling(changeling_name)
-    cookie_value = request.cookies.get(cookie_name)
-    if cookie_value is None:
-        return False
-    verified = verify_signed_cookie_value(
-        cookie_value=cookie_value,
-        signing_key=signing_key,
-    )
-    return verified == changeling_name
-
-
-def _is_websocket_authenticated_for_changeling(
-    websocket: WebSocket,
-    changeling_name: ChangelingName,
-    auth_store: AuthStoreInterface,
-) -> bool:
-    """Check whether the WebSocket request has a valid auth cookie for the given changeling."""
-    signing_key = auth_store.get_signing_key()
-    cookie_name = get_cookie_name_for_changeling(changeling_name)
-    cookie_value = websocket.cookies.get(cookie_name)
-    if cookie_value is None:
-        return False
-    verified = verify_signed_cookie_value(
-        cookie_value=cookie_value,
-        signing_key=signing_key,
-    )
-    return verified == changeling_name
 
 
 def create_forwarding_server(
@@ -139,7 +123,7 @@ def create_forwarding_server(
         code = OneTimeCode(one_time_code)
 
         # If user already has a valid cookie, redirect to landing page
-        if _is_authenticated_for_changeling(request=request, changeling_name=name, auth_store=auth_store):
+        if _check_auth_cookie(cookies=request.cookies, changeling_name=name, auth_store=auth_store):
             return Response(status_code=307, headers={"Location": "/"})
 
         # Render JS redirect to /authenticate (prevents prefetch consumption)
@@ -189,7 +173,7 @@ def create_forwarding_server(
         name = ChangelingName(changeling_name)
 
         # Check auth
-        if not _is_authenticated_for_changeling(request=request, changeling_name=name, auth_store=auth_store):
+        if not _check_auth_cookie(cookies=request.cookies, changeling_name=name, auth_store=auth_store):
             return Response(status_code=403, content="Not authenticated for this changeling")
 
         # Serve the service worker script
@@ -266,11 +250,7 @@ def create_forwarding_server(
         name = ChangelingName(changeling_name)
 
         # Check auth
-        if not _is_websocket_authenticated_for_changeling(
-            websocket=websocket,
-            changeling_name=name,
-            auth_store=auth_store,
-        ):
+        if not _check_auth_cookie(cookies=websocket.cookies, changeling_name=name, auth_store=auth_store):
             await websocket.close(code=4003, reason="Not authenticated")
             return
 
@@ -285,8 +265,6 @@ def create_forwarding_server(
             ws_url += f"?{websocket.url.query}"
 
         await websocket.accept()
-
-        import websockets
 
         try:
             async with websockets.connect(ws_url) as backend_ws:

@@ -147,7 +147,7 @@ def test_prevent_builtin_exception_raises() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_relative_imports() -> None:
