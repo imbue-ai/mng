@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import Final
 
 import httpx
@@ -8,6 +10,7 @@ from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.responses import Response
+from loguru import logger
 
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
@@ -84,21 +87,51 @@ def _is_authenticated_for_changeling(
     return verified == changeling_name
 
 
+def _is_websocket_authenticated_for_changeling(
+    websocket: WebSocket,
+    changeling_name: ChangelingName,
+    auth_store: AuthStoreInterface,
+) -> bool:
+    """Check whether the WebSocket request has a valid auth cookie for the given changeling."""
+    signing_key = auth_store.get_signing_key()
+    cookie_name = get_cookie_name_for_changeling(changeling_name)
+    cookie_value = websocket.cookies.get(cookie_name)
+    if cookie_value is None:
+        return False
+    verified = verify_signed_cookie_value(
+        cookie_value=cookie_value,
+        signing_key=signing_key,
+    )
+    return verified == changeling_name
+
+
 def create_forwarding_server(
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
     http_client: httpx.AsyncClient | None,
 ) -> FastAPI:
     """Create the local forwarding server FastAPI application."""
-    app = FastAPI()
+    is_externally_managed_client = http_client is not None
+
+    @asynccontextmanager
+    async def _lifespan(inner_app: FastAPI) -> AsyncGenerator[None, None]:
+        if not is_externally_managed_client:
+            inner_app.state.http_client = httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=_PROXY_TIMEOUT_SECONDS,
+            )
+        try:
+            yield
+        finally:
+            if not is_externally_managed_client:
+                await inner_app.state.http_client.aclose()
+
+    app = FastAPI(lifespan=_lifespan)
 
     app.state.auth_store = auth_store
     app.state.backend_resolver = backend_resolver
-    app.state.http_client = (
-        http_client
-        if http_client is not None
-        else httpx.AsyncClient(follow_redirects=False, timeout=_PROXY_TIMEOUT_SECONDS)
-    )
+    if http_client is not None:
+        app.state.http_client = http_client
 
     @app.get("/login")
     def login(changeling_name: str, one_time_code: str, request: Request) -> Response:
@@ -189,8 +222,8 @@ def create_forwarding_server(
 
         body = await request.body()
 
-        http_client: httpx.AsyncClient = app.state.http_client
-        resp = await http_client.request(
+        active_http_client: httpx.AsyncClient = app.state.http_client
+        resp = await active_http_client.request(
             method=request.method,
             url=proxy_url,
             headers=headers,
@@ -232,6 +265,15 @@ def create_forwarding_server(
     async def proxy_websocket(websocket: WebSocket, changeling_name: str, path: str) -> None:
         name = ChangelingName(changeling_name)
 
+        # Check auth
+        if not _is_websocket_authenticated_for_changeling(
+            websocket=websocket,
+            changeling_name=name,
+            auth_store=auth_store,
+        ):
+            await websocket.close(code=4003, reason="Not authenticated")
+            return
+
         backend_url = backend_resolver.get_backend_url(name)
         if backend_url is None:
             await websocket.close(code=4004, reason=f"Unknown changeling: {changeling_name}")
@@ -271,17 +313,18 @@ def create_forwarding_server(
                             else:
                                 await websocket.send_bytes(msg)
                     except websockets.exceptions.ConnectionClosed:
-                        pass
+                        logger.debug("Backend WebSocket closed for {}", changeling_name)
 
                 await asyncio.gather(
                     _forward_client_to_backend_raw(),
                     _forward_backend_to_client(),
                 )
 
-        except ConnectionRefusedError:
+        except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
+            logger.debug("Backend WebSocket connection failed for {}: {}", changeling_name, connection_error)
             try:
-                await websocket.close(code=1011, reason="Backend connection refused")
+                await websocket.close(code=1011, reason="Backend connection failed")
             except RuntimeError:
-                pass
+                logger.trace("WebSocket already closed when trying to send error for {}", changeling_name)
 
     return app

@@ -2,11 +2,13 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
+import pytest
 from fastapi import FastAPI
 from fastapi import Request as FastAPIRequest
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
@@ -270,3 +272,36 @@ def test_login_redirects_if_already_authenticated(tmp_path: Path) -> None:
     )
     assert response.status_code == 307
     assert response.headers["location"] == "/"
+
+
+def test_websocket_proxy_rejects_unauthenticated_connection(tmp_path: Path) -> None:
+    client, _, changeling_name, _ = _setup_test_server(tmp_path)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect(f"/agents/{changeling_name}/ws"):
+            pass
+
+    assert exc_info.value.code == 4003
+
+
+def test_websocket_proxy_rejects_unknown_backend(tmp_path: Path) -> None:
+    auth_dir = tmp_path / "auth"
+    auth_store = FileAuthStore(data_directory=auth_dir)
+    changeling_name = ChangelingName(f"no-ws-backend-{uuid4().hex}")
+
+    backend_resolver = StaticBackendResolver(url_by_changeling_name={})
+
+    app = create_forwarding_server(
+        auth_store=auth_store,
+        backend_resolver=backend_resolver,
+        http_client=None,
+    )
+    client = TestClient(app)
+
+    _authenticate_client(client=client, auth_store=auth_store, changeling_name=changeling_name)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect(f"/agents/{changeling_name}/ws"):
+            pass
+
+    assert exc_info.value.code == 4004

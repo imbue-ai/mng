@@ -1,3 +1,5 @@
+from pydantic import SecretStr
+
 from imbue.imbue_common.primitives import NonEmptyStr
 
 
@@ -13,7 +15,7 @@ class OneTimeCode(NonEmptyStr):
     ...
 
 
-class CookieSigningKey(NonEmptyStr):
+class CookieSigningKey(SecretStr):
     """Secret key used for signing authentication cookies."""
 
     ...

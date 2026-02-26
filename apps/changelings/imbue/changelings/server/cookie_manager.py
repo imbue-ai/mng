@@ -30,7 +30,7 @@ def create_signed_cookie_value(
     signing_key: CookieSigningKey,
 ) -> str:
     """Create a signed cookie value containing the changeling name."""
-    serializer = URLSafeTimedSerializer(secret_key=str(signing_key))
+    serializer = URLSafeTimedSerializer(secret_key=signing_key.get_secret_value())
     return serializer.dumps(str(changeling_name), salt=_COOKIE_SALT)
 
 
@@ -39,7 +39,7 @@ def verify_signed_cookie_value(
     signing_key: CookieSigningKey,
 ) -> ChangelingName | None:
     """Verify and decode a signed cookie, returning the changeling name or None if invalid."""
-    serializer = URLSafeTimedSerializer(secret_key=str(signing_key))
+    serializer = URLSafeTimedSerializer(secret_key=signing_key.get_secret_value())
     try:
         name = serializer.loads(
             cookie_value,

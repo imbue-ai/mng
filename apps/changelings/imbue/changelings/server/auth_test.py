@@ -4,7 +4,6 @@ import pytest
 
 from imbue.changelings.errors import SigningKeyError
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.primitives import CookieSigningKey
 from imbue.changelings.primitives import OneTimeCode
 from imbue.changelings.server.auth import FileAuthStore
 
@@ -16,14 +15,14 @@ def _make_auth_store(tmp_path: Path) -> FileAuthStore:
 def test_get_signing_key_generates_key_on_first_access(tmp_path: Path) -> None:
     store = _make_auth_store(tmp_path)
     key = store.get_signing_key()
-    assert len(str(key)) > 32
+    assert len(key.get_secret_value()) > 32
 
 
 def test_get_signing_key_returns_same_key_on_subsequent_access(tmp_path: Path) -> None:
     store = _make_auth_store(tmp_path)
     key_first = store.get_signing_key()
     key_second = store.get_signing_key()
-    assert key_first == key_second
+    assert key_first.get_secret_value() == key_second.get_secret_value()
 
 
 def test_get_signing_key_persists_across_instances(tmp_path: Path) -> None:
@@ -34,7 +33,7 @@ def test_get_signing_key_persists_across_instances(tmp_path: Path) -> None:
     store_b = FileAuthStore(data_directory=auth_dir)
     key_b = store_b.get_signing_key()
 
-    assert key_a == key_b
+    assert key_a.get_secret_value() == key_b.get_secret_value()
 
 
 def test_get_signing_key_raises_for_empty_key_file(tmp_path: Path) -> None:
@@ -158,4 +157,4 @@ def test_get_signing_key_reads_existing_key(tmp_path: Path) -> None:
 
     store = FileAuthStore(data_directory=auth_dir)
     key = store.get_signing_key()
-    assert key == CookieSigningKey("my-custom-key-82734")
+    assert key.get_secret_value() == "my-custom-key-82734"
