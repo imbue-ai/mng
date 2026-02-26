@@ -1,6 +1,6 @@
 {
   "name": "mng-agent-viewer",
-  "displayName": "MNG Agent Viewer",
+  "displayName": "mng agent viewer",
   "description": "View mng agents and their pull requests side by side",
   "version": "0.1.0",
   "publisher": "imbue-ai",
@@ -25,7 +25,7 @@
       "activitybar": [
         {
           "id": "mng-agents",
-          "title": "MNG Agents",
+          "title": "mng agents",
           "icon": "$(vm)"
         }
       ]
@@ -47,42 +47,42 @@
     "commands": [
       {
         "command": "mng.refresh",
-        "title": "MNG: Refresh Agents",
+        "title": "mng: refresh agents",
         "icon": "$(refresh)"
       },
       {
         "command": "mng.openPR",
-        "title": "MNG: Open Pull Request",
+        "title": "mng: open pull request",
         "icon": "$(git-pull-request)"
       },
       {
         "command": "mng.openPRSideBySide",
-        "title": "MNG: Open PR Side by Side",
+        "title": "mng: open PR side by side",
         "icon": "$(split-horizontal)"
       },
       {
         "command": "mng.connectAgent",
-        "title": "MNG: Connect to Agent",
+        "title": "mng: connect to agent",
         "icon": "$(terminal)"
       },
       {
         "command": "mng.openAgentUrl",
-        "title": "MNG: Open Agent URL",
+        "title": "mng: open agent URL",
         "icon": "$(globe)"
       },
       {
         "command": "mng.stopAgent",
-        "title": "MNG: Stop Agent",
+        "title": "mng: stop agent",
         "icon": "$(debug-stop)"
       },
       {
         "command": "mng.pullFromAgent",
-        "title": "MNG: Pull from Agent",
+        "title": "mng: pull from agent",
         "icon": "$(cloud-download)"
       },
       {
         "command": "mng.createAgent",
-        "title": "MNG: Create Agent"
+        "title": "mng: create agent"
       }
     ],
     "menus": {
@@ -123,7 +123,7 @@
       ]
     },
     "configuration": {
-      "title": "MNG Agent Viewer",
+      "title": "mng agent viewer",
       "properties": {
         "mng.pollInterval": {
           "type": "number",

@@ -28,7 +28,7 @@ export class MngService {
                 return [];
             }
             // Log but don't crash -- return empty list on transient errors
-            const channel = vscode.window.createOutputChannel('MNG Agent Viewer');
+            const channel = vscode.window.createOutputChannel('mng agent viewer');
             channel.appendLine(`Error listing agents: ${err}`);
             return [];
         }

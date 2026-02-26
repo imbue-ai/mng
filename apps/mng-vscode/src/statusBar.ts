@@ -7,8 +7,8 @@ export class StatusBarManager {
     constructor() {
         this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
         this.item.command = 'workbench.view.extension.mng-agents';
-        this.item.text = '$(vm) MNG';
-        this.item.tooltip = 'MNG Agent Viewer';
+        this.item.text = '$(vm) mng';
+        this.item.tooltip = 'mng agent viewer';
     }
 
     register(context: vscode.ExtensionContext): void {
@@ -18,7 +18,7 @@ export class StatusBarManager {
 
     update(summary: AgentSummary): void {
         if (summary.totalAgents === 0) {
-            this.item.text = '$(vm) MNG: no agents';
+            this.item.text = '$(vm) mng: no agents';
             return;
         }
         const parts: string[] = [];
@@ -31,6 +31,6 @@ export class StatusBarManager {
         if (parts.length === 0) {
             parts.push(`${summary.totalAgents} agents`);
         }
-        this.item.text = `$(vm) MNG: ${parts.join(' | ')}`;
+        this.item.text = `$(vm) mng: ${parts.join(' | ')}`;
     }
 }

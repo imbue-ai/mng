@@ -1,4 +1,4 @@
-# Task: Visually test the MNG VS Code extension using code-server
+# Task: Visually test the mng VS Code extension using code-server
 
 You are testing a VS Code extension that shows mng agents in a sidebar TreeView. Your job is to install code-server, load the extension, take screenshots, and save them for retrieval.
 
@@ -89,21 +89,21 @@ async def take_screenshots():
         await page.goto('http://127.0.0.1:8080', wait_until='networkidle', timeout=60000)
         await asyncio.sleep(5)  # Let VS Code fully initialize
 
-        # Screenshot 1: Initial state (should show the MNG sidebar icon in activity bar)
+        # Screenshot 1: Initial state (should show the mng sidebar icon in activity bar)
         await page.screenshot(path='/tmp/test-workspace/screenshot-01-initial.png', full_page=False)
 
-        # Try to click the MNG Agents icon in the activity bar
+        # Try to click the mng agents icon in the activity bar
         # The activity bar items are typically in the leftmost column
-        # Look for the MNG Agents view container
+        # Look for the mng agents view container
         try:
-            # Try clicking the activity bar icon for MNG Agents
+            # Try clicking the activity bar icon for mng agents
             mng_icon = page.locator('[id="workbench.view.extension.mng-agents"]')
             if await mng_icon.count() > 0:
                 await mng_icon.click()
                 await asyncio.sleep(3)
             else:
                 # Try aria label approach
-                mng_icon = page.locator('a[aria-label*="MNG"]')
+                mng_icon = page.locator('a[aria-label*="mng"]')
                 if await mng_icon.count() > 0:
                     await mng_icon.click()
                     await asyncio.sleep(3)
@@ -117,9 +117,9 @@ async def take_screenshots():
                             labels.append(label)
                     print(f"Activity bar items found: {labels}")
         except Exception as e:
-            print(f"Could not click MNG icon: {e}")
+            print(f"Could not click mng icon: {e}")
 
-        # Screenshot 2: After clicking MNG sidebar (may show agents or welcome message)
+        # Screenshot 2: After clicking mng sidebar (may show agents or welcome message)
         await page.screenshot(path='/tmp/test-workspace/screenshot-02-sidebar.png', full_page=False)
 
         # Screenshot 3: Full page with any error messages visible
@@ -164,7 +164,7 @@ ls -la screenshots/
 After completing all steps, list what screenshots were captured and describe what you see in each one. Note any issues:
 - Did the extension icon appear in the activity bar?
 - Did the TreeView show agents or the welcome message?
-- Did the status bar show the MNG item?
+- Did the status bar show the mng item?
 - Were there any errors in the output panel?
 
 IMPORTANT: Make sure the screenshots directory is in your work directory so it can be pulled with `mng pull`.

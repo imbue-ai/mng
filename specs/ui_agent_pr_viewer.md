@@ -222,7 +222,7 @@ Key sections of the manifest:
 ```jsonc
 {
   "name": "mng-agent-viewer",
-  "displayName": "MNG Agent Viewer",
+  "displayName": "mng agent viewer",
   "description": "View mng agents and their pull requests side by side",
   "version": "0.1.0",
   "engines": { "vscode": "^1.85.0" },
@@ -235,7 +235,7 @@ Key sections of the manifest:
     "viewsContainers": {
       "activitybar": [{
         "id": "mng-agents",
-        "title": "MNG Agents",
+        "title": "mng agents",
         "icon": "resources/icons/mng.svg"
       }]
     },
@@ -253,42 +253,42 @@ Key sections of the manifest:
     "commands": [
       {
         "command": "mng.refresh",
-        "title": "MNG: Refresh Agents",
+        "title": "mng: refresh agents",
         "icon": "$(refresh)"
       },
       {
         "command": "mng.openPR",
-        "title": "MNG: Open Pull Request",
+        "title": "mng: open pull request",
         "icon": "$(git-pull-request)"
       },
       {
         "command": "mng.openPRSideBySide",
-        "title": "MNG: Open PR Side by Side",
+        "title": "mng: open PR side by side",
         "icon": "$(split-horizontal)"
       },
       {
         "command": "mng.connectAgent",
-        "title": "MNG: Connect to Agent",
+        "title": "mng: connect to agent",
         "icon": "$(terminal)"
       },
       {
         "command": "mng.openAgentUrl",
-        "title": "MNG: Open Agent URL",
+        "title": "mng: open agent URL",
         "icon": "$(globe)"
       },
       {
         "command": "mng.stopAgent",
-        "title": "MNG: Stop Agent",
+        "title": "mng: stop agent",
         "icon": "$(debug-stop)"
       },
       {
         "command": "mng.pullFromAgent",
-        "title": "MNG: Pull from Agent",
+        "title": "mng: pull from agent",
         "icon": "$(cloud-download)"
       },
       {
         "command": "mng.createAgent",
-        "title": "MNG: Create Agent"
+        "title": "mng: create agent"
       }
     ],
     "menus": {
@@ -327,7 +327,7 @@ Key sections of the manifest:
       ]
     },
     "configuration": {
-      "title": "MNG Agent Viewer",
+      "title": "mng agent viewer",
       "properties": {
         "mng.pollInterval": {
           "type": "number",
@@ -995,8 +995,8 @@ export class StatusBarManager {
             50
         );
         this.item.command = 'workbench.view.extension.mng-agents';
-        this.item.text = '$(vm) MNG';
-        this.item.tooltip = 'MNG Agent Viewer';
+        this.item.text = '$(vm) mng';
+        this.item.tooltip = 'mng agent viewer';
     }
 
     register(context: vscode.ExtensionContext): void {
@@ -1006,7 +1006,7 @@ export class StatusBarManager {
 
     update(summary: AgentSummary): void {
         if (summary.totalAgents === 0) {
-            this.item.text = '$(vm) MNG: no agents';
+            this.item.text = '$(vm) mng: no agents';
         } else {
             const parts: string[] = [];
             if (summary.runningAgents > 0) {
@@ -1018,7 +1018,7 @@ export class StatusBarManager {
             if (parts.length === 0) {
                 parts.push(`${summary.totalAgents} agents`);
             }
-            this.item.text = `$(vm) MNG: ${parts.join(' | ')}`;
+            this.item.text = `$(vm) mng: ${parts.join(' | ')}`;
         }
     }
 }
