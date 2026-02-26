@@ -201,7 +201,7 @@ def run_scheduled_trigger() -> None:
         _run_and_stream(["git", "merge", f"origin/{_AUTO_MERGE_BRANCH}"])
 
     # REMOVE THIS, just checking more quickly
-    _run_and_stream([sys.executable, "-m", "modal", "environment", "create", "--help"])
+    _run_and_stream(["modal", "environment", "create", "--help"])
 
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()
@@ -211,7 +211,7 @@ def run_scheduled_trigger() -> None:
     now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d-%H-%M-%S")
     formatted_args_str = args_str.format(DATE=now_str)
 
-    cmd = ["uv", "run", "mng", command]
+    cmd = ["mng", command]
     if formatted_args_str:
         cmd.extend(shlex.split(formatted_args_str))
 

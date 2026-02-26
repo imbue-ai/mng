@@ -57,6 +57,7 @@ RUN unset UV_INDEX_URL && uv sync --all-packages
 
 # install mng as a tool
 RUN uv tool install -e /code/mng/libs/mng
+RUN uv tool install modal
 
 # Run idly forever while being responsive to SIGTERM.
 # PID 1 must explicitly install signal handlers in order to respect signals.
