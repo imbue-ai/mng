@@ -72,7 +72,7 @@ def test_emit_human_output_logs_successful_agents(capsys: pytest.CaptureFixture)
     result = MessageResult()
     result.successful_agents = ["agent1", "agent2"]
 
-    _emit_human_output(result, "test message", _DEFAULT_OPTS)
+    _emit_human_output(result)
 
     # The output is logged via loguru, not printed directly
     # We can't easily capture it here, but we can verify no exception is raised
@@ -83,7 +83,7 @@ def test_emit_human_output_logs_failed_agents(capsys: pytest.CaptureFixture) -> 
     result = MessageResult()
     result.failed_agents = [("agent1", "error1"), ("agent2", "error2")]
 
-    _emit_human_output(result, "test message", _DEFAULT_OPTS)
+    _emit_human_output(result)
 
     # The output is logged via loguru
 
@@ -93,7 +93,7 @@ def test_emit_human_output_handles_no_agents() -> None:
     result = MessageResult()
 
     # Should not raise
-    _emit_human_output(result, "test message", _DEFAULT_OPTS)
+    _emit_human_output(result)
 
 
 def test_emit_json_output_formats_successful_agents(capsys: pytest.CaptureFixture) -> None:

@@ -177,9 +177,12 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
         is_start_desired=opts.start,
     )
 
-    _emit_output(result, output_opts, message_content, opts)
+    _emit_output(result, output_opts)
 
     if result.failed_agents:
+        if output_opts.output_format == OutputFormat.HUMAN:
+            retry_hint = _build_retry_hint(result.failed_agents, message_content, opts)
+            write_human_line("To retry: {}", retry_hint)
         ctx.exit(1)
 
 
@@ -218,13 +221,11 @@ def _emit_jsonl_error(agent_name: str, error: str) -> None:
     )
 
 
-def _emit_output(
-    result: MessageResult, output_opts: OutputOptions, message_content: str, opts: MessageCliOptions
-) -> None:
+def _emit_output(result: MessageResult, output_opts: OutputOptions) -> None:
     """Emit output based on the result and format."""
     match output_opts.output_format:
         case OutputFormat.HUMAN:
-            _emit_human_output(result, message_content, opts)
+            _emit_human_output(result)
         case OutputFormat.JSON:
             _emit_json_output(result)
         case OutputFormat.JSONL:
@@ -234,7 +235,7 @@ def _emit_output(
             assert_never(unreachable)
 
 
-def _emit_human_output(result: MessageResult, message_content: str, opts: MessageCliOptions) -> None:
+def _emit_human_output(result: MessageResult) -> None:
     """Emit human-readable output."""
     if result.successful_agents:
         for agent_name in result.successful_agents:
@@ -251,11 +252,6 @@ def _emit_human_output(result: MessageResult, message_content: str, opts: Messag
     else:
         # Only failed agents, no successful ones - failures already logged above
         write_human_line("Failed to send message to {} agent(s)", len(result.failed_agents))
-
-    # Emit a retry hint when some agents failed
-    if result.failed_agents:
-        retry_hint = _build_retry_hint(result.failed_agents, message_content, opts)
-        write_human_line("To retry: {}", retry_hint)
 
 
 def _build_retry_hint(
