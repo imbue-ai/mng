@@ -425,7 +425,7 @@ def test_shutdown_propagates_to_children_and_kills_processes(tmp_path: Path) -> 
             target=_create_nested_concurrency_group_and_run_process,
             args=(cg, closure, tmp_path, process_started_event),
         )
-        process_started_event.wait(timeout=5.0)
+        process_started_event.wait(timeout=SMALL_SLEEP)
         cg.shutdown()
     assert closure["i"] == 10
 
@@ -455,7 +455,7 @@ def test_new_resources_cannot_be_created_when_shutting_down(tmp_path: Path) -> N
             target=_create_nested_concurrency_group_and_run_process_while_shutting_down,
             args=(cg, tmp_path, closure, process_started_event),
         )
-        process_started_event.wait(timeout=5.0)
+        process_started_event.wait(timeout=SMALL_SLEEP)
         cg.shutdown()
     assert closure["i"] == 1
 
