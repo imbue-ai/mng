@@ -188,16 +188,19 @@ def _get_positional_candidates(
 ) -> list[str]:
     """Return positional argument candidates (agent names) if applicable."""
     if resolved_command is None:
-        # No command resolved yet -- nothing to complete
         return []
-    elif resolved_command in agent_name_arguments:
-        # Top-level command that accepts agent names (e.g. "connect", "destroy")
+
+    # Top-level command (e.g. "connect", "destroy")
+    if resolved_command in agent_name_arguments:
         return _read_agent_names()
-    elif resolved_subcommand is not None and f"{resolved_command}.{resolved_subcommand}" in agent_name_arguments:
-        # Group subcommand that accepts agent names (e.g. "snapshot.create")
+
+    if resolved_subcommand is None:
+        return []
+
+    # Group subcommand (e.g. "snapshot.create")
+    if f"{resolved_command}.{resolved_subcommand}" in agent_name_arguments:
         return _read_agent_names()
     else:
-        # Command/subcommand does not accept agent names
         return []
 
 
