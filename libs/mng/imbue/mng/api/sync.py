@@ -462,9 +462,9 @@ def sync_files(
     #
     # Also skip if the destination doesn't exist yet (e.g. pushing to a new
     # subdirectory) or isn't a git repo (e.g. pulling to a plain directory).
-    is_destination_git_repo = (
-        git_ctx.is_git_repository(destination_path) if _dir_exists(host, destination_path) else False
-    )
+    # In PUSH mode the destination is on the remote host; in PULL mode it is local.
+    is_destination_exists = _dir_exists(host, destination_path) if mode == SyncMode.PUSH else destination_path.is_dir()
+    is_destination_git_repo = git_ctx.is_git_repository(destination_path) if is_destination_exists else False
     should_stash = uncommitted_changes != UncommittedChangesMode.CLOBBER and is_destination_git_repo
 
     stash_cm = _stash_guard(git_ctx, destination_path, uncommitted_changes) if should_stash else nullcontext(False)
