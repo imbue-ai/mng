@@ -1,0 +1,157 @@
+import re
+from typing import Final
+
+from imbue.changelings.primitives import ChangelingName
+from imbue.imbue_common.pure import pure
+
+_COOKIE_PATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"(;\s*[Pp]ath\s*=\s*)([^;]*)")
+
+
+@pure
+def _get_agent_prefix(changeling_name: ChangelingName) -> str:
+    return f"/agents/{changeling_name}"
+
+
+@pure
+def generate_bootstrap_html(changeling_name: ChangelingName) -> str:
+    """Generate the bootstrap HTML that installs the Service Worker on first visit."""
+    prefix = _get_agent_prefix(changeling_name)
+    return f"""<!DOCTYPE html>
+<html><head><title>Loading...</title></head>
+<body>
+<p>Loading...</p>
+<script>
+const PREFIX = '{prefix}/';
+const SW_URL = PREFIX + '__sw.js';
+
+async function boot() {{
+  const reg = await navigator.serviceWorker.register(SW_URL, {{ scope: PREFIX }});
+  const sw = reg.installing || reg.waiting || reg.active;
+
+  function onActivated() {{
+    document.cookie = 'sw_installed_{changeling_name}=1; path=' + PREFIX;
+    location.reload();
+  }}
+
+  if (sw.state === 'activated') {{
+    onActivated();
+    return;
+  }}
+
+  sw.addEventListener('statechange', () => {{
+    if (sw.state === 'activated') onActivated();
+  }});
+}}
+
+boot().catch(err => {{
+  document.body.textContent = 'Failed to initialize: ' + err.message;
+}});
+</script>
+</body></html>"""
+
+
+@pure
+def generate_service_worker_js(changeling_name: ChangelingName) -> str:
+    """Generate the Service Worker JavaScript for transparent path rewriting."""
+    prefix = _get_agent_prefix(changeling_name)
+    return f"""
+const PREFIX = '{prefix}';
+
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+
+self.addEventListener('fetch', (event) => {{
+  const url = new URL(event.request.url);
+
+  if (url.origin !== location.origin) return;
+
+  if (url.pathname.startsWith(PREFIX + '/') || url.pathname === PREFIX) return;
+
+  if (url.pathname.endsWith('__sw.js')) return;
+
+  url.pathname = PREFIX + url.pathname;
+
+  const init = {{
+    method: event.request.method,
+    headers: event.request.headers,
+    mode: event.request.mode,
+    credentials: event.request.credentials,
+    redirect: 'manual',
+  }};
+
+  if (!['GET', 'HEAD'].includes(event.request.method)) {{
+    init.body = event.request.body;
+    init.duplex = 'half';
+  }}
+
+  event.respondWith(fetch(new Request(url.toString(), init)));
+}});
+"""
+
+
+@pure
+def generate_websocket_shim_js(changeling_name: ChangelingName) -> str:
+    """Generate the WebSocket shim script that rewrites WS URLs to include the agent prefix."""
+    prefix = _get_agent_prefix(changeling_name)
+    return f"""<script>
+(function() {{
+  var PREFIX = '{prefix}';
+  var OrigWebSocket = window.WebSocket;
+
+  window.WebSocket = function(url, protocols) {{
+    try {{
+      var parsed = new URL(url, location.origin);
+      if (parsed.host === location.host) {{
+        if (!parsed.pathname.startsWith(PREFIX + '/') && parsed.pathname !== PREFIX) {{
+          parsed.pathname = PREFIX + parsed.pathname;
+        }}
+        url = parsed.toString();
+      }}
+    }} catch(e) {{}}
+    return protocols !== undefined
+      ? new OrigWebSocket(url, protocols)
+      : new OrigWebSocket(url);
+  }};
+
+  window.WebSocket.prototype = OrigWebSocket.prototype;
+  window.WebSocket.CONNECTING = OrigWebSocket.CONNECTING;
+  window.WebSocket.OPEN = OrigWebSocket.OPEN;
+  window.WebSocket.CLOSING = OrigWebSocket.CLOSING;
+  window.WebSocket.CLOSED = OrigWebSocket.CLOSED;
+}})();
+</script>"""
+
+
+@pure
+def rewrite_cookie_path(set_cookie_header: str, changeling_name: ChangelingName) -> str:
+    """Rewrite the Path attribute in a Set-Cookie header to scope under the agent prefix."""
+    prefix = _get_agent_prefix(changeling_name)
+
+    match = _COOKIE_PATH_PATTERN.search(set_cookie_header)
+
+    if match:
+        original_path = match.group(2).strip()
+        if original_path.startswith(prefix):
+            return set_cookie_header
+        separator = "" if original_path.startswith("/") else "/"
+        new_path = prefix + separator + original_path
+        return set_cookie_header[: match.start(2)] + new_path + set_cookie_header[match.end(2) :]
+    else:
+        return set_cookie_header + f"; Path={prefix}/"
+
+
+@pure
+def inject_websocket_shim_into_html(
+    html_content: str,
+    changeling_name: ChangelingName,
+) -> str:
+    """Inject the WebSocket shim script into an HTML document."""
+    shim = generate_websocket_shim_js(changeling_name)
+    if "<head>" in html_content:
+        return html_content.replace("<head>", "<head>" + shim, 1)
+    elif "<head " in html_content:
+        idx = html_content.index("<head ")
+        close_idx = html_content.index(">", idx)
+        return html_content[: close_idx + 1] + shim + html_content[close_idx + 1 :]
+    else:
+        return shim + html_content

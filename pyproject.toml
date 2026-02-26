@@ -186,6 +186,7 @@ layers = [
     "imbue.changelings.main",
     "imbue.changelings.cli",
     "imbue.changelings.deploy",
+    "imbue.changelings.server",
     "imbue.changelings.config",
     "imbue.changelings.mng_commands",
     "imbue.changelings.data_types",

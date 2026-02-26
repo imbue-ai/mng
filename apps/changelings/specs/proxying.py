@@ -6,6 +6,7 @@ pip install fastapi uvicorn httpx websockets
 """
 
 import asyncio
+import re
 
 import httpx
 from fastapi import FastAPI
@@ -200,8 +201,6 @@ http_client = httpx.AsyncClient(follow_redirects=False, timeout=30.0)
 # ---------------------------------------------------------------------------
 # Cookie path rewriting
 # ---------------------------------------------------------------------------
-
-import re
 
 
 def _rewrite_cookie_path(set_cookie: str, agent_id: str) -> str:
