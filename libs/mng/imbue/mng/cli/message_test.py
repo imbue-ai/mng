@@ -1,10 +1,8 @@
 import click
 import pytest
 
-from imbue.imbue_common.model_update import to_update
 from imbue.mng.api.message import MessageResult
 from imbue.mng.cli.message import MessageCliOptions
-from imbue.mng.cli.message import _build_retry_hint
 from imbue.mng.cli.message import _emit_human_output
 from imbue.mng.cli.message import _emit_json_output
 from imbue.mng.cli.message import _get_message_content
@@ -131,67 +129,3 @@ def test_emit_json_output_includes_counts(capsys: pytest.CaptureFixture) -> None
     captured = capsys.readouterr()
     assert '"total_sent": 3' in captured.out
     assert '"total_failed": 1' in captured.out
-
-
-def test_build_retry_hint_includes_failed_agent_names_and_message() -> None:
-    """Test that _build_retry_hint builds a command with agent names and message."""
-    failed = [("agent1", "some error"), ("agent3", "another error")]
-
-    hint = _build_retry_hint(failed, "hello world", _DEFAULT_OPTS)
-
-    assert hint == "mng message agent1 agent3 -m 'hello world'"
-
-
-def test_build_retry_hint_shell_quotes_special_characters() -> None:
-    """Test that _build_retry_hint shell-quotes message with special chars."""
-    failed = [("my-agent", "error")]
-
-    hint = _build_retry_hint(failed, "it's a test", _DEFAULT_OPTS)
-
-    assert hint == """mng message my-agent -m 'it'"'"'s a test'"""
-
-
-def test_build_retry_hint_includes_multiline_messages() -> None:
-    """Test that _build_retry_hint includes multiline messages via shlex quoting."""
-    failed = [("agent1", "error")]
-
-    hint = _build_retry_hint(failed, "line one\nline two", _DEFAULT_OPTS)
-
-    assert hint == "mng message agent1 -m 'line one\nline two'"
-
-
-def test_build_retry_hint_includes_start_flag_when_set() -> None:
-    """Test that _build_retry_hint includes --start when it was used."""
-    failed = [("agent1", "error")]
-    opts_with_start = _DEFAULT_OPTS.model_copy_update(
-        to_update(_DEFAULT_OPTS.field_ref().start, True),
-    )
-
-    hint = _build_retry_hint(failed, "hello", opts_with_start)
-
-    assert hint == "mng message agent1 -m hello --start"
-
-
-def test_build_retry_hint_includes_on_error_when_non_default() -> None:
-    """Test that _build_retry_hint includes --on-error when it was set to abort."""
-    failed = [("agent1", "error")]
-    opts_with_abort = _DEFAULT_OPTS.model_copy_update(
-        to_update(_DEFAULT_OPTS.field_ref().on_error, "abort"),
-    )
-
-    hint = _build_retry_hint(failed, "hello", opts_with_abort)
-
-    assert hint == "mng message agent1 -m hello --on-error abort"
-
-
-def test_build_retry_hint_includes_all_flags_together() -> None:
-    """Test that _build_retry_hint combines all flags correctly."""
-    failed = [("agent1", "error"), ("agent2", "error")]
-    opts_with_start_and_abort = _DEFAULT_OPTS.model_copy_update(
-        to_update(_DEFAULT_OPTS.field_ref().start, True),
-        to_update(_DEFAULT_OPTS.field_ref().on_error, "abort"),
-    )
-
-    hint = _build_retry_hint(failed, "hello", opts_with_start_and_abort)
-
-    assert hint == "mng message agent1 agent2 -m hello --start --on-error abort"

@@ -1,4 +1,3 @@
-import shlex
 import sys
 from typing import assert_never
 
@@ -180,8 +179,8 @@ def _message_impl(ctx: click.Context, **kwargs) -> None:
 
     if result.failed_agents:
         if output_opts.output_format == OutputFormat.HUMAN:
-            retry_hint = _build_retry_hint(result.failed_agents, message_content, opts)
-            write_human_line("To retry: {}", retry_hint)
+            failed_names = " ".join(name for name, _error in result.failed_agents)
+            write_human_line("Failed agents: {}", failed_names)
         ctx.exit(1)
 
 
@@ -251,25 +250,6 @@ def _emit_human_output(result: MessageResult) -> None:
     else:
         # Only failed agents, no successful ones - failures already logged above
         write_human_line("Failed to send message to {} agent(s)", len(result.failed_agents))
-
-
-def _build_retry_hint(
-    failed_agents: list[tuple[str, str]],
-    message_content: str,
-    opts: MessageCliOptions,
-) -> str:
-    """Build a shell command to retry sending the message to failed agents."""
-    parts = ["mng", "message"]
-    parts.extend(shlex.quote(name) for name, _error in failed_agents)
-    parts.extend(["-m", shlex.quote(message_content)])
-
-    # Pass through behavioral options when non-default
-    if opts.start:
-        parts.append("--start")
-    if opts.on_error != "continue":
-        parts.extend(["--on-error", opts.on_error])
-
-    return " ".join(parts)
 
 
 def _emit_json_output(result: MessageResult) -> None:

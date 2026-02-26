@@ -1,8 +1,6 @@
 import json
 import shlex
 import time
-from abc import ABC
-from abc import abstractmethod
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -17,7 +15,6 @@ from uuid import uuid4
 from loguru import logger
 from pydantic import Field
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import HostConnectionError
@@ -43,20 +40,6 @@ _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 # Constants for signal-based synchronization
 # Note that this does need to be fairly long, since it can takea little while for the machine to respond if you're unlucky
 _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
-
-
-class DialogIndicator(FrozenModel, ABC):
-    """Base class for dialog indicators that can block agent input."""
-
-    @abstractmethod
-    def get_match_string(self) -> str:
-        """Return the string to look for in the tmux pane content."""
-        ...
-
-    @abstractmethod
-    def get_description(self) -> str:
-        """Return a human-readable description for error messages."""
-        ...
 
 
 class BaseAgent(AgentInterface):

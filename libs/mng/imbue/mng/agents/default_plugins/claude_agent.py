@@ -4,6 +4,8 @@ import json
 import os
 import random
 import shlex
+from abc import ABC
+from abc import abstractmethod
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -18,10 +20,10 @@ from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
-from imbue.mng.agents.base_agent import DialogIndicator
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import add_claude_trust_for_path
@@ -410,6 +412,20 @@ def _has_api_credentials_available(
             return True
 
     return False
+
+
+class DialogIndicator(FrozenModel, ABC):
+    """Base class for dialog indicators that can block agent input."""
+
+    @abstractmethod
+    def get_match_string(self) -> str:
+        """Return the string to look for in the tmux pane content."""
+        ...
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Return a human-readable description for error messages."""
+        ...
 
 
 class PermissionDialogIndicator(DialogIndicator):
