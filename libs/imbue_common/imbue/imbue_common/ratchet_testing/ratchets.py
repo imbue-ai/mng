@@ -490,17 +490,22 @@ def _is_test_module(module_path: str) -> bool:
     return any(fnmatch(last_segment, pattern) for pattern in _TEST_MODULE_GLOBS)
 
 
-def check_no_import_lint_errors(project_root: Path) -> None:
+def check_no_import_lint_errors(project_root: Path, contract_name: str = "mng layers contract") -> None:
     """Run import-linter and raise AssertionError if any production code violations are found.
 
     Uses import-linter's Python API to get structured results, then filters
     out violations where every importer in the chain is a test module.
     Only production code violations cause failure.
+
+    Only checks the contract matching contract_name; other contracts are skipped.
     """
     configure()
     contract_registry.register(LayersContract, name="layers")
     config_filename = str(project_root / "pyproject.toml")
     user_options = read_user_options(config_filename=config_filename)
+    # Filter to only the requested contract to avoid failures from unrelated
+    # contracts whose modules may not be present in this worktree.
+    user_options.contracts_options = [opt for opt in user_options.contracts_options if opt["name"] == contract_name]
     report = create_report(user_options)
 
     production_violations: list[str] = []

@@ -37,7 +37,8 @@ _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Constants for signal-based synchronization
-_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 2.0
+# Note that this does need to be fairly long, since it can takea little while for the machine to respond if you're unlucky
+_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):
@@ -287,6 +288,10 @@ class BaseAgent(AgentInterface):
             if tui_indicator is not None:
                 self._wait_for_tui_ready(self.session_name, tui_indicator)
 
+    def capture_pane_content(self) -> str | None:
+        """Capture the current tmux pane content for this agent."""
+        return self._capture_pane_content(self.session_name)
+
     def _send_message_simple(self, session_name: str, message: str) -> None:
         """Send a message without marker-based synchronization."""
         send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message)}"
@@ -459,6 +464,15 @@ class BaseAgent(AgentInterface):
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
             logger.trace("Submitted message successfully")
             return
+
+        pane_content = self._capture_pane_content(session_name)
+        if pane_content is not None:
+            logger.error(
+                "TUI send enter and wait timeout -- remote pane content:\n{}",
+                pane_content,
+            )
+        else:
+            logger.error("TUI send enter and wait timeout -- failed to capture remote pane content")
 
         raise SendMessageError(
             str(self.name),

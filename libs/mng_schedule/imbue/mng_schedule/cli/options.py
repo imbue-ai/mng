@@ -11,9 +11,13 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     schedule_cron: str | None
     provider: str | None
     enabled: bool | None
+    auto_merge: bool
+    auto_merge_branch: str | None
     verify: str
-    git_image_hash: str | None
+    snapshot_id: str | None
+    full_copy: bool
     mng_install_mode: str
+    target_dir: str
     include_user_settings: bool | None
     include_project_settings: bool | None
     pass_env: tuple[str, ...]
@@ -24,12 +28,16 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
 class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
     """Options for the schedule add subcommand.
 
-    These are exactly the same as update--the only difference is whether we error if the name already exists.
+    Extends the shared update options with add-specific flags: --update (to allow
+    overwriting), --auto-fix-args (to auto-add helpful flags to create commands),
+    and --ensure-safe-commands (to error on unsafe command patterns).
     Name is optional here (unlike update) because a random name can be generated.
     """
 
     name: str | None
     update: bool
+    auto_fix_args: bool
+    ensure_safe_commands: bool
 
 
 class ScheduleRemoveCliOptions(CommonCliOptions):

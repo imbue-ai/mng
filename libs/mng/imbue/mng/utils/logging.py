@@ -91,14 +91,32 @@ def _format_user_message(record: Any) -> str:
     return "{message}\n"
 
 
+class _PyinfraToLoguruHandler(logging.Handler):
+    """Forward pyinfra log messages to loguru at TRACE level.
+
+    Pyinfra uses Python's standard logging module and outputs messages that mng
+    already handles (e.g., connection errors, file upload retries). This handler
+    captures all pyinfra log output and redirects it to loguru at TRACE level,
+    keeping it available for debugging while suppressing it from normal console
+    output.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        logger.trace("[pyinfra] {}", record.getMessage())
+
+
 def suppress_warnings() -> None:
-    # Silence pyinfra's warnings. Pyinfra uses Python's standard logging module
-    # and logs warnings during file upload retries (e.g., when the remote directory
-    # doesn't exist). Mng already handles these cases gracefully, so the warnings
-    # are noise. We set pyinfra's logger level to ERROR to suppress warnings while
-    # still allowing errors through.
+    # Redirect all pyinfra log output to loguru at TRACE level. Pyinfra uses
+    # Python's standard logging module and logs warnings during file upload
+    # retries, errors during connection failures (e.g., authentication errors),
+    # etc. Mng already handles these cases gracefully via exceptions, so the
+    # pyinfra log output is noise at normal log levels. By redirecting to TRACE,
+    # the messages are still available when debugging with --log-level trace.
     pyinfra_logger = logging.getLogger("pyinfra")
-    pyinfra_logger.setLevel(logging.ERROR)
+    pyinfra_logger.setLevel(logging.DEBUG)
+    pyinfra_logger.handlers.clear()
+    pyinfra_logger.addHandler(_PyinfraToLoguruHandler())
+    pyinfra_logger.propagate = False
 
 
 class LoggingSetupConfig(FrozenModel):

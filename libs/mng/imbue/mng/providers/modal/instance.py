@@ -90,6 +90,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
 from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -587,6 +588,14 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir, key_name="modal_ssh_key")
 
+    def get_ssh_public_key(self) -> str:
+        """Get the SSH public key content for this provider instance.
+
+        Loads or creates the keypair if it doesn't exist yet.
+        """
+        _private_key_path, public_key_content = self._get_ssh_keypair()
+        return public_key_content
+
     def _get_host_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH host keypair for Modal sandboxes.
 
@@ -1035,6 +1044,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
@@ -1063,6 +1073,12 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
                     sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+
+        if authorized_keys:
+            add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
+            if add_authorized_keys_cmd is not None:
+                with log_span("Adding {} authorized_keys entries to sandbox", len(authorized_keys)):
+                    sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
 
         with log_span("Starting sshd in sandbox"):
             sshd_log_path = f"{self.host_dir}/logs/sshd.log"
@@ -1097,6 +1113,7 @@ class ModalProviderInstance(BaseProviderInstance):
         config: SandboxConfig,
         host_data: CertifiedHostData,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a sandbox and create a Host object.
 
@@ -1113,7 +1130,12 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Start sshd with our host key
         self._start_sshd_in_sandbox(
-            sandbox, client_public_key, host_private_key, host_public_key, known_hosts=known_hosts
+            sandbox,
+            client_public_key,
+            host_private_key,
+            host_public_key,
+            known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         # Get SSH connection info
@@ -1651,6 +1673,7 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create a new Modal sandbox host.
@@ -1797,6 +1820,7 @@ log "=== Shutdown script completed ==="
             config=config,
             host_data=host_data,
             known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         return host
@@ -2070,6 +2094,13 @@ log "=== Shutdown script completed ==="
     # =========================================================================
     # Discovery Methods
     # =========================================================================
+
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
 
     @handle_modal_auth_error
     def get_host(

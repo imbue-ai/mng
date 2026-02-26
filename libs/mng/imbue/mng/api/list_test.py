@@ -8,11 +8,7 @@ from pathlib import Path
 
 from loguru import logger
 
-from imbue.mng.api.list import COMPLETION_CACHE_FILENAME
-from imbue.mng.api.list import ListResult
 from imbue.mng.api.list import _warn_on_duplicate_host_names
-from imbue.mng.api.list import _write_completion_cache
-from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.primitives import AgentId
@@ -24,6 +20,8 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.utils.completion_writer import write_agent_names_cache
 
 # =============================================================================
 # Helpers
@@ -57,59 +55,38 @@ def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
 # =============================================================================
 
 
-def test_write_completion_cache_writes_agent_names(
+def test_write_agent_names_cache_writes_sorted_names(
     temp_host_dir: Path,
-    temp_mng_ctx: MngContext,
 ) -> None:
-    """Test that _write_completion_cache writes sorted agent names to the cache file."""
-    host_info = _make_host_info()
-    result = ListResult(
-        agents=[
-            _make_agent_info("beta-agent", host_info),
-            _make_agent_info("alpha-agent", host_info),
-        ]
-    )
+    """write_agent_names_cache should write sorted agent names to the cache file."""
+    write_agent_names_cache(temp_host_dir, ["beta-agent", "alpha-agent"])
 
-    _write_completion_cache(temp_mng_ctx, result)
-
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["alpha-agent", "beta-agent"]
     assert "updated_at" in cache_data
 
 
-def test_write_completion_cache_writes_empty_list_for_no_agents(
+def test_write_agent_names_cache_writes_empty_list_for_no_agents(
     temp_host_dir: Path,
-    temp_mng_ctx: MngContext,
 ) -> None:
-    """Test that _write_completion_cache writes an empty names list when no agents."""
-    result = ListResult()
+    """write_agent_names_cache should write an empty names list when no agents."""
+    write_agent_names_cache(temp_host_dir, [])
 
-    _write_completion_cache(temp_mng_ctx, result)
-
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == []
 
 
-def test_write_completion_cache_deduplicates_names(
+def test_write_agent_names_cache_deduplicates_names(
     temp_host_dir: Path,
-    temp_mng_ctx: MngContext,
 ) -> None:
-    """Test that _write_completion_cache deduplicates agent names."""
-    host_info = _make_host_info()
-    result = ListResult(
-        agents=[
-            _make_agent_info("same-name", host_info),
-            _make_agent_info("same-name", host_info),
-        ]
-    )
+    """write_agent_names_cache should deduplicate agent names."""
+    write_agent_names_cache(temp_host_dir, ["same-name", "same-name"])
 
-    _write_completion_cache(temp_mng_ctx, result)
-
-    cache_path = temp_host_dir / COMPLETION_CACHE_FILENAME
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
 

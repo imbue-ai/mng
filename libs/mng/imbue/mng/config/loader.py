@@ -9,11 +9,12 @@ from typing import Sequence
 from uuid import uuid4
 
 import pluggy
-from loguru import logger
 from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
+from imbue.mng.config.consts import PROFILES_DIRNAME
+from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplate
@@ -21,19 +22,22 @@ from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
-from imbue.mng.config.data_types import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import split_cli_args_string
 from imbue.mng.config.plugin_registry import get_plugin_config_class
-from imbue.mng.errors import ConfigNotFoundError
+from imbue.mng.config.pre_readers import find_profile_dir_lightweight
+from imbue.mng.config.pre_readers import get_user_config_path
+from imbue.mng.config.pre_readers import load_local_config
+from imbue.mng.config.pre_readers import load_project_config
+from imbue.mng.config.pre_readers import read_disabled_plugins
+from imbue.mng.config.pre_readers import try_load_toml
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.utils.git_utils import find_git_worktree_root
+from imbue.mng.utils.file_utils import atomic_write
 
 # Type aliases for registry lookup functions injected by callers.
 AgentConfigResolver = Callable[[str], type[AgentTypeConfig]]
@@ -93,6 +97,10 @@ def load_config(
     # Get/create profile directory first (needed for user config
     profile_dir = get_or_create_profile_dir(base_dir)
 
+    # Pre-compute disabled plugins so _parse_providers can skip them.
+    # This uses the same lightweight pre-reader that create_plugin_manager() uses.
+    config_disabled_plugins = read_disabled_plugins()
+
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
     config = MngConfig.model_construct(
@@ -105,29 +113,18 @@ def load_config(
         commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
-    # Load user config from profile directory
-    user_config_path = _get_user_config_path(profile_dir)
-    if user_config_path.exists():
-        try:
-            raw_user = _load_toml(user_config_path)
-            user_config = parse_config(raw_user, agent_config_resolver, provider_config_resolver)
-            config = config.merge_with(user_config)
-        except ConfigNotFoundError:
-            pass
-
-    # Load project config from context_dir or auto-discover
-    project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
-    if project_config_path is not None and project_config_path.exists():
-        raw_project = _load_toml(project_config_path)
-        project_config = parse_config(raw_project, agent_config_resolver, provider_config_resolver)
-        config = config.merge_with(project_config)
-
-    # Load local config from context_dir or auto-discover
-    local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
-    if local_config_path is not None and local_config_path.exists():
-        raw_local = _load_toml(local_config_path)
-        local_config = parse_config(raw_local, agent_config_resolver, provider_config_resolver)
-        config = config.merge_with(local_config)
+    # Load and merge config files in precedence order (user, project, local)
+    for raw in (
+        try_load_toml(get_user_config_path(profile_dir)),
+        load_project_config(context_dir, root_name, concurrency_group),
+        load_local_config(context_dir, root_name, concurrency_group),
+    ):
+        if raw is not None:
+            config = config.merge_with(
+                parse_config(
+                    raw, agent_config_resolver, provider_config_resolver, disabled_plugins=config_disabled_plugins
+                )
+            )
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -226,7 +223,7 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     profiles_dir.mkdir(parents=True, exist_ok=True)
 
     # Try read-only lookup first
-    existing = _find_profile_dir_lightweight(base_dir)
+    existing = find_profile_dir_lightweight(base_dir)
     if existing is not None:
         return existing
 
@@ -249,69 +246,14 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     profile_dir = profiles_dir / profile_id
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path.write_text(f'profile = "{profile_id}"\n')
+    atomic_write(config_path, f'profile = "{profile_id}"\n')
 
     return profile_dir
 
 
 # =============================================================================
-# Config File Discovery
-# =============================================================================
-
-
-def _get_user_config_path(profile_dir: Path) -> Path:
-    """Get the user config path based on profile directory."""
-    return profile_dir / "settings.toml"
-
-
-def _get_project_config_name(root_name: str) -> Path:
-    """Get the project config relative path based on root name."""
-    return Path(f".{root_name}") / "settings.toml"
-
-
-def _get_local_config_name(root_name: str) -> Path:
-    """Get the local config relative path based on root name."""
-    return Path(f".{root_name}") / "settings.local.toml"
-
-
-def _find_project_root(cg: ConcurrencyGroup, start: Path | None = None) -> Path | None:
-    """Find the project root by looking for git worktree root."""
-    return find_git_worktree_root(start, cg)
-
-
-def _find_project_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
-    """Find the project config file."""
-    root = context_dir or _find_project_root(cg=cg)
-    if root is None:
-        return None
-    config_path = root / _get_project_config_name(root_name)
-    return config_path if config_path.exists() else None
-
-
-def _find_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyGroup) -> Path | None:
-    """Find the local config file."""
-    root = context_dir or _find_project_root(cg=cg)
-    if root is None:
-        return None
-    config_path = root / _get_local_config_name(root_name)
-    return config_path if config_path.exists() else None
-
-
-# =============================================================================
 # Config Loading
 # =============================================================================
-
-
-def _load_toml(path: Path) -> dict[str, Any]:
-    """Load and parse a TOML file."""
-    if not path.exists():
-        raise ConfigNotFoundError(f"Config file not found: {path}")
-
-    try:
-        with open(path, "rb") as f:
-            return tomllib.load(f)
-    except tomllib.TOMLDecodeError as e:
-        raise ConfigParseError(f"Failed to parse {path}: {e}") from e
 
 
 def _check_unknown_fields(
@@ -333,19 +275,31 @@ def _check_unknown_fields(
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
     provider_config_resolver: ProviderConfigResolver,
+    disabled_plugins: frozenset[str],
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
     Uses model_construct to bypass validation and explicitly set None for unset fields.
+    Provider blocks whose plugin is disabled are silently skipped.
     """
     providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
 
     for name, raw_config in raw_providers.items():
         backend = raw_config.get("backend") or name
+        plugin = raw_config.get("plugin") or backend
+        if plugin in disabled_plugins:
+            continue
         try:
             config_class = provider_config_resolver(backend)
         except UnknownBackendError as e:
-            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
+            msg = f"Provider '{name}' references unknown backend '{backend}'."
+            if disabled_plugins:
+                msg += (
+                    f" If this backend is provided by a disabled plugin, either enable"
+                    f' the plugin or add `plugin = "<plugin-name>"` to this provider'
+                    f" block. Currently disabled plugins: {', '.join(sorted(disabled_plugins))}"
+                )
+            raise ConfigParseError(msg) from e
         _check_unknown_fields(raw_config, config_class, f"providers.{name}")
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
@@ -521,6 +475,7 @@ def parse_config(
     raw: dict[str, Any],
     agent_config_resolver: AgentConfigResolver,
     provider_config_resolver: ProviderConfigResolver,
+    disabled_plugins: frozenset[str] = frozenset(),
 ) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
@@ -534,7 +489,9 @@ def parse_config(
         _parse_agent_types(raw.pop("agent_types", {}), agent_config_resolver) if "agent_types" in raw else {}
     )
     kwargs["providers"] = (
-        _parse_providers(raw.pop("providers", {}), provider_config_resolver) if "providers" in raw else {}
+        _parse_providers(raw.pop("providers", {}), provider_config_resolver, disabled_plugins=disabled_plugins)
+        if "providers" in raw
+        else {}
     )
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
@@ -647,147 +604,3 @@ def _merge_command_defaults(
             result[command_name] = override_defaults
 
     return result
-
-
-# =============================================================================
-# Lightweight config pre-readers
-# =============================================================================
-#
-# These functions read specific values from config files before the full
-# config is loaded.  They run early in startup (CLI parse time or plugin
-# manager creation) so they intentionally avoid plugin hooks, full config
-# validation, and anything that needs a PluginManager.
-#
-# Note: logging is not yet configured when these run (setup_logging needs
-# OutputOptions and MngContext, which aren't available until after config
-# loading). Trace-level logs will only be visible with loguru's default
-# stderr sink if someone explicitly lowers the level.
-#
-# _resolve_config_file_paths returns the existing config file paths in
-# precedence order (user, project, local). Each pre-reader calls its own
-# per-file loader and merges the results via dict comprehension, so later
-# layers naturally override earlier ones.
-
-
-def _resolve_config_file_paths() -> list[Path]:
-    """Return existing config file paths in precedence order (lowest to highest)."""
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
-    base_dir = base_dir.expanduser()
-
-    paths: list[Path] = []
-
-    # User config
-    profile_dir = _find_profile_dir_lightweight(base_dir)
-    if profile_dir is not None:
-        user_config_path = _get_user_config_path(profile_dir)
-        paths.append(user_config_path)
-
-    # Project + local config need the project root
-    cg = ConcurrencyGroup(name="config-pre-reader")
-    with cg:
-        project_config_path = _find_project_config(None, root_name, cg)
-        local_config_path = _find_local_config(None, root_name, cg)
-
-    if project_config_path is not None:
-        paths.append(project_config_path)
-
-    if local_config_path is not None:
-        paths.append(local_config_path)
-
-    return paths
-
-
-# --- Default subcommand pre-reader ---
-
-
-def read_default_command(command_name: str) -> str:
-    """Return the configured default subcommand for `command_name`.
-
-    If no config files set `default_subcommand` for the given command
-    group, falls back to `"create"`.  An empty string means "disabled"
-    (the caller should show help instead of defaulting).
-    """
-    merged = dict(
-        item for path in _resolve_config_file_paths() for item in _load_default_subcommands_from_file(path).items()
-    )
-    return merged.get(command_name, "create")
-
-
-def _load_default_subcommands_from_file(path: Path) -> dict[str, str]:
-    """Extract `default_subcommand` entries from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (ConfigNotFoundError, ConfigParseError) as e:
-        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
-        return {}
-    raw_commands = raw.get("commands")
-    if not isinstance(raw_commands, dict):
-        return {}
-    result: dict[str, str] = {}
-    for cmd_name, cmd_section in raw_commands.items():
-        if not isinstance(cmd_section, dict):
-            continue
-        value = cmd_section.get("default_subcommand")
-        if value is not None:
-            result[cmd_name] = str(value)
-    return result
-
-
-# --- Disabled plugins pre-reader ---
-
-
-def read_disabled_plugins() -> frozenset[str]:
-    """Return the set of plugin names disabled across all config layers.
-
-    Reads user, project, and local config files for `[plugins.<name>]`
-    sections with `enabled = false`.  Later layers override earlier ones.
-    """
-    merged = dict(
-        item for path in _resolve_config_file_paths() for item in _load_disabled_plugins_from_file(path).items()
-    )
-    return frozenset(name for name, is_enabled in merged.items() if not is_enabled)
-
-
-def _load_disabled_plugins_from_file(path: Path) -> dict[str, bool]:
-    """Extract plugin enabled/disabled state from a TOML config file."""
-    try:
-        raw = _load_toml(path)
-    except (ConfigNotFoundError, ConfigParseError) as e:
-        logger.trace("Skipped config file during pre-read: {} ({})", path, e)
-        return {}
-    raw_plugins = raw.get("plugins")
-    if not isinstance(raw_plugins, dict):
-        return {}
-    result: dict[str, bool] = {}
-    for plugin_name, plugin_section in raw_plugins.items():
-        if not isinstance(plugin_section, dict):
-            continue
-        enabled_value = plugin_section.get("enabled")
-        if enabled_value is not None:
-            result[plugin_name] = bool(enabled_value)
-    return result
-
-
-def _find_profile_dir_lightweight(base_dir: Path) -> Path | None:
-    """Like `get_or_create_profile_dir` but read-only (never creates dirs/files).
-
-    Returns the profile directory if it can be determined from existing files,
-    or `None` otherwise.
-    """
-    config_path = base_dir / ROOT_CONFIG_FILENAME
-    if not config_path.exists():
-        return None
-    try:
-        with open(config_path, "rb") as f:
-            root_config = tomllib.load(f)
-        profile_id = root_config.get("profile")
-        if not profile_id:
-            return None
-        profile_dir = base_dir / PROFILES_DIRNAME / profile_id
-        if profile_dir.exists() and profile_dir.is_dir():
-            return profile_dir
-    except tomllib.TOMLDecodeError:
-        pass
-    return None

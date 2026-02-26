@@ -150,6 +150,15 @@ class AgentInterface(MutableModel, ABC):
         """Send a message to the running agent via its stdin."""
         ...
 
+    @abstractmethod
+    def capture_pane_content(self) -> str | None:
+        """Capture the current tmux pane content for this agent.
+
+        Returns the pane content as a string, or None if capture fails
+        (e.g., the session doesn't exist or the host is unreachable).
+        """
+        ...
+
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
     ) -> None:

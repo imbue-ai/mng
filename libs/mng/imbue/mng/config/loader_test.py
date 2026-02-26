@@ -15,10 +15,6 @@ from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
-from imbue.mng.config.loader import _get_local_config_name
-from imbue.mng.config.loader import _get_project_config_name
-from imbue.mng.config.loader import _get_user_config_path
-from imbue.mng.config.loader import _load_toml
 from imbue.mng.config.loader import _merge_command_defaults
 from imbue.mng.config.loader import _parse_agent_types
 from imbue.mng.config.loader import _parse_command_env_vars
@@ -31,9 +27,6 @@ from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
 from imbue.mng.config.loader import parse_config
-from imbue.mng.config.loader import read_default_command
-from imbue.mng.config.loader import read_disabled_plugins
-from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.main import cli
 from imbue.mng.plugins import hookspecs
@@ -228,58 +221,6 @@ def test_all_cli_commands_are_single_word() -> None:
 
 
 # =============================================================================
-# Tests for config file path functions
-# =============================================================================
-
-
-def test_get_user_config_path_returns_correct_path() -> None:
-    """_get_user_config_path should return settings.toml in profile directory."""
-    profile_dir = Path("/home/user/.mng/profiles/abc123")
-    path = _get_user_config_path(profile_dir)
-    assert path == profile_dir / "settings.toml"
-
-
-def test_get_project_config_name_returns_correct_path() -> None:
-    """_get_project_config_name should return correct relative path."""
-    path = _get_project_config_name("mng")
-    assert path == Path(".mng") / "settings.toml"
-
-
-def test_get_local_config_name_returns_correct_path() -> None:
-    """_get_local_config_name should return correct relative path."""
-    path = _get_local_config_name("mng")
-    assert path == Path(".mng") / "settings.local.toml"
-
-
-# =============================================================================
-# Tests for _load_toml
-# =============================================================================
-
-
-def test_load_toml_raises_config_not_found(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigNotFoundError for missing file."""
-    with pytest.raises(ConfigNotFoundError):
-        _load_toml(tmp_path / "nonexistent.toml")
-
-
-def test_load_toml_raises_config_parse_error(tmp_path: Path) -> None:
-    """_load_toml should raise ConfigParseError for invalid TOML."""
-    invalid_toml = tmp_path / "invalid.toml"
-    invalid_toml.write_text("[invalid toml syntax")
-    with pytest.raises(ConfigParseError):
-        _load_toml(invalid_toml)
-
-
-def test_load_toml_parses_valid_file(tmp_path: Path) -> None:
-    """_load_toml should parse valid TOML files."""
-    valid_toml = tmp_path / "valid.toml"
-    valid_toml.write_text('prefix = "test-"\n[agent_types.claude]\ncommand = "claude"')
-    result = _load_toml(valid_toml)
-    assert result["prefix"] == "test-"
-    assert result["agent_types"]["claude"]["command"] == "claude"
-
-
-# =============================================================================
 # Tests for _parse_providers
 # =============================================================================
 
@@ -287,23 +228,62 @@ def test_load_toml_parses_valid_file(tmp_path: Path) -> None:
 def test_parse_providers_parses_valid_provider() -> None:
     """_parse_providers should parse valid provider configs."""
     raw = {"my-local": {"backend": "local"}}
-    result = _parse_providers(raw, get_provider_config_class)
+    result = _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset())
     assert ProviderInstanceName("my-local") in result
     assert result[ProviderInstanceName("my-local")].backend == ProviderBackendName("local")
 
 
-def test_parse_providers_raises_on_missing_backend() -> None:
-    """_parse_providers should raise ConfigParseError for missing backend."""
+def test_parse_providers_raises_on_unknown_backend() -> None:
+    """_parse_providers should raise ConfigParseError for unknown backend."""
     raw = {"my-provider": {"some_field": "value"}}
-    with pytest.raises(ConfigParseError, match="missing required 'backend'"):
-        _parse_providers(raw, get_provider_config_class)
+    with pytest.raises(ConfigParseError, match="references unknown backend 'my-provider'"):
+        _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset())
 
 
 def test_parse_providers_raises_on_unknown_fields() -> None:
     """_parse_providers should raise ConfigParseError for unknown fields."""
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
     with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
-        _parse_providers(raw, get_provider_config_class)
+        _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset())
+
+
+def test_parse_providers_skips_disabled_plugin() -> None:
+    """_parse_providers should skip provider blocks whose plugin is disabled."""
+    raw = {"modal": {"backend": "modal"}}
+    result = _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset({"modal"}))
+    assert len(result) == 0
+
+
+def test_parse_providers_keeps_non_disabled_providers() -> None:
+    """_parse_providers should parse providers whose plugin is not disabled."""
+    raw = {
+        "my-local": {"backend": "local"},
+        "modal": {"backend": "modal"},
+    }
+    result = _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset({"modal"}))
+    assert ProviderInstanceName("my-local") in result
+    assert ProviderInstanceName("modal") not in result
+
+
+def test_parse_providers_explicit_plugin_field_overrides_backend_for_skip() -> None:
+    """_parse_providers should use explicit plugin field for disabled-plugin check."""
+    raw = {"my-cloud": {"backend": "local", "plugin": "my-cloud-plugin"}}
+    result = _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset({"my-cloud-plugin"}))
+    assert len(result) == 0
+
+
+def test_parse_providers_explicit_plugin_field_not_disabled() -> None:
+    """_parse_providers should parse provider when explicit plugin is not disabled."""
+    raw = {"my-local": {"backend": "local", "plugin": "some-plugin"}}
+    result = _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset({"other-plugin"}))
+    assert ProviderInstanceName("my-local") in result
+
+
+def test_parse_providers_unknown_backend_mentions_disabled_plugins() -> None:
+    """_parse_providers error message should mention disabled plugins when they exist."""
+    raw = {"my-provider": {"backend": "nonexistent"}}
+    with pytest.raises(ConfigParseError, match="Currently disabled plugins: modal"):
+        _parse_providers(raw, get_provider_config_class, disabled_plugins=frozenset({"modal"}))
 
 
 # =============================================================================
@@ -509,7 +489,7 @@ def test_parse_config_parses_full_config() -> None:
         "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
-    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
     assert result.prefix == "test-"
     assert result.default_host_dir == "/tmp/test"
     assert AgentTypeName("claude") in result.agent_types
@@ -523,7 +503,7 @@ def test_parse_config_parses_full_config() -> None:
 def test_parse_config_handles_minimal_config() -> None:
     """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
-    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
     assert result.prefix == "test-"
     assert result.agent_types == {}
     assert result.providers == {}
@@ -534,7 +514,7 @@ def test_parse_config_handles_minimal_config() -> None:
 
 def test_parse_config_handles_empty_config() -> None:
     """parse_config should handle empty config dict."""
-    result = parse_config({}, get_agent_config_class, get_provider_config_class)
+    result = parse_config({}, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
     assert result.prefix is None
     assert result.default_host_dir is None
     assert result.agent_types == {}
@@ -548,7 +528,7 @@ def test_parse_config_raises_on_unknown_top_level_field() -> None:
     """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        parse_config(raw, get_agent_config_class, get_provider_config_class)
+        parse_config(raw, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
 
 
 def test_parse_config_raises_on_unknown_nested_field() -> None:
@@ -557,19 +537,19 @@ def test_parse_config_raises_on_unknown_nested_field() -> None:
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        parse_config(raw, get_agent_config_class, get_provider_config_class)
+        parse_config(raw, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
-    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
 def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
-    result = parse_config({}, get_agent_config_class, get_provider_config_class)
+    result = parse_config({}, get_agent_config_class, get_provider_config_class, disabled_plugins=frozenset())
     assert result.default_destroyed_host_persisted_seconds is None
 
 
@@ -581,7 +561,7 @@ def test_parse_providers_accepts_destroyed_host_persisted_seconds() -> None:
             "destroyed_host_persisted_seconds": 172800.0,
         },
     }
-    result = _parse_providers(raw_providers, get_provider_config_class)
+    result = _parse_providers(raw_providers, get_provider_config_class, disabled_plugins=frozenset())
     provider_config = result[ProviderInstanceName("my-local")]
     assert provider_config.destroyed_host_persisted_seconds == 172800.0
 
@@ -710,7 +690,7 @@ def test_on_load_config_hook_can_add_new_fields(
 # =============================================================================
 
 
-def testget_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create a new profile when config.toml doesn't exist."""
     base_dir = tmp_path / "mng"
 
@@ -729,7 +709,7 @@ def testget_or_create_profile_dir_creates_new_profile_when_no_config(tmp_path: P
     assert f'profile = "{profile_id}"' in content
 
 
-def testget_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: Path) -> None:
     """get_or_create_profile_dir should read existing profile from config.toml."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -751,7 +731,7 @@ def testget_or_create_profile_dir_reads_existing_profile_from_config(tmp_path: P
     assert result.name == existing_profile_id
 
 
-def testget_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create profile dir if config.toml specifies it but dir doesn't exist."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -770,7 +750,7 @@ def testget_or_create_profile_dir_creates_profile_dir_if_specified_but_missing(t
     assert result.exists()
 
 
-def testget_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) -> None:
     """get_or_create_profile_dir should handle invalid config.toml by creating new profile."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -790,7 +770,7 @@ def testget_or_create_profile_dir_handles_invalid_config_toml(tmp_path: Path) ->
     assert 'profile = "' in new_content
 
 
-def testget_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_handles_config_without_profile_key(tmp_path: Path) -> None:
     """get_or_create_profile_dir should create new profile if config.toml has no 'profile' key."""
     base_dir = tmp_path / "mng"
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -806,7 +786,7 @@ def testget_or_create_profile_dir_handles_config_without_profile_key(tmp_path: P
     assert result.parent == base_dir / "profiles"
 
 
-def testget_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
+def test_get_or_create_profile_dir_returns_same_profile_on_subsequent_calls(tmp_path: Path) -> None:
     """get_or_create_profile_dir should return the same profile on subsequent calls."""
     base_dir = tmp_path / "mng"
 
@@ -943,111 +923,6 @@ def test_parse_commands_empty_string_default_subcommand() -> None:
     raw = {"mng": {"default_subcommand": ""}}
     result = _parse_commands(raw)
     assert result["mng"].default_subcommand == ""
-
-
-# =============================================================================
-# Tests for read_default_command
-# =============================================================================
-
-
-def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """read_default_command should return 'create' when no config files exist."""
-
-    monkeypatch.setenv("MNG_HOST_DIR", str(tmp_path / "nonexistent"))
-    monkeypatch.setenv("MNG_ROOT_NAME", "mng-test-nocfg")
-    assert read_default_command("mng") == "create"
-
-
-def test_read_default_command_reads_from_project_config(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_default_command should read default_subcommand from project config."""
-    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-
-    assert read_default_command("mng") == "list"
-
-
-def test_read_default_command_local_overrides_project(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_default_command should let local config override project config."""
-    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = "list"\n')
-    (project_config_dir / "settings.local.toml").write_text('[commands.mng]\ndefault_subcommand = "stop"\n')
-
-    assert read_default_command("mng") == "stop"
-
-
-def test_read_default_command_empty_string_disables(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_default_command should return empty string when config disables defaulting."""
-    (project_config_dir / "settings.toml").write_text('[commands.mng]\ndefault_subcommand = ""\n')
-
-    assert read_default_command("mng") == ""
-
-
-def test_read_default_command_independent_command_names(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_default_command should handle multiple command names independently."""
-    (project_config_dir / "settings.toml").write_text(
-        '[commands.mng]\ndefault_subcommand = "list"\n\n[commands.snapshot]\ndefault_subcommand = "destroy"\n'
-    )
-
-    assert read_default_command("mng") == "list"
-    assert read_default_command("snapshot") == "destroy"
-    # Unconfigured groups still get "create"
-    assert read_default_command("other") == "create"
-
-
-# =============================================================================
-# Tests for read_disabled_plugins
-# =============================================================================
-
-
-def test_read_disabled_plugins_returns_empty_when_no_config(temp_git_repo_cwd: Path) -> None:
-    """read_disabled_plugins should return empty set when no config files exist."""
-    assert read_disabled_plugins() == frozenset()
-
-
-def test_read_disabled_plugins_reads_from_project_config(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_disabled_plugins should find disabled plugins in project config."""
-    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
-
-    assert "modal" in read_disabled_plugins()
-
-
-def test_read_disabled_plugins_local_overrides_project(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_disabled_plugins should let local config re-enable a plugin disabled in project config."""
-    (project_config_dir / "settings.toml").write_text("[plugins.modal]\nenabled = false\n")
-    (project_config_dir / "settings.local.toml").write_text("[plugins.modal]\nenabled = true\n")
-
-    assert "modal" not in read_disabled_plugins()
-
-
-def test_read_disabled_plugins_multiple_plugins(
-    project_config_dir: Path,
-    temp_git_repo_cwd: Path,
-) -> None:
-    """read_disabled_plugins should handle multiple disabled plugins."""
-    (project_config_dir / "settings.toml").write_text(
-        "[plugins.modal]\nenabled = false\n\n[plugins.docker]\nenabled = false\n\n[plugins.local]\nenabled = true\n"
-    )
-
-    result = read_disabled_plugins()
-    assert "modal" in result
-    assert "docker" in result
-    assert "local" not in result
 
 
 # =============================================================================

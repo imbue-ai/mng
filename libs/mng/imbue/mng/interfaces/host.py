@@ -281,6 +281,9 @@ class OnlineHostInterface(HostInterface, ABC):
         """Update the certified plugin data for the given plugin name."""
         ...
 
+    @abstractmethod
+    def to_offline_host(self) -> HostInterface: ...
+
     # =========================================================================
     # Agent-Derived Information
     # =========================================================================
@@ -805,6 +808,10 @@ class HostEnvironmentOptions(FrozenModel):
     known_hosts: tuple[str, ...] = Field(
         default=(),
         description="SSH known_hosts entries to add to the host (for outbound SSH connections)",
+    )
+    authorized_keys: tuple[str, ...] = Field(
+        default=(),
+        description="SSH authorized_keys entries to add to the host (for inbound SSH connections)",
     )
 
 

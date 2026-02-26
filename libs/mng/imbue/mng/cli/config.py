@@ -28,12 +28,16 @@ from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.config.loader import parse_config
+from imbue.mng.config.pre_readers import get_local_config_name
+from imbue.mng.config.pre_readers import get_project_config_name
+from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.errors import ConfigKeyNotFoundError
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.providers.registry import get_config_class as get_provider_config_class
+from imbue.mng.utils.file_utils import atomic_write
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.interactive_subprocess import run_interactive_subprocess
 
@@ -65,20 +69,19 @@ def get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: C
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
-            # User config is in the active profile directory
             if profile_dir is None:
                 raise ConfigNotFoundError("profile_dir is required for USER scope")
-            return profile_dir / "settings.toml"
+            return get_user_config_path(profile_dir)
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for project config")
-            return git_root / f".{root_name}" / "settings.toml"
+            return git_root / get_project_config_name(root_name)
         case ConfigScope.LOCAL:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for local config")
-            return git_root / f".{root_name}" / "settings.local.toml"
+            return git_root / get_local_config_name(root_name)
         case _ as unreachable:
             assert_never(unreachable)
 
@@ -100,10 +103,8 @@ def load_config_file_tomlkit(path: Path) -> tomlkit.TOMLDocument:
 
 
 def save_config_file(path: Path, doc: tomlkit.TOMLDocument) -> None:
-    """Save a TOML config file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        tomlkit.dump(doc, f)
+    """Save a TOML config file atomically."""
+    atomic_write(path, tomlkit.dumps(doc))
 
 
 def _get_nested_value(data: dict[str, Any], key_path: str) -> Any:
@@ -410,7 +411,12 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
     set_nested_value(doc, key, parsed_value)
 
     # Validate the resulting config before saving
-    parse_config(dict(doc.unwrap()), get_agent_config_class, get_provider_config_class)
+    parse_config(
+        dict(doc.unwrap()),
+        get_agent_config_class,
+        get_provider_config_class,
+        disabled_plugins=mng_ctx.config.disabled_plugins,
+    )
 
     # Save the config
     save_config_file(config_path, doc)
@@ -566,7 +572,7 @@ def _config_edit_impl(ctx: click.Context, **kwargs: Any) -> None:
     # Create the config file if it doesn't exist
     if not config_path.exists():
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(_get_config_template())
+        atomic_write(config_path, _get_config_template())
 
     # Get the editor
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"

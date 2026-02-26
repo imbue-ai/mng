@@ -36,6 +36,7 @@ from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.completion_writer import write_cli_completions_cache
 from imbue.mng.utils.terminal import ANSI_DIM_GRAY
 from imbue.mng.utils.terminal import ANSI_ERASE_LINE
 from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
@@ -223,6 +224,9 @@ def list_command(ctx: click.Context, **kwargs) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+
+    if ctx.parent is not None and isinstance(ctx.parent.command, click.Group):
+        write_cli_completions_cache(ctx.parent.command)
 
 
 def _list_impl(ctx: click.Context, **kwargs) -> None:
