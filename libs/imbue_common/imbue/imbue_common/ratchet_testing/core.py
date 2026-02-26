@@ -75,7 +75,7 @@ class RatchetMatchChunk(FrozenModel):
     end_line: LineNumber = Field(description="The ending line number (1-indexed)")
     last_modified_date: datetime | None = Field(
         default=None,
-        description="The date this chunk was last modified in git. Lazily resolved on demand.",
+        description="The date this chunk was last modified in git, or None if not yet resolved.",
     )
 
     @property
@@ -258,14 +258,11 @@ def get_ratchet_failures(
 ) -> tuple[RatchetMatchChunk, ...]:
     """Find all regex matches in git-tracked files and return them sorted by file path and line number.
 
-    Applies a regex pattern to all git-tracked files in the given folder. Blame dates are NOT
-    computed eagerly -- they are resolved lazily only when format_ratchet_failure_message() is
-    called (i.e., only when a test fails). This avoids expensive git blame calls for passing tests.
-
     If extension is provided, only files matching that extension are searched.
     If extension is None, all tracked files are searched.
 
-    File contents are transparently cached to avoid repeated reads when called multiple times.
+    Blame dates are not computed here; they are resolved on demand via _resolve_blame_dates()
+    when a failure message needs to be formatted.
     """
     file_paths = _get_non_ignored_files_with_extension(folder_path, extension, excluded_path_patterns)
 
@@ -289,7 +286,7 @@ def get_ratchet_failures(
             # Count newlines within the match to get end line
             end_line_number = start_line_number + matched_text.count("\n")
 
-            # Create the chunk (blame is resolved lazily, only when the date is needed)
+            # Create the chunk
             chunk = RatchetMatchChunk(
                 file_path=file_path,
                 matched_content=matched_text,
@@ -298,7 +295,7 @@ def get_ratchet_failures(
             )
             chunks.append(chunk)
 
-    # Sort deterministically by file path and line number (blame is not computed here)
+    # Sort deterministically by file path and line number
     sorted_chunks = sorted(
         chunks,
         key=lambda c: (str(c.file_path), c.start_line),
@@ -354,14 +351,11 @@ def format_ratchet_failure_message(
     chunks: tuple[RatchetMatchChunk, ...],
     max_display_count: int = 5,
 ) -> str:
-    """Format a detailed failure message for a ratchet test violation.
-
-    Lazily resolves git blame dates on demand -- only called when a test actually fails.
-    """
+    """Format a detailed failure message for a ratchet test violation."""
     if not chunks:
         return f"No {rule_name} found (this is good!)"
 
-    # Resolve blame dates lazily (only happens when formatting a failure message)
+    # Resolve blame dates for display
     resolved_chunks = _resolve_blame_dates(chunks)
 
     # Sort by most recently changed first for display

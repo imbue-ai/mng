@@ -16,7 +16,7 @@ def main() -> None:
 
     chunks = get_ratchet_failures(folder_path, extension, pattern)
 
-    # Resolve blame dates on demand (only needed if you want to display them)
+    # Resolve blame dates (needed to display last-modified info)
     resolved_chunks = _resolve_blame_dates(chunks)
 
     # Print results
