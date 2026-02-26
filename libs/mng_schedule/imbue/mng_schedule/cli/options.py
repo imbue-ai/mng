@@ -28,7 +28,9 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
 class ScheduleAddCliOptions(ScheduleUpdateCliOptions):
     """Options for the schedule add subcommand.
 
-    These are exactly the same as update--the only difference is whether we error if the name already exists.
+    Extends the shared update options with add-specific flags: --update (to allow
+    overwriting), --auto-fix-args (to auto-add helpful flags to create commands),
+    and --ensure-safe-commands (to error on unsafe command patterns).
     Name is optional here (unlike update) because a random name can be generated.
     """
 
