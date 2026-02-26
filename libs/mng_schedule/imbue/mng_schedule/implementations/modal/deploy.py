@@ -13,7 +13,6 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
-from typing import assert_never
 
 import modal.exception
 from dotenv import dotenv_values
@@ -230,7 +229,7 @@ def get_mng_dockerfile_path(mode: MngInstallMode) -> Path:
     via importlib.resources.
     """
     match mode:
-        case (MngInstallMode.EDITABLE, MngInstallMode.SKIP):
+        case MngInstallMode.EDITABLE | MngInstallMode.SKIP:
             mng_repo_root = _get_mng_repo_root()
             dockerfile_path = mng_repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
             if not dockerfile_path.exists():
