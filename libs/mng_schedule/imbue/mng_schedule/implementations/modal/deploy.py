@@ -230,7 +230,7 @@ def get_mng_dockerfile_path(mode: MngInstallMode) -> Path:
     via importlib.resources.
     """
     match mode:
-        case MngInstallMode.EDITABLE:
+        case (MngInstallMode.EDITABLE, MngInstallMode.SKIP):
             mng_repo_root = _get_mng_repo_root()
             dockerfile_path = mng_repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
             if not dockerfile_path.exists():
@@ -248,8 +248,6 @@ def get_mng_dockerfile_path(mode: MngInstallMode) -> Path:
                     "mng Dockerfile not found in installed package. The mng package may be missing its resources."
                 )
             return dockerfile_path
-        case MngInstallMode.SKIP:
-            raise ScheduleDeployError("SKIP mode is not supported -- mng must be installed in the image.")
         case MngInstallMode.AUTO:
             raise ScheduleDeployError("AUTO mode must be resolved before getting Dockerfile path.")
         case _ as unreachable:
@@ -666,30 +664,8 @@ def deploy_schedule(
     # For PACKAGE: use a modified Dockerfile that installs mng from PyPI (no monorepo needed).
     mng_dockerfile_path = get_mng_dockerfile_path(resolved_install_mode)
 
-    mng_build_dir = deploy_build_path / "mng_build"
-    mng_build_dir.mkdir(parents=True, exist_ok=True)
-
-    if resolved_install_mode == MngInstallMode.EDITABLE:
-        mng_repo_root = _get_mng_repo_root()
-        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
-        with log_span("Packaging mng monorepo at commit {}", mng_head_commit):
-            package_repo_at_commit(mng_head_commit, mng_build_dir, mng_repo_root)
-        mng_tarball = mng_build_dir / "current.tar.gz"
-        if not mng_tarball.exists():
-            raise ScheduleDeployError(
-                f"Expected tarball at {mng_tarball} after packaging mng monorepo, but it was not found"
-            ) from None
-        effective_dockerfile_path = mng_dockerfile_path
-    else:
-        # PACKAGE mode: generate a modified Dockerfile that installs mng from PyPI
-        mng_dockerfile_content = mng_dockerfile_path.read_text()
-        package_mode_content = _build_package_mode_dockerfile(mng_dockerfile_content)
-        effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
-        effective_dockerfile_path.write_text(package_mode_content)
-        logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
-
     # --- Package the target repo ---
-    target_repo_dir = deploy_build_path / "target_repo"
+    target_repo_dir: Path | None = deploy_build_path / "target_repo"
     with log_span("Packaging target repo at commit {}", commit_hash):
         package_repo_at_commit(commit_hash, target_repo_dir, repo_root)
     target_tarball = target_repo_dir / "current.tar.gz"
@@ -712,6 +688,32 @@ def deploy_schedule(
             uploads=uploads,
         )
 
+    mng_build_dir = deploy_build_path / "mng_build"
+    mng_build_dir.mkdir(parents=True, exist_ok=True)
+
+    if resolved_install_mode == MngInstallMode.SKIP:
+        effective_dockerfile_path = mng_dockerfile_path
+        mng_build_dir = target_repo_dir
+        target_repo_dir = None
+    elif resolved_install_mode == MngInstallMode.EDITABLE:
+        mng_repo_root = _get_mng_repo_root()
+        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
+        with log_span("Packaging mng monorepo at commit {}", mng_head_commit):
+            package_repo_at_commit(mng_head_commit, mng_build_dir, mng_repo_root)
+        mng_tarball = mng_build_dir / "current.tar.gz"
+        if not mng_tarball.exists():
+            raise ScheduleDeployError(
+                f"Expected tarball at {mng_tarball} after packaging mng monorepo, but it was not found"
+            ) from None
+        effective_dockerfile_path = mng_dockerfile_path
+    else:
+        # PACKAGE mode: generate a modified Dockerfile that installs mng from PyPI
+        mng_dockerfile_content = mng_dockerfile_path.read_text()
+        package_mode_content = _build_package_mode_dockerfile(mng_dockerfile_content)
+        effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
+        effective_dockerfile_path.write_text(package_mode_content)
+        logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
+
     # Validate that GH_TOKEN will be available at runtime when auto-merge is enabled.
     # It must be present either in the consolidated env (via --pass-env or --env-file)
     # or already staged into the secrets directory.
@@ -720,10 +722,10 @@ def deploy_schedule(
         has_gh_token = False
         if secrets_env_path.exists():
             staged_env = json.loads(secrets_env_path.read_text())
-            has_gh_token = "GH_TOKEN" in staged_env or "GITHUB_TOKEN" in staged_env
+            has_gh_token = "GH_TOKEN" in staged_env
         if not has_gh_token:
             raise ScheduleDeployError(
-                "Auto-merge is enabled but no GH_TOKEN or GITHUB_TOKEN was found in the deployed "
+                "Auto-merge is enabled but no GH_TOKEN was found in the deployed "
                 "environment. Pass it via --pass-env GH_TOKEN or include it in an --env-file."
             )
 
@@ -745,7 +747,8 @@ def deploy_schedule(
     env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(mng_build_dir)
     env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
     env["SCHEDULE_DOCKERFILE"] = str(effective_dockerfile_path)
-    env["SCHEDULE_TARGET_REPO_DIR"] = str(target_repo_dir)
+    if target_repo_dir:
+        env["SCHEDULE_TARGET_REPO_DIR"] = str(target_repo_dir)
 
     cron_runner_path = Path(__file__).parent / "cron_runner.py"
     cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]

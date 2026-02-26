@@ -60,7 +60,7 @@ if modal.is_local():
     _BUILD_CONTEXT_DIR: str = _require_env("SCHEDULE_BUILD_CONTEXT_DIR")
     _STAGING_DIR: str = _require_env("SCHEDULE_STAGING_DIR")
     _DOCKERFILE: str = _require_env("SCHEDULE_DOCKERFILE")
-    _TARGET_REPO_DIR: str = _require_env("SCHEDULE_TARGET_REPO_DIR")
+    _TARGET_REPO_DIR: str | None = os.environ.get("SCHEDULE_TARGET_REPO_DIR", None)
 else:
     _deploy_config: dict[str, Any] = json.loads(Path("/staging/deploy_config.json").read_text())
 
@@ -91,19 +91,21 @@ if modal.is_local():
         context_dir=_BUILD_CONTEXT_DIR,
     )
 
-    # 2. Add the target repo tarball and extract it to the configured path
-    _image = _image.add_local_dir(
-        _TARGET_REPO_DIR,
-        "/target_repo",
-        copy=True,
-    ).dockerfile_commands(
-        [
-            f"RUN mkdir -p {_TARGET_REPO_PATH} && tar -xzf /target_repo/current.tar.gz -C {_TARGET_REPO_PATH} && rm -rf /target_repo",
-            f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}",
-            f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}/.git",
-            f"WORKDIR {_TARGET_REPO_PATH}",
-        ]
-    )
+    # this is only skipped if the target repo and mng repo are the same, eg, is an optimization for faster builds when iterating on mng itself
+    if _TARGET_REPO_DIR is not None:
+        # 2. Add the target repo tarball and extract it to the configured path
+        _image = _image.add_local_dir(
+            _TARGET_REPO_DIR,
+            "/target_repo",
+            copy=True,
+        ).dockerfile_commands(
+            [
+                f"RUN mkdir -p {_TARGET_REPO_PATH} && tar -xzf /target_repo/current.tar.gz -C {_TARGET_REPO_PATH} && rm -rf /target_repo",
+                f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}",
+                f"RUN git config --global --add safe.directory {_TARGET_REPO_PATH}/.git",
+                f"WORKDIR {_TARGET_REPO_PATH}",
+            ]
+        )
 
     # 3. Add staging files and bake them into their final locations
     _image = _image.add_local_dir(
