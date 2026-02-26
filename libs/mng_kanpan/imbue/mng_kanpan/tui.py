@@ -1,3 +1,4 @@
+import os
 import subprocess
 from collections.abc import Hashable
 from concurrent.futures import Future
@@ -432,16 +433,17 @@ def _run_custom_command(state: _KanpanState, cmd: CustomCommand) -> None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
     agent_name = entry.name
-    full_command = f"{cmd.command} {agent_name}"
     state.footer_left.set_text(f"  Running {cmd.name} on {agent_name}...")
 
     def _do_run() -> subprocess.CompletedProcess[str]:
+        env = {**os.environ, "MNG_AGENT_NAME": str(agent_name)}
         return subprocess.run(
-            full_command,
+            cmd.command,
             shell=True,
             capture_output=True,
             text=True,
             timeout=60,
+            env=env,
         )
 
     future = state.executor.submit(_do_run)
@@ -464,7 +466,7 @@ def _on_custom_command_poll(
                 _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {stderr}")
         except Exception as e:
             _show_transient_message(state, f"  {cmd.name} failed for {agent_name}: {e}")
-        if cmd.trigger_refresh and state.refresh_future is None:
+        if cmd.refresh_afterwards and state.refresh_future is None:
             _start_refresh(loop, state)
     else:
         frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
