@@ -43,7 +43,9 @@ PALETTE = [
     ("reversed", "standout", ""),
     # Agent states: only RUNNING and WAITING-needing-attention get color
     ("state_running", "light green", ""),
+    ("state_running_focus", "light green,standout", ""),
     ("state_attention", "light magenta", ""),
+    ("state_attention_focus", "light magenta,standout", ""),
     # Section heading prefixes (the part before the " - ")
     ("section_done", "light magenta", ""),
     ("section_cancelled", "dark gray", ""),
@@ -52,7 +54,9 @@ PALETTE = [
     ("section_in_progress", "yellow", ""),
     # CI checks (only failing and pending get color; passing is default)
     ("check_failing", "light red", ""),
+    ("check_failing_focus", "light red,standout", ""),
     ("check_pending", "yellow", ""),
+    ("check_pending_focus", "yellow,standout", ""),
     ("error_text", "light red", ""),
 ]
 
@@ -94,6 +98,9 @@ _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
     CheckStatus.FAILING: "check_failing",
     CheckStatus.PENDING: "check_pending",
 }
+
+# All attributes that can appear in agent lines and need focus variants
+_AGENT_LINE_ATTRS = ("state_running", "state_attention", "check_failing", "check_pending")
 
 
 class _SelectableText(Text):
@@ -405,7 +412,10 @@ def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap |
             markup = _format_agent_line(entry, section)
             item = _SelectableText(markup)
             idx = len(walker)
-            walker.append(AttrMap(item, None, focus_map="reversed"))
+            focus_map: dict[str | None, str] = {None: "reversed"}
+            for attr in _AGENT_LINE_ATTRS:
+                focus_map[attr] = f"{attr}_focus"
+            walker.append(AttrMap(item, None, focus_map=focus_map))
             state.index_to_agent[idx] = entry.name
 
     if not has_content:
