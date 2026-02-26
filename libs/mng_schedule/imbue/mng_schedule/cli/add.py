@@ -1,4 +1,3 @@
-import pdb
 import shlex
 import sys
 from collections.abc import Sequence
@@ -279,7 +278,6 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         if opts.auto_fix_args:
             ssh_public_key = _get_provider_ssh_public_key(provider)
             final_args = auto_fix_create_args(raw_args, trigger_name, ssh_public_key)
-            pdb.set_trace()
             logger.info("Auto-fixed args for create command: {}", final_args)
 
         safety_issue = check_safe_create_command(final_args)
