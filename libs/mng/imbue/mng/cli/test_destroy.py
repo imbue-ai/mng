@@ -17,7 +17,7 @@ from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_single_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -66,7 +66,7 @@ def test_destroy_single_agent(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_single_agent_via_session(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -115,7 +115,7 @@ def test_destroy_single_agent_via_session(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_with_confirmation(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -172,7 +172,7 @@ def test_destroy_with_confirmation(
         assert "Are you sure you want to continue?" in destroy_result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_blocks_running_agent_without_force(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -237,7 +237,7 @@ def test_destroy_nonexistent_agent(
     assert result.exit_code != 0
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_prints_errors_if_any_identifier_not_found(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -297,7 +297,7 @@ def test_destroy_prints_errors_if_any_identifier_not_found(
         assert tmux_session_exists(session_name), "Existing agent should not be destroyed when some identifiers fail"
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_dry_run(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -346,7 +346,7 @@ def test_destroy_dry_run(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_destroy_multiple_agents(
     cli_runner: CliRunner,
     temp_work_dir: Path,

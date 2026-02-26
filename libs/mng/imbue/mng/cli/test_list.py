@@ -47,7 +47,7 @@ def test_list_command_json_format_no_agents(
     assert '"agents": []' in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -91,7 +91,7 @@ def test_list_command_with_agent(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_json_format_with_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -136,7 +136,7 @@ def test_list_command_json_format_with_agent(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_jsonl_format_with_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -181,7 +181,7 @@ def test_list_command_jsonl_format_with_agent(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_include_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -225,7 +225,7 @@ def test_list_command_with_include_filter(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_exclude_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -269,7 +269,7 @@ def test_list_command_with_exclude_filter(
         assert agent_name not in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_host_provider_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -328,7 +328,7 @@ def test_list_command_with_host_provider_filter(
         assert agent_name not in result_no_match.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_host_name_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -405,7 +405,7 @@ def test_list_command_on_error_abort(
     assert result.exit_code == 0
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_basic_fields(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -454,7 +454,7 @@ def test_list_command_with_basic_fields(
         assert "STATUS" not in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_nested_fields(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -503,7 +503,7 @@ def test_list_command_with_nested_fields(
         assert "local" in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_host_and_provider_fields(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -554,7 +554,7 @@ def test_list_command_with_host_and_provider_fields(
         assert AgentLifecycleState.RUNNING.value in result.output or AgentLifecycleState.STOPPED.value in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_invalid_fields(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -601,7 +601,7 @@ def test_list_command_with_invalid_fields(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_running_filter_alias(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -679,7 +679,7 @@ def test_list_command_with_stopped_filter_alias(
     assert "No agents found" in result.output or "stopped" not in result.output.lower()
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_local_filter_alias(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -723,7 +723,7 @@ def test_list_command_with_local_filter_alias(
         assert agent_name in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_remote_filter_alias(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -767,7 +767,7 @@ def test_list_command_with_remote_filter_alias(
         assert agent_name not in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_limit(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -841,7 +841,7 @@ def test_list_command_with_limit(
             assert agent_count == 1
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_limit_json_format(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -885,7 +885,7 @@ def test_list_command_with_limit_json_format(
         assert '"agents":' in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_sort_by_name(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -956,7 +956,7 @@ def test_list_command_with_sort_by_name(
             assert pos_a < pos_z, "Agent 'aaa' should appear before 'zzz' in ascending order"
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_sort_descending(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1027,7 +1027,7 @@ def test_list_command_with_sort_descending(
             assert pos_z < pos_a, "Agent 'zzz' should appear before 'aaa' in descending order"
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_with_provider_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1100,7 +1100,7 @@ def test_list_command_format_template_no_agents(
     assert "No agents found" not in result.output
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_list_command_format_template_with_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,

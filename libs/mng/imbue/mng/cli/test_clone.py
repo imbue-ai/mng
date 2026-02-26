@@ -14,7 +14,7 @@ from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_clone_creates_agent_from_source(
     cli_runner: CliRunner,
     temp_work_dir: Path,

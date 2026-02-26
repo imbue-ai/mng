@@ -62,7 +62,7 @@ def test_connect_no_agent_found(
     assert result.exception is not None
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_connect_cli_invokes_tmux_attach_for_named_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -92,7 +92,7 @@ def test_connect_cli_invokes_tmux_attach_for_named_agent(
         assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_connect_via_cli_group(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -140,7 +140,7 @@ def test_connect_via_cli_group(
         cleanup_tmux_session(session_name)
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_connect_start_restarts_stopped_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -195,7 +195,7 @@ def test_connect_start_restarts_stopped_agent(
         cleanup_tmux_session(session_name)
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_connect_no_start_raises_error_for_stopped_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -247,7 +247,7 @@ def test_connect_no_start_raises_error_for_stopped_agent(
         cleanup_tmux_session(session_name)
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_connect_cli_non_interactive_selects_most_recent_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,

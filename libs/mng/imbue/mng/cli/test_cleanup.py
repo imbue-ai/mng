@@ -184,7 +184,7 @@ def _create_agent(
     assert result.exit_code == 0, f"Create failed: {result.output}"
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_destroy_single_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -215,7 +215,7 @@ def test_cleanup_destroy_single_agent(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_dry_run_with_real_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -248,7 +248,7 @@ def test_cleanup_dry_run_with_real_agent(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_stop_action_with_real_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -274,7 +274,7 @@ def test_cleanup_stop_action_with_real_agent(
         assert "stopped" in cleanup_result.output.lower()
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_destroy_multiple_agents(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -316,7 +316,7 @@ def test_cleanup_destroy_multiple_agents(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_destroy_with_provider_filter_matches(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -347,7 +347,7 @@ def test_cleanup_destroy_with_provider_filter_matches(
         )
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_destroy_with_provider_filter_excludes(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -376,7 +376,7 @@ def test_cleanup_destroy_with_provider_filter_excludes(
         assert tmux_session_exists(session_name), "Agent should not be destroyed when provider filter doesn't match"
 
 
-@pytest.mark.acceptance
+@pytest.mark.tmux
 def test_cleanup_destroy_json_output_with_real_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,

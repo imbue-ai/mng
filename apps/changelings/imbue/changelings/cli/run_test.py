@@ -426,7 +426,6 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
-@pytest.mark.acceptance
 def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """Running a non-existent changeling locally should fail (mng not found)."""
     result = cli_runner.invoke(run, ["nonexistent-fairy", "--local"])
@@ -436,7 +435,6 @@ def test_run_cli_local_with_nonexistent_changeling_fails(cli_runner: CliRunner, 
     assert result.exit_code != 0
 
 
-@pytest.mark.acceptance
 @pytest.mark.usefixtures("_isolated_changeling_config")
 def test_run_cli_local_loads_existing_changeling_from_config(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """Running an existing changeling should load its config and attempt execution."""
@@ -446,7 +444,6 @@ def test_run_cli_local_loads_existing_changeling_from_config(cli_runner: CliRunn
     assert result.exit_code != 0
 
 
-@pytest.mark.acceptance
 def test_run_cli_without_local_flag_attempts_modal(cli_runner: CliRunner) -> None:
     """Running without --local should attempt Modal execution."""
     result = cli_runner.invoke(run, ["test-fairy", "--agent-type", "code-guardian"])
@@ -455,7 +452,6 @@ def test_run_cli_without_local_flag_attempts_modal(cli_runner: CliRunner) -> Non
     assert result.exit_code != 0
 
 
-@pytest.mark.acceptance
 def test_run_cli_with_overrides_applies_them(cli_runner: CliRunner, imbue_repo_cwd: Path) -> None:
     """CLI overrides should be applied when running."""
     # This will fail on execution but exercises the argument parsing path
