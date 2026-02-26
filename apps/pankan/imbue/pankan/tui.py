@@ -20,7 +20,6 @@ from urwid.widget.listbox import ListBox
 from urwid.widget.listbox import SimpleFocusListWalker
 from urwid.widget.pile import Pile
 from urwid.widget.text import Text
-from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
@@ -95,6 +94,19 @@ _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
     CheckStatus.FAILING: "check_failing",
     CheckStatus.PENDING: "check_pending",
 }
+
+
+class _SelectableText(Text):
+    """A Text widget that is selectable, allowing it to receive focus.
+
+    Unlike SelectableIcon, this supports full urwid text markup (colored segments).
+    """
+
+    _selectable = True
+
+    def keypress(self, size: tuple[()] | tuple[int] | tuple[int, int], key: str) -> str | None:
+        """Pass all keys through (no keys are handled by this widget)."""
+        return key
 
 
 class _PankanState(MutableModel):
@@ -306,28 +318,42 @@ def _get_state_attr(entry: AgentBoardEntry, section: BoardSection) -> str:
     return ""
 
 
-def _format_check_markup(entry: AgentBoardEntry) -> str:
-    """Build plain text for CI check status.
+def _format_check_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
+    """Build urwid text markup for CI check status.
 
-    Only failing and pending checks get color (handled at the widget level).
-    Passing checks are shown in plain text. Unknown checks are not shown.
+    Only failing and pending checks get color. Passing checks are shown
+    in default color. Unknown checks are not shown at all.
     """
     if entry.pr is None or entry.pr.check_status == CheckStatus.UNKNOWN:
-        return ""
-    return f"  checks {entry.pr.check_status.lower()}"
+        return []
+    check_attr = _CHECK_STATUS_ATTR.get(entry.pr.check_status)
+    if check_attr is not None:
+        return ["  CI ", (check_attr, entry.pr.check_status.lower())]
+    # PASSING: show in default color
+    return [f"  CI {entry.pr.check_status.lower()}"]
 
 
-def _format_agent_text(entry: AgentBoardEntry, section: BoardSection) -> str:
-    """Build plain text for a single agent line (used with SelectableIcon)."""
+def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[str | tuple[Hashable, str]]:
+    """Build urwid text markup for a single agent line.
+
+    Shows: name, agent state, PR info (number + CI status + URL if applicable).
+    """
+    state_attr = _get_state_attr(entry, section)
     state_text = f"{entry.state:<10}"
-    parts = [f"  {entry.name:<24}", state_text]
+    parts: list[str | tuple[Hashable, str]] = [
+        f"  {entry.name:<24}",
+    ]
+    if state_attr:
+        parts.append((state_attr, state_text))
+    else:
+        parts.append(state_text)
 
     if entry.pr is not None:
         parts.append(f"  PR #{entry.pr.number}")
-        parts.append(_format_check_markup(entry))
+        parts.extend(_format_check_markup(entry))
         parts.append(f"  {entry.pr.url}")
 
-    return "".join(parts)
+    return parts
 
 
 def _format_section_heading(section: BoardSection, count: int) -> list[str | tuple[Hashable, str]]:
@@ -376,8 +402,8 @@ def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap |
         has_content = True
 
         for entry in entries:
-            text = _format_agent_text(entry, section)
-            item = SelectableIcon(text, cursor_position=0)
+            markup = _format_agent_line(entry, section)
+            item = _SelectableText(markup)
             idx = len(walker)
             walker.append(AttrMap(item, None, focus_map="reversed"))
             state.index_to_agent[idx] = entry.name
