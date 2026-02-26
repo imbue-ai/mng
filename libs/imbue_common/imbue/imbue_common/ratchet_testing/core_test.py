@@ -1,3 +1,4 @@
+import os
 import subprocess
 from datetime import datetime
 from datetime import timezone
@@ -324,7 +325,7 @@ def test_format_ratchet_failure_message_resolves_blame_and_sorts_by_date(git_rep
         cwd=git_repo,
         check=True,
         capture_output=True,
-        env={**subprocess.os.environ, **env},
+        env={**os.environ, **env},
     )
 
     # Create second commit (2025) with a newer TODO
@@ -337,7 +338,7 @@ def test_format_ratchet_failure_message_resolves_blame_and_sorts_by_date(git_rep
         cwd=git_repo,
         check=True,
         capture_output=True,
-        env={**subprocess.os.environ, **env},
+        env={**os.environ, **env},
     )
 
     pattern = RegexPattern(r"# TODO:.*")
