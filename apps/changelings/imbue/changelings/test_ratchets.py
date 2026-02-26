@@ -34,6 +34,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MODEL_COP
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MONKEYPATCH_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NAMEDTUPLE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NUM_PREFIX
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_OS_FORK
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
@@ -309,6 +310,17 @@ def test_prevent_pytest_mark_integration() -> None:
 
 
 # --- Process management ---
+
+
+def test_prevent_os_fork() -> None:
+    """Prevent usage of os.fork and os.forkpty.
+
+    Forking is incompatible with threading: a forked child inherits only the calling
+    thread, leaving mutexes held by other threads permanently locked and shared state
+    inconsistent. Code should use the subprocess module to launch subprocesses instead.
+    """
+    chunks = check_ratchet_rule(PREVENT_OS_FORK, _get_changelings_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(0), PREVENT_OS_FORK.format_failure(chunks)
 
 
 def test_prevent_direct_subprocess_usage() -> None:
