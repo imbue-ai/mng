@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -89,6 +90,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
 from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -422,6 +424,10 @@ class SandboxConfig(HostConfig):
         default_factory=tuple,
         description="Volume mounts as (volume_name, mount_path) pairs",
     )
+    docker_build_args: tuple[str, ...] = Field(
+        default_factory=tuple,
+        description="Docker build args as KEY=VALUE pairs to substitute into Dockerfile ARG defaults",
+    )
 
     @property
     def effective_cidr_allowlist(self) -> list[str] | None:
@@ -442,7 +448,7 @@ class HostRecord(FrozenModel):
     """Host metadata stored on the Modal Volume.
 
     This record contains all information needed to connect to and restore a host.
-    It is stored at /<host_id>.json on the volume.
+    It is stored at /hosts/<host_id>.json on the volume.
 
     For failed hosts (those that failed during creation), only certified_host_data
     is required. The SSH fields and config will be None since the host never started.
@@ -582,6 +588,14 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir, key_name="modal_ssh_key")
 
+    def get_ssh_public_key(self) -> str:
+        """Get the SSH public key content for this provider instance.
+
+        Loads or creates the keypair if it doesn't exist yet.
+        """
+        _private_key_path, public_key_content = self._get_ssh_keypair()
+        return public_key_content
+
     def _get_host_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH host keypair for Modal sandboxes.
 
@@ -652,7 +666,7 @@ class ModalProviderInstance(BaseProviderInstance):
     # Volume-based Host Record Methods
     # =========================================================================
 
-    def _get_state_volume(self) -> ModalVolume:
+    def get_state_volume(self) -> ModalVolume:
         """Get the state volume for persisting host records and agent data.
 
         This volume is used to persist host records (including snapshots) across
@@ -664,11 +678,11 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
-        return f"/{host_id}.json"
+        return f"/hosts/{host_id}.json"
 
     def _write_host_record(self, host_record: HostRecord) -> None:
         """Write a host record to the state volume."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         host_id = HostId(host_record.certified_host_data.host_id)
         path = self._get_host_record_path(host_id)
         data = host_record.model_dump_json(indent=2)
@@ -723,7 +737,7 @@ class ModalProviderInstance(BaseProviderInstance):
             logger.trace("Used cached host record for host_id={}", host_id)
             return self._host_record_cache_by_id[host_id]
 
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
         path = self._get_host_record_path(host_id)
 
         try:
@@ -738,10 +752,10 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _destroy_agents_on_host(self, host_id: HostId) -> None:
         """Remove the agents for this host from the state volume."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         # delete all agent records for this host
-        host_dir = f"/{host_id}"
+        host_dir = f"/hosts/{host_id}"
         try:
             volume.remove_file(host_dir, recursive=True)
         except (NotFoundError, FileNotFoundError):
@@ -754,7 +768,7 @@ class ModalProviderInstance(BaseProviderInstance):
 
     def _delete_host_record(self, host_id: HostId) -> None:
         """Delete a host record from the state volume and clear caches."""
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         # finally, delete the actual host record itself
         path = self._get_host_record_path(host_id)
@@ -797,7 +811,7 @@ class ModalProviderInstance(BaseProviderInstance):
         """List all host records stored on the state volume.
 
         Returns a list of all HostRecord objects found on the volume.
-        Host records are stored at /<host_id>.json.
+        Host records are stored at /hosts/<host_id>.json.
         """
         host_records, _agent_record_by_host_id = self._list_all_host_and_agent_records(cg, is_including_agents=False)
         return host_records
@@ -809,20 +823,26 @@ class ModalProviderInstance(BaseProviderInstance):
         self, cg: ConcurrencyGroup, is_including_agents: bool = True
     ) -> tuple[list[HostRecord], dict[str, Any]]:
         with trace_span("  _list_all_host_and_agent_records", _is_trace_span_enabled=False):
-            volume = self._get_state_volume()
+            volume = self.get_state_volume()
 
             futures: list[Future[HostRecord | None]] = []
             future_by_host_id: dict[HostId, Future[list[dict[str, Any]]]] = {}
             with ConcurrencyGroupExecutor(
                 parent_cg=cg, name="modal_list_all_host_records", max_workers=32
             ) as executor:
-                # List files at the root of the volume
-                for entry in volume.listdir("/"):
+                # List files in the /hosts/ directory on the volume
+                try:
+                    entries = volume.listdir("/hosts/")
+                except (NotFoundError, FileNotFoundError):
+                    entries = []
+
+                for entry in entries:
                     filename = entry.path
-                    # Host records are stored as <host_id>.json
+                    # Host records are stored as hosts/<host_id>.json
                     if filename.endswith(".json"):
-                        # Remove .json suffix (and any leading / if present)
-                        host_id_str = filename.lstrip("/")[:-5]
+                        # Extract host_id from path like "hosts/host-abc.json"
+                        basename = filename.rsplit("/", 1)[-1]
+                        host_id_str = basename.removesuffix(".json")
                         host_id = HostId(host_id_str)
                         futures.append(executor.submit(self._read_host_record, host_id))
                         if is_including_agents:
@@ -839,14 +859,14 @@ class ModalProviderInstance(BaseProviderInstance):
     def list_persisted_agent_data_for_host(self, host_id: HostId) -> list[dict[str, Any]]:
         """List persisted agent data for a stopped host.
 
-        Agent records are stored at /{host_id}/{agent_id}.json on the state volume.
+        Agent records are stored at /hosts/{host_id}/{agent_id}.json on the state volume.
         These are persisted when a host shuts down so that mng list can
         show agents on stopped hosts.
         """
-        volume = self._get_state_volume()
+        volume = self.get_state_volume()
 
         agent_records: list[dict[str, Any]] = []
-        host_dir = f"/{host_id}"
+        host_dir = f"/hosts/{host_id}"
         try:
             entries = volume.listdir(host_dir)
         except (NotFoundError, FileNotFoundError):
@@ -879,15 +899,15 @@ class ModalProviderInstance(BaseProviderInstance):
         """Persist agent data to the state volume.
 
         Called when an agent is created or its data.json is updated. Writes
-        the agent data to /{host_id}/{agent_id}.json on the state volume.
+        the agent data to /hosts/{host_id}/{agent_id}.json on the state volume.
         """
         agent_id = agent_data.get("id")
         if not agent_id:
             logger.warning("Cannot persist agent data without id field")
             return
 
-        volume = self._get_state_volume()
-        host_dir = f"/{host_id}"
+        volume = self.get_state_volume()
+        host_dir = f"/hosts/{host_id}"
         agent_path = f"{host_dir}/{agent_id}.json"
 
         # Serialize the agent data to JSON
@@ -900,10 +920,10 @@ class ModalProviderInstance(BaseProviderInstance):
         """Remove persisted agent data from the state volume.
 
         Called when an agent is destroyed. Removes the agent data file from
-        /{host_id}/{agent_id}.json on the state volume.
+        /hosts/{host_id}/{agent_id}.json on the state volume.
         """
-        volume = self._get_state_volume()
-        agent_path = f"/{host_id}/{agent_id}.json"
+        volume = self.get_state_volume()
+        agent_path = f"/hosts/{host_id}/{agent_id}.json"
 
         try:
             volume.remove_file(agent_path)
@@ -937,6 +957,7 @@ class ModalProviderInstance(BaseProviderInstance):
         dockerfile: Path | None = None,
         context_dir: Path | None = None,
         secrets: Sequence[str] = (),
+        docker_build_args: Sequence[str] = (),
     ) -> modal.Image:
         """Build a Modal image.
 
@@ -954,6 +975,10 @@ class ModalProviderInstance(BaseProviderInstance):
         will be read from the current environment and passed to the Modal image build
         process. These are available during Dockerfile RUN commands via --mount=type=secret.
 
+        The docker_build_args parameter is a sequence of KEY=VALUE strings that override
+        ARG defaults in the Dockerfile. For example, passing 'CLAUDE_CODE_VERSION=2.1.50'
+        substitutes the default value of ARG CLAUDE_CODE_VERSION in the Dockerfile.
+
         SSH and tmux setup is handled at runtime in _start_sshd_in_sandbox to
         allow warning if these tools are not pre-installed in the base image.
         """
@@ -962,6 +987,9 @@ class ModalProviderInstance(BaseProviderInstance):
 
         if dockerfile is not None:
             dockerfile_contents = dockerfile.read_text()
+            # Substitute docker build args into ARG defaults
+            if docker_build_args:
+                dockerfile_contents = _substitute_dockerfile_build_args(dockerfile_contents, docker_build_args)
             effective_context_dir = context_dir if context_dir is not None else dockerfile.parent
             image = _build_image_from_dockerfile_contents(
                 dockerfile_contents,
@@ -1016,6 +1044,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
@@ -1044,6 +1073,12 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
                     sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+
+        if authorized_keys:
+            add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
+            if add_authorized_keys_cmd is not None:
+                with log_span("Adding {} authorized_keys entries to sandbox", len(authorized_keys)):
+                    sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
 
         with log_span("Starting sshd in sandbox"):
             sshd_log_path = f"{self.host_dir}/logs/sshd.log"
@@ -1078,6 +1113,7 @@ class ModalProviderInstance(BaseProviderInstance):
         config: SandboxConfig,
         host_data: CertifiedHostData,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a sandbox and create a Host object.
 
@@ -1094,7 +1130,12 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Start sshd with our host key
         self._start_sshd_in_sandbox(
-            sandbox, client_public_key, host_private_key, host_public_key, known_hosts=known_hosts
+            sandbox,
+            client_public_key,
+            host_private_key,
+            host_public_key,
+            known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         # Get SSH connection info
@@ -1335,6 +1376,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--cidr-allowlist", type=str, action="append", default=[])
         parser.add_argument("--offline", action="store_true", default=False)
         parser.add_argument("--volume", type=str, action="append", default=[])
+        parser.add_argument("--docker-build-arg", type=str, action="append", default=[])
 
         try:
             parsed, unknown = parser.parse_known_args(normalized_args)
@@ -1357,6 +1399,7 @@ log "=== Shutdown script completed ==="
             cidr_allowlist=tuple(parsed.cidr_allowlist),
             offline=parsed.offline,
             volumes=tuple(_parse_volume_spec(v) for v in parsed.volume),
+            docker_build_args=tuple(parsed.docker_build_arg),
         )
 
     # =========================================================================
@@ -1630,6 +1673,7 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create a new Modal sandbox host.
@@ -1678,7 +1722,7 @@ log "=== Shutdown script completed ==="
                 # Build the Modal image
                 with log_span("Building Modal image..."):
                     modal_image = self._build_modal_image(
-                        base_image, dockerfile_path, context_dir_path, config.secrets
+                        base_image, dockerfile_path, context_dir_path, config.secrets, config.docker_build_args
                     )
 
             # Get or create the Modal app (uses singleton pattern with context manager)
@@ -1776,6 +1820,7 @@ log "=== Shutdown script completed ==="
             config=config,
             host_data=host_data,
             known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         return host
@@ -2049,6 +2094,13 @@ log "=== Shutdown script completed ==="
     # =========================================================================
     # Discovery Methods
     # =========================================================================
+
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
 
     @handle_modal_auth_error
     def get_host(
@@ -3047,6 +3099,41 @@ def _build_modal_secrets_from_env(
 
     with log_span("Creating Modal secrets from environment variables", count=len(secret_dict)):
         return [modal.Secret.from_dict(secret_dict)]
+
+
+@pure
+def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequence[str]) -> str:
+    """Substitute Docker build arg defaults in Dockerfile contents.
+
+    Parses KEY=VALUE pairs from build_args and replaces the default values of
+    matching ARG instructions in the Dockerfile. For example, if build_args
+    contains 'CLAUDE_CODE_VERSION=2.1.50', then 'ARG CLAUDE_CODE_VERSION=""'
+    becomes 'ARG CLAUDE_CODE_VERSION="2.1.50"'.
+
+    Raises MngError if a build arg is not in KEY=VALUE format or if the ARG
+    is not found in the Dockerfile.
+    """
+    result = dockerfile_contents
+    for arg_spec in build_args:
+        if "=" not in arg_spec:
+            raise MngError(f"Docker build arg must be in KEY=VALUE format, got: {arg_spec}")
+        key, value = arg_spec.split("=", 1)
+        # Replace ARG <key>=<anything> or ARG <key> (no default) with ARG <key>="<value>"
+        # Use a lambda replacement to avoid re.sub interpreting backslash sequences in value.
+        # Bind value via default arg to avoid B023 (closure over loop variable).
+        new_result = re.sub(
+            rf"^(ARG\s+{re.escape(key)})\b.*$",
+            lambda m, v=value: f'{m.group(1)}="{v}"',
+            result,
+            flags=re.MULTILINE,
+        )
+        if new_result == result:
+            raise MngError(
+                f"Docker build arg {key!r} not found as an ARG instruction in the Dockerfile. "
+                "Ensure the Dockerfile contains a matching ARG instruction."
+            )
+        result = new_result
+    return result
 
 
 def _build_image_from_dockerfile_contents(

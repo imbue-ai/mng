@@ -63,6 +63,7 @@ def create(
     agent_options: CreateAgentOptions,
     mng_ctx: MngContext,
     create_work_dir: bool = True,
+    created_branch_name: str | None = None,
 ) -> CreateAgentResult:
     """Create and run an agent.
 
@@ -97,7 +98,9 @@ def create(
             with log_span("Calling on_before_initial_file_copy hooks"):
                 mng_ctx.pm.hook.on_before_initial_file_copy(agent_options=agent_options, host=host)
             with log_span("Creating agent work directory from source {}", source_location.path):
-                work_dir_path = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+                work_dir_result = host.create_agent_work_dir(source_location.host, source_location.path, agent_options)
+                work_dir_path = work_dir_result.path
+                created_branch_name = work_dir_result.created_branch_name
             with log_span("Calling on_after_initial_file_copy hooks"):
                 mng_ctx.pm.hook.on_after_initial_file_copy(
                     agent_options=agent_options, host=host, work_dir_path=work_dir_path
@@ -112,7 +115,7 @@ def create(
 
         # Create the agent state (registers the agent with the host)
         with log_span("Creating agent state in work directory {}", work_dir_path):
-            agent = host.create_agent_state(work_dir_path, agent_options)
+            agent = host.create_agent_state(work_dir_path, agent_options, created_branch_name=created_branch_name)
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
         with log_span("Calling on_before_provisioning hooks"):
@@ -202,6 +205,7 @@ def resolve_target_host(
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
             known_hosts_count=len(target_host.environment.known_hosts),
+            authorized_keys_count=len(target_host.environment.authorized_keys),
         ):
             new_host = provider.create_host(
                 name=host_name,
@@ -210,6 +214,7 @@ def resolve_target_host(
                 start_args=target_host.build.start_args,
                 lifecycle=target_host.lifecycle,
                 known_hosts=target_host.environment.known_hosts,
+                authorized_keys=target_host.environment.authorized_keys,
                 snapshot=target_host.build.snapshot,
             )
 

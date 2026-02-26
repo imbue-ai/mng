@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shlex
 from collections.abc import Sequence
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Callable
@@ -35,6 +38,7 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentStartError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
+from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import is_macos
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import FileTransferSpec
@@ -48,6 +52,15 @@ from imbue.mng.utils.git_utils import find_git_common_dir
 from imbue.mng.utils.polling import poll_until
 
 _READY_SIGNAL_TIMEOUT_SECONDS: Final[float] = 10.0
+
+# Paths within ~/.claude/ to sync to remote hosts for Claude Code operation.
+# Used by both get_files_for_deploy() and provision() to ensure consistency.
+_CLAUDE_HOME_SYNC_ITEMS: Final[tuple[str, ...]] = (
+    "settings.json",
+    "skills",
+    "agents",
+    "commands",
+)
 
 
 class ClaudeAgentConfig(AgentTypeConfig):
@@ -86,6 +99,85 @@ class ClaudeAgentConfig(AgentTypeConfig):
         default=True,
         description="Check if claude is installed (if False, assumes it is already present)",
     )
+    # FIXME: when the version is pinned, we should, during provisioning, ensure that the auto-updates are disabled. This means doing the following:
+    #  - for local, check that "DISABLE_AUTOUPDATER=1" or "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1" are set in the local claude settings (~/.claude/settings.json) and warn if not
+    #  - for remote, just automatically add these env vars to the agent environment:
+    #       export DISABLE_AUTOUPDATER=1 && export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 && export CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1
+    #    this should be done by adding a new callback ("get_provision_env_vars") for agents (like get_provision_file_transfers) that allows us to define additional environment variables
+    #    that function ("get_provision_env_vars") should be defined on our claude agent below, and should be called from Host::_collect_agent_env_vars in order to collect them all
+    version: str | None = Field(
+        default=None,
+        description="Pin the Claude Code version to install (e.g., '2.1.50'). "
+        "When set, installation uses this specific version and provisioning verifies the installed version matches. "
+        "If None, uses the latest available version.",
+    )
+
+
+def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
+    """Collect files from ~/.claude/ directory items for deployment.
+
+    Returns dict mapping deployment destination paths (starting with "~/.claude/")
+    to local source paths. Iterates over _CLAUDE_HOME_SYNC_ITEMS to collect files
+    from both regular files and directories (recursively).
+    """
+    files: dict[Path, Path] = {}
+    for item_name in _CLAUDE_HOME_SYNC_ITEMS:
+        item_path = claude_dir / item_name
+        if not item_path.exists():
+            continue
+        if item_path.is_dir():
+            for file_path in item_path.rglob("*"):
+                if file_path.is_file():
+                    relative = file_path.relative_to(claude_dir)
+                    files[Path(f"~/.claude/{relative}")] = file_path
+        else:
+            files[Path(f"~/.claude/{item_name}")] = item_path
+    return files
+
+
+def _build_settings_json_content(sync_local: bool) -> str:
+    """Build ~/.claude/settings.json content for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always forces skipDangerousModePermissionPrompt=True.
+    """
+    local_path = Path.home() / ".claude" / "settings.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+        if data.get("fastMode") is True:
+            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
+            data["fastMode"] = False
+    else:
+        data = _generate_claude_home_settings()
+    data["skipDangerousModePermissionPrompt"] = True
+    return json.dumps(data, indent=2) + "\n"
+
+
+def _build_claude_json_for_remote(
+    sync_local: bool, work_dir: Path, version: str | None, current_time: datetime | None = None
+) -> dict[str, Any]:
+    """Build ~/.claude.json data for remote deployment.
+
+    Uses the local file as a base when sync_local is True and the file exists,
+    otherwise uses generated defaults. Always sets dialog-suppression fields
+    (bypassPermissionsModeAccepted and effortCalloutDismissed) to prevent
+    startup dialogs from intercepting automated input via tmux send-keys.
+
+    Returns the dict so callers can do further modifications (e.g. keychain merge)
+    before serializing.
+    """
+    local_path = Path.home() / ".claude.json"
+    if sync_local and local_path.exists():
+        data: dict[str, Any] = json.loads(local_path.read_text())
+    else:
+        data = _generate_claude_json(version, current_time=current_time)
+    data["bypassPermissionsModeAccepted"] = True
+    data["effortCalloutDismissed"] = True
+    # Add trust for the remote work_dir so Claude doesn't show the
+    # trust dialog (which would intercept tmux send-keys input):
+    projects = data.setdefault("projects", {})
+    projects.setdefault(str(work_dir), {})["hasTrustDialogAccepted"] = True
+    return data
 
 
 def _check_claude_installed(host: OnlineHostInterface) -> bool:
@@ -94,20 +186,110 @@ def _check_claude_installed(host: OnlineHostInterface) -> bool:
     return result.success
 
 
-def _install_claude(host: OnlineHostInterface) -> None:
-    """Install claude on the host using the official installer."""
-    install_command = """curl --version && ( curl -fsSL https://claude.ai/install.sh | bash ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
+def _parse_claude_version_output(output: str) -> str | None:
+    """Parse the version string from 'claude --version' output.
+
+    Expected format: '2.1.50 (Claude Code)' -> '2.1.50'
+    """
+    stripped = output.strip()
+    if not stripped:
+        return None
+    parts = stripped.split()
+    return parts[0] if parts else None
+
+
+def _get_claude_version(host: OnlineHostInterface) -> str | None:
+    """Get the installed claude version on the host.
+
+    Returns the version string (e.g., '2.1.50') or None if claude is not installed
+    or the version cannot be determined.
+    """
+    result = host.execute_command("claude --version", timeout_seconds=10.0)
+    if not result.success:
+        logger.debug("Failed to get claude version on host: {}", result.stderr)
+        return None
+    return _parse_claude_version_output(result.stdout)
+
+
+def _get_local_claude_version(concurrency_group: ConcurrencyGroup) -> str | None:
+    """Get the locally installed claude version.
+
+    Returns the version string (e.g., '2.1.50') or None if claude is not installed locally.
+    """
+    try:
+        result = concurrency_group.run_process_to_completion(
+            ["claude", "--version"],
+            is_checked_after=False,
+        )
+    except ProcessSetupError:
+        logger.debug("claude binary not found locally")
+        return None
+    if result.returncode != 0:
+        logger.debug("Failed to get local claude version (exit code {})", result.returncode)
+        return None
+    return _parse_claude_version_output(result.stdout)
+
+
+def _build_install_command_hint(version: str | None = None) -> str:
+    """Build the install command hint shown in user-facing messages."""
+    if version:
+        return f"curl -fsSL https://claude.ai/install.sh | bash -s {version}"
+    return "curl -fsSL https://claude.ai/install.sh | bash"
+
+
+def _install_claude(host: OnlineHostInterface, version: str | None = None) -> None:
+    """Install claude on the host using the official installer.
+
+    When version is specified, passes it to the install script to install that
+    specific version (e.g., 'bash -s 2.1.50').
+    """
+    if version:
+        version_arg = f" -s {shlex.quote(version)}"
+    else:
+        version_arg = ""
+    install_command = f"""curl --version && ( curl -fsSL https://claude.ai/install.sh | bash{version_arg} ) && echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc"""
     result = host.execute_command(install_command, timeout_seconds=300.0)
     if not result.success:
         raise PluginMngError(f"Failed to install claude. stderr: {result.stderr}")
 
 
-def _prompt_user_for_installation() -> bool:
+def _prompt_user_for_installation(version: str | None = None) -> bool:
     """Prompt the user to install claude locally."""
+    install_cmd = _build_install_command_hint(version)
     logger.info(
-        "\nClaude is not installed on this machine.\nYou can install it by running:\n  curl -fsSL https://claude.ai/install.sh | bash\n"
+        "\nClaude is not installed on this machine.\nYou can install it by running:\n  {}\n",
+        install_cmd,
     )
     return click.confirm("Would you like to install it now?", default=True)
+
+
+def _warn_about_version_consistency(config: ClaudeAgentConfig, concurrency_group: ConcurrencyGroup) -> None:
+    """Warn about potential version inconsistency when syncing local claude files to a remote host.
+
+    When local claude files (settings, credentials) are synced to a remote host,
+    version consistency matters:
+    - If no version is pinned, the remote host may be running a different version
+    - If a version is pinned but the local version differs, synced settings may be incompatible
+    """
+    local_version = _get_local_claude_version(concurrency_group)
+
+    if config.version is None:
+        logger.warning(
+            "No claude version is pinned in agent config, but local claude files are being "
+            "synced to the remote host. Consider setting 'version' in your claude agent config "
+            "to ensure version consistency between local and remote. "
+            "Local claude version: {}",
+            local_version or "unknown",
+        )
+    elif local_version is not None and local_version != config.version:
+        logger.warning(
+            "Local claude version ({}) does not match the pinned version ({}). "
+            "This may cause compatibility issues with synced settings.",
+            local_version,
+            config.version,
+        )
+    else:
+        logger.debug("Version consistency check passed (pinned={}, local={})", config.version, local_version)
 
 
 def _prompt_user_for_trust(source_path: Path) -> bool:
@@ -547,31 +729,40 @@ class ClaudeAgent(BaseAgent):
 
         config = self._get_claude_config()
 
-        # ensure that claude is installed
+        # ensure that claude is installed (and at the right version if pinned)
         if config.check_installation:
             is_installed = _check_claude_installed(host)
             if is_installed:
                 logger.debug("Claude is already installed on the host")
+                # If version is pinned, verify the installed version matches
+                if config.version is not None:
+                    installed_version = _get_claude_version(host)
+                    if installed_version != config.version:
+                        raise PluginMngError(
+                            f"Claude version mismatch: installed version is {installed_version!r}, "
+                            f"but agent config pins version {config.version!r}. "
+                            "Re-install claude with the correct version or update the pinned version in your agent config."
+                        )
+                    logger.debug("Claude version {} matches pinned version", installed_version)
             else:
                 logger.warning("Claude is not installed on the host")
+                install_hint = _build_install_command_hint(config.version)
 
                 if host.is_local:
                     # For local hosts, auto-approve or prompt the user for consent
                     if mng_ctx.is_auto_approve:
                         logger.debug("Auto-approving claude installation (--yes)")
                     elif mng_ctx.is_interactive:
-                        if _prompt_user_for_installation():
+                        if _prompt_user_for_installation(config.version):
                             logger.debug("User consented to install claude locally")
                         else:
                             raise PluginMngError(
-                                "Claude is not installed. Please install it manually with:\n"
-                                "  curl -fsSL https://claude.ai/install.sh | bash"
+                                f"Claude is not installed. Please install it manually with:\n  {install_hint}"
                             )
                     else:
                         # Non-interactive mode: fail with a clear message
                         raise PluginMngError(
-                            "Claude is not installed. Please install it manually with:\n"
-                            "  curl -fsSL https://claude.ai/install.sh | bash"
+                            f"Claude is not installed. Please install it manually with:\n  {install_hint}"
                         )
                 else:
                     if not mng_ctx.config.is_remote_agent_installation_allowed:
@@ -585,60 +776,47 @@ class ClaudeAgent(BaseAgent):
 
                 # Install claude
                 logger.info("Installing claude...")
-                _install_claude(host)
+                _install_claude(host, config.version)
                 logger.info("Claude installed successfully")
 
-        # transfer some extra files to remote hosts (if configured):
+        # transfer files to remote hosts:
         if not host.is_local:
+            # Warn about version consistency when syncing local files
+            if config.sync_home_settings or config.sync_claude_json or config.sync_claude_credentials:
+                _warn_about_version_consistency(config, mng_ctx.concurrency_group)
+
+            # Always ship ~/.claude/settings.json
+            host.write_text_file(
+                Path(".claude/settings.json"), _build_settings_json_content(config.sync_home_settings)
+            )
+
+            # Transfer other home dir files (skills, agents, commands) if syncing is enabled
             if config.sync_home_settings:
                 logger.info("Transferring claude home directory settings to remote host...")
-                # transfer anything in ~/.claude/skills/, ~/.claude/agents/, and ~/.claude/commands/:
                 local_claude_dir = Path.home() / ".claude"
-                for local_config_path in [
-                    local_claude_dir / "settings.json",
-                    local_claude_dir / "skills",
-                    local_claude_dir / "agents",
-                    local_claude_dir / "commands",
-                ]:
-                    if local_config_path.exists():
-                        if local_config_path.is_dir():
-                            for file_path in local_config_path.rglob("*"):
-                                if file_path.is_file():
-                                    relative_path = file_path.relative_to(local_claude_dir)
-                                    remote_path = Path(".claude") / relative_path
-                                    host.write_text_file(remote_path, file_path.read_text())
-                        else:
-                            relative_path = local_config_path.relative_to(local_claude_dir)
-                            remote_path = Path(".claude") / relative_path
-                            host.write_text_file(remote_path, local_config_path.read_text())
+                for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
+                    # settings.json is handled separately above
+                    if dest_path == Path("~/.claude/settings.json"):
+                        continue
+                    # dest_path is like Path("~/.claude/skills/foo"); strip the ~/ prefix
+                    # to get a path relative to the user's home directory on the remote host
+                    remote_path = Path(str(dest_path).removeprefix("~/"))
+                    host.write_text_file(remote_path, source_path.read_text())
 
-            if config.sync_claude_json:
-                claude_json_path = Path.home() / ".claude.json"
-                if claude_json_path.exists():
-                    logger.info("Transferring ~/.claude.json to remote host...")
-                    # Set global fields that prevent startup dialogs from intercepting
-                    # automated input via tmux send-keys:
-                    claude_json_data = json.loads(claude_json_path.read_text())
-                    claude_json_data["bypassPermissionsModeAccepted"] = True
-                    claude_json_data["effortCalloutDismissed"] = True
-                    # Add trust for the remote work_dir so Claude doesn't show the
-                    # trust dialog (which would intercept tmux send-keys input):
-                    projects = claude_json_data.setdefault("projects", {})
-                    projects.setdefault(str(self.work_dir), {})["hasTrustDialogAccepted"] = True
-                    # If the local file lacks primaryApiKey, try the macOS keychain
-                    if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-                        keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
-                        if keychain_api_key is not None:
-                            logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
-                            claude_json_data["primaryApiKey"] = keychain_api_key
-                    # FIXME: this particular write must be atomic!
-                    #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
-                    #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
-                    #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
-                    #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
-                    host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
-                else:
-                    logger.debug("Skipped ~/.claude.json (file does not exist)")
+            # Always ship ~/.claude.json
+            claude_json_data = _build_claude_json_for_remote(config.sync_claude_json, self.work_dir, config.version)
+            # If the local file lacks primaryApiKey, try the macOS keychain
+            if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
+                keychain_api_key = _read_macos_keychain_credential("Claude Code", mng_ctx.concurrency_group)
+                if keychain_api_key is not None:
+                    logger.info("Merging macOS keychain API key into ~/.claude.json for remote host...")
+                    claude_json_data["primaryApiKey"] = keychain_api_key
+            # FIXME: this particular write must be atomic!
+            #  In order to make that happen, add an is_atomic flag to the host.write_text_file method that
+            #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
+            #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
+            #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
+            host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
 
             if config.sync_claude_credentials:
                 credentials_path = Path.home() / ".claude" / ".credentials.json"
@@ -673,7 +851,123 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Removed Claude trust entry for {}", self.work_dir)
 
 
+def _generate_claude_home_settings() -> dict[str, Any]:
+    """default contents for ~/.claude/settings.json"""
+    return {"skipDangerousModePermissionPrompt": True}
+
+
+def _generate_claude_json(version: str | None, current_time: datetime | None = None) -> dict[str, Any]:
+    """default contents for ~/.claude.json"""
+    if version is None:
+        version = "2.1.50"
+    if current_time is None:
+        current_time = datetime.now(timezone.utc)
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        current_time_millis = int(current_time.timestamp() * 1000)
+        cache_time_millis = current_time_millis + 50 + random.random() * 1000
+        change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    else:
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        cache_time_millis = int(current_time.timestamp() * 1000) + 50
+        change_log_time_millis = cache_time_millis + 500
+    return {
+        "numStartups": 1,
+        "installMethod": "native",
+        "autoUpdates": False,
+        "firstStartTime": current_time_str,
+        "opusProMigrationComplete": True,
+        "sonnet1m45MigrationComplete": True,
+        "clientDataCache": {"data": None, "timestamp": cache_time_millis},
+        "cachedChromeExtensionInstalled": False,
+        "changelogLastFetched": change_log_time_millis,
+        "hasCompletedOnboarding": True,
+        "lastOnboardingVersion": version,
+        "lastReleaseNotesSeen": version,
+        "effortCalloutDismissed": True,
+        "bypassPermissionsModeAccepted": True,
+        "officialMarketplaceAutoInstallAttempted": True,
+        "officialMarketplaceAutoInstalled": True,
+        "autoUpdatesProtectedForNative": True,
+    }
+
+
 @hookimpl
 def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentTypeConfig]]:
     """Register the claude agent type."""
     return ("claude", ClaudeAgent, ClaudeAgentConfig)
+
+
+@hookimpl
+def get_files_for_deploy(
+    mng_ctx: MngContext,
+    include_user_settings: bool,
+    include_project_settings: bool,
+    repo_root: Path,
+) -> dict[Path, Path | str]:
+    """Register claude-specific files for scheduled deployments.
+
+    Always includes ~/.claude/settings.json and ~/.claude.json (using generated
+    defaults when local files are unavailable or user settings are excluded).
+    When include_user_settings is True, also includes skills/, agents/,
+    commands/, and credentials from the local ~/.claude/ directory.
+    """
+    files: dict[Path, Path | str] = {}
+
+    local_claude_dir = Path.home() / ".claude"
+
+    # Always ship ~/.claude/settings.json and ~/.claude.json
+    files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
+    # we set the time to a constant for better caching:
+    FIXED_TIME = datetime(2026, 2, 23, 3, 4, 7, tzinfo=timezone.utc)
+    # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
+    claude_json_data = _build_claude_json_for_remote(False, repo_root, None, current_time=FIXED_TIME)
+    # also inject our API key here, since deployed versions need it
+    user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+    api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
+    if api_key:
+        approved_keys = claude_json_data.setdefault("customApiKeyResponses", {})
+        approved_keys["approved"] = [api_key[-20:]]
+        approved_keys["rejected"] = []
+    files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
+
+    if include_user_settings:
+        # Skills, agents, commands (skip settings.json, handled above)
+        for dest_path, source_path in _collect_claude_home_dir_files(local_claude_dir).items():
+            if dest_path == Path("~/.claude/settings.json"):
+                continue
+            files[dest_path] = source_path
+
+        # ~/.claude/.credentials.json (OAuth tokens)
+        credentials = local_claude_dir / ".credentials.json"
+        if credentials.exists():
+            files[Path("~/.claude/.credentials.json")] = credentials
+
+    if include_project_settings:
+        # Include unversioned project-specific claude settings (e.g.
+        # .claude/settings.local.json) from the repo root directory.
+        # These are typically gitignored and contain project-specific config.
+        project_claude_dir = repo_root / ".claude"
+        if project_claude_dir.is_dir():
+            for file_path in project_claude_dir.rglob("*.local.*"):
+                if file_path.is_file():
+                    relative_path = file_path.relative_to(repo_root)
+                    files[Path(str(relative_path))] = file_path
+
+    return files
+
+
+@hookimpl
+def modify_env_vars_for_deploy(
+    mng_ctx: MngContext,
+    env_vars: dict[str, str],
+) -> None:
+    if "ANTHROPIC_API_KEY" not in env_vars:
+        user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+        token = user_claude_json_data.get("primaryApiKey", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not token:
+            raise UserInputError(
+                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. "
+                "You must provide credentials to authenticate with Claude Code in order for the deployment to work."
+            )
+        env_vars["ANTHROPIC_API_KEY"] = token
+    env_vars["IS_SANDBOX"] = "1"

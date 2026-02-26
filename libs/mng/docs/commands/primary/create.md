@@ -153,6 +153,7 @@ See [Provision Options](../secondary/provision.md) for full details.
 | `--host-env-file` | path | Load env file for host [repeatable] | None |
 | `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
 | `--known-host` | text | SSH known_hosts entry to add to the host (for outbound SSH) [repeatable] | None |
+| `--authorized-key` | text | SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable] | None |
 
 ## New Host Build
 
@@ -250,6 +251,10 @@ Provider: modal
     --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox [experimental]. NAME is the
                           volume name on Modal (created if it doesn't exist). Can be specified
                           multiple times.
+    --docker-build-arg KEY=VALUE
+                          Override a Dockerfile ARG default value. For example,
+                          --docker-build-arg=CLAUDE_CODE_VERSION=2.1.50 sets the CLAUDE_CODE_VERSION
+                          ARG during the image build. Can be specified multiple times.
   No start arguments are supported for the modal provider.
 
 Provider: ssh

@@ -202,7 +202,8 @@ class CreateCliOptions(CommonCliOptions):
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
-    known_host: tuple[str, ...]
+    known_hosts: tuple[str, ...]
+    authorized_keys: tuple[str, ...]
     snapshot: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
@@ -444,9 +445,15 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
 @optgroup.option(
     "--known-host",
-    "known_host",
+    "known_hosts",
     multiple=True,
     help="SSH known_hosts entry to add to the host (for outbound SSH) [repeatable]",
+)
+@optgroup.option(
+    "--authorized-key",
+    "authorized_keys",
+    multiple=True,
+    help="SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable]",
 )
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
@@ -738,15 +745,17 @@ def _handle_create(
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
     is_work_dir_created: bool
+    early_created_branch_name: str | None = None
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
-        work_dir_path = resolved_target_host.create_agent_work_dir(
+        work_dir_result = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
         # Record the actual work_dir path in agent_opts so the API uses it
         # (the path may have been auto-generated, e.g. for worktrees)
         agent_opts = agent_opts.model_copy_update(
-            to_update(agent_opts.field_ref().target_path, work_dir_path),
+            to_update(agent_opts.field_ref().target_path, work_dir_result.path),
         )
+        early_created_branch_name = work_dir_result.created_branch_name
         is_work_dir_created = True
     else:
         if snapshot is None:
@@ -775,6 +784,7 @@ def _handle_create(
             mng_ctx,
             is_work_dir_created,
             output_opts,
+            created_branch_name=early_created_branch_name,
         )
         return
 
@@ -787,6 +797,7 @@ def _handle_create(
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
+            created_branch_name=early_created_branch_name,
         )
 
         # If --edit-message was used, wait for editor and send the message
@@ -890,6 +901,7 @@ def _create_agent_in_background(
     mng_ctx: MngContext,
     is_work_dir_created: bool,
     output_opts: OutputOptions,
+    created_branch_name: str | None = None,
 ) -> None:
     """Create an agent in a background process that continues after parent exits.
 
@@ -920,6 +932,7 @@ def _create_agent_in_background(
             agent_options=agent_options,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
+            created_branch_name=created_branch_name,
         )
 
         # Output result
@@ -1479,7 +1492,8 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                known_hosts=opts.known_host,
+                known_hosts=opts.known_hosts,
+                authorized_keys=opts.authorized_keys,
             ),
             lifecycle=lifecycle,
         )

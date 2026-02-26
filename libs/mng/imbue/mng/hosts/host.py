@@ -23,6 +23,7 @@ from paramiko import SSHException
 from pydantic import Field
 from pydantic import ValidationError
 from pyinfra.api.command import StringCommand
+from pyinfra.api.exceptions import ConnectError
 from pyinfra.connectors.util import CommandOutput
 from tenacity import retry
 from tenacity import retry_if_exception
@@ -41,6 +42,7 @@ from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostDataSchemaError
 from imbue.mng.errors import InvalidActivityTypeError
@@ -57,6 +59,8 @@ from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import CreateWorkDirResult
+from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
@@ -71,6 +75,7 @@ from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
+from imbue.mng.utils.git_utils import get_git_remote_url
 from imbue.mng.utils.polling import wait_for
 
 
@@ -143,8 +148,14 @@ class Host(BaseHost, OnlineHostInterface):
 
     def _ensure_connected(self) -> None:
         """Ensure the pyinfra host is connected."""
-        if not self.connector.host.connected:
-            self.connector.host.connect(raise_exceptions=True)
+        try:
+            if not self.connector.host.connected:
+                self.connector.host.connect(raise_exceptions=True)
+        except ConnectError as e:
+            if "authentication error" in str(e).lower():
+                raise HostAuthenticationError(f"Authentication failed when connecting to host: {e}") from e
+            else:
+                raise HostConnectionError(f"Failed to connect to host: {e}") from e
 
     def disconnect(self) -> None:
         """Disconnect the pyinfra host if connected.
@@ -689,6 +700,9 @@ class Host(BaseHost, OnlineHostInterface):
         )
         self.set_certified_data(updated_data)
 
+    def to_offline_host(self) -> HostInterface:
+        return self.provider_instance.to_offline_host(self.id)
+
     # =========================================================================
     # Reported Plugin Data
     # =========================================================================
@@ -911,7 +925,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create the work_dir directory for a new agent."""
         copy_mode = options.git.copy_mode if options.git else WorkDirCopyMode.COPY
         with log_span("Creating agent work directory", copy_mode=str(copy_mode)):
@@ -927,7 +941,7 @@ class Host(BaseHost, OnlineHostInterface):
         source_host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         # Check if source and target are on the same host
         source_is_same_host = source_host.id == self.id
 
@@ -952,10 +966,12 @@ class Host(BaseHost, OnlineHostInterface):
         if is_generated_work_dir:
             self._add_generated_work_dir(target_path)
 
+        created_branch_name: str | None = None
+
         # If source and target are same path on same host, nothing to transfer
         if source_is_same_host and source_path == target_path:
             logger.debug("Skipped file transfer: source and target are the same path")
-            return target_path
+            return CreateWorkDirResult(path=target_path)
 
         # Check if source has a .git directory
         if source_host.is_local:
@@ -976,7 +992,7 @@ class Host(BaseHost, OnlineHostInterface):
                 self._rsync_files(source_host, source_path, target_path, "--delete", exclude_git=True)
             # Source is a git repo, transfer via git
             else:
-                self._transfer_git_repo(source_host, source_path, target_path, options)
+                created_branch_name = self._transfer_git_repo(source_host, source_path, target_path, options)
                 self._transfer_extra_files(source_host, source_path, target_path, options)
 
         # Run rsync if enabled. This is designed for adding extra files (e.g., data files not in git),
@@ -993,7 +1009,7 @@ class Host(BaseHost, OnlineHostInterface):
                 exclude_git=has_git_options,
             )
 
-        return target_path
+        return CreateWorkDirResult(path=target_path, created_branch_name=created_branch_name)
 
     def _transfer_git_repo(
         self,
@@ -1001,8 +1017,11 @@ class Host(BaseHost, OnlineHostInterface):
         source_path: Path,
         target_path: Path,
         options: CreateAgentOptions,
-    ) -> None:
-        """Transfer a git repository from source to target."""
+    ) -> str:
+        """Transfer a git repository from source to target.
+
+        Returns the name of the branch created on the target.
+        """
         new_branch_name = self._determine_branch_name(options)
         if options.git and options.git.base_branch:
             base_branch_name = options.git.base_branch
@@ -1015,9 +1034,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        # Get git author info from source repo
+        # Get git author info and origin remote URL from source repo
         if source_host.is_local:
             git_author_name, git_author_email = get_git_author_info(source_path, self.mng_ctx.concurrency_group)
+            origin_url = get_git_remote_url(source_path, "origin", self.mng_ctx.concurrency_group)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1026,6 +1046,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             git_author_email = (
                 email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+            origin_result = source_host.execute_command("git remote get-url origin", cwd=source_path)
+            origin_url = (
+                origin_result.stdout.strip() if origin_result.success and origin_result.stdout.strip() else None
             )
 
         with log_span(
@@ -1061,12 +1085,16 @@ class Host(BaseHost, OnlineHostInterface):
                     config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
                 if git_author_email:
                     config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
+                if origin_url:
+                    config_commands.append(f"git remote add origin {shlex.quote(origin_url)}")
                 result = self.execute_command(
                     " && ".join(config_commands),
                     cwd=target_path,
                 )
                 if not result.success:
                     raise MngError(f"Failed to configure git repo on target: {result.stderr}")
+
+        return new_branch_name
 
     def _git_push_to_target(
         self,
@@ -1345,7 +1373,7 @@ class Host(BaseHost, OnlineHostInterface):
         host: OnlineHostInterface,
         source_path: Path,
         options: CreateAgentOptions,
-    ) -> Path:
+    ) -> CreateWorkDirResult:
         """Create a work_dir using git worktree.
 
         Worktrees are placed at ~/.mng/worktrees/<agent-id>/ by default.
@@ -1375,7 +1403,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Track generated work directories at the host level
             self._add_generated_work_dir(work_dir_path)
 
-            return work_dir_path
+            return CreateWorkDirResult(path=work_dir_path, created_branch_name=branch_name)
 
     def _determine_branch_name(self, options: CreateAgentOptions) -> str:
         """Determine the branch name for a new work_dir."""
@@ -1392,6 +1420,7 @@ class Host(BaseHost, OnlineHostInterface):
         self,
         work_dir_path: Path,
         options: CreateAgentOptions,
+        created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
         agent_id = AgentId.generate()
@@ -1446,6 +1475,7 @@ class Host(BaseHost, OnlineHostInterface):
                 "permissions": [],
                 "start_on_boot": False,
                 "labels": dict(options.label_options.labels),
+                "created_branch_name": created_branch_name,
             }
 
             data_path = state_dir / "data.json"
