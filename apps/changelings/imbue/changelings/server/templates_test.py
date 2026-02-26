@@ -1,3 +1,5 @@
+import pytest
+
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
 from imbue.changelings.server.templates import render_auth_error_page
@@ -37,8 +39,17 @@ def test_render_auth_error_page_shows_error_message() -> None:
     assert "generate a new login URL" in html
 
 
-def test_render_landing_page_escapes_html_in_changeling_names() -> None:
-    names = (ChangelingName("<script>alert(1)</script>"),)
-    html = render_landing_page(accessible_changeling_names=names)
-    assert "<script>alert(1)</script>" not in html
-    assert "&lt;script&gt;" in html
+def test_changeling_name_rejects_script_injection_characters() -> None:
+    with pytest.raises(ValueError):
+        ChangelingName("<script>alert(1)</script>")
+
+
+def test_changeling_name_rejects_quote_characters() -> None:
+    with pytest.raises(ValueError):
+        ChangelingName("test'; alert(1); var x='")
+
+
+def test_changeling_name_allows_valid_names() -> None:
+    assert ChangelingName("elena-turing") == "elena-turing"
+    assert ChangelingName("code_reviewer") == "code_reviewer"
+    assert ChangelingName("Agent42") == "Agent42"

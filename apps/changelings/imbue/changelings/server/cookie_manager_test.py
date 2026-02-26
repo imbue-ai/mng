@@ -13,10 +13,10 @@ def test_get_cookie_name_for_simple_changeling_name() -> None:
     assert result == snapshot("changeling_elena-turing")
 
 
-def test_get_cookie_name_sanitizes_special_characters() -> None:
-    name = ChangelingName("my agent.v2")
+def test_get_cookie_name_for_name_with_underscores_and_hyphens() -> None:
+    name = ChangelingName("my_agent-v2")
     result = get_cookie_name_for_changeling(name)
-    assert result == snapshot("changeling_my_agent_v2")
+    assert result == snapshot("changeling_my_agent-v2")
 
 
 def test_create_and_verify_cookie_round_trip() -> None:
