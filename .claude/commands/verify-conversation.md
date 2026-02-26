@@ -14,7 +14,7 @@ This is the transcript of the conversation to review:
 
 ---
 
-!`export MAIN_CLAUDE_SESSION_ID=$(cat .claude/sessionid) && ./scripts/print_user_session.sh`
+!`./scripts/print_review_transcript.sh`
 
 ---
 
@@ -33,11 +33,11 @@ For each potential issue, note:
 - The issue type (from the categories below)
 - A brief description of what you observed
 
+!`./scripts/cleanup_review_files.sh`
+
 Put these observations into the "initial issues file" for tracking:
 
     .reviews/initial_issue_list/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.md
-
-!`rm -rf .reviews/initial_issue_list/$(tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0).md`
 
 ### 3. Analyze Each Potential Issue
 
@@ -54,15 +54,9 @@ The "final output json file" is:
 
     .reviews/final_issue_json/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.json
 
-!`rm -rf .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0).json`
-
 When finished with all issues, touch this file:
 
     .reviews/final_issue_json/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.json.done
-
-!`rm -rf .reviews/final_issue_json/$(tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0).json.done`
-
-!`mkdir -p .reviews/initial_issue_list .reviews/final_issue_json`
 
 ---
 
