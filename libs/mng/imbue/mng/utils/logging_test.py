@@ -8,8 +8,6 @@ from loguru import logger
 
 from imbue.imbue_common.logging import _format_arg_value
 from imbue.imbue_common.logging import log_call
-from imbue.mng.config.data_types import LoggingConfig
-from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.primitives import LogLevel
@@ -18,6 +16,7 @@ from imbue.mng.utils.logging import BUILD_COLOR
 from imbue.mng.utils.logging import BufferedMessage
 from imbue.mng.utils.logging import DEBUG_COLOR
 from imbue.mng.utils.logging import ERROR_COLOR
+from imbue.mng.utils.logging import LoggingSetupConfig
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.logging import RESET_COLOR
 from imbue.mng.utils.logging import WARNING_COLOR
@@ -29,28 +28,30 @@ from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.logging import setup_logging
 
 
-def test_resolve_log_dir_uses_absolute_path(mng_test_prefix: str) -> None:
-    """Absolute log_dir should be used as-is."""
-    config = MngConfig(
-        prefix=mng_test_prefix,
-        default_host_dir=Path("/custom/mng"),
-        logging=LoggingConfig(log_dir=Path("/absolute/path/logs")),
+def _make_logging_config(output_opts: OutputOptions, mng_ctx: MngContext) -> LoggingSetupConfig:
+    """Build a LoggingSetupConfig from test fixtures."""
+    return LoggingSetupConfig(
+        console_level=output_opts.console_level,
+        log_level=output_opts.log_level,
+        log_file_path=output_opts.log_file_path,
+        file_level=mng_ctx.config.logging.file_level,
+        max_log_size_mb=mng_ctx.config.logging.max_log_size_mb,
+        max_log_files=mng_ctx.config.logging.max_log_files,
+        log_dir=mng_ctx.config.logging.log_dir,
+        default_host_dir=mng_ctx.config.default_host_dir,
     )
 
-    resolved = _resolve_log_dir(config)
+
+def test_resolve_log_dir_uses_absolute_path(mng_test_prefix: str) -> None:
+    """Absolute log_dir should be used as-is."""
+    resolved = _resolve_log_dir(Path("/absolute/path/logs"), Path("/custom/mng"))
 
     assert resolved == Path("/absolute/path/logs")
 
 
 def test_resolve_log_dir_uses_default_host_dir_for_relative(mng_test_prefix: str) -> None:
     """Relative log_dir should be resolved relative to default_host_dir."""
-    config = MngConfig(
-        prefix=mng_test_prefix,
-        default_host_dir=Path("/custom/mng"),
-        logging=LoggingConfig(log_dir=Path("my_logs")),
-    )
-
-    resolved = _resolve_log_dir(config)
+    resolved = _resolve_log_dir(Path("my_logs"), Path("/custom/mng"))
 
     assert resolved == Path("/custom/mng/my_logs")
 
@@ -106,7 +107,7 @@ def test_setup_logging_creates_log_dir(temp_mng_ctx: MngContext) -> None:
         is_log_command_output=False,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     assert log_dir.exists()
     assert log_dir.is_dir()
@@ -122,7 +123,7 @@ def test_setup_logging_creates_log_file(temp_mng_ctx: MngContext) -> None:
         is_log_command_output=False,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     log_files = list(log_dir.glob("*.json"))
     assert len(log_files) >= 1
@@ -140,7 +141,7 @@ def test_setup_logging_uses_custom_log_file_path(tmp_path: Path, temp_mng_ctx: M
         is_log_command_output=False,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     assert custom_log_path.exists()
 
@@ -159,7 +160,7 @@ def test_setup_logging_creates_parent_dirs_for_custom_log_path(tmp_path: Path, t
         is_log_command_output=False,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     assert custom_log_path.parent.exists()
     assert custom_log_path.exists()
@@ -189,7 +190,7 @@ def test_setup_logging_expands_user_in_custom_log_path(tmp_path: Path, temp_mng_
         is_log_command_output=False,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     expanded_path = home_dir / relative_path / "expanded_log.json"
     assert expanded_path.exists()
@@ -343,7 +344,7 @@ def test_logging_suppressor_enable_sets_suppressed() -> None:
     )
 
     try:
-        LoggingSuppressor.enable(output_opts)
+        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
         assert LoggingSuppressor.is_suppressed()
     finally:
         LoggingSuppressor.disable_and_replay(clear_screen=False)
@@ -356,7 +357,7 @@ def test_logging_suppressor_disable_clears_suppressed() -> None:
         console_level=LogLevel.INFO,
     )
 
-    LoggingSuppressor.enable(output_opts)
+    LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
     assert LoggingSuppressor.is_suppressed()
 
     LoggingSuppressor.disable_and_replay(clear_screen=False)
@@ -371,7 +372,7 @@ def test_logging_suppressor_buffers_messages() -> None:
     )
 
     try:
-        LoggingSuppressor.enable(output_opts)
+        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
 
         # Log some messages
         logger.info("Test message 1")
@@ -395,7 +396,7 @@ def test_logging_suppressor_respects_buffer_size() -> None:
 
     try:
         # Enable with small buffer
-        LoggingSuppressor.enable(output_opts, buffer_size=3)
+        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level, buffer_size=3)
 
         # Log more messages than buffer size
         for i in range(10):
@@ -415,7 +416,7 @@ def test_logging_suppressor_clears_buffer_on_disable() -> None:
         console_level=LogLevel.INFO,
     )
 
-    LoggingSuppressor.enable(output_opts)
+    LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
     logger.info("Test message")
     assert len(LoggingSuppressor.get_buffered_messages()) >= 1
 
@@ -431,12 +432,12 @@ def test_logging_suppressor_enable_is_idempotent() -> None:
     )
 
     try:
-        LoggingSuppressor.enable(output_opts)
+        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
         logger.info("First message")
         initial_count = len(LoggingSuppressor.get_buffered_messages())
 
         # Enable again (should be no-op)
-        LoggingSuppressor.enable(output_opts)
+        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
         assert len(LoggingSuppressor.get_buffered_messages()) == initial_count
     finally:
         LoggingSuppressor.disable_and_replay(clear_screen=False)
@@ -449,7 +450,7 @@ def test_logging_suppressor_disable_is_idempotent() -> None:
         console_level=LogLevel.INFO,
     )
 
-    LoggingSuppressor.enable(output_opts)
+    LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
     LoggingSuppressor.disable_and_replay(clear_screen=False)
 
     # Second disable should not error
@@ -479,7 +480,7 @@ def test_remove_console_handlers_clears_handler_ids(temp_mng_ctx: MngContext) ->
     )
 
     # Setup logging to populate console handler IDs
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
     assert len(_console_handler_ids) > 0
 
     # Remove handlers
@@ -496,7 +497,7 @@ def test_remove_console_handlers_is_idempotent(temp_mng_ctx: MngContext) -> None
         console_level=LogLevel.INFO,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
     remove_console_handlers()
 
     # Second call should not raise an error
@@ -537,7 +538,7 @@ def test_setup_logging_writes_to_current_stderr_after_stream_replacement(
         log_level=LogLevel.DEBUG,
     )
 
-    setup_logging(output_opts, temp_mng_ctx)
+    setup_logging(_make_logging_config(output_opts, temp_mng_ctx))
 
     # Replace sys.stderr with a StringIO to simulate pytest's capture mechanism
     original_stderr = sys.stderr

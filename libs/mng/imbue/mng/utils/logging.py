@@ -14,9 +14,6 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.mng.config.data_types import MngConfig
-from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.primitives import LogLevel
 
 # ANSI color codes that work well on both light and dark backgrounds.
@@ -104,8 +101,25 @@ def suppress_warnings() -> None:
     pyinfra_logger.setLevel(logging.ERROR)
 
 
-def setup_logging(output_opts: OutputOptions, mng_ctx: MngContext) -> None:
-    """Configure logging based on output options and mng context.
+class LoggingSetupConfig(FrozenModel):
+    """All settings needed to configure logging.
+
+    This type lives in utils/ so the logging module doesn't need to import
+    from config/. Callers construct it from OutputOptions + MngConfig.
+    """
+
+    console_level: LogLevel = Field(description="Log level for user-facing console output")
+    log_level: LogLevel = Field(description="Log level for diagnostic stderr output")
+    log_file_path: Path | None = Field(default=None, description="Custom log file path (None for default)")
+    file_level: LogLevel = Field(description="Log level for file output")
+    max_log_size_mb: int = Field(description="Max log file size before rotation")
+    max_log_files: int = Field(description="Max number of log files to keep")
+    log_dir: Path = Field(description="Directory for log files")
+    default_host_dir: Path = Field(description="Default host dir (for resolving relative log_dir)")
+
+
+def setup_logging(config: LoggingSetupConfig) -> None:
+    """Configure logging based on the provided settings.
 
     Sets up:
     - stderr logging for user-facing messages (clean format)
@@ -141,27 +155,27 @@ def setup_logging(output_opts: OutputOptions, mng_ctx: MngContext) -> None:
     # We set colorize=False because we handle colors manually in _format_user_message.
     # Use callable sinks so the handler always writes to the current sys.stderr,
     # even if it gets replaced (e.g., by pytest's capture mechanism).
-    if output_opts.console_level != LogLevel.NONE:
+    if config.console_level != LogLevel.NONE:
         handler_id = logger.add(
             _dynamic_stderr_sink,
-            level=output_opts.console_level,
+            level=config.console_level,
             format=_format_user_message,
             colorize=False,
             diagnose=False,
         )
         _console_handler_ids["console"] = handler_id
 
-    # FIXME: entirely remove output_opts.log_level and this whole notion of multiple console handler ids
+    # FIXME: entirely remove log_level and this whole notion of multiple console handler ids
     #  we only actually use the console_level and file_level variables in practice.
     #  don't worry about backwards compatibility--just completely remove the log_level option and simplify this stuff
 
     # Set up stderr logging for diagnostics (structured format)
     # Shows all messages at console_level with detailed formatting
-    if output_opts.log_level != LogLevel.NONE:
-        console_level = level_map[output_opts.log_level]
+    if config.log_level != LogLevel.NONE:
+        loguru_level = level_map[config.log_level]
         handler_id = logger.add(
             _dynamic_stderr_sink,
-            level=console_level,
+            level=loguru_level,
             format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
             colorize=True,
             diagnose=False,
@@ -170,46 +184,43 @@ def setup_logging(output_opts: OutputOptions, mng_ctx: MngContext) -> None:
 
     # Set up file logging
     # Use provided log file path if specified, otherwise use default directory
-    if output_opts.log_file_path is not None:
-        log_file = output_opts.log_file_path.expanduser()
+    if config.log_file_path is not None:
+        log_file = config.log_file_path.expanduser()
         # Ensure parent directory exists
         log_file.parent.mkdir(parents=True, exist_ok=True)
         is_using_custom_log_path = True
     else:
         is_using_custom_log_path = False
-        log_dir = _resolve_log_dir(mng_ctx.config)
-        log_dir.mkdir(parents=True, exist_ok=True)
+        resolved_log_dir = _resolve_log_dir(config.log_dir, config.default_host_dir)
+        resolved_log_dir.mkdir(parents=True, exist_ok=True)
         # Create log file path with timestamp and PID
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         pid = os.getpid()
-        log_file = log_dir / f"{timestamp}-{pid}.json"
+        log_file = resolved_log_dir / f"{timestamp}-{pid}.json"
 
-    file_level = level_map[mng_ctx.config.logging.file_level]
+    loguru_file_level = level_map[config.file_level]
     logger.add(
         log_file,
-        level=file_level,
+        level=loguru_file_level,
         format="{message}",
         serialize=True,
         diagnose=False,
-        rotation=f"{mng_ctx.config.logging.max_log_size_mb} MB",
+        rotation=f"{config.max_log_size_mb} MB",
     )
 
     # Rotate old logs if needed (only for default log directory to avoid
     # accidentally deleting unrelated .json files when custom path is used)
     if not is_using_custom_log_path:
-        _rotate_old_logs(log_dir, mng_ctx.config.logging.max_log_files)
+        _rotate_old_logs(resolved_log_dir, config.max_log_files)
 
 
-def _resolve_log_dir(config: MngConfig) -> Path:
+def _resolve_log_dir(log_dir: Path, default_host_dir: Path) -> Path:
     """Resolve the log directory path.
 
     If log_dir is relative, it's relative to default_host_dir.
     """
-    log_dir = config.logging.log_dir
-
     if not log_dir.is_absolute():
-        # Resolve relative to host dir
-        host_dir = config.default_host_dir.expanduser()
+        host_dir = default_host_dir.expanduser()
         log_dir = host_dir / log_dir
 
     return log_dir.expanduser()
@@ -328,7 +339,8 @@ class LoggingSuppressor:
     _stderr_handler_id: int | None = None
     _suppressed_console_handler_id: int | None = None
     _suppressed_stderr_handler_id: int | None = None
-    _output_opts: OutputOptions | None = None
+    _console_level: LogLevel | None = None
+    _log_level: LogLevel | None = None
     # Original streams for restoration
     _original_stdout: TextIO | None = None
     _original_stderr: TextIO | None = None
@@ -339,7 +351,7 @@ class LoggingSuppressor:
         return cls._is_suppressed
 
     @classmethod
-    def enable(cls, output_opts: OutputOptions, buffer_size: int = DEFAULT_BUFFER_SIZE) -> None:
+    def enable(cls, console_level: LogLevel, log_level: LogLevel, buffer_size: int = DEFAULT_BUFFER_SIZE) -> None:
         """Enable logging suppression and start buffering console output.
 
         The buffer will keep the most recent buffer_size messages. File logging
@@ -351,7 +363,8 @@ class LoggingSuppressor:
         if cls._is_suppressed:
             return
 
-        cls._output_opts = output_opts
+        cls._console_level = console_level
+        cls._log_level = log_level
         cls._buffer = deque(maxlen=buffer_size)
         cls._is_suppressed = True
 
@@ -382,16 +395,16 @@ class LoggingSuppressor:
         # using custom sink functions that write to the buffer directly, this is fine.
         # The loguru messages will be buffered via the sink functions, while direct
         # writes to sys.stdout/stderr will be buffered via the stream wrappers.
-        if output_opts.console_level != LogLevel.NONE:
+        if console_level != LogLevel.NONE:
             cls._suppressed_console_handler_id = logger.add(
                 cls._buffered_console_sink,
-                level=output_opts.console_level,
+                level=console_level,
                 format=_format_user_message,
                 colorize=False,
                 diagnose=False,
             )
 
-        if output_opts.log_level != LogLevel.NONE:
+        if log_level != LogLevel.NONE:
             level_map = {
                 LogLevel.TRACE: "TRACE",
                 LogLevel.DEBUG: "DEBUG",
@@ -403,7 +416,7 @@ class LoggingSuppressor:
             }
             cls._suppressed_stderr_handler_id = logger.add(
                 cls._buffered_stderr_sink,
-                level=level_map[output_opts.log_level],
+                level=level_map[log_level],
                 format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
                 colorize=True,
                 diagnose=False,
@@ -430,7 +443,8 @@ class LoggingSuppressor:
             return
 
         cls._is_suppressed = False
-        output_opts = cls._output_opts
+        console_level = cls._console_level
+        log_level = cls._log_level
 
         # Remove the buffering handlers
         if cls._suppressed_console_handler_id is not None:
@@ -470,37 +484,37 @@ class LoggingSuppressor:
 
         # Re-add the normal console handlers and store their IDs.
         # Use callable sinks so the handler always writes to the current stream.
-        if output_opts is not None:
-            if output_opts.console_level != LogLevel.NONE:
-                handler_id = logger.add(
-                    _dynamic_stderr_sink,
-                    level=output_opts.console_level,
-                    format=_format_user_message,
-                    colorize=False,
-                    diagnose=False,
-                )
-                _console_handler_ids["console"] = handler_id
+        if console_level is not None and console_level != LogLevel.NONE:
+            handler_id = logger.add(
+                _dynamic_stderr_sink,
+                level=console_level,
+                format=_format_user_message,
+                colorize=False,
+                diagnose=False,
+            )
+            _console_handler_ids["console"] = handler_id
 
-            if output_opts.log_level != LogLevel.NONE:
-                level_map = {
-                    LogLevel.TRACE: "TRACE",
-                    LogLevel.DEBUG: "DEBUG",
-                    LogLevel.BUILD: "BUILD",
-                    LogLevel.INFO: "INFO",
-                    LogLevel.WARN: "WARNING",
-                    LogLevel.ERROR: "ERROR",
-                    LogLevel.NONE: "CRITICAL",
-                }
-                handler_id = logger.add(
-                    _dynamic_stderr_sink,
-                    level=level_map[output_opts.log_level],
-                    format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
-                    colorize=True,
-                    diagnose=False,
-                )
-                _console_handler_ids["stderr"] = handler_id
+        if log_level is not None and log_level != LogLevel.NONE:
+            level_map = {
+                LogLevel.TRACE: "TRACE",
+                LogLevel.DEBUG: "DEBUG",
+                LogLevel.BUILD: "BUILD",
+                LogLevel.INFO: "INFO",
+                LogLevel.WARN: "WARNING",
+                LogLevel.ERROR: "ERROR",
+                LogLevel.NONE: "CRITICAL",
+            }
+            handler_id = logger.add(
+                _dynamic_stderr_sink,
+                level=level_map[log_level],
+                format="<level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>",
+                colorize=True,
+                diagnose=False,
+            )
+            _console_handler_ids["stderr"] = handler_id
 
-        cls._output_opts = None
+        cls._console_level = None
+        cls._log_level = None
 
     @classmethod
     def get_buffered_messages(cls) -> list[BufferedMessage]:

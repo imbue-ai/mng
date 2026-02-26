@@ -29,6 +29,7 @@ from imbue.mng.errors import ParseSpecError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.utils.logging import LoggingSetupConfig
 from imbue.mng.utils.logging import setup_logging
 
 # The set of built-in format names (case-insensitive). Any --format value not
@@ -223,7 +224,18 @@ def setup_command_context(
         )
 
     # Set up logging (needs mng_ctx)
-    setup_logging(output_opts, mng_ctx)
+    setup_logging(
+        LoggingSetupConfig(
+            console_level=output_opts.console_level,
+            log_level=output_opts.log_level,
+            log_file_path=output_opts.log_file_path,
+            file_level=mng_ctx.config.logging.file_level,
+            max_log_size_mb=mng_ctx.config.logging.max_log_size_mb,
+            max_log_files=mng_ctx.config.logging.max_log_files,
+            log_dir=mng_ctx.config.logging.log_dir,
+            default_host_dir=mng_ctx.config.default_host_dir,
+        )
+    )
 
     # Enter a log span for the command lifetime
     span = log_span("Started {} command", command_name)
