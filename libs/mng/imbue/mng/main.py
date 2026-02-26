@@ -38,7 +38,7 @@ from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
-from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections

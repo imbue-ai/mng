@@ -27,6 +27,9 @@ from imbue.mng.cli.output_helpers import emit_format_template_lines
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.config.loader import parse_config
+from imbue.mng.config.pre_readers import get_local_config_name
+from imbue.mng.config.pre_readers import get_project_config_name
+from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.errors import ConfigKeyNotFoundError
 from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
@@ -63,20 +66,19 @@ def get_config_path(scope: ConfigScope, root_name: str, profile_dir: Path, cg: C
     """Get the config file path for the given scope. The profile_dir is required for USER scope."""
     match scope:
         case ConfigScope.USER:
-            # User config is in the active profile directory
             if profile_dir is None:
                 raise ConfigNotFoundError("profile_dir is required for USER scope")
-            return profile_dir / "settings.toml"
+            return get_user_config_path(profile_dir)
         case ConfigScope.PROJECT:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for project config")
-            return git_root / f".{root_name}" / "settings.toml"
+            return git_root / get_project_config_name(root_name)
         case ConfigScope.LOCAL:
             git_root = find_git_worktree_root(None, cg) if cg is not None else None
             if git_root is None:
                 raise ConfigNotFoundError("No git repository found for local config")
-            return git_root / f".{root_name}" / "settings.local.toml"
+            return git_root / get_local_config_name(root_name)
         case _ as unreachable:
             assert_never(unreachable)
 
