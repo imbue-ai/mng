@@ -112,6 +112,23 @@ def get_subprocess_test_env(
     return env
 
 
+def run_mng_subprocess(
+    *args: str,
+    timeout: float = 120,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run a mng CLI command via subprocess."""
+    return subprocess.run(
+        ["uv", "run", "mng", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        env=env,
+        cwd=cwd,
+    )
+
+
 def _get_descendant_pids(pid: str) -> list[str]:
     """Recursively get all descendant PIDs of a given process.
 
