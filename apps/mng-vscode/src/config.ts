@@ -7,7 +7,7 @@ export function getConfig() {
         uvPath: config.get<string>('uvPath', 'uv'),
         ghPath: config.get<string>('ghPath', 'gh'),
         repoRoot: config.get<string>('repoRoot', ''),
-        prOpenMode: config.get<string>('prOpenMode', 'simpleBrowser') as 'simpleBrowser' | 'external',
+        prOpenMode: config.get<string>('prOpenMode', 'external') as 'external' | 'simpleBrowser' | 'githubPR',
     };
 }
 

@@ -53,6 +53,9 @@ export const commands = {
 export const env = {
     openExternal: async () => true,
 };
+export const extensions = {
+    getExtension: (_id: string) => undefined,
+};
 export const Uri = {
     parse: (s: string) => ({ toString: () => s }),
 };

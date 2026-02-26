@@ -20,12 +20,26 @@ export function registerCommands(
                 return;
             }
             const config = getConfig();
-            if (config.prOpenMode === 'simpleBrowser') {
+
+            if (config.prOpenMode === 'githubPR') {
+                // Check if GitHub PR extension is installed
+                const ghPrExt = vscode.extensions.getExtension('GitHub.vscode-pull-request-github');
+                if (ghPrExt) {
+                    // Trigger their checkout-by-number UI -- user can select the PR
+                    await vscode.commands.executeCommand('pr.checkoutByNumber');
+                } else {
+                    vscode.window.showWarningMessage(
+                        'GitHub Pull Requests extension is not installed. Opening in browser instead.',
+                    );
+                    await vscode.env.openExternal(vscode.Uri.parse(node.pr.url));
+                }
+            } else if (config.prOpenMode === 'simpleBrowser') {
                 await vscode.commands.executeCommand(
                     'simpleBrowser.show',
                     vscode.Uri.parse(node.pr.url),
                 );
             } else {
+                // 'external' (default)
                 await vscode.env.openExternal(vscode.Uri.parse(node.pr.url));
             }
         }),
