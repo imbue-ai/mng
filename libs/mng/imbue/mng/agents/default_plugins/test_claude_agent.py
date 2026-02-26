@@ -37,12 +37,12 @@ def test_send_message_raises_dialog_detected_when_dialog_visible(
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     session_name = agent.session_name
 
-    agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'echo \"Do you want to proceed?\"; sleep 847601'",
-        timeout_seconds=5.0,
-    )
-
     try:
+        agent.host.execute_command(
+            f"tmux new-session -d -s '{session_name}' 'echo \"Do you want to proceed?\"; sleep 847601'",
+            timeout_seconds=5.0,
+        )
+
         wait_for(
             lambda: agent._check_pane_contains(session_name, "Do you want to proceed?"),
             timeout=5.0,
@@ -67,12 +67,12 @@ def test_send_message_does_not_raise_dialog_detected_when_no_dialog(
     agent, _ = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
     session_name = agent.session_name
 
-    agent.host.execute_command(
-        f"tmux new-session -d -s '{session_name}' 'echo \"Normal output here\"; sleep 847602'",
-        timeout_seconds=5.0,
-    )
-
     try:
+        agent.host.execute_command(
+            f"tmux new-session -d -s '{session_name}' 'echo \"Normal output here\"; sleep 847602'",
+            timeout_seconds=5.0,
+        )
+
         wait_for(
             lambda: agent._check_pane_contains(session_name, "Normal output here"),
             timeout=5.0,
