@@ -482,81 +482,44 @@ def _is_test_module(module_path: str) -> bool:
 def check_no_import_lint_errors(project_root: Path) -> None:
     """Run import-linter and raise AssertionError if any production code violations are found.
 
-    Test files (modules matching *_test, test_*, conftest, testing, plugin_testing)
-    are excluded from the check -- only production code violations cause failure.
+    Uses import-linter's Python API to get structured results, then filters
+    out violations where every importer in the chain is a test module.
+    Only production code violations cause failure.
     """
-    result = subprocess.run(
-        ["uv", "run", "lint-imports"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
+    import os
 
-    if result.returncode == 0:
-        return
+    from importlinter.application.use_cases import _register_contract_types
+    from importlinter.application.use_cases import create_report
+    from importlinter.application.use_cases import read_user_options
+    from importlinter.configuration import configure
 
-    # Parse violation lines to find production code violations.
-    # Violation lines look like: "- imbue.mng.foo.bar -> imbue.mng.baz.qux (l.42)"
-    # or chain starts: "- imbue.mng.foo.bar (l.42, l.43)"
-    import re
+    original_dir = os.getcwd()
+    try:
+        os.chdir(project_root)
+        configure()
+        user_options = read_user_options()
+        _register_contract_types(user_options)
+        report = create_report(user_options)
+    finally:
+        os.chdir(original_dir)
 
-    violation_pattern = re.compile(r"^- (\S+)")
-    chain_pattern = re.compile(r"^\s+(\S+) -> (\S+)")
     production_violations: list[str] = []
-    current_section_lines: list[str] = []
-    in_violation_section = False
-
-    for line in result.stdout.splitlines():
-        # Detect section headers like "imbue.mng.X is not allowed to import imbue.mng.Y:"
-        if "is not allowed to import" in line:
-            # Flush previous section
-            if current_section_lines:
-                production_violations.extend(current_section_lines)
-            current_section_lines = []
-            in_violation_section = True
+    for contract, check in report.get_contracts_and_checks():
+        if check.kept:
             continue
-
-        if not in_violation_section:
-            continue
-
-        # Empty line ends a violation section
-        if not line.strip():
-            if current_section_lines:
-                production_violations.extend(current_section_lines)
-            current_section_lines = []
-            in_violation_section = False
-            continue
-
-        # Check if this is a violation line
-        match = violation_pattern.match(line)
-        if match:
-            importer = match.group(1)
-            if not _is_test_module(importer):
-                current_section_lines.append(line)
-            continue
-
-        # Check chain continuation lines
-        chain_match = chain_pattern.match(line)
-        if chain_match:
-            importer = chain_match.group(1)
-            if not _is_test_module(importer):
-                current_section_lines.append(line)
-            continue
-
-    # Flush last section
-    if current_section_lines:
-        production_violations.extend(current_section_lines)
+        for dep in check.metadata.get("invalid_dependencies", []):
+            for route in dep["routes"]:
+                first_link = route["chain"][0]
+                importer = first_link["importer"]
+                if not _is_test_module(importer):
+                    imported = first_link["imported"]
+                    production_violations.append(f"  {importer} -> {imported}")
 
     if production_violations:
         failure_message = [
             f"import-linter found {len(production_violations)} production code layer violation(s):",
             "",
             *production_violations,
-            "",
-            "Full lint-imports output:",
-            "=" * 80,
-            result.stdout,
-            "=" * 80,
         ]
         raise AssertionError("\n".join(failure_message))
 
