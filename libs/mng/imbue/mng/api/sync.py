@@ -447,14 +447,17 @@ def sync_files(
     actual_remote_path = remote_path if remote_path is not None else agent.work_dir
 
     # Determine source and destination based on mode
-    if mode == SyncMode.PUSH:
-        source_path = local_path
-        destination_path = actual_remote_path
-        git_ctx: GitContextInterface = RemoteGitContext(host=host)
-    else:
-        source_path = actual_remote_path
-        destination_path = local_path
-        git_ctx = LocalGitContext(cg=cg)
+    match mode:
+        case SyncMode.PUSH:
+            source_path = local_path
+            destination_path = actual_remote_path
+            git_ctx: GitContextInterface = RemoteGitContext(host=host)
+        case SyncMode.PULL:
+            source_path = actual_remote_path
+            destination_path = local_path
+            git_ctx = LocalGitContext(cg=cg)
+        case _ as unreachable:
+            assert_never(unreachable)
 
     # Handle uncommitted changes in the destination.
     # CLOBBER mode skips this check entirely in the file sync path -- it means
@@ -1128,45 +1131,48 @@ def sync_git(
     if not remote_git_ctx.is_git_repository(remote_path):
         raise NotAGitRepositoryError(remote_path)
 
-    if mode == SyncMode.PUSH:
-        # Push: local -> agent
-        actual_source_branch = (
-            source_branch if source_branch is not None else local_git_ctx.get_current_branch(local_path)
-        )
-        actual_target_branch = (
-            target_branch if target_branch is not None else remote_git_ctx.get_current_branch(remote_path)
-        )
+    match mode:
+        case SyncMode.PUSH:
+            # Push: local -> agent
+            actual_source_branch = (
+                source_branch if source_branch is not None else local_git_ctx.get_current_branch(local_path)
+            )
+            actual_target_branch = (
+                target_branch if target_branch is not None else remote_git_ctx.get_current_branch(remote_path)
+            )
 
-        return _sync_git_push(
-            agent=agent,
-            host=host,
-            local_path=local_path,
-            source_branch=actual_source_branch,
-            target_branch=actual_target_branch,
-            is_dry_run=is_dry_run,
-            uncommitted_changes=uncommitted_changes,
-            is_mirror=is_mirror,
-            cg=cg,
-        )
-    else:
-        # Pull: agent -> local
-        actual_source_branch = (
-            source_branch if source_branch is not None else remote_git_ctx.get_current_branch(remote_path)
-        )
-        actual_target_branch = (
-            target_branch if target_branch is not None else local_git_ctx.get_current_branch(local_path)
-        )
+            return _sync_git_push(
+                agent=agent,
+                host=host,
+                local_path=local_path,
+                source_branch=actual_source_branch,
+                target_branch=actual_target_branch,
+                is_dry_run=is_dry_run,
+                uncommitted_changes=uncommitted_changes,
+                is_mirror=is_mirror,
+                cg=cg,
+            )
+        case SyncMode.PULL:
+            # Pull: agent -> local
+            actual_source_branch = (
+                source_branch if source_branch is not None else remote_git_ctx.get_current_branch(remote_path)
+            )
+            actual_target_branch = (
+                target_branch if target_branch is not None else local_git_ctx.get_current_branch(local_path)
+            )
 
-        if is_mirror:
-            raise NotImplementedError("Mirror mode is only supported for push operations")
+            if is_mirror:
+                raise NotImplementedError("Mirror mode is only supported for push operations")
 
-        return _sync_git_pull(
-            agent=agent,
-            host=host,
-            local_path=local_path,
-            source_branch=actual_source_branch,
-            target_branch=actual_target_branch,
-            is_dry_run=is_dry_run,
-            uncommitted_changes=uncommitted_changes,
-            cg=cg,
-        )
+            return _sync_git_pull(
+                agent=agent,
+                host=host,
+                local_path=local_path,
+                source_branch=actual_source_branch,
+                target_branch=actual_target_branch,
+                is_dry_run=is_dry_run,
+                uncommitted_changes=uncommitted_changes,
+                cg=cg,
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
