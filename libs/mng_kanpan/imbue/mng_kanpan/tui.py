@@ -50,7 +50,6 @@ PALETTE = [
     ("section_done", "light magenta", ""),
     ("section_cancelled", "dark gray", ""),
     ("section_in_review", "light cyan", ""),
-    ("section_drafted", "light blue", ""),
     ("section_in_progress", "yellow", ""),
     # CI checks (only failing and pending get color; passing is default)
     ("check_failing", "light red", ""),
@@ -65,7 +64,6 @@ BOARD_SECTION_ORDER: tuple[BoardSection, ...] = (
     BoardSection.PR_MERGED,
     BoardSection.PR_CLOSED,
     BoardSection.PR_BEING_REVIEWED,
-    BoardSection.PR_DRAFTED,
     BoardSection.STILL_COOKING,
 )
 
@@ -74,7 +72,6 @@ _SECTION_PREFIX: dict[BoardSection, str] = {
     BoardSection.PR_MERGED: "Done",
     BoardSection.PR_CLOSED: "Cancelled",
     BoardSection.PR_BEING_REVIEWED: "In review",
-    BoardSection.PR_DRAFTED: "Drafted",
     BoardSection.STILL_COOKING: "In progress",
 }
 
@@ -82,7 +79,6 @@ _SECTION_SUFFIX: dict[BoardSection, str] = {
     BoardSection.PR_MERGED: "PR merged",
     BoardSection.PR_CLOSED: "PR closed",
     BoardSection.PR_BEING_REVIEWED: "PR pending",
-    BoardSection.PR_DRAFTED: "PR draft",
     BoardSection.STILL_COOKING: "no PR yet",
 }
 
@@ -90,7 +86,6 @@ _SECTION_ATTR: dict[BoardSection, str] = {
     BoardSection.PR_MERGED: "section_done",
     BoardSection.PR_CLOSED: "section_cancelled",
     BoardSection.PR_BEING_REVIEWED: "section_in_review",
-    BoardSection.PR_DRAFTED: "section_drafted",
     BoardSection.STILL_COOKING: "section_in_progress",
 }
 
@@ -383,8 +378,6 @@ def _classify_entry(entry: AgentBoardEntry) -> BoardSection:
         return BoardSection.PR_MERGED
     if entry.pr.state == PrState.CLOSED:
         return BoardSection.PR_CLOSED
-    if entry.pr.is_draft:
-        return BoardSection.PR_DRAFTED
     return BoardSection.PR_BEING_REVIEWED
 
 

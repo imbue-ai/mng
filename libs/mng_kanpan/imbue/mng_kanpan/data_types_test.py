@@ -20,7 +20,6 @@ def test_pr_state_values() -> None:
 
 def test_board_section_values() -> None:
     assert BoardSection.STILL_COOKING == "STILL_COOKING"
-    assert BoardSection.PR_DRAFTED == "PR_DRAFTED"
     assert BoardSection.PR_BEING_REVIEWED == "PR_BEING_REVIEWED"
     assert BoardSection.PR_MERGED == "PR_MERGED"
     assert BoardSection.PR_CLOSED == "PR_CLOSED"
