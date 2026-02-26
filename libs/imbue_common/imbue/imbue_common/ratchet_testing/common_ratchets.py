@@ -134,7 +134,7 @@ PREVENT_BASE_EXCEPTION_CATCH = RegexRatchetRule(
 PREVENT_BUILTIN_EXCEPTION_RAISES = RegexRatchetRule(
     rule_name="direct raising of built-in exceptions",
     rule_description="Never raise built-in exceptions directly. Create custom exception types that inherit from both the package base exception and the built-in",
-    pattern_string=r"raise\s+(ValueError|KeyError|TypeError|AttributeError|IndexError|RuntimeError|OSError|IOError)\(|raise\s+KeyboardInterrupt\b",
+    pattern_string=r"raise\s+(ValueError|KeyError|TypeError|AttributeError|IndexError|RuntimeError|OSError|IOError|KeyboardInterrupt)\(\b",
 )
 
 
@@ -404,7 +404,7 @@ PREVENT_DIRECT_SUBPROCESS = RegexRatchetRule(
     rule_name="direct subprocess/os.exec usage",
     rule_description=(
         "Do not use subprocess.Popen, subprocess.run, subprocess.call, subprocess.check_call, "
-        "subprocess.check_output, os.exec*, os.spawn*, os.fork*, os.system, or os.popen directly. "
+        "subprocess.check_output, os.exec*, os.spawn*, os.system, or os.popen directly. "
         "Instead, use run_process_to_completion from ConcurrencyGroup and ensure a ConcurrencyGroup "
         "is passed down to the call site. This ensures all spawned processes get cleaned up properly. "
         "See libs/concurrency_group/ for details."
@@ -412,8 +412,22 @@ PREVENT_DIRECT_SUBPROCESS = RegexRatchetRule(
     pattern_string=(
         r"\bfrom\s+subprocess\s+import\b(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)"
         r"|\bsubprocess\.(Popen|run|call|check_call|check_output|getoutput|getstatusoutput)\b"
-        r"|\bos\.(exec\w+|spawn\w+|fork\w*|system|popen)\b"
-        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|fork\w*|system|popen)\b"
+        r"|\bos\.(exec\w+|spawn\w+|system|popen)\b"
+        r"|\bfrom\s+os\s+import\b.*\b(exec\w+|spawn\w+|system|popen)\b"
+    ),
+)
+
+PREVENT_OS_FORK = RegexRatchetRule(
+    rule_name="os.fork usage",
+    rule_description=(
+        "Do not use os.fork or os.forkpty. Forking is incompatible with threading: a forked child "
+        "inherits only the calling thread, leaving mutexes held by other threads permanently locked "
+        "and shared state inconsistent. Use the subprocess module to launch subprocesses instead. "
+        "The remaining uses of os.fork will be removed from the codebase entirely."
+    ),
+    pattern_string=(
+        r"\bos\.fork\w*\b"
+        r"|\bfrom\s+os\s+import\b.*\bfork\w*\b"
     ),
 )
 

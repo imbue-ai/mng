@@ -3,7 +3,7 @@ from typing import Any
 import click
 from click_option_group import optgroup
 
-from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.default_command_group import DefaultCommandGroup
 
 # =============================================================================
 # Shared option decorator
@@ -14,8 +14,8 @@ def add_trigger_options(command: Any) -> Any:
     """Add trigger definition options shared by add and update commands.
 
     All options are optional at the click level. Commands that require specific
-    options (e.g. add requires --command, --schedule, --provider) should
-    validate at runtime.
+    options (e.g. add requires --schedule, --provider) should validate at
+    runtime.
     """
     # Applied in reverse order (bottom-up per click convention)
 
@@ -23,6 +23,21 @@ def add_trigger_options(command: Any) -> Any:
     command = click.argument("positional_name", default=None, required=False)(command)
 
     # Behavior group
+    command = optgroup.option(
+        "--auto-merge-branch",
+        "auto_merge_branch",
+        default=None,
+        help="Branch to fetch and merge at runtime before running the command. "
+        "Defaults to the current branch when --auto-merge is enabled.",
+    )(command)
+    command = optgroup.option(
+        "--auto-merge/--no-auto-merge",
+        "auto_merge",
+        default=True,
+        show_default=True,
+        help="Fetch and merge the latest code from the target branch before each scheduled run. "
+        "Requires GH_TOKEN in the environment (via --pass-env or --env-file).",
+    )(command)
     command = optgroup.option(
         "--verify",
         type=click.Choice(["none", "quick", "full"], case_sensitive=False),
@@ -84,6 +99,26 @@ def add_trigger_options(command: Any) -> Any:
 
     # Code Packaging group
     command = optgroup.option(
+        "--target-dir",
+        "target_dir",
+        default="/code/project",
+        show_default=True,
+        help="Directory inside the container where the target repo will be extracted.",
+    )(command)
+    command = optgroup.option(
+        "--full-copy",
+        "full_copy",
+        is_flag=True,
+        default=False,
+        help="Copy the entire codebase into the deployed function's storage. Simple but slow for large codebases.",
+    )(command)
+    command = optgroup.option(
+        "--snapshot",
+        "snapshot_id",
+        default=None,
+        help="Use an existing snapshot for code packaging instead of the git repo.",
+    )(command)
+    command = optgroup.option(
         "--mng-install-mode",
         "mng_install_mode",
         type=click.Choice(["auto", "package", "editable", "skip"], case_sensitive=False),
@@ -94,12 +129,6 @@ def add_trigger_options(command: Any) -> Any:
         "'package' installs from PyPI, "
         "'editable' packages local source, "
         "'skip' assumes mng is already in the base image.",
-    )(command)
-    command = optgroup.option(
-        "--git-image-hash",
-        "git_image_hash",
-        default=None,
-        help="Git commit hash (or ref like HEAD) to package project code from. Required for modal provider.",
     )(command)
     command = optgroup.group("Code Packaging")(command)
 
@@ -152,8 +181,13 @@ def resolve_positional_name(ctx: click.Context) -> None:
 # =============================================================================
 
 
-@click.group(name="schedule")
-@add_common_options
+class _ScheduleGroup(DefaultCommandGroup):
+    """Schedule group that defaults to 'add' when no subcommand is given."""
+
+    _default_command: str = "add"
+
+
+@click.group(name="schedule", cls=_ScheduleGroup)
 @click.pass_context
 def schedule(ctx: click.Context, **kwargs: Any) -> None:
     """Schedule invocations of mng commands.

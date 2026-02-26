@@ -14,6 +14,7 @@ from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.utils.file_utils import atomic_write
 
 
 class SkillProvisionedAgentConfig(ClaudeAgentConfig):
@@ -57,8 +58,7 @@ def _install_skill_locally(skill_name: str, skill_content: str, mng_ctx: MngCont
                 logger.info("Skipped {} skill installation", skill_name)
                 return
 
-        skill_path.parent.mkdir(parents=True, exist_ok=True)
-        skill_path.write_text(skill_content)
+        atomic_write(skill_path, skill_content)
         logger.debug("Installed {} skill to {}", skill_name, skill_path)
 
 

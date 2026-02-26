@@ -10,7 +10,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 
 # How to get started on any task:
 
-Always begin your session by reading all documentation in the docs/ directory of the project you are working on. These represent *user-facing* documentation and are the most important to understand.
+Always begin your session by reading the relevant READMEs and any other related documentation in the docs/ directory of the project(s) you are working on. These represent *user-facing* documentation and are the most important to understand.
 
 Once you've read these once during a session, there's no need to re-read them unless explicitly instructed to do so.
 

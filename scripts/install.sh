@@ -212,13 +212,18 @@ fi
 
 if [ "$OS" = "macos" ]; then
     SHELL_RC="$HOME/.zshrc"
-    COMPLETION_LINE='eval "$(_MNG_COMPLETE=zsh_source mng)"'
+    SHELL_TYPE="zsh"
 else
     SHELL_RC="$HOME/.bashrc"
-    COMPLETION_LINE='eval "$(_MNG_COMPLETE=bash_source mng)"'
+    SHELL_TYPE="bash"
 fi
 
-if grep -qF '_MNG_COMPLETE' "$SHELL_RC" 2>/dev/null; then
+ALREADY_CONFIGURED=false
+if grep -qF '_mng_complete' "$SHELL_RC" 2>/dev/null; then
+    ALREADY_CONFIGURED=true
+fi
+
+if [ "$ALREADY_CONFIGURED" = true ]; then
     info "Shell completion already configured in $SHELL_RC"
 else
     printf "\n"
@@ -231,8 +236,14 @@ else
 
     case "$completion_choice" in
         y|Y|"")
-            echo "$COMPLETION_LINE" >> "$SHELL_RC"
-            info "Shell completion enabled in $SHELL_RC"
+            COMPLETION_SCRIPT="$(uv tool run --from mng python3 -m imbue.mng.cli.complete --script "$SHELL_TYPE" 2>/dev/null)"
+            if [ -n "$COMPLETION_SCRIPT" ]; then
+                printf "\n%s\n" "$COMPLETION_SCRIPT" >> "$SHELL_RC"
+                info "Shell completion enabled in $SHELL_RC"
+            else
+                warn "Could not generate completion script."
+                warn "You can set it up manually later -- see: https://github.com/imbue-ai/mng#shell-completion"
+            fi
             ;;
         *)
             info "Skipping shell completion"

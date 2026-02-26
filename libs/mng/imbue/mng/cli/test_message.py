@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from imbue.mng.utils.testing import get_short_random_string
+from imbue.mng.utils.testing import run_mng_subprocess
 from imbue.mng.utils.testing import setup_claude_trust_config_for_subprocess
 
 
@@ -49,20 +50,6 @@ def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
     subprocess.run(["git", "commit", "-m", "Add gitignore"], cwd=temp_git_repo, check=True, capture_output=True)
 
     return setup_claude_trust_config_for_subprocess([temp_git_repo])
-
-
-def _run_mng(
-    *args: str, timeout: float = 120, env: dict[str, str] | None = None, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Run mng command and return the result."""
-    return subprocess.run(
-        ["uv", "run", "mng", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
-        cwd=cwd,
-    )
 
 
 def _create_agent(
@@ -98,19 +85,19 @@ def _create_agent(
         args.extend(["--message", message])
     if verbose:
         args.append("-v")
-    return _run_mng(*args, env=env, cwd=cwd)
+    return run_mng_subprocess(*args, env=env, cwd=cwd)
 
 
 def _destroy_agent(name: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     """Destroy a Claude agent."""
-    return _run_mng("destroy", name, "--force", "--disable-plugin", "modal", env=env)
+    return run_mng_subprocess("destroy", name, "--force", "--disable-plugin", "modal", env=env)
 
 
 def _send_message(
     agent_name: str, message: str, *, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Send a message to an existing Claude agent."""
-    return _run_mng("message", agent_name, "-m", message, "-v", "--disable-plugin", "modal", env=env)
+    return run_mng_subprocess("message", agent_name, "-m", message, "-v", "--disable-plugin", "modal", env=env)
 
 
 def _message_was_submitted(result: subprocess.CompletedProcess[str]) -> bool:

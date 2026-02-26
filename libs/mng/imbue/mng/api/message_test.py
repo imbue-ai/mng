@@ -2,11 +2,13 @@ from pathlib import Path
 
 import pytest
 
+from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.api.create import CreateAgentOptions
 from imbue.mng.api.message import MessageResult
 from imbue.mng.api.message import _agent_to_cel_context
 from imbue.mng.api.message import send_message_to_agents
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.host import Host
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -245,3 +247,65 @@ def test_send_message_to_agents_with_include_filter(
     # Only agent1 should have received the message
     assert "filter-test-1" in result.successful_agents
     assert "filter-test-2" not in result.successful_agents
+
+
+def test_send_message_one_agent_failure_does_not_prevent_other_agents(
+    temp_work_dir: Path,
+    temp_mng_ctx: MngContext,
+    local_provider: LocalProviderInstance,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One agent's SendMessageError must not kill the broadcast to other agents.
+
+    SendMessageError inherits from BaseMngError (not MngError). Before the switch
+    to concurrent sends, the serial loop only caught MngError, so a SendMessageError
+    would propagate up and abort the entire broadcast.
+    """
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    agent1 = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("will-explode"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847280"),
+        ),
+    )
+    agent2 = host.create_agent_state(
+        work_dir_path=temp_work_dir,
+        options=CreateAgentOptions(
+            name=AgentName("will-succeed"),
+            agent_type=AgentTypeName("generic"),
+            command=CommandString("sleep 847281"),
+        ),
+    )
+
+    host.start_agents([agent1.id, agent2.id])
+
+    original_send = BaseAgent.send_message
+
+    def exploding_send(self: BaseAgent, message: str) -> None:
+        if str(self.name) == "will-explode":
+            raise SendMessageError("will-explode", "simulated send failure")
+        original_send(self, message)
+
+    monkeypatch.setattr(BaseAgent, "send_message", exploding_send)
+
+    result = send_message_to_agents(
+        mng_ctx=temp_mng_ctx,
+        message_content="Hello",
+        all_agents=True,
+        error_behavior=ErrorBehavior.CONTINUE,
+    )
+
+    # Clean up
+    host.destroy_agent(agent1)
+    host.destroy_agent(agent2)
+
+    # The exploding agent should be recorded as failed
+    failed_names = [name for name, _err in result.failed_agents]
+    assert "will-explode" in failed_names
+
+    # The other agent must still have succeeded
+    assert "will-succeed" in result.successful_agents
