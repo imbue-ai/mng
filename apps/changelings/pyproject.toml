@@ -52,7 +52,7 @@ addopts = [
   "--timeout=10",
   "--timeout-method=signal",
   "--max-worker-restart=0",
-  "-m not acceptance and not release and not tmux and not modal and not docker",
+  "-m not acceptance and not release",
   "--slow-tests-to-file",
   "--coverage-to-file",
 ]
