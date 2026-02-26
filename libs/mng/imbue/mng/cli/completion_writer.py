@@ -81,6 +81,16 @@ def _extract_options_for_command(cmd: click.Command) -> list[str]:
     return sorted(options)
 
 
+def _extract_flag_options_for_command(cmd: click.Command) -> list[str]:
+    """Extract all option names (both --long and -short) where ``is_flag`` is True."""
+    flags: list[str] = []
+    for param in cmd.params:
+        if isinstance(param, click.Option) and param.is_flag:
+            for opt in param.opts + param.secondary_opts:
+                flags.append(opt)
+    return sorted(flags)
+
+
 def _extract_choices_for_command(cmd: click.Command, key_prefix: str) -> dict[str, list[str]]:
     """Extract option choices (click.Choice values) from a click command.
 
@@ -116,6 +126,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
 
         subcommand_by_command: dict[str, list[str]] = {}
         options_by_command: dict[str, list[str]] = {}
+        flag_options_by_command: dict[str, list[str]] = {}
         option_choices: dict[str, list[str]] = {}
 
         canonical_names: set[str] = set()
@@ -131,24 +142,33 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                 if canonical_name not in subcommand_by_command:
                     subcommand_by_command[canonical_name] = sorted(cmd.commands.keys())
 
-                # Extract options and choices for subcommands
+                # Extract options, flags, and choices for subcommands
                 for sub_name, sub_cmd in cmd.commands.items():
                     sub_key = f"{canonical_name}.{sub_name}"
                     sub_options = _extract_options_for_command(sub_cmd)
                     if sub_options:
                         options_by_command[sub_key] = sub_options
+                    sub_flags = _extract_flag_options_for_command(sub_cmd)
+                    if sub_flags:
+                        flag_options_by_command[sub_key] = sub_flags
                     option_choices.update(_extract_choices_for_command(sub_cmd, sub_key))
 
-                # Also extract options for the group command itself
+                # Also extract options and flags for the group command itself
                 group_options = _extract_options_for_command(cmd)
                 if group_options:
                     options_by_command[canonical_name] = group_options
+                group_flags = _extract_flag_options_for_command(cmd)
+                if group_flags:
+                    flag_options_by_command[canonical_name] = group_flags
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
             else:
                 # Simple command (not a group)
                 cmd_options = _extract_options_for_command(cmd)
                 if cmd_options:
                     options_by_command[canonical_name] = cmd_options
+                cmd_flags = _extract_flag_options_for_command(cmd)
+                if cmd_flags:
+                    flag_options_by_command[canonical_name] = cmd_flags
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
 
         # Include both top-level commands and group subcommands that take agent names
@@ -163,6 +183,7 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
             "aliases": alias_to_canonical,
             "subcommand_by_command": subcommand_by_command,
             "options_by_command": options_by_command,
+            "flag_options_by_command": flag_options_by_command,
             "option_choices": option_choices,
             "agent_name_arguments": sorted(agent_name_args),
         }

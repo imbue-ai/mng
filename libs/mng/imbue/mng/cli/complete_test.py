@@ -28,6 +28,7 @@ def _make_cache_data(
     aliases: dict[str, str] | None = None,
     subcommand_by_command: dict[str, list[str]] | None = None,
     options_by_command: dict[str, list[str]] | None = None,
+    flag_options_by_command: dict[str, list[str]] | None = None,
     option_choices: dict[str, list[str]] | None = None,
     agent_name_arguments: list[str] | None = None,
 ) -> dict:
@@ -37,6 +38,7 @@ def _make_cache_data(
         "aliases": aliases or {},
         "subcommand_by_command": subcommand_by_command or {},
         "options_by_command": options_by_command or {},
+        "flag_options_by_command": flag_options_by_command or {},
         "option_choices": option_choices or {},
         "agent_name_arguments": agent_name_arguments or [],
     }
@@ -476,3 +478,90 @@ def test_get_completions_invalid_comp_cword(
     result = _get_completions()
 
     assert result == []
+
+
+# =============================================================================
+# Option handling: flags vs value-taking options
+# =============================================================================
+
+
+def test_get_completions_value_taking_option_suppresses_completions(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """After a value-taking option (--name), no completions should be offered."""
+    data = _make_cache_data(
+        commands=["snapshot"],
+        subcommand_by_command={"snapshot": ["create"]},
+        options_by_command={"snapshot.create": ["--all", "--dry-run", "--name"]},
+        flag_options_by_command={"snapshot.create": ["--all", "--dry-run", "-a"]},
+        agent_name_arguments=["snapshot.create"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_agent_cache(completion_cache_dir, ["my-agent"])
+    set_comp_env("mng snapshot create --name ", "4")
+
+    result = _get_completions()
+
+    assert result == []
+
+
+def test_get_completions_long_flag_allows_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """After a --long flag (--force), positional candidates should be offered."""
+    data = _make_cache_data(
+        commands=["destroy"],
+        options_by_command={"destroy": ["--all", "--force"]},
+        flag_options_by_command={"destroy": ["--all", "--force", "-a", "-f"]},
+        agent_name_arguments=["destroy"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_agent_cache(completion_cache_dir, ["my-agent", "other-agent"])
+    set_comp_env("mng destroy --force ", "3")
+
+    result = _get_completions()
+
+    assert result == ["my-agent", "other-agent"]
+
+
+def test_get_completions_short_flag_allows_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """After a -short flag (-f), positional candidates should be offered."""
+    data = _make_cache_data(
+        commands=["destroy"],
+        options_by_command={"destroy": ["--all", "--force"]},
+        flag_options_by_command={"destroy": ["--all", "--force", "-a", "-f"]},
+        agent_name_arguments=["destroy"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_agent_cache(completion_cache_dir, ["my-agent", "other-agent"])
+    set_comp_env("mng destroy -f ", "3")
+
+    result = _get_completions()
+
+    assert result == ["my-agent", "other-agent"]
+
+
+def test_get_completions_subcommand_flag_allows_positional(
+    completion_cache_dir: Path,
+    set_comp_env: Callable[[str, str], None],
+) -> None:
+    """After a flag on a subcommand (--dry-run), positional candidates should be offered."""
+    data = _make_cache_data(
+        commands=["snapshot"],
+        subcommand_by_command={"snapshot": ["create"]},
+        options_by_command={"snapshot.create": ["--all", "--dry-run", "--name"]},
+        flag_options_by_command={"snapshot.create": ["--all", "--dry-run", "-a"]},
+        agent_name_arguments=["snapshot.create"],
+    )
+    _write_command_cache(completion_cache_dir, data)
+    _write_agent_cache(completion_cache_dir, ["my-agent", "other-agent"])
+    set_comp_env("mng snapshot create --dry-run ", "4")
+
+    result = _get_completions()
+
+    assert result == ["my-agent", "other-agent"]
