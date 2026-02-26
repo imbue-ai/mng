@@ -1,5 +1,6 @@
 import os
 import tomllib
+from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,6 @@ from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.agents.agent_registry import get_agent_config_class
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplate
@@ -33,8 +33,11 @@ from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.providers.registry import get_config_class as get_provider_config_class
 from imbue.mng.utils.git_utils import find_git_worktree_root
+
+# Type aliases for registry lookup functions injected by callers.
+AgentConfigResolver = Callable[[str], type[AgentTypeConfig]]
+ProviderConfigResolver = Callable[[str], type[ProviderInstanceConfig]]
 
 # Environment variable prefix for command config overrides.
 # Format: MNG_COMMANDS_<COMMANDNAME>_<VARNAME>=<value>
@@ -54,6 +57,8 @@ _ENV_COMMANDS_PREFIX: Final[str] = "MNG_COMMANDS_"
 def load_config(
     pm: pluggy.PluginManager,
     concurrency_group: ConcurrencyGroup,
+    agent_config_resolver: AgentConfigResolver,
+    provider_config_resolver: ProviderConfigResolver,
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
@@ -105,7 +110,7 @@ def load_config(
     if user_config_path.exists():
         try:
             raw_user = _load_toml(user_config_path)
-            user_config = parse_config(raw_user)
+            user_config = parse_config(raw_user, agent_config_resolver, provider_config_resolver)
             config = config.merge_with(user_config)
         except ConfigNotFoundError:
             pass
@@ -114,14 +119,14 @@ def load_config(
     project_config_path = _find_project_config(context_dir, root_name, concurrency_group)
     if project_config_path is not None and project_config_path.exists():
         raw_project = _load_toml(project_config_path)
-        project_config = parse_config(raw_project)
+        project_config = parse_config(raw_project, agent_config_resolver, provider_config_resolver)
         config = config.merge_with(project_config)
 
     # Load local config from context_dir or auto-discover
     local_config_path = _find_local_config(context_dir, root_name, concurrency_group)
     if local_config_path is not None and local_config_path.exists():
         raw_local = _load_toml(local_config_path)
-        local_config = parse_config(raw_local)
+        local_config = parse_config(raw_local, agent_config_resolver, provider_config_resolver)
         config = config.merge_with(local_config)
 
     # Apply environment variable overrides
@@ -327,6 +332,7 @@ def _check_unknown_fields(
 
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
+    provider_config_resolver: ProviderConfigResolver,
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
@@ -337,7 +343,7 @@ def _parse_providers(
     for name, raw_config in raw_providers.items():
         backend = raw_config.get("backend") or name
         try:
-            config_class = get_provider_config_class(backend)
+            config_class = provider_config_resolver(backend)
         except UnknownBackendError as e:
             raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
         _check_unknown_fields(raw_config, config_class, f"providers.{name}")
@@ -362,6 +368,7 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
 
 def _parse_agent_types(
     raw_types: dict[str, dict[str, Any]],
+    agent_config_resolver: AgentConfigResolver,
 ) -> dict[AgentTypeName, AgentTypeConfig]:
     """Parse agent type configs using the registry.
 
@@ -370,7 +377,7 @@ def _parse_agent_types(
     agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
 
     for name, raw_config in raw_types.items():
-        config_class = get_agent_config_class(name)
+        config_class = agent_config_resolver(name)
         _check_unknown_fields(raw_config, config_class, f"agent_types.{name}")
         normalized_config = _normalize_cli_args_for_construct(raw_config)
         agent_types[AgentTypeName(name)] = config_class.model_construct(**normalized_config)
@@ -510,7 +517,11 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(
+    raw: dict[str, Any],
+    agent_config_resolver: AgentConfigResolver,
+    provider_config_resolver: ProviderConfigResolver,
+) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
@@ -519,8 +530,12 @@ def parse_config(raw: dict[str, Any]) -> MngConfig:
     kwargs: dict[str, Any] = {}
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
-    kwargs["agent_types"] = _parse_agent_types(raw.pop("agent_types", {})) if "agent_types" in raw else {}
-    kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
+    kwargs["agent_types"] = (
+        _parse_agent_types(raw.pop("agent_types", {}), agent_config_resolver) if "agent_types" in raw else {}
+    )
+    kwargs["providers"] = (
+        _parse_providers(raw.pop("providers", {}), provider_config_resolver) if "providers" in raw else {}
+    )
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
     kwargs["create_templates"] = (

@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import pluggy
-from pydantic import Field
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
 from imbue.mng.agents.base_agent import BaseAgent
@@ -17,6 +15,7 @@ from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import merge_cli_args
 from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng.interfaces.agent import ResolvedAgentType
 from imbue.mng.primitives import AgentTypeName
 
 # =============================================================================
@@ -124,13 +123,6 @@ def register_agent_config(
     For plugins, prefer using the @hookimpl decorator with register_agent_type().
     """
     _register_agent(agent_type, config_class=config_class)
-
-
-class ResolvedAgentType(FrozenModel):
-    """Result of resolving an agent type, including parent type resolution for custom types."""
-
-    agent_class: type[AgentInterface] = Field(description="The agent implementation class to use")
-    agent_config: AgentTypeConfig = Field(description="The merged agent type config")
 
 
 @pure

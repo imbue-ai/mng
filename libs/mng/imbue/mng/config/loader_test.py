@@ -8,6 +8,7 @@ import pluggy
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.agents.agent_registry import get_agent_config_class
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import LoggingConfig
@@ -41,6 +42,7 @@ from imbue.mng.primitives import LogLevel
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.registry import get_config_class as get_provider_config_class
 from imbue.mng.providers.registry import load_all_registries
 
 hookimpl = pluggy.HookimplMarker("mng")
@@ -285,7 +287,7 @@ def test_load_toml_parses_valid_file(tmp_path: Path) -> None:
 def test_parse_providers_parses_valid_provider() -> None:
     """_parse_providers should parse valid provider configs."""
     raw = {"my-local": {"backend": "local"}}
-    result = _parse_providers(raw)
+    result = _parse_providers(raw, get_provider_config_class)
     assert ProviderInstanceName("my-local") in result
     assert result[ProviderInstanceName("my-local")].backend == ProviderBackendName("local")
 
@@ -294,14 +296,14 @@ def test_parse_providers_raises_on_missing_backend() -> None:
     """_parse_providers should raise ConfigParseError for missing backend."""
     raw = {"my-provider": {"some_field": "value"}}
     with pytest.raises(ConfigParseError, match="missing required 'backend'"):
-        _parse_providers(raw)
+        _parse_providers(raw, get_provider_config_class)
 
 
 def test_parse_providers_raises_on_unknown_fields() -> None:
     """_parse_providers should raise ConfigParseError for unknown fields."""
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
     with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
-        _parse_providers(raw)
+        _parse_providers(raw, get_provider_config_class)
 
 
 # =============================================================================
@@ -312,14 +314,14 @@ def test_parse_providers_raises_on_unknown_fields() -> None:
 def test_parse_agent_types_parses_valid_agent() -> None:
     """_parse_agent_types should parse valid agent type configs."""
     raw = {"claude": {"cli_args": "--verbose"}}
-    result = _parse_agent_types(raw)
+    result = _parse_agent_types(raw, get_agent_config_class)
     assert AgentTypeName("claude") in result
     assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
 
 
 def test_parse_agent_types_handles_empty_dict() -> None:
     """_parse_agent_types should handle empty dict."""
-    result = _parse_agent_types({})
+    result = _parse_agent_types({}, get_agent_config_class)
     assert result == {}
 
 
@@ -327,7 +329,7 @@ def test_parse_agent_types_raises_on_unknown_fields() -> None:
     """_parse_agent_types should raise ConfigParseError for unknown fields."""
     raw = {"claude": {"cli_args": "--verbose", "bogus_option": True}}
     with pytest.raises(ConfigParseError, match="Unknown fields in agent_types.claude.*bogus_option"):
-        _parse_agent_types(raw)
+        _parse_agent_types(raw, get_agent_config_class)
 
 
 # =============================================================================
@@ -507,7 +509,7 @@ def test_parse_config_parses_full_config() -> None:
         "create_templates": {"modal": {"new_host": "modal"}},
         "logging": {"file_level": "DEBUG"},
     }
-    result = parse_config(raw)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
     assert result.prefix == "test-"
     assert result.default_host_dir == "/tmp/test"
     assert AgentTypeName("claude") in result.agent_types
@@ -521,7 +523,7 @@ def test_parse_config_parses_full_config() -> None:
 def test_parse_config_handles_minimal_config() -> None:
     """parse_config should handle minimal config with missing optional fields."""
     raw = {"prefix": "test-"}
-    result = parse_config(raw)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
     assert result.prefix == "test-"
     assert result.agent_types == {}
     assert result.providers == {}
@@ -532,7 +534,7 @@ def test_parse_config_handles_minimal_config() -> None:
 
 def test_parse_config_handles_empty_config() -> None:
     """parse_config should handle empty config dict."""
-    result = parse_config({})
+    result = parse_config({}, get_agent_config_class, get_provider_config_class)
     assert result.prefix is None
     assert result.default_host_dir is None
     assert result.agent_types == {}
@@ -546,7 +548,7 @@ def test_parse_config_raises_on_unknown_top_level_field() -> None:
     """parse_config should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        parse_config(raw)
+        parse_config(raw, get_agent_config_class, get_provider_config_class)
 
 
 def test_parse_config_raises_on_unknown_nested_field() -> None:
@@ -555,19 +557,19 @@ def test_parse_config_raises_on_unknown_nested_field() -> None:
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        parse_config(raw)
+        parse_config(raw, get_agent_config_class, get_provider_config_class)
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should parse default_destroyed_host_persisted_seconds from config."""
     raw = {"default_destroyed_host_persisted_seconds": 86400.0}
-    result = parse_config(raw)
+    result = parse_config(raw, get_agent_config_class, get_provider_config_class)
     assert result.default_destroyed_host_persisted_seconds == 86400.0
 
 
 def test_parse_config_handles_missing_default_destroyed_host_persisted_seconds() -> None:
     """parse_config should set None when default_destroyed_host_persisted_seconds is absent."""
-    result = parse_config({})
+    result = parse_config({}, get_agent_config_class, get_provider_config_class)
     assert result.default_destroyed_host_persisted_seconds is None
 
 
@@ -579,7 +581,7 @@ def test_parse_providers_accepts_destroyed_host_persisted_seconds() -> None:
             "destroyed_host_persisted_seconds": 172800.0,
         },
     }
-    result = _parse_providers(raw_providers)
+    result = _parse_providers(raw_providers, get_provider_config_class)
     provider_config = result[ProviderInstanceName("my-local")]
     assert provider_config.destroyed_host_persisted_seconds == 172800.0
 
@@ -615,7 +617,13 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    load_config(
+        pm=pm,
+        concurrency_group=cg,
+        agent_config_resolver=get_agent_config_class,
+        provider_config_resolver=get_provider_config_class,
+        context_dir=tmp_path,
+    )
 
     # Verify hook was called
     assert hook_called, "on_load_config hook was not called"
@@ -646,7 +654,13 @@ def test_on_load_config_hook_can_modify_config(
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        agent_config_resolver=get_agent_config_class,
+        provider_config_resolver=get_provider_config_class,
+        context_dir=tmp_path,
+    )
 
     # Verify the config was modified
     assert mng_ctx.config.prefix == "modified-by-plugin-"
@@ -678,7 +692,13 @@ def test_on_load_config_hook_can_add_new_fields(
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        agent_config_resolver=get_agent_config_class,
+        provider_config_resolver=get_provider_config_class,
+        context_dir=tmp_path,
+    )
 
     # Verify the agent type was added
     assert AgentTypeName("custom-agent") in mng_ctx.config.agent_types
@@ -884,7 +904,13 @@ def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_tom
     settings_path = profile_dir / "settings.toml"
     settings_path.write_text("default_destroyed_host_persisted_seconds = 86400.0\n")
 
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        agent_config_resolver=get_agent_config_class,
+        provider_config_resolver=get_provider_config_class,
+        context_dir=tmp_path,
+    )
 
     assert mng_ctx.config.default_destroyed_host_persisted_seconds == 86400.0
 

@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 from pydantic import Field
 
-from imbue.mng.agents.agent_registry import ResolvedAgentType
 from imbue.mng.agents.agent_registry import get_agent_class
 from imbue.mng.agents.agent_registry import get_agent_config_class
 from imbue.mng.agents.agent_registry import list_registered_agent_types
@@ -18,6 +17,7 @@ from imbue.mng.agents.default_plugins.codex_agent import CodexAgentConfig
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.errors import ConfigParseError
+from imbue.mng.interfaces.agent import ResolvedAgentType
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import Permission

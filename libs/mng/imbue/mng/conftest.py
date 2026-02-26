@@ -21,9 +21,11 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+from imbue.mng.agents.agent_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import PROFILES_DIRNAME
+from imbue.mng.hosts.host import set_agent_type_resolver
 from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
@@ -486,6 +488,7 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 
     # Load other registries (agents)
     load_agents_from_plugins(pm)
+    set_agent_type_resolver(resolve_agent_type)
 
     yield pm
 

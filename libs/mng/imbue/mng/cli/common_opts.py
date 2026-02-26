@@ -20,6 +20,7 @@ from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
+from imbue.mng.agents.agent_registry import get_agent_config_class
 from imbue.mng.config.data_types import CreateTemplateName
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
@@ -29,6 +30,7 @@ from imbue.mng.errors import ParseSpecError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.providers.registry import get_config_class as get_provider_config_class
 from imbue.mng.utils.logging import LoggingSetupConfig
 from imbue.mng.utils.logging import setup_logging
 
@@ -180,9 +182,11 @@ def setup_command_context(
     mng_ctx = load_config(
         pm,
         cg,
-        context_dir,
-        initial_opts.plugin,
-        initial_opts.disable_plugin,
+        agent_config_resolver=get_agent_config_class,
+        provider_config_resolver=get_provider_config_class,
+        context_dir=context_dir,
+        enabled_plugins=initial_opts.plugin,
+        disabled_plugins=initial_opts.disable_plugin,
         is_interactive=is_interactive,
     )
 
