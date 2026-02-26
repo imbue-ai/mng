@@ -198,6 +198,11 @@ class ProviderInstanceConfig(FrozenModel):
     backend: ProviderBackendName = Field(
         description="Provider backend to use (e.g., 'docker', 'modal', 'aws')",
     )
+    plugin: str | None = Field(
+        default=None,
+        description="Plugin that provides this backend. Defaults to the backend name. "
+        "Used to skip parsing when the plugin is disabled.",
+    )
     is_enabled: bool | None = Field(
         default=None,
         description="Whether this provider instance is enabled. Set to false to disable without removing configuration.",

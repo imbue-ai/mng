@@ -116,7 +116,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
@@ -327,7 +327,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     # Docker provider uses subprocess for docker build/run CLI pass-through.
     # connect.py uses os.execvp/os.execvpe for process replacement (not child spawning).
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(50), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(46), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
