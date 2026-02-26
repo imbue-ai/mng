@@ -213,7 +213,7 @@ def test_do_not_allow_starting_new_strands_if_the_previous_failed(tmp_path: Path
 def test_all_failure_modes_get_combined(tmp_path: Path) -> None:
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with ConcurrencyGroup(name="outer", exit_timeout_seconds=SMALL_SLEEP) as cg:
-            process1 = cg.run_process_in_background(["sleep", str(LARGE_SLEEP)], is_checked_by_group=True)
+            process1 = cg.run_process_in_background(["tail", "-f", "/dev/null"], is_checked_by_group=True)
             process2 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
             assert poll_until(lambda: process2.poll() is not None, timeout=5.0)
             i = 1 / 0
@@ -385,7 +385,7 @@ def _create_nested_concurrency_group_and_run_process(
 ) -> None:
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with concurrency_group.make_concurrency_group(name="inner") as cg:
-            process = cg.run_process_in_background(["sleep", str(LARGE_SLEEP)], is_checked_by_group=True)
+            process = cg.run_process_in_background(["tail", "-f", "/dev/null"], is_checked_by_group=True)
             process_started_event.set()
             process.wait()
             closure["i"] += 1
@@ -417,7 +417,7 @@ def _create_nested_concurrency_group_and_run_process_while_shutting_down(
             process_started_event.set()
             wait_interval(SMALL_SLEEP)
             closure["i"] += 1
-            process = cg.run_process_in_background(["sleep", str(LARGE_SLEEP)], is_checked_by_group=True)
+            process = cg.run_process_in_background(["tail", "-f", "/dev/null"], is_checked_by_group=True)
             process.wait()
             closure["i"] += 1
         assert exception_info.value.only_exception_is_instance_of(ConcurrentShutdownError)
