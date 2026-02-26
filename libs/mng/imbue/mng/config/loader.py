@@ -30,6 +30,7 @@ from imbue.mng.config.pre_readers import find_profile_dir_lightweight
 from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.config.pre_readers import load_local_config
 from imbue.mng.config.pre_readers import load_project_config
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.config.pre_readers import try_load_toml
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
@@ -91,6 +92,10 @@ def load_config(
     # Get/create profile directory first (needed for user config
     profile_dir = get_or_create_profile_dir(base_dir)
 
+    # Pre-compute disabled plugins so _parse_providers can skip them.
+    # This uses the same lightweight pre-reader that create_plugin_manager() uses.
+    config_disabled_plugins = read_disabled_plugins()
+
     # Start with base config that has defaults based on root_name
     # Use model_construct with None to allow merging to work properly
     config = MngConfig.model_construct(
@@ -110,7 +115,7 @@ def load_config(
         load_local_config(context_dir, root_name, concurrency_group),
     ):
         if raw is not None:
-            config = config.merge_with(parse_config(raw))
+            config = config.merge_with(parse_config(raw, disabled_plugins=config_disabled_plugins))
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -260,19 +265,31 @@ def _check_unknown_fields(
 
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
+    disabled_plugins: frozenset[str],
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
     Uses model_construct to bypass validation and explicitly set None for unset fields.
+    Provider blocks whose plugin is disabled are silently skipped.
     """
     providers: dict[ProviderInstanceName, ProviderInstanceConfig] = {}
 
     for name, raw_config in raw_providers.items():
         backend = raw_config.get("backend") or name
+        plugin = raw_config.get("plugin") or backend
+        if plugin in disabled_plugins:
+            continue
         try:
             config_class = get_provider_config_class(backend)
         except UnknownBackendError as e:
-            raise ConfigParseError(f"Provider '{name}' missing required 'backend' field") from e
+            msg = f"Provider '{name}' references unknown backend '{backend}'."
+            if disabled_plugins:
+                msg += (
+                    f" If this backend is provided by a disabled plugin, either enable"
+                    f' the plugin or add `plugin = "<plugin-name>"` to this provider'
+                    f" block. Currently disabled plugins: {', '.join(sorted(disabled_plugins))}"
+                )
+            raise ConfigParseError(msg) from e
         _check_unknown_fields(raw_config, config_class, f"providers.{name}")
         providers[ProviderInstanceName(name)] = config_class.model_construct(**raw_config)
 
@@ -443,7 +460,10 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
     return templates
 
 
-def parse_config(raw: dict[str, Any]) -> MngConfig:
+def parse_config(
+    raw: dict[str, Any],
+    disabled_plugins: frozenset[str],
+) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
@@ -453,7 +473,9 @@ def parse_config(raw: dict[str, Any]) -> MngConfig:
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
     kwargs["agent_types"] = _parse_agent_types(raw.pop("agent_types", {})) if "agent_types" in raw else {}
-    kwargs["providers"] = _parse_providers(raw.pop("providers", {})) if "providers" in raw else {}
+    kwargs["providers"] = (
+        _parse_providers(raw.pop("providers", {}), disabled_plugins=disabled_plugins) if "providers" in raw else {}
+    )
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}
     kwargs["create_templates"] = (
