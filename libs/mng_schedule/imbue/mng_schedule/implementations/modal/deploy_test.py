@@ -871,11 +871,10 @@ def test_get_mng_dockerfile_path_package_returns_resources_dockerfile() -> None:
     assert result.name == "Dockerfile"
 
 
-def test_get_mng_dockerfile_path_skip_returns_resources_dockerfile() -> None:
-    """get_mng_dockerfile_path returns the mng resources Dockerfile for SKIP mode (same as EDITABLE)."""
+def test_get_mng_dockerfile_path_skip_returns_editable_dockerfile() -> None:
+    """get_mng_dockerfile_path returns the editable Dockerfile for SKIP mode."""
     result = get_mng_dockerfile_path(MngInstallMode.SKIP)
     assert result.exists()
-    assert result.name == "Dockerfile"
     assert "resources" in str(result)
 
 

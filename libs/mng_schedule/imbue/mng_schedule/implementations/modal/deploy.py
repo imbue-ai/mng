@@ -319,9 +319,8 @@ def _build_package_mode_dockerfile(mng_dockerfile_content: str) -> str:
             continue
 
         # Skip lines until we pass the last monorepo-specific install command.
-        # The sentinel is any RUN line containing "uv tool install" -- this handles
-        # both separate lines ("RUN uv tool install ...") and combined lines
-        # ("RUN uv sync && uv tool install ...").
+        # The sentinel is any RUN line containing "uv tool install" (which may
+        # be combined with other commands on the same line via &&).
         if is_in_install_section:
             if stripped.startswith("RUN") and "uv tool install" in stripped:
                 is_in_install_section = False
