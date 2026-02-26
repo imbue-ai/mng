@@ -168,9 +168,35 @@ class _KanpanInputHandler(MutableModel):
         if key in ("m", "M"):
             _mute_focused_agent(self.state)
             return True
-        if key in ("up", "down", "page up", "page down", "home", "end"):
+        if key == "up":
+            if _is_focus_on_first_selectable(self.state):
+                _clear_focus(self.state)
+                return True
+            return None
+        if key in ("down", "page up", "page down", "home", "end"):
             return None
         return True
+
+
+def _is_focus_on_first_selectable(state: _KanpanState) -> bool:
+    """Check if the focus is on the first selectable (agent) entry."""
+    if state.list_walker is None:
+        return False
+    _, focus_index = state.list_walker.get_focus()
+    if focus_index is None:
+        return False
+    # Find the first selectable index
+    first_selectable = min(state.index_to_entry.keys()) if state.index_to_entry else None
+    return focus_index == first_selectable
+
+
+def _clear_focus(state: _KanpanState) -> None:
+    """Clear agent focus by moving to the first non-selectable widget."""
+    state.focused_agent_name = None
+    if state.list_walker is not None and len(state.list_walker) > 0:
+        # Move focus to position 0 (a section heading, which is non-selectable
+        # so it won't highlight, but the ListBox will show the top of the list)
+        state.list_walker.set_focus(0)
 
 
 def _get_focused_entry(state: _KanpanState) -> AgentBoardEntry | None:
