@@ -158,11 +158,11 @@ def _get_completions() -> list[str]:
         else:
             # Previous word is a flag, current word doesn't start with --
             # Could be a value for an option without predefined choices
-            candidates = _get_positional_candidates(resolved_command, resolved_subcommand, agent_name_arguments)
+            candidates = _get_positional_candidates(option_key, agent_name_arguments)
     elif incomplete.startswith("--"):
         candidates = options_by_command.get(option_key, [])
     else:
-        candidates = _get_positional_candidates(resolved_command, resolved_subcommand, agent_name_arguments)
+        candidates = _get_positional_candidates(option_key, agent_name_arguments)
 
     return [c for c in candidates if c.startswith(incomplete)]
 
@@ -182,23 +182,14 @@ def _filter_aliases(
 
 
 def _get_positional_candidates(
-    resolved_command: str | None,
-    resolved_subcommand: str | None,
+    command_key: str,
     agent_name_arguments: list[str],
 ) -> list[str]:
-    """Return positional argument candidates (agent names) if applicable."""
-    if resolved_command is None:
-        return []
+    """Return positional argument candidates (agent names) if applicable.
 
-    # Top-level command (e.g. "connect", "destroy")
-    if resolved_command in agent_name_arguments:
-        return _read_agent_names()
-
-    if resolved_subcommand is None:
-        return []
-
-    # Group subcommand (e.g. "snapshot.create")
-    if f"{resolved_command}.{resolved_subcommand}" in agent_name_arguments:
+    command_key is the dotted command key (e.g. "destroy", "snapshot.create", or "").
+    """
+    if command_key and command_key in agent_name_arguments:
         return _read_agent_names()
     else:
         return []
