@@ -1,15 +1,15 @@
 import ast
-import os
 import re
 import subprocess
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Final
 
-from importlinter.application.use_cases import _register_contract_types
 from importlinter.application.use_cases import create_report
 from importlinter.application.use_cases import read_user_options
 from importlinter.configuration import configure
+from importlinter.contracts.layers import LayersContract
+from importlinter.domain.contract import registry as contract_registry
 
 from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
@@ -497,15 +497,11 @@ def check_no_import_lint_errors(project_root: Path) -> None:
     out violations where every importer in the chain is a test module.
     Only production code violations cause failure.
     """
-    original_dir = os.getcwd()
-    try:
-        os.chdir(project_root)
-        configure()
-        user_options = read_user_options()
-        _register_contract_types(user_options)
-        report = create_report(user_options)
-    finally:
-        os.chdir(original_dir)
+    configure()
+    contract_registry.register(LayersContract, name="layers")
+    config_filename = str(project_root / "pyproject.toml")
+    user_options = read_user_options(config_filename=config_filename)
+    report = create_report(user_options)
 
     production_violations: list[str] = []
     for contract, check in report.get_contracts_and_checks():
