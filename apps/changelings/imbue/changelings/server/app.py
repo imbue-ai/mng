@@ -95,19 +95,25 @@ async def _forward_client_to_backend(
     client_websocket: WebSocket,
     backend_ws: ClientConnection,
 ) -> None:
-    """Forward messages from the client WebSocket to the backend."""
+    """Forward messages from the client WebSocket to the backend.
+
+    Terminates when the client disconnects (WebSocketDisconnect) or the
+    backend closes (ConnectionClosed).
+    """
+    is_connected = True
     try:
-        data = await client_websocket.receive()
-        while data:
+        while is_connected:
+            data = await client_websocket.receive()
             if "text" in data:
                 await backend_ws.send(data["text"])
             elif "bytes" in data:
                 await backend_ws.send(data["bytes"])
             else:
                 pass
-            data = await client_websocket.receive()
     except WebSocketDisconnect:
         await backend_ws.close()
+    except websockets.exceptions.ConnectionClosed:
+        logger.debug("Backend WebSocket closed while forwarding client message")
 
 
 async def _forward_backend_to_client(
