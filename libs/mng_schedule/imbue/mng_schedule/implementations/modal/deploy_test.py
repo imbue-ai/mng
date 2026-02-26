@@ -871,10 +871,12 @@ def test_get_mng_dockerfile_path_package_returns_resources_dockerfile() -> None:
     assert result.name == "Dockerfile"
 
 
-def test_get_mng_dockerfile_path_skip_raises() -> None:
-    """get_mng_dockerfile_path raises for SKIP mode."""
-    with pytest.raises(ScheduleDeployError, match="SKIP mode is not supported"):
-        get_mng_dockerfile_path(MngInstallMode.SKIP)
+def test_get_mng_dockerfile_path_skip_returns_resources_dockerfile() -> None:
+    """get_mng_dockerfile_path returns the mng resources Dockerfile for SKIP mode (same as EDITABLE)."""
+    result = get_mng_dockerfile_path(MngInstallMode.SKIP)
+    assert result.exists()
+    assert result.name == "Dockerfile"
+    assert "resources" in str(result)
 
 
 def test_get_mng_dockerfile_path_auto_raises() -> None:
