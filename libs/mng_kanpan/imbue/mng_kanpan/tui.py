@@ -139,6 +139,8 @@ class _KanpanState(MutableModel):
     refresh_future: Future[BoardSnapshot] | None = None
     delete_future: Future[subprocess.CompletedProcess[str]] | None = None
     deleting_agent_name: AgentName | None = None
+    # Set when awaiting delete confirmation (press d again to confirm, anything else to cancel)
+    pending_delete_name: AgentName | None = None
     push_future: Future[subprocess.CompletedProcess[str]] | None = None
     pushing_agent_name: AgentName | None = None
     executor: ThreadPoolExecutor | None = None
@@ -162,6 +164,13 @@ class _KanpanInputHandler(MutableModel):
         """Handle keyboard input. Returns True if handled, None to pass through."""
         if isinstance(key, tuple):
             return None
+        # Handle pending delete confirmation
+        if self.state.pending_delete_name is not None:
+            if key in ("d", "D"):
+                _confirm_delete(self.state)
+            else:
+                _cancel_delete(self.state)
+            return True
         if key in ("q", "Q", "ctrl c"):
             raise ExitMainLoop()
         if key in ("r", "R"):
@@ -232,14 +241,47 @@ def _run_destroy(agent_name: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _is_safe_to_delete(entry: AgentBoardEntry) -> bool:
+    """Check if an agent can be deleted without confirmation.
+
+    Agents with a merged PR are safe to delete. All others require confirmation.
+    """
+    return entry.pr is not None and entry.pr.state == PrState.MERGED
+
+
 def _delete_focused_agent(state: _KanpanState) -> None:
-    """Start async deletion of the currently focused agent via mng destroy."""
+    """Delete the focused agent, with confirmation if PR is not merged."""
     if state.delete_future is not None:
         return  # Already deleting
     entry = _get_focused_entry(state)
     if entry is None:
         return
-    agent_name = entry.name
+
+    if _is_safe_to_delete(entry):
+        _execute_delete(state, entry.name)
+    else:
+        state.pending_delete_name = entry.name
+        state.footer_left.set_text(
+            f"  Delete {entry.name}? PR not merged. Press d to confirm, any other key to cancel"
+        )
+
+
+def _confirm_delete(state: _KanpanState) -> None:
+    """Confirm a pending delete."""
+    agent_name = state.pending_delete_name
+    state.pending_delete_name = None
+    if agent_name is not None:
+        _execute_delete(state, agent_name)
+
+
+def _cancel_delete(state: _KanpanState) -> None:
+    """Cancel a pending delete."""
+    state.pending_delete_name = None
+    state.footer_left.set_text(state.steady_footer_text)
+
+
+def _execute_delete(state: _KanpanState, agent_name: AgentName) -> None:
+    """Execute the actual deletion of an agent."""
     if state.executor is None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
