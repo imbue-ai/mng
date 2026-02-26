@@ -154,21 +154,19 @@ git clone git@github.com:imbue-ai/mng.git && cd mng && uv sync --all-packages &&
 
 ## Shell Completion
 
-`mng` supports tab completion for commands and agent names in bash, zsh, and fish.
+`mng` supports tab completion for commands, options, and agent names in bash and zsh.
+Shell completion is configured automatically by the install script (`scripts/install.sh`).
 
-**Zsh** (add to `~/.zshrc`):
+To set up manually, generate the completion script and append it to your shell rc file:
+
+**Zsh** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=zsh_source mng)"
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script zsh >> ~/.zshrc
 ```
 
-**Bash** (add to `~/.bashrc`):
+**Bash** (run once):
 ```bash
-eval "$(_MNG_COMPLETE=bash_source mng)"
-```
-
-**Fish** (run once):
-```bash
-_MNG_COMPLETE=fish_source mng > ~/.config/fish/completions/mng.fish
+uv tool run --from mng python3 -m imbue.mng.cli.complete --script bash >> ~/.bashrc
 ```
 
 Note: `mng` must be installed on your PATH for completion to work (not invoked via `uv run`).
