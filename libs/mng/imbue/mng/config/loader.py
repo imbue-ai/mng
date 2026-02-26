@@ -37,6 +37,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import get_config_class as get_provider_config_class
+from imbue.mng.utils.file_utils import atomic_write
 
 # Environment variable prefix for command config overrides.
 # Format: MNG_COMMANDS_<COMMANDNAME>_<VARNAME>=<value>
@@ -231,7 +232,7 @@ def get_or_create_profile_dir(base_dir: Path) -> Path:
     profile_dir = profiles_dir / profile_id
     profile_dir.mkdir(parents=True, exist_ok=True)
 
-    config_path.write_text(f'profile = "{profile_id}"\n')
+    atomic_write(config_path, f'profile = "{profile_id}"\n')
 
     return profile_dir
 

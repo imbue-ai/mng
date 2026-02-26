@@ -46,6 +46,7 @@ from imbue.mng.providers.local.volume import LocalVolume
 from imbue.mng.utils.deps import GIT
 from imbue.mng.utils.deps import JQ
 from imbue.mng.utils.deps import TMUX
+from imbue.mng.utils.file_utils import atomic_write
 
 LOCAL_PROVIDER_SUBDIR: Final[str] = "local"
 HOSTS_SUBDIR: Final[str] = "hosts"
@@ -71,7 +72,7 @@ def get_or_create_local_host_id(base_dir: Path) -> HostId:
         return host_id
 
     new_host_id = HostId.generate()
-    host_id_path.write_text(new_host_id)
+    atomic_write(host_id_path, new_host_id)
     logger.debug("Generated new local host id={}", new_host_id)
     return new_host_id
 
@@ -139,7 +140,7 @@ class LocalProviderInstance(BaseProviderInstance):
         self._ensure_provider_data_dir()
         tags_path = self._get_tags_path()
         data = [{"key": key, "value": value} for key, value in tags.items()]
-        tags_path.write_text(json.dumps(data, indent=2))
+        atomic_write(tags_path, json.dumps(data, indent=2))
 
     def _create_local_pyinfra_host(self) -> PyinfraHost:
         """Create a pyinfra host for local execution.

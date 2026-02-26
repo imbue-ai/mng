@@ -242,6 +242,7 @@ def setup_test_mng_env(
 
     isolate_home(tmp_home_dir, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
 
@@ -302,6 +303,26 @@ def project_config_dir(temp_git_repo: Path, mng_test_root_name: str) -> Path:
     config_dir = temp_git_repo / f".{mng_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
+
+
+@pytest.fixture
+def disable_modal_for_subprocesses(
+    project_config_dir: Path, monkeypatch: pytest.MonkeyPatch, temp_git_repo: Path
+) -> Path:
+    """Disable the Modal provider for subprocesses spawned during a test.
+
+    Writes a settings.local.toml inside a temporary git repo's config directory
+    and chdir's into that repo. Spawned subprocesses inherit the CWD, so the
+    config loader's upward directory walk finds the settings file.
+
+    Use this when a test spawns a child process that runs ``mng`` commands
+    and would otherwise fail because Modal credentials are not available in
+    the test environment.
+    """
+    settings_path = project_config_dir / "settings.local.toml"
+    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+    monkeypatch.chdir(temp_git_repo)
+    return project_config_dir
 
 
 @pytest.fixture
