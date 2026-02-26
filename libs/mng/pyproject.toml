@@ -93,13 +93,11 @@ omit = [
   "test_*.py",
   "*/tests/*",
   "*/conftest.py",
-  "imbue/mng/testing.py",
-  "imbue/mng/api/testing.py",
-  "imbue/mng/utils/plugin_testing.py",
-  "imbue/mng/providers/modal/*",
-  "imbue/mng/providers/docker/instance.py",
-  "imbue/mng/providers/docker/volume.py",
-  "imbue/mng/providers/docker/testing.py",
+  "*/testing.py",
+  "*/plugin_testing.py",
+  "*/providers/modal/*",
+  "*/providers/docker/instance.py",
+  "*/providers/docker/volume.py",
 ]
 
 [tool.inline-snapshot]
