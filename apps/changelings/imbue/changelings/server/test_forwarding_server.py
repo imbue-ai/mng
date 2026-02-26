@@ -236,7 +236,10 @@ def test_agent_proxy_injects_websocket_shim_into_html_responses(tmp_path: Path) 
     assert "Hello from backend" in response.text
 
 
-def test_agent_proxy_returns_502_for_unknown_backend(tmp_path: Path) -> None:
+def _setup_test_server_without_backend(
+    tmp_path: Path,
+) -> tuple[TestClient, FileAuthStore, ChangelingName]:
+    """Set up a forwarding server with no backends for testing error paths."""
     auth_dir = tmp_path / "auth"
     auth_store = FileAuthStore(data_directory=auth_dir)
     changeling_name = ChangelingName(f"no-backend-{uuid4().hex}")
@@ -251,6 +254,12 @@ def test_agent_proxy_returns_502_for_unknown_backend(tmp_path: Path) -> None:
     client = TestClient(app)
 
     _authenticate_client(client=client, auth_store=auth_store, changeling_name=changeling_name)
+
+    return client, auth_store, changeling_name
+
+
+def test_agent_proxy_returns_502_for_unknown_backend(tmp_path: Path) -> None:
+    client, _, changeling_name = _setup_test_server_without_backend(tmp_path)
 
     client.cookies.set(f"sw_installed_{changeling_name}", "1")
 
@@ -285,20 +294,7 @@ def test_websocket_proxy_rejects_unauthenticated_connection(tmp_path: Path) -> N
 
 
 def test_websocket_proxy_rejects_unknown_backend(tmp_path: Path) -> None:
-    auth_dir = tmp_path / "auth"
-    auth_store = FileAuthStore(data_directory=auth_dir)
-    changeling_name = ChangelingName(f"no-ws-backend-{uuid4().hex}")
-
-    backend_resolver = StaticBackendResolver(url_by_changeling_name={})
-
-    app = create_forwarding_server(
-        auth_store=auth_store,
-        backend_resolver=backend_resolver,
-        http_client=None,
-    )
-    client = TestClient(app)
-
-    _authenticate_client(client=client, auth_store=auth_store, changeling_name=changeling_name)
+    client, _, changeling_name = _setup_test_server_without_backend(tmp_path)
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
         with client.websocket_connect(f"/agents/{changeling_name}/ws"):
