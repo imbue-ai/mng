@@ -1,8 +1,15 @@
 import ast
+import os
 import re
 import subprocess
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Final
+
+from importlinter.application.use_cases import _register_contract_types
+from importlinter.application.use_cases import create_report
+from importlinter.application.use_cases import read_user_options
+from importlinter.configuration import configure
 
 from imbue.imbue_common.pure import pure
 from imbue.imbue_common.ratchet_testing.core import FileExtension
@@ -479,8 +486,6 @@ _TEST_MODULE_GLOBS: Final[tuple[str, ...]] = (
 
 def _is_test_module(module_path: str) -> bool:
     """Check if an import-linter module path refers to a test module."""
-    from fnmatch import fnmatch
-
     last_segment = module_path.rsplit(".", 1)[-1]
     return any(fnmatch(last_segment, pattern) for pattern in _TEST_MODULE_GLOBS)
 
@@ -492,13 +497,6 @@ def check_no_import_lint_errors(project_root: Path) -> None:
     out violations where every importer in the chain is a test module.
     Only production code violations cause failure.
     """
-    import os
-
-    from importlinter.application.use_cases import _register_contract_types
-    from importlinter.application.use_cases import create_report
-    from importlinter.application.use_cases import read_user_options
-    from importlinter.configuration import configure
-
     original_dir = os.getcwd()
     try:
         os.chdir(project_root)
