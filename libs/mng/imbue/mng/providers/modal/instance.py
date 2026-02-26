@@ -2611,6 +2611,7 @@ log "=== Shutdown script completed ==="
             idle_timeout_seconds=idle_timeout_seconds,
             activity_sources=tuple(s.value for s in activity_sources),
             labels=agent_data.get("labels", {}),
+            branch=agent_data.get("created_branch_name"),
             host=host_info,
             plugin={},
         )

@@ -477,6 +477,8 @@ class AgentInfo(FrozenModel):
 
     labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
 
+    branch: str | None = Field(default=None, description="Git branch created for this agent")
+
     host: HostInfo = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")

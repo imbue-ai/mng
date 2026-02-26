@@ -1,0 +1,163 @@
+{
+  "name": "mng-agent-viewer",
+  "displayName": "MNG Agent Viewer",
+  "description": "View mng agents and their pull requests side by side",
+  "version": "0.1.0",
+  "publisher": "imbue-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [
+    "workspaceContains:**/.mng"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "lint": "eslint src --ext ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package": "vsce package"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mng-agents",
+          "title": "MNG Agents",
+          "icon": "$(vm)"
+        }
+      ]
+    },
+    "views": {
+      "mng-agents": [
+        {
+          "id": "mng.agentList",
+          "name": "Agents"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "mng.agentList",
+        "contents": "No agents found.\n[Create Agent](command:mng.createAgent)\n[Refresh](command:mng.refresh)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "mng.refresh",
+        "title": "MNG: Refresh Agents",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mng.openPR",
+        "title": "MNG: Open Pull Request",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "mng.openPRSideBySide",
+        "title": "MNG: Open PR Side by Side",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "mng.connectAgent",
+        "title": "MNG: Connect to Agent",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "mng.openAgentUrl",
+        "title": "MNG: Open Agent URL",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "mng.stopAgent",
+        "title": "MNG: Stop Agent",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "mng.pullFromAgent",
+        "title": "MNG: Pull from Agent",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "mng.createAgent",
+        "title": "MNG: Create Agent"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "mng.refresh",
+          "when": "view == mng.agentList",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "mng.openPR",
+          "when": "view == mng.agentList && viewItem =~ /hasPR/",
+          "group": "inline@1"
+        },
+        {
+          "command": "mng.connectAgent",
+          "when": "view == mng.agentList && viewItem =~ /running/",
+          "group": "inline@2"
+        },
+        {
+          "command": "mng.openPRSideBySide",
+          "when": "view == mng.agentList && viewItem =~ /hasPR/"
+        },
+        {
+          "command": "mng.openAgentUrl",
+          "when": "view == mng.agentList && viewItem =~ /hasUrl/"
+        },
+        {
+          "command": "mng.stopAgent",
+          "when": "view == mng.agentList && viewItem =~ /running/"
+        },
+        {
+          "command": "mng.pullFromAgent",
+          "when": "view == mng.agentList"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "MNG Agent Viewer",
+      "properties": {
+        "mng.pollInterval": {
+          "type": "number",
+          "default": 10,
+          "description": "How often to refresh agent status (seconds)"
+        },
+        "mng.uvPath": {
+          "type": "string",
+          "default": "uv",
+          "description": "Path to the uv binary"
+        },
+        "mng.ghPath": {
+          "type": "string",
+          "default": "gh",
+          "description": "Path to the gh (GitHub CLI) binary"
+        },
+        "mng.repoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the repo root (auto-detected if empty)"
+        },
+        "mng.prOpenMode": {
+          "type": "string",
+          "enum": ["simpleBrowser", "external"],
+          "default": "simpleBrowser",
+          "description": "How to open PRs: in VS Code Simple Browser or external browser"
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

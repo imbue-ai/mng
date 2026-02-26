@@ -533,6 +533,7 @@ def _assemble_host_info(
                     idle_timeout_seconds=activity_config.idle_timeout_seconds,
                     activity_sources=tuple(s.value for s in activity_config.activity_sources),
                     labels=agent.get_labels(),
+                    branch=agent.get_created_branch_name(),
                     host=host_info,
                     plugin={},
                 )
@@ -558,6 +559,7 @@ def _assemble_host_info(
                     idle_seconds=None,
                     idle_mode=None,
                     labels=agent_ref.labels,
+                    branch=agent_ref.created_branch_name,
                     host=host_info,
                     plugin={},
                 )

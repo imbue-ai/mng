@@ -1120,6 +1120,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
 - `state` - Agent lifecycle state (RUNNING, STOPPED, WAITING, REPLACED, DONE)
 - `labels` - Agent labels (key-value pairs, e.g., project=mng)
 - `labels.$KEY` - Specific label value (e.g., `labels.project`)
+- `branch` - Git branch created for this agent
 - `plugin.$PLUGIN_NAME.*` - Plugin-defined fields (e.g., `plugin.chat_history.messages`)
 
 **Host fields** (dot notation for both `--fields` and CEL filters):
