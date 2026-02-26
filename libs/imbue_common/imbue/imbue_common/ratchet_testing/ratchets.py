@@ -468,15 +468,22 @@ def check_no_ruff_errors(project_root: Path) -> None:
         raise AssertionError("\n".join(failure_message))
 
 
-_TEST_MODULE_SUFFIXES: Final[tuple[str, ...]] = ("_test", "conftest", "testing", "plugin_testing", "test_fixtures")
+_TEST_MODULE_GLOBS: Final[tuple[str, ...]] = (
+    "*_test",
+    "test_*",
+    "conftest",
+    "testing",
+    "plugin_testing",
+    "test_fixtures",
+)
 
 
 def _is_test_module(module_path: str) -> bool:
     """Check if an import-linter module path refers to a test module."""
+    from fnmatch import fnmatch
+
     last_segment = module_path.rsplit(".", 1)[-1]
-    if last_segment.startswith("test_"):
-        return True
-    return any(last_segment.endswith(suffix) or last_segment == suffix for suffix in _TEST_MODULE_SUFFIXES)
+    return any(fnmatch(last_segment, pattern) for pattern in _TEST_MODULE_GLOBS)
 
 
 def check_no_import_lint_errors(project_root: Path) -> None:
