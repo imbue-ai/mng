@@ -75,13 +75,15 @@ class BoardSnapshot(FrozenModel):
 
 
 class CustomCommand(FrozenModel):
-    """A user-defined custom command for the kanpan board."""
+    """A command definition for the kanpan board (builtin or user-defined)."""
 
     name: str = Field(description="Display name shown in the status bar")
     command: str = Field(
-        description="Shell command to run. MNG_AGENT_NAME env var is set to the focused agent's name."
+        default="",
+        description="Shell command to run. MNG_AGENT_NAME env var is set to the focused agent's name.",
     )
     refresh_afterwards: bool = Field(default=False, description="Whether to trigger a board refresh after completion")
+    enabled: bool = Field(default=True, description="Whether this command is active")
 
 
 class KanpanPluginConfig(PluginConfig):

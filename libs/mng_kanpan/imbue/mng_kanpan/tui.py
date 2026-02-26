@@ -107,6 +107,20 @@ _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
     CheckStatus.PENDING: "check_pending",
 }
 
+# Builtin commands. Users can override these by defining a command with the same key.
+# Setting enabled=false on a builtin key disables it.
+_BUILTIN_COMMAND_KEY_REFRESH = "r"
+_BUILTIN_COMMAND_KEY_PUSH = "p"
+_BUILTIN_COMMAND_KEY_DELETE = "d"
+_BUILTIN_COMMAND_KEY_MUTE = "m"
+
+_BUILTIN_COMMANDS: dict[str, CustomCommand] = {
+    _BUILTIN_COMMAND_KEY_REFRESH: CustomCommand(name="refresh"),
+    _BUILTIN_COMMAND_KEY_PUSH: CustomCommand(name="push"),
+    _BUILTIN_COMMAND_KEY_DELETE: CustomCommand(name="delete"),
+    _BUILTIN_COMMAND_KEY_MUTE: CustomCommand(name="mute"),
+}
+
 # All attributes that can appear in agent lines and need focus variants
 _AGENT_LINE_ATTRS = ("state_running", "state_attention", "check_failing", "check_pending", "muted")
 
@@ -151,8 +165,8 @@ class _KanpanState(MutableModel):
     focused_agent_name: AgentName | None = None
     # Steady-state footer left text (restored after transient messages)
     steady_footer_text: str = "  Loading..."
-    # Custom commands from plugin config
-    custom_commands: dict[str, CustomCommand] = {}
+    # All commands (builtins merged with user config), keyed by trigger key
+    commands: dict[str, CustomCommand] = {}
 
 
 class _KanpanInputHandler(MutableModel):
@@ -173,22 +187,10 @@ class _KanpanInputHandler(MutableModel):
             return True
         if key in ("q", "Q", "ctrl c"):
             raise ExitMainLoop()
-        if key in ("r", "R"):
-            if self.state.refresh_future is None and self.state.loop is not None:
-                _start_refresh(self.state.loop, self.state)
-            return True
-        if key in ("d", "D"):
-            _delete_focused_agent(self.state)
-            return True
-        if key in ("p", "P"):
-            _push_focused_agent(self.state)
-            return True
-        if key in ("m", "M"):
-            _mute_focused_agent(self.state)
-            return True
-        # Check custom commands (case-insensitive)
-        if key.lower() in self.state.custom_commands:
-            _run_custom_command(self.state, self.state.custom_commands[key.lower()])
+        # Look up command by key (case-insensitive)
+        cmd = self.state.commands.get(key.lower())
+        if cmd is not None:
+            _dispatch_command(self.state, key.lower(), cmd)
             return True
         if key == "up":
             if _is_focus_on_first_selectable(self.state):
@@ -466,7 +468,27 @@ def _on_mute_persist_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool]
         loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_persist_poll, data)
 
 
-def _run_custom_command(state: _KanpanState, cmd: CustomCommand) -> None:
+def _dispatch_command(state: _KanpanState, key: str, cmd: CustomCommand) -> None:
+    """Dispatch a command by key. Routes to builtins or runs shell commands."""
+    if key == _BUILTIN_COMMAND_KEY_REFRESH and not cmd.command:
+        if state.refresh_future is None and state.loop is not None:
+            _start_refresh(state.loop, state)
+        return
+    if key == _BUILTIN_COMMAND_KEY_PUSH and not cmd.command:
+        _push_focused_agent(state)
+        return
+    if key == _BUILTIN_COMMAND_KEY_DELETE and not cmd.command:
+        _delete_focused_agent(state)
+        return
+    if key == _BUILTIN_COMMAND_KEY_MUTE and not cmd.command:
+        _mute_focused_agent(state)
+        return
+    # User-defined shell command
+    if cmd.command:
+        _run_shell_command(state, cmd)
+
+
+def _run_shell_command(state: _KanpanState, cmd: CustomCommand) -> None:
     """Run a user-defined custom command on the focused agent."""
     entry = _get_focused_entry(state)
     if entry is None:
@@ -648,15 +670,8 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
     """Build urwid text markup for a single agent line.
 
     Shows: name, agent state, push status, PR info or create-PR link.
-    Muted agents are rendered entirely in gray.
+    Muted agents show the same information but rendered entirely in gray.
     """
-    if section == BoardSection.MUTED:
-        # Muted: entire line in gray
-        line = f"  {entry.name:<24}{entry.state}"
-        if entry.pr is not None:
-            line += f"  PR #{entry.pr.number}"
-        return [("muted", line)]
-
     state_attr = _get_state_attr(entry, section)
     state_text = str(entry.state)
     parts: list[str | tuple[Hashable, str]] = [
@@ -677,6 +692,11 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
         parts.append(f"  {entry.pr.url}")
     elif entry.create_pr_url is not None:
         parts.append(f"  create PR: {entry.create_pr_url}")
+
+    # For muted agents, flatten everything to gray
+    if section == BoardSection.MUTED:
+        plain = "".join(seg if isinstance(seg, str) else seg[1] for seg in parts)
+        return [("muted", plain)]
 
     return parts
 
@@ -784,8 +804,8 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
-def _load_custom_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
-    """Load custom commands from plugin config."""
+def _load_user_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
+    """Load user-defined commands from plugin config."""
     plugin_name = PluginName("kanpan")
     if plugin_name not in mng_ctx.config.plugins:
         return {}
@@ -803,14 +823,26 @@ def _load_custom_commands(mng_ctx: MngContext) -> dict[str, CustomCommand]:
     return result
 
 
+def _build_command_map(mng_ctx: MngContext) -> dict[str, CustomCommand]:
+    """Build the unified command map: builtins merged with user config.
+
+    User commands override builtins when they share the same key.
+    Commands with enabled=False are filtered out.
+    """
+    commands = dict(_BUILTIN_COMMANDS)
+    user_commands = _load_user_commands(mng_ctx)
+    commands.update(user_commands)
+    return {key: cmd for key, cmd in commands.items() if cmd.enabled}
+
+
 def run_kanpan(mng_ctx: MngContext) -> None:
     """Run the kanpan TUI board."""
-    custom_commands = _load_custom_commands(mng_ctx)
+    commands = _build_command_map(mng_ctx)
 
-    # Build footer keybindings: custom commands first, then built-in
-    custom_parts = [f"{key}: {cmd.name}" for key, cmd in custom_commands.items()]
-    builtin_parts = ["m: mute", "p: push", "d: delete", "q: quit"]
-    keybindings = "  ".join(custom_parts + builtin_parts) + "  "
+    # Build footer keybindings (q: quit is always present, not in the command map)
+    keybinding_parts = [f"{key}: {cmd.name}" for key, cmd in commands.items()]
+    keybinding_parts.append("q: quit")
+    keybindings = "  ".join(keybinding_parts) + "  "
 
     footer_left = Text("  Loading...")
     footer_right = Text(keybindings, align="right")
@@ -833,7 +865,7 @@ def run_kanpan(mng_ctx: MngContext) -> None:
         frame=frame,
         footer_left=footer_left,
         footer_right=footer_right,
-        custom_commands=custom_commands,
+        commands=commands,
     )
 
     input_handler = _KanpanInputHandler(state=state)
