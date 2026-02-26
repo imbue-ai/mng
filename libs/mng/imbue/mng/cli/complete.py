@@ -188,14 +188,17 @@ def _get_positional_candidates(
 ) -> list[str]:
     """Return positional argument candidates (agent names) if applicable."""
     if resolved_command is None:
+        # No command resolved yet -- nothing to complete
         return []
-    if resolved_command in agent_name_arguments:
+    elif resolved_command in agent_name_arguments:
+        # Top-level command that accepts agent names (e.g. "connect", "destroy")
         return _read_agent_names()
-    if resolved_subcommand is not None:
-        subcommand_key = f"{resolved_command}.{resolved_subcommand}"
-        if subcommand_key in agent_name_arguments:
-            return _read_agent_names()
-    return []
+    elif resolved_subcommand is not None and f"{resolved_command}.{resolved_subcommand}" in agent_name_arguments:
+        # Group subcommand that accepts agent names (e.g. "snapshot.create")
+        return _read_agent_names()
+    else:
+        # Command/subcommand does not accept agent names
+        return []
 
 
 def _generate_zsh_script() -> str:
