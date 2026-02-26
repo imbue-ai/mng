@@ -321,7 +321,7 @@ def test_prevent_unittest_mock_imports() -> None:
 
 def test_prevent_monkeypatch_setattr() -> None:
     chunks = check_ratchet_rule(PREVENT_MONKEYPATCH_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(25), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(24), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
 
 
 def test_prevent_test_container_classes() -> None:
