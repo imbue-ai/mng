@@ -94,10 +94,10 @@ jobs:
 
       - name: Combine coverage
         run: |
-          uv run coverage combine --rcfile=libs/mng/pyproject.toml coverage-*/.coverage
-          uv run coverage report --rcfile=libs/mng/pyproject.toml --fail-under=80 --omit='**/testing.py,**/plugin_testing.py'
-          uv run coverage xml --rcfile=libs/mng/pyproject.toml --omit='**/testing.py,**/plugin_testing.py'
-          uv run coverage html --rcfile=libs/mng/pyproject.toml --omit='**/testing.py,**/plugin_testing.py'
+          uv run coverage combine coverage-*/.coverage
+          uv run coverage report --fail-under=80 --omit='**/testing.py,**/plugin_testing.py'
+          uv run coverage xml --omit='**/testing.py,**/plugin_testing.py'
+          uv run coverage html --omit='**/testing.py,**/plugin_testing.py'
 
       - name: Upload coverage reports
         if: always()
@@ -140,8 +140,8 @@ jobs:
 
       - name: Check coverage threshold (81% warning)
         run: |
-          uv run coverage combine --rcfile=libs/mng/pyproject.toml coverage-*/.coverage
-          uv run coverage report --rcfile=libs/mng/pyproject.toml --fail-under=81 --omit='**/testing.py,**/plugin_testing.py'
+          uv run coverage combine coverage-*/.coverage
+          uv run coverage report --fail-under=81 --omit='**/testing.py,**/plugin_testing.py'
 
   # Clean up old Modal test environments - runs on all branches including release,
   # since both acceptance tests (non-release) and release tests (release) create environments.
