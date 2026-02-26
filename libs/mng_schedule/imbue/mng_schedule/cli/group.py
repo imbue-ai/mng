@@ -24,6 +24,21 @@ def add_trigger_options(command: Any) -> Any:
 
     # Behavior group
     command = optgroup.option(
+        "--auto-merge-branch",
+        "auto_merge_branch",
+        default=None,
+        help="Branch to fetch and merge at runtime before running the command. "
+        "Defaults to the current branch when --auto-merge is enabled.",
+    )(command)
+    command = optgroup.option(
+        "--auto-merge/--no-auto-merge",
+        "auto_merge",
+        default=True,
+        show_default=True,
+        help="Fetch and merge the latest code from the target branch before each scheduled run. "
+        "Requires GH_TOKEN in the environment (via --pass-env or --env-file).",
+    )(command)
+    command = optgroup.option(
         "--verify",
         type=click.Choice(["none", "quick", "full"], case_sensitive=False),
         default="quick",
@@ -83,6 +98,13 @@ def add_trigger_options(command: Any) -> Any:
     command = optgroup.group("Deploy Files")(command)
 
     # Code Packaging group
+    command = optgroup.option(
+        "--target-dir",
+        "target_dir",
+        default="/code/project",
+        show_default=True,
+        help="Directory inside the container where the target repo will be extracted.",
+    )(command)
     command = optgroup.option(
         "--full-copy",
         "full_copy",

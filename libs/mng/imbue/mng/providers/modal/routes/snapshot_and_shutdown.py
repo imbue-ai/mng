@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 import modal
-from fastapi import HTTPException
 
 
 class ConfigurationError(RuntimeError):
@@ -116,6 +115,8 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     (list of agent data to persist to the volume), and stop_reason
     ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
     """
+    from fastapi import HTTPException
+
     logger = logging.getLogger("snapshot_and_shutdown")
     were_snapshots_missing = False
 
