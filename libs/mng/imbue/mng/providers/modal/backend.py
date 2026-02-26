@@ -63,7 +63,7 @@ def _create_environment(environment_name: str, cg: ConcurrencyGroup) -> None:
     with log_span("Creating Modal environment: {}", environment_name):
         try:
             cg.run_process_to_completion(
-                ["uv", "run", "modal", "environment", "create", environment_name],
+                ["modal", "environment", "create", environment_name],
                 timeout=30,
             )
             logger.info("Created Modal environment: {}", environment_name)

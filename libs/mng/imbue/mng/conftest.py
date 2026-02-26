@@ -19,9 +19,9 @@ import imbue.mng.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
@@ -177,6 +177,26 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
     init_git_repo(repo_dir)
 
     return repo_dir
+
+
+@pytest.fixture
+def disable_modal_for_subprocesses(
+    project_config_dir: Path, monkeypatch: pytest.MonkeyPatch, temp_git_repo: Path
+) -> Path:
+    """Disable the Modal provider for subprocesses spawned during a test.
+
+    Writes a settings.local.toml inside a temporary git repo's config directory
+    and chdir's into that repo. Spawned subprocesses inherit the CWD, so the
+    config loader's upward directory walk finds the settings file.
+
+    Use this when a test spawns a child process that runs ``mng`` commands
+    and would otherwise fail because Modal credentials are not available in
+    the test environment.
+    """
+    settings_path = project_config_dir / "settings.local.toml"
+    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+    monkeypatch.chdir(temp_git_repo)
+    return settings_path
 
 
 @pytest.fixture

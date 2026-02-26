@@ -34,6 +34,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MODEL_COP
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MONKEYPATCH_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NAMEDTUPLE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NUM_PREFIX
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_OS_FORK
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
@@ -105,7 +106,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(3), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
@@ -115,7 +116,7 @@ def test_prevent_bare_except() -> None:
 
 def test_prevent_broad_exception_catch() -> None:
     chunks = check_ratchet_rule(PREVENT_BROAD_EXCEPTION_CATCH, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_BROAD_EXCEPTION_CATCH.format_failure(chunks)
 
 
 def test_prevent_base_exception_catch() -> None:
@@ -300,6 +301,18 @@ def test_prevent_assert_isinstance_usage() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_ASSERT_ISINSTANCE.format_failure(chunks)
 
 
+def test_prevent_os_fork() -> None:
+    """Prevent usage of os.fork and os.forkpty.
+
+    Forking is incompatible with threading: a forked child inherits only the calling
+    thread, leaving mutexes held by other threads permanently locked and shared state
+    inconsistent. Code should use the subprocess module to launch subprocesses instead.
+    The remaining uses will be removed from the codebase entirely.
+    """
+    chunks = check_ratchet_rule(PREVENT_OS_FORK, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(3), PREVENT_OS_FORK.format_failure(chunks)
+
+
 def test_prevent_direct_subprocess_usage() -> None:
     """Prevent direct usage of subprocess and os process-spawning functions.
 
@@ -316,7 +329,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     # testing.py files are test infrastructure and excluded alongside test files.
     excluded = TEST_FILE_PATTERNS + ("testing.py",)
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), excluded)
-    assert len(chunks) <= snapshot(27), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(50), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:

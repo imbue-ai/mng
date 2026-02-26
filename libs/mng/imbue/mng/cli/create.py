@@ -202,7 +202,8 @@ class CreateCliOptions(CommonCliOptions):
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
-    known_host: tuple[str, ...]
+    known_hosts: tuple[str, ...]
+    authorized_keys: tuple[str, ...]
     snapshot: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
@@ -444,9 +445,15 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
 @optgroup.option(
     "--known-host",
-    "known_host",
+    "known_hosts",
     multiple=True,
     help="SSH known_hosts entry to add to the host (for outbound SSH) [repeatable]",
+)
+@optgroup.option(
+    "--authorized-key",
+    "authorized_keys",
+    multiple=True,
+    help="SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable]",
 )
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
@@ -1485,7 +1492,8 @@ def _parse_target_host(
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                known_hosts=opts.known_host,
+                known_hosts=opts.known_hosts,
+                authorized_keys=opts.authorized_keys,
             ),
             lifecycle=lifecycle,
         )

@@ -102,6 +102,7 @@ class ProviderInstanceInterface(MutableModel, ABC):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> OnlineHostInterface:
         """Create and start a new host with the given name and configuration.
@@ -164,6 +165,9 @@ class ProviderInstanceInterface(MutableModel, ABC):
     ) -> HostInterface:
         """Retrieve a host by its ID or name, raising HostNotFoundError if not found."""
         ...
+
+    @abstractmethod
+    def to_offline_host(self, host_id: HostId) -> HostInterface: ...
 
     @abstractmethod
     def list_hosts(

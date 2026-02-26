@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
-from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import LocalHostNotDestroyableError

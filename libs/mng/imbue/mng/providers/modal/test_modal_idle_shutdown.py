@@ -139,7 +139,7 @@ def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
     tar_dir = tmp_path / "tar_output"
     tar_dir.mkdir()
     temp_dir_with_tar = str(tar_dir)
-    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mng/dev/modal_image_commit_hash").read_text().strip()
+    commit_hash = os.environ.get("GITHUB_SHA", "") or Path(".mng/image_commit_hash").read_text().strip()
 
     # go make the tar
     result = subprocess.run(
