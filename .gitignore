@@ -255,7 +255,7 @@ scripts/notify_user.local.sh
 # Offload caches and local files
 .offload-image-cache
 .offload/**
-test-results/junit.xml
+test-results/**
 
 # Changelings deploy-time build artifacts
 .changelings/
