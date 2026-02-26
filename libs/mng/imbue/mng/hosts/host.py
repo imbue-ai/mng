@@ -75,6 +75,7 @@ from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
+from imbue.mng.utils.git_utils import get_git_remote_url
 from imbue.mng.utils.polling import wait_for
 
 
@@ -1033,9 +1034,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             base_branch_name = result.stdout.strip() if result.success else "main"
 
-        # Get git author info from source repo
+        # Get git author info and origin remote URL from source repo
         if source_host.is_local:
             git_author_name, git_author_email = get_git_author_info(source_path, self.mng_ctx.concurrency_group)
+            origin_url = get_git_remote_url(source_path, "origin", self.mng_ctx.concurrency_group)
         else:
             name_result = source_host.execute_command("git config user.name", cwd=source_path)
             email_result = source_host.execute_command("git config user.email", cwd=source_path)
@@ -1044,6 +1046,10 @@ class Host(BaseHost, OnlineHostInterface):
             )
             git_author_email = (
                 email_result.stdout.strip() if email_result.success and email_result.stdout.strip() else None
+            )
+            origin_result = source_host.execute_command("git remote get-url origin", cwd=source_path)
+            origin_url = (
+                origin_result.stdout.strip() if origin_result.success and origin_result.stdout.strip() else None
             )
 
         with log_span(
@@ -1079,6 +1085,8 @@ class Host(BaseHost, OnlineHostInterface):
                     config_commands.append(f"git config user.name {shlex.quote(git_author_name)}")
                 if git_author_email:
                     config_commands.append(f"git config user.email {shlex.quote(git_author_email)}")
+                if origin_url:
+                    config_commands.append(f"git remote add origin {shlex.quote(origin_url)}")
                 result = self.execute_command(
                     " && ".join(config_commands),
                     cwd=target_path,
