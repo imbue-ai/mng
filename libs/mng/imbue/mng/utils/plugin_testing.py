@@ -24,8 +24,9 @@ from imbue.mng.agents.agent_registry import reset_agent_registry
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
-from imbue.mng.utils.testing import assert_home_is_temp_directory
-from imbue.mng.utils.testing import isolate_home
+from imbue.mng.testing import assert_home_is_temp_directory
+from imbue.mng.testing import init_git_repo
+from imbue.mng.testing import isolate_home
 
 
 @pytest.fixture
@@ -129,14 +130,45 @@ def setup_test_mng_env(
     yield
 
 
+@pytest.fixture
+def cg() -> Generator[ConcurrencyGroup, None, None]:
+    """Provide a ConcurrencyGroup for tests that need to run processes."""
+    with ConcurrencyGroup(name="test") as group:
+        yield group
+
+
+@pytest.fixture
+def setup_git_config(tmp_path: Path) -> None:
+    """Create a .gitconfig in the fake HOME so git commands work.
+
+    Use this fixture for any test that runs git commands.
+    The temp_git_repo fixture depends on this, so you don't need both.
+    """
+    gitconfig = tmp_path / ".gitconfig"
+    if not gitconfig.exists():
+        gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
+
+
+@pytest.fixture
+def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
+    """Create a temporary git repository with an initial commit."""
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+    init_git_repo(repo_dir)
+    return repo_dir
+
+
 def register_plugin_test_fixtures(namespace: dict[str, Any]) -> None:
     """Register common plugin test fixtures into the given namespace.
 
     Call this from a plugin's conftest.py to get the standard set of fixtures
     needed for testing mng plugins.
     """
+    namespace["cg"] = cg
     namespace["cli_runner"] = cli_runner
     namespace["plugin_manager"] = plugin_manager
+    namespace["setup_git_config"] = setup_git_config
+    namespace["setup_test_mng_env"] = setup_test_mng_env
+    namespace["temp_git_repo"] = temp_git_repo
     namespace["temp_host_dir"] = temp_host_dir
     namespace["_isolate_tmux_server"] = _isolate_tmux_server
-    namespace["setup_test_mng_env"] = setup_test_mng_env

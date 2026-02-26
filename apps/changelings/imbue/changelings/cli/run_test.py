@@ -19,7 +19,7 @@ from imbue.changelings.mng_commands import build_mng_create_command
 from imbue.changelings.mng_commands import get_agent_name_from_command
 from imbue.changelings.mng_commands import write_secrets_env_file
 from imbue.changelings.primitives import ChangelingName
-from imbue.mng.utils.testing import isolate_home
+from imbue.mng.testing import isolate_home
 
 # -- get_agent_name_from_command tests --
 
