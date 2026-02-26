@@ -752,6 +752,19 @@ def _remote_git_push_mirror(
             return count_commits_between(local_path, pre_push_head, source_branch, cg)
         return 0
 
+    # Configure remote to accept mirror pushes. Mirror push deletes branches
+    # that don't exist locally, which may include the remote's checked-out
+    # branch. Detach HEAD first so no branch is "checked out", allowing all
+    # branches to be freely updated or deleted.
+    for config_cmd in [
+        "git config receive.denyCurrentBranch updateInstead",
+        "git config receive.denyDeleteCurrent ignore",
+        "git checkout --detach HEAD",
+    ]:
+        config_result = host.execute_command(config_cmd, cwd=destination_path)
+        if not config_result.success:
+            raise GitSyncError(f"Failed to configure remote for mirror push: {config_result.stderr}")
+
     # Push all refs from local to remote
     try:
         cg.run_process_to_completion(
