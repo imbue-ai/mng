@@ -2,7 +2,7 @@
 [offload]
 max_parallel = 200
 test_timeout_secs = 60
-retry_count = 4
+retry_count = 2
 stream_output = true
 sandbox_project_root = "/code/mng"
 
