@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Final
 
 import click
-from click.shell_completion import CompletionItem
 from loguru import logger
 
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
@@ -37,7 +36,7 @@ def complete_agent_name(
     ctx: click.Context,
     param: click.Parameter,
     incomplete: str,
-) -> list[CompletionItem]:
+) -> list:
     """Marker callback for click arguments that accept agent names.
 
     The cache writer detects this callback (via identity check) to populate

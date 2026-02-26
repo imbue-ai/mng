@@ -3,7 +3,6 @@ from typing import Any
 
 import click
 import pluggy
-from click.shell_completion import CompletionItem
 from click_option_group import OptionGroup
 
 from imbue.imbue_common.model_update import to_update
@@ -139,16 +138,6 @@ class AliasAwareGroup(DefaultCommandGroup):
         if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
-
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        alias_to_canonical = detect_alias_to_canonical(self)
-        completions = super().shell_complete(ctx, incomplete)
-        completed_names = {item.value for item in completions}
-        return [
-            item
-            for item in completions
-            if item.value not in alias_to_canonical or alias_to_canonical[item.value] not in completed_names
-        ]
 
 
 @click.command(cls=AliasAwareGroup)
