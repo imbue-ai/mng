@@ -57,6 +57,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
         cron_schedule="0 3 * * *",
         cron_timezone="America/Los_Angeles",
         target_repo_path="/code/project",
+        auto_merge_branch="main",
     )
     assert result["app_name"] == "test-app"
     assert result["cron_schedule"] == "0 3 * * *"
@@ -65,6 +66,7 @@ def test_build_deploy_config_returns_all_keys() -> None:
     assert result["trigger"]["command"] == "CREATE"
     assert result["trigger"]["args"] == "--message hello"
     assert result["target_repo_path"] == "/code/project"
+    assert result["auto_merge_branch"] == "main"
 
 
 def test_resolve_timezone_reads_etc_timezone(tmp_path: Path) -> None:

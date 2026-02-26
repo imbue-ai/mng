@@ -54,6 +54,26 @@ def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
         raise ScheduleDeployError("Some changes are not pushed")
 
 
+def resolve_current_branch_name(cwd: Path | None = None) -> str:
+    """Resolve the current git branch name.
+
+    Raises ScheduleDeployError if the branch cannot be determined or if
+    the repository is in a detached HEAD state.
+    """
+    with ConcurrencyGroup(name="git-branch-name") as cg:
+        result = cg.run_process_to_completion(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            is_checked_after=False,
+            cwd=cwd,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(f"Could not determine current branch: {result.stderr.strip()}") from None
+    branch_name = result.stdout.strip()
+    if branch_name == "HEAD":
+        raise ScheduleDeployError("Cannot determine branch name from a detached HEAD.") from None
+    return branch_name
+
+
 def get_current_mng_git_hash() -> str:
     """Get the git commit hash of the current mng codebase.
 

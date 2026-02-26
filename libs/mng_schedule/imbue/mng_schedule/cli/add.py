@@ -24,6 +24,7 @@ from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.data_types import VerifyMode
 from imbue.mng_schedule.errors import ScheduleDeployError
+from imbue.mng_schedule.git import resolve_current_branch_name
 from imbue.mng_schedule.implementations.local.deploy import deploy_local_schedule
 from imbue.mng_schedule.implementations.modal.deploy import deploy_schedule
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
@@ -163,6 +164,21 @@ def _deploy_modal(
         except ValueError as e:
             raise click.UsageError(str(e)) from e
 
+    # Resolve auto-merge branch: default to current branch if --auto-merge is on
+    auto_merge_branch: str | None = None
+    if opts.auto_merge:
+        if opts.auto_merge_branch is not None:
+            auto_merge_branch = opts.auto_merge_branch
+        else:
+            try:
+                auto_merge_branch = resolve_current_branch_name()
+            except Exception as e:
+                raise click.ClickException(
+                    f"--auto-merge requires a git branch, but could not resolve one: {e}. "
+                    "Use --no-auto-merge or --auto-merge-branch to specify explicitly."
+                ) from e
+        logger.info("Auto-merge enabled for branch '{}'", auto_merge_branch)
+
     try:
         app_name = deploy_schedule(
             trigger,
@@ -177,6 +193,7 @@ def _deploy_modal(
             uploads=parsed_uploads,
             mng_install_mode=MngInstallMode(opts.mng_install_mode.upper()),
             target_repo_path=opts.target_dir,
+            auto_merge_branch=auto_merge_branch,
         )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e

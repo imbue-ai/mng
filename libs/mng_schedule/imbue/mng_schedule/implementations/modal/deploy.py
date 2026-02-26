@@ -513,6 +513,7 @@ def build_deploy_config(
     cron_schedule: str,
     cron_timezone: str,
     target_repo_path: str,
+    auto_merge_branch: str | None,
 ) -> dict[str, Any]:
     """Build the deploy configuration dict that gets baked into the Modal image."""
     return {
@@ -521,6 +522,7 @@ def build_deploy_config(
         "cron_schedule": cron_schedule,
         "cron_timezone": cron_timezone,
         "target_repo_path": target_repo_path,
+        "auto_merge_branch": auto_merge_branch,
     }
 
 
@@ -609,6 +611,7 @@ def deploy_schedule(
     uploads: Sequence[tuple[Path, str]] = (),
     mng_install_mode: MngInstallMode = MngInstallMode.AUTO,
     target_repo_path: str = _DEFAULT_TARGET_REPO_PATH,
+    auto_merge_branch: str | None = None,
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
@@ -709,6 +712,21 @@ def deploy_schedule(
             uploads=uploads,
         )
 
+    # Validate that GH_TOKEN will be available at runtime when auto-merge is enabled.
+    # It must be present either in the consolidated env (via --pass-env or --env-file)
+    # or already staged into the secrets directory.
+    if auto_merge_branch is not None:
+        secrets_env_path = staging_dir / "secrets" / "env.json"
+        has_gh_token = False
+        if secrets_env_path.exists():
+            staged_env = json.loads(secrets_env_path.read_text())
+            has_gh_token = "GH_TOKEN" in staged_env or "GITHUB_TOKEN" in staged_env
+        if not has_gh_token:
+            raise ScheduleDeployError(
+                "Auto-merge is enabled but no GH_TOKEN or GITHUB_TOKEN was found in the deployed "
+                "environment. Pass it via --pass-env GH_TOKEN or include it in an --env-file."
+            )
+
     # Write deploy config as a single JSON file into the staging dir
     deploy_config = build_deploy_config(
         app_name=app_name,
@@ -716,6 +734,7 @@ def deploy_schedule(
         cron_schedule=trigger.schedule_cron,
         cron_timezone=cron_timezone,
         target_repo_path=target_repo_path,
+        auto_merge_branch=auto_merge_branch,
     )
     deploy_config_json = json.dumps(deploy_config)
     (staging_dir / "deploy_config.json").write_text(deploy_config_json)

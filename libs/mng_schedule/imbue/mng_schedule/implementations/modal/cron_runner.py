@@ -74,6 +74,8 @@ _APP_NAME: str = _deploy_config["app_name"]
 _CRON_SCHEDULE: str = _deploy_config["cron_schedule"]
 _CRON_TIMEZONE: str = _deploy_config["cron_timezone"]
 _TARGET_REPO_PATH: str = _deploy_config.get("target_repo_path", "/code/project")
+# Branch to fetch/merge at runtime, or None to skip auto-merge entirely
+_AUTO_MERGE_BRANCH: str | None = _deploy_config.get("auto_merge_branch")
 
 
 # --- Image definition ---
@@ -182,13 +184,20 @@ def run_scheduled_trigger() -> None:
                 print("Setting env var: {}", key)
                 os.environ[key] = value
 
-    # Set up GitHub authentication
-    print("Setting up GitHub authentication...")
-    os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
-    _run_and_stream(
-        "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null && gh auth setup-git",
-        is_shell=True,
-    )
+    # If auto-merge is enabled, set up GitHub authentication and fetch/merge the
+    # latest code from the configured branch before running the command.
+    if _AUTO_MERGE_BRANCH is not None:
+        print("Setting up GitHub authentication...")
+        os.makedirs(os.path.expanduser("~/.ssh"), mode=0o700, exist_ok=True)
+        _run_and_stream(
+            "ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null && gh auth setup-git",
+            is_shell=True,
+        )
+
+        print(f"Auto-merging latest code from branch '{_AUTO_MERGE_BRANCH}'...")
+        _run_and_stream(["git", "fetch", "origin", _AUTO_MERGE_BRANCH])
+        _run_and_stream(["git", "checkout", _AUTO_MERGE_BRANCH])
+        _run_and_stream(["git", "merge", f"origin/{_AUTO_MERGE_BRANCH}"])
 
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()

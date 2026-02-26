@@ -11,6 +11,8 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     schedule_cron: str | None
     provider: str | None
     enabled: bool | None
+    auto_merge: bool
+    auto_merge_branch: str | None
     verify: str
     snapshot_id: str | None
     full_copy: bool
