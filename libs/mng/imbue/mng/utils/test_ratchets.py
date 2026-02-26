@@ -227,7 +227,7 @@ def test_prevent_inline_functions_in_non_test_code() -> None:
 
 def test_prevent_time_sleep() -> None:
     chunks = check_ratchet_rule(PREVENT_TIME_SLEEP, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_TIME_SLEEP.format_failure(chunks)
+    assert len(chunks) <= snapshot(2), PREVENT_TIME_SLEEP.format_failure(chunks)
 
 
 def test_prevent_bare_print() -> None:

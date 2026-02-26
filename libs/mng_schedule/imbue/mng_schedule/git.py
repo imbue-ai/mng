@@ -37,9 +37,19 @@ def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
 
     # Check if there is anything unpushed on this branch:
     with ConcurrencyGroup(name="git-upstream-check") as cg:
-        result = cg.run_process_to_completion(["git", "log", f"origin/{branch_name}..HEAD", "--oneline"], cwd=cwd)
-    if result.stdout.strip() or result.stderr.strip():
-        raise ScheduleDeployError("Some changes are not pushed")
+        result = cg.run_process_to_completion(
+            ["git", "log", f"origin/{branch_name}..HEAD", "--oneline"],
+            cwd=cwd,
+            is_checked_after=False,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(
+            f"Branch '{branch_name}' has no remote tracking branch. Push it first with: git push -u origin {branch_name}"
+        ) from None
+    if result.stdout.strip():
+        raise ScheduleDeployError(
+            f"Branch '{branch_name}' has unpushed commits. Push them first with: git push"
+        ) from None
 
 
 def resolve_current_branch_name(cwd: Path | None = None) -> str:
