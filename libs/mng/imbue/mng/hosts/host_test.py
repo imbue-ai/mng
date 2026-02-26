@@ -24,6 +24,7 @@ from imbue.mng.hosts.host import _is_socket_closed_os_error
 from imbue.mng.hosts.host import _parse_boot_time_output
 from imbue.mng.hosts.host import _parse_uptime_output
 from imbue.mng.interfaces.data_types import PyinfraConnector
+from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
@@ -344,6 +345,94 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
 
     # State directory should still be cleaned up
     assert not agent_dir.exists()
+
+
+# =========================================================================
+# Tests for get_created_branch_name
+# =========================================================================
+
+
+def test_get_created_branch_name_returns_value_from_data_json(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns the value from data.json."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
+    data = json.loads((agent_dir / "data.json").read_text())
+    data["created_branch_name"] = "mng/test-branch-local"
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    assert agent.get_created_branch_name() == "mng/test-branch-local"
+
+
+def test_get_created_branch_name_returns_none_when_absent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns None for agents without it."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    assert agent.get_created_branch_name() is None
+
+
+def test_create_agent_state_stores_created_branch_name(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state stores created_branch_name in data.json."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    options = CreateAgentOptions(
+        name=AgentName("test-branch-store"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options, created_branch_name="mng/my-branch-local")
+
+    assert agent.get_created_branch_name() == "mng/my-branch-local"
+
+
+def test_create_agent_state_stores_none_created_branch_name(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state stores null created_branch_name when not provided."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    options = CreateAgentOptions(
+        name=AgentName("test-no-branch"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options)
+
+    assert agent.get_created_branch_name() is None
+
+
+def test_get_created_branch_name_returns_none_when_null(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns None when value is null in data.json."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
+    data = json.loads((agent_dir / "data.json").read_text())
+    data["created_branch_name"] = None
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    assert agent.get_created_branch_name() is None
 
 
 # =========================================================================
