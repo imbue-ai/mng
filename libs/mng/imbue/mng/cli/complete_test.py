@@ -420,6 +420,72 @@ def test_get_completions_no_agent_names_for_non_agent_command(
     assert result == []
 
 
+def test_get_completions_subcommand_agent_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Completing agent names for group subcommands (e.g. mng snapshot create <TAB>)."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(tmp_path))
+    data = _make_cache_data(
+        commands=["snapshot"],
+        subcommand_by_command={"snapshot": ["create", "destroy", "list"]},
+        agent_name_arguments=["snapshot.create", "snapshot.destroy", "snapshot.list"],
+    )
+    _write_command_cache(tmp_path, data)
+    _write_agent_cache(tmp_path, ["my-agent", "other-agent"])
+
+    monkeypatch.setenv("COMP_WORDS", "mng snapshot create ")
+    monkeypatch.setenv("COMP_CWORD", "3")
+
+    result = _get_completions()
+
+    assert result == ["my-agent", "other-agent"]
+
+
+def test_get_completions_subcommand_agent_names_with_prefix(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Completing agent names for group subcommands with a prefix filter."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(tmp_path))
+    data = _make_cache_data(
+        commands=["snapshot"],
+        subcommand_by_command={"snapshot": ["create", "destroy", "list"]},
+        agent_name_arguments=["snapshot.create"],
+    )
+    _write_command_cache(tmp_path, data)
+    _write_agent_cache(tmp_path, ["my-agent", "other-agent"])
+
+    monkeypatch.setenv("COMP_WORDS", "mng snapshot create my")
+    monkeypatch.setenv("COMP_CWORD", "3")
+
+    result = _get_completions()
+
+    assert result == ["my-agent"]
+
+
+def test_get_completions_subcommand_no_agent_names_for_non_agent_subcommand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Subcommands not in agent_name_arguments should not complete agent names."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(tmp_path))
+    data = _make_cache_data(
+        commands=["config"],
+        subcommand_by_command={"config": ["get", "list", "set"]},
+        agent_name_arguments=["snapshot.create"],
+    )
+    _write_command_cache(tmp_path, data)
+    _write_agent_cache(tmp_path, ["my-agent"])
+
+    monkeypatch.setenv("COMP_WORDS", "mng config get ")
+    monkeypatch.setenv("COMP_CWORD", "3")
+
+    result = _get_completions()
+
+    assert result == []
+
+
 def test_get_completions_alias_resolves_to_canonical(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -158,11 +158,11 @@ def _get_completions() -> list[str]:
         else:
             # Previous word is a flag, current word doesn't start with --
             # Could be a value for an option without predefined choices
-            candidates = _get_positional_candidates(resolved_command, agent_name_arguments)
+            candidates = _get_positional_candidates(resolved_command, resolved_subcommand, agent_name_arguments)
     elif incomplete.startswith("--"):
         candidates = options_by_command.get(option_key, [])
     else:
-        candidates = _get_positional_candidates(resolved_command, agent_name_arguments)
+        candidates = _get_positional_candidates(resolved_command, resolved_subcommand, agent_name_arguments)
 
     return [c for c in candidates if c.startswith(incomplete)]
 
@@ -183,11 +183,18 @@ def _filter_aliases(
 
 def _get_positional_candidates(
     resolved_command: str | None,
+    resolved_subcommand: str | None,
     agent_name_arguments: list[str],
 ) -> list[str]:
     """Return positional argument candidates (agent names) if applicable."""
-    if resolved_command is not None and resolved_command in agent_name_arguments:
+    if resolved_command is None:
+        return []
+    if resolved_command in agent_name_arguments:
         return _read_agent_names()
+    if resolved_subcommand is not None:
+        subcommand_key = f"{resolved_command}.{resolved_subcommand}"
+        if subcommand_key in agent_name_arguments:
+            return _read_agent_names()
     return []
 
 
