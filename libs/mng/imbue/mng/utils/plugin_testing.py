@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pluggy
 import pytest
+import toml
 from click.testing import CliRunner
 
 import imbue.mng.main
@@ -33,6 +34,7 @@ from imbue.mng.testing import assert_home_is_temp_directory
 from imbue.mng.testing import init_git_repo
 from imbue.mng.testing import isolate_home
 from imbue.mng.testing import make_mng_ctx
+from imbue.mng.testing import worker_test_ids
 
 
 @pytest.fixture
@@ -114,13 +116,21 @@ def _isolate_tmux_server(
 def setup_test_mng_env(
     tmp_path: Path,
     temp_host_dir: Path,
+    mng_test_prefix: str,
+    mng_test_root_name: str,
     monkeypatch: pytest.MonkeyPatch,
     _isolate_tmux_server: None,
 ) -> Generator[None, None, None]:
     """Set up environment variables for all tests."""
-    mng_test_id = uuid4().hex
-    mng_test_prefix = f"mng_{mng_test_id}-"
-    mng_test_root_name = f"mng-test-{mng_test_id}"
+    # Extract Modal tokens BEFORE overriding HOME, so acceptance/release tests
+    # can still authenticate with Modal even after HOME points to a temp dir.
+    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
+    if modal_toml_path.exists():
+        for value in toml.load(modal_toml_path).values():
+            if value.get("active", ""):
+                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
+                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
+                break
 
     isolate_home(tmp_path, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
@@ -166,8 +176,14 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
 
 @pytest.fixture
 def mng_test_id() -> str:
-    """Generate a unique test ID for isolation."""
-    return uuid4().hex
+    """Generate a unique test ID for isolation.
+
+    This ID is used for both the host directory and prefix to ensure
+    test isolation and easy cleanup of test resources (e.g., tmux sessions).
+    """
+    test_id = uuid4().hex
+    worker_test_ids.append(test_id)
+    return test_id
 
 
 @pytest.fixture

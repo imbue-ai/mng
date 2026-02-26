@@ -1,49 +1,33 @@
 import json
 import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
-import pluggy
 import psutil
 import pytest
-import toml
-from click.testing import CliRunner
 from urwid.widget.listbox import SimpleFocusListWalker
 
-import imbue.mng.main
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.agents.agent_registry import load_agents_from_plugins
-from imbue.mng.agents.agent_registry import reset_agent_registry
-from imbue.mng.config.data_types import MngConfig
-from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
-from imbue.mng.plugins import hookspecs
-from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
-from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.backend import ModalProviderBackend
-from imbue.mng.providers.registry import load_local_backend_only
-from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.testing import ModalSubprocessTestEnv
-from imbue.mng.testing import assert_home_is_temp_directory
 from imbue.mng.testing import cleanup_tmux_session
 from imbue.mng.testing import delete_modal_apps_in_environment
 from imbue.mng.testing import delete_modal_environment
 from imbue.mng.testing import delete_modal_volumes_in_environment
 from imbue.mng.testing import generate_test_environment_name
 from imbue.mng.testing import get_subprocess_test_env
-from imbue.mng.testing import init_git_repo
-from imbue.mng.testing import isolate_home
-from imbue.mng.testing import make_mng_ctx
 from imbue.mng.testing import worker_modal_app_names
 from imbue.mng.testing import worker_modal_environment_names
 from imbue.mng.testing import worker_modal_volume_names
 from imbue.mng.testing import worker_test_ids
+from imbue.mng.utils.plugin_testing import register_plugin_test_fixtures
+
+# Register the standard shared fixtures (cg, cli_runner, plugin_manager,
+# temp_host_dir, temp_mng_ctx, local_provider, setup_git_config, etc.)
+register_plugin_test_fixtures(globals())
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -88,95 +72,8 @@ _remove_deprecated_urwid_module_aliases()
 
 
 # =============================================================================
-# Non-autouse fixtures
+# mng-specific fixtures (not shared via register_plugin_test_fixtures)
 # =============================================================================
-
-
-@pytest.fixture
-def cg() -> Generator[ConcurrencyGroup, None, None]:
-    """Provide a ConcurrencyGroup for tests that need to run processes."""
-    with ConcurrencyGroup(name="test") as group:
-        yield group
-
-
-@pytest.fixture
-def mng_test_id() -> str:
-    """Generate a unique test ID for isolation.
-
-    This ID is used for both the host directory and prefix to ensure
-    test isolation and easy cleanup of test resources (e.g., tmux sessions).
-    """
-    test_id = uuid4().hex
-    worker_test_ids.append(test_id)
-    return test_id
-
-
-@pytest.fixture
-def mng_test_prefix(mng_test_id: str) -> str:
-    """Get the test prefix for tmux session names.
-
-    Format: mng_{test_id}- (underscore separator for easy cleanup).
-    """
-    return f"mng_{mng_test_id}-"
-
-
-@pytest.fixture
-def mng_test_root_name(mng_test_id: str) -> str:
-    """Get the test root name for config isolation.
-
-    Format: mng-test-{test_id}
-
-    This ensures tests don't load the project's .mng/settings.toml config,
-    which might have settings like add_command that would interfere with tests.
-    """
-    return f"mng-test-{mng_test_id}"
-
-
-@pytest.fixture
-def temp_host_dir(tmp_path: Path) -> Path:
-    """Create a temporary directory for host/mng data.
-
-    This fixture creates .mng inside tmp_path (which becomes the fake HOME),
-    ensuring tests don't write to the real ~/.mng.
-    """
-    host_dir = tmp_path / ".mng"
-    host_dir.mkdir()
-    return host_dir
-
-
-@pytest.fixture
-def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
-    yield tmp_path
-
-
-@pytest.fixture
-def setup_git_config(tmp_path: Path) -> None:
-    """Create a .gitconfig in the fake HOME so git commands work.
-
-    Use this fixture for any test that runs git commands.
-    The temp_git_repo fixture depends on this, so you don't need both.
-    """
-    gitconfig = tmp_path / ".gitconfig"
-    if not gitconfig.exists():
-        gitconfig.write_text("[user]\n\tname = Test User\n\temail = test@test.com\n")
-
-
-@pytest.fixture
-def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
-    """Create a temporary git repository with an initial commit.
-
-    This fixture:
-    1. Ensures .gitconfig exists in the fake HOME (via setup_git_config)
-    2. Creates a git repo with one tracked file and an initial commit
-
-    Use this fixture for any test that needs a git repository.
-    """
-    repo_dir = tmp_path / "git_repo"
-    repo_dir.mkdir()
-
-    init_git_repo(repo_dir)
-
-    return repo_dir
 
 
 @pytest.fixture
@@ -213,49 +110,6 @@ def temp_git_repo_cwd(temp_git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> P
 
 
 @pytest.fixture
-def temp_profile_dir(temp_host_dir: Path) -> Path:
-    """Create a temporary profile directory.
-
-    Use this fixture when tests need to create their own MngContext with custom config.
-    """
-    profile_dir = temp_host_dir / PROFILES_DIRNAME / uuid4().hex
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    return profile_dir
-
-
-@pytest.fixture
-def temp_config(temp_host_dir: Path, mng_test_prefix: str) -> MngConfig:
-    """Create a MngConfig with a temporary host directory.
-
-    Use this fixture when calling API functions that need a config.
-    """
-    return MngConfig(default_host_dir=temp_host_dir, prefix=mng_test_prefix, is_error_reporting_enabled=False)
-
-
-@pytest.fixture
-def temp_mng_ctx(
-    temp_config: MngConfig, temp_profile_dir: Path, plugin_manager: pluggy.PluginManager
-) -> Generator[MngContext, None, None]:
-    """Create a MngContext with a temporary host directory.
-
-    Use this fixture when calling API functions that need a context.
-    """
-    cg = ConcurrencyGroup(name="test")
-    with cg:
-        yield make_mng_ctx(temp_config, plugin_manager, temp_profile_dir, concurrency_group=cg)
-
-
-@pytest.fixture
-def local_provider(temp_host_dir: Path, temp_mng_ctx: MngContext) -> LocalProviderInstance:
-    """Create a LocalProviderInstance with a temporary host directory."""
-    return LocalProviderInstance(
-        name=ProviderInstanceName("local"),
-        host_dir=temp_host_dir,
-        mng_ctx=temp_mng_ctx,
-    )
-
-
-@pytest.fixture
 def per_host_dir(temp_host_dir: Path) -> Path:
     """Get the host directory for the local provider.
 
@@ -265,14 +119,20 @@ def per_host_dir(temp_host_dir: Path) -> Path:
     return temp_host_dir
 
 
-@pytest.fixture
-def cli_runner() -> CliRunner:
-    """Create a Click CLI runner for testing CLI commands."""
-    return CliRunner()
+# =============================================================================
+# Modal-specific autouse fixture
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _reset_modal_app_registry() -> Generator[None, None, None]:
+    """Clean up Modal app contexts after each test to prevent async cleanup errors."""
+    yield
+    ModalProviderBackend.reset_app_registry()
 
 
 # =============================================================================
-# Modal subprocess test environment fixture (session-scoped)
+# Modal subprocess test environment fixtures (session-scoped)
 # =============================================================================
 
 
@@ -370,169 +230,6 @@ def modal_subprocess_env(
     env["MNG_USER_ID"] = modal_test_session_user_id
 
     yield ModalSubprocessTestEnv(env=env, prefix=prefix, host_dir=host_dir)
-
-
-# =============================================================================
-# Autouse fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def _isolate_tmux_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
-    """Give each test its own isolated tmux server.
-
-    This fixture:
-    - Creates a per-test TMUX_TMPDIR under /tmp so each test gets its own
-      tmux server socket, preventing xdist workers from racing on the shared
-      default tmux server.
-    - Unsets TMUX so tmux commands connect to the isolated server (via
-      TMUX_TMPDIR) rather than the real server.
-    - On teardown, kills the isolated tmux server and cleans up the tmpdir.
-
-    IMPORTANT: We use /tmp directly instead of pytest's tmp_path because
-    tmux sockets are Unix domain sockets, which have a ~104-byte path
-    length limit on macOS. Pytest's tmp_path lives under
-    /private/var/folders/.../pytest-of-.../... which is already ~80+ bytes,
-    leaving no room for tmux's tmux-$UID/default suffix. When the path
-    exceeds the limit, tmux silently falls back to the default socket,
-    defeating isolation entirely (and potentially killing production
-    tmux servers during test cleanup).
-    """
-    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-tmux-", dir="/tmp"))
-    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
-    # Unset TMUX so tmux commands during the test connect to the isolated
-    # server (via TMUX_TMPDIR) rather than the real server. When TMUX is
-    # set (because we're running inside a tmux session), tmux uses it to
-    # find the current server, overriding TMUX_TMPDIR.
-    monkeypatch.delenv("TMUX", raising=False)
-
-    yield
-
-    # Kill the test's isolated tmux server to clean up any leaked sessions
-    # or processes. We must use -S with the explicit socket path because:
-    # 1. The TMUX env var (set when running inside tmux) tells tmux to
-    #    connect to the CURRENT server, overriding TMUX_TMPDIR entirely.
-    #    Without -S, kill-server would kill the real tmux server.
-    # 2. We also unset TMUX in the env as a belt-and-suspenders measure.
-    tmux_tmpdir_str = str(tmux_tmpdir)
-    assert tmux_tmpdir_str.startswith("/tmp/mng-tmux-"), (
-        f"TMUX_TMPDIR safety check failed! Expected /tmp/mng-tmux-* path but got: {tmux_tmpdir_str}. "
-        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
-    )
-    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
-    kill_env = os.environ.copy()
-    kill_env.pop("TMUX", None)
-    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    subprocess.run(
-        ["tmux", "-S", str(socket_path), "kill-server"],
-        capture_output=True,
-        env=kill_env,
-    )
-
-    # Clean up the tmpdir we created outside of pytest's tmp_path.
-    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
-
-
-@pytest.fixture(autouse=True)
-def setup_test_mng_env(
-    tmp_home_dir: Path,
-    temp_host_dir: Path,
-    mng_test_prefix: str,
-    mng_test_root_name: str,
-    monkeypatch: pytest.MonkeyPatch,
-    _isolate_tmux_server: None,
-) -> Generator[None, None, None]:
-    """Set up environment variables for all tests.
-
-    This autouse fixture ensures:
-    - HOME points to tmp_path (not the real ~/)
-    - MNG_HOST_DIR points to tmp_path/.mng (not ~/.mng)
-    - MNG_PREFIX uses a unique test ID for isolation
-    - MNG_ROOT_NAME prevents loading project config (.mng/settings.toml)
-    - TMUX_TMPDIR gives each test its own tmux server (via _isolate_tmux_server)
-
-    By setting HOME to tmp_path, tests cannot accidentally read or modify
-    files in the real home directory. This protects files like ~/.claude.json.
-    """
-    # before we nuke our home directory, we need to load the right token from the real home directory
-    modal_toml_path = Path(os.path.expanduser("~/.modal.toml"))
-    if modal_toml_path.exists():
-        for value in toml.load(modal_toml_path).values():
-            if value.get("active", ""):
-                monkeypatch.setenv("MODAL_TOKEN_ID", value.get("token_id", ""))
-                monkeypatch.setenv("MODAL_TOKEN_SECRET", value.get("token_secret", ""))
-                break
-    if not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"):
-        # check if we have "release" mark enabled:
-        if "release" in getattr(pytest, "current_test_marks", []):
-            raise Exception(
-                "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
-            )
-
-    isolate_home(tmp_home_dir, monkeypatch)
-    monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
-    monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
-    monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
-
-    # Unison derives its config directory from $HOME. Since we override HOME
-    # above, unison tries to create its config dir inside tmp_path, which
-    # fails because the expected parent directories don't exist. The UNISON
-    # env var overrides this to a path we control.
-    unison_dir = tmp_home_dir / ".unison"
-    unison_dir.mkdir(exist_ok=True)
-    monkeypatch.setenv("UNISON", str(unison_dir))
-
-    # Safety check: verify Path.home() is in a temp directory.
-    # If this fails, tests could accidentally modify the real home directory.
-    assert_home_is_temp_directory()
-
-    yield
-
-
-@pytest.fixture(autouse=True)
-def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
-    """Create a plugin manager with mng hookspecs and local backend only.
-
-    This fixture only loads the local provider backend, not modal. This ensures
-    tests don't depend on Modal credentials being available.
-
-    Also loads external plugins via setuptools entry points to match the behavior
-    of load_config(). This ensures that external plugins like mng_opencode are
-    discovered and registered.
-
-    This fixture also resets the module-level plugin manager singleton to ensure
-    test isolation.
-    """
-    # Reset the module-level plugin manager singleton before each test
-    imbue.mng.main.reset_plugin_manager()
-
-    # Clear the registries to ensure clean state
-    reset_backend_registry()
-    reset_agent_registry()
-
-    pm = pluggy.PluginManager("mng")
-    pm.add_hookspecs(hookspecs)
-    pm.load_setuptools_entrypoints("mng")
-
-    # Only register the local backend, not modal
-    # This prevents tests from depending on Modal credentials
-    # This also loads the provider configs since backends and configs are registered together
-    load_local_backend_only(pm)
-
-    # Load other registries (agents)
-    load_agents_from_plugins(pm)
-
-    yield pm
-
-    # Reset after the test as well
-    imbue.mng.main.reset_plugin_manager()
-    reset_backend_registry()
-    reset_agent_registry()
-
-    # Clean up Modal app contexts to prevent async cleanup errors
-    ModalProviderBackend.reset_app_registry()
 
 
 # =============================================================================
