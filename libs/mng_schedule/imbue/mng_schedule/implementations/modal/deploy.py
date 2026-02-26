@@ -660,10 +660,12 @@ def deploy_schedule(
        to that location.
 
     Code packaging modes (controlled by is_full_copy):
-    - Incremental (default): resolves a git commit hash and packages the repo
-      at that commit. Requires a git repo with a pushed branch.
-    - Full copy (is_full_copy=True): packages the entire project directory
-      as-is without git. Works both inside and outside git repos.
+    - Incremental (default): resolves a cached git commit hash and packages
+      the repo at that commit. Requires a git repo with a pushed branch.
+    - Full copy (is_full_copy=True): packages the project at the current HEAD
+      commit (if in a git repo, which excludes gitignored files like venvs)
+      or tarballs the entire directory (if not in a git repo). Skips the
+      incremental caching and branch-push validation.
 
     Full deployment flow:
     1. Find project root (git root, or cwd for full-copy outside a git repo)
@@ -704,10 +706,20 @@ def deploy_schedule(
     target_repo_dir: Path | None = deploy_build_path / "target_repo"
 
     if is_full_copy:
-        # Full-copy mode: package the entire directory as-is, no git required.
-        with log_span("Packaging project directory (full copy)"):
-            package_directory_as_tarball(repo_root, target_repo_dir)
-        logger.info("Packaged full copy of {}", repo_root)
+        # Full-copy mode: skip the incremental caching and branch-push validation.
+        # If in a git repo, export at current HEAD (excludes gitignored files like
+        # venvs and node_modules). Otherwise, tar the whole directory.
+        is_git_repo = try_get_repo_root() is not None
+        if is_git_repo:
+            head_hash = resolve_git_ref("HEAD", cwd=repo_root)
+            trigger = trigger.model_copy(update={"git_image_hash": head_hash})
+            logger.info("Full-copy from git repo at HEAD ({})", head_hash)
+            with log_span("Packaging repo at HEAD {} (full copy)", head_hash):
+                package_repo_at_commit(head_hash, target_repo_dir, repo_root)
+        else:
+            logger.info("Full-copy from non-git directory {}", repo_root)
+            with log_span("Packaging project directory (full copy)"):
+                package_directory_as_tarball(repo_root, target_repo_dir)
     else:
         # Incremental mode (default): resolve commit hash and package via git.
         commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
