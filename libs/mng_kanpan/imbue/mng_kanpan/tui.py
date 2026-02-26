@@ -37,6 +37,7 @@ REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
 
 SPINNER_FRAMES: tuple[str, ...] = ("|", "/", "-", "\\")
 SPINNER_INTERVAL_SECONDS: float = 0.15
+TRANSIENT_MESSAGE_SECONDS: float = 3.0
 
 PALETTE = [
     ("header", "white", "dark blue"),
@@ -142,6 +143,8 @@ class _KanpanState(MutableModel):
     list_walker: Any = None  # SimpleFocusListWalker, set during display build
     # Name of the agent that was focused before refresh (for focus persistence)
     focused_agent_name: AgentName | None = None
+    # Steady-state footer left text (restored after transient messages)
+    steady_footer_text: str = "  Loading..."
 
 
 class _KanpanInputHandler(MutableModel):
@@ -263,12 +266,12 @@ def _finish_delete(loop: MainLoop, state: _KanpanState) -> None:
     try:
         result = state.delete_future.result()
         if result.returncode == 0:
-            state.footer_left.set_text(f"  Deleted {agent_name}")
+            _show_transient_message(state, f"  Deleted {agent_name}")
         else:
             stderr = result.stderr.strip()
-            state.footer_left.set_text(f"  Failed to delete {agent_name}: {stderr}")
+            _show_transient_message(state, f"  Failed to delete {agent_name}: {stderr}")
     except Exception as e:
-        state.footer_left.set_text(f"  Failed to delete {agent_name}: {e}")
+        _show_transient_message(state, f"  Failed to delete {agent_name}: {e}")
     finally:
         state.delete_future = None
         state.deleting_agent_name = None
@@ -297,7 +300,7 @@ def _push_focused_agent(state: _KanpanState) -> None:
     if entry is None:
         return
     if entry.work_dir is None:
-        state.footer_left.set_text(f"  Cannot push: {entry.name} has no local work_dir")
+        _show_transient_message(state, f"  Cannot push: {entry.name} has no local work_dir")
         return
     if state.executor is None:
         state.executor = ThreadPoolExecutor(max_workers=1)
@@ -334,12 +337,12 @@ def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
     try:
         result = state.push_future.result()
         if result.returncode == 0:
-            state.footer_left.set_text(f"  Pushed {agent_name}")
+            _show_transient_message(state, f"  Pushed {agent_name}")
         else:
             stderr = result.stderr.strip()
-            state.footer_left.set_text(f"  Failed to push {agent_name}: {stderr}")
+            _show_transient_message(state, f"  Failed to push {agent_name}: {stderr}")
     except Exception as e:
-        state.footer_left.set_text(f"  Failed to push {agent_name}: {e}")
+        _show_transient_message(state, f"  Failed to push {agent_name}: {e}")
     finally:
         state.push_future = None
         state.pushing_agent_name = None
@@ -383,7 +386,7 @@ def _mute_focused_agent(state: _KanpanState) -> None:
     _update_snapshot_mute(state, agent_name, new_muted)
     _refresh_display(state)
     action = "Muted" if new_muted else "Unmuted"
-    state.footer_left.set_text(f"  {action} {agent_name}")
+    _show_transient_message(state, f"  {action} {agent_name}")
 
     # Persist in background
     def _do_mute() -> bool:
@@ -406,9 +409,21 @@ def _on_mute_persist_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool]
             # Revert the optimistic update
             _update_snapshot_mute(state, agent_name, not expected_muted)
             _refresh_display(state)
-            state.footer_left.set_text(f"  Failed to persist mute for {agent_name}: {e}")
+            _show_transient_message(state, f"  Failed to persist mute for {agent_name}: {e}")
     else:
         loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_persist_poll, data)
+
+
+def _show_transient_message(state: _KanpanState, message: str) -> None:
+    """Show a transient message in the footer that auto-reverts after a few seconds."""
+    state.footer_left.set_text(message)
+    if state.loop is not None:
+        state.loop.set_alarm_in(TRANSIENT_MESSAGE_SECONDS, _on_restore_footer, state)
+
+
+def _on_restore_footer(loop: MainLoop, state: _KanpanState) -> None:
+    """Restore the steady-state footer text after a transient message."""
+    state.footer_left.set_text(state.steady_footer_text)
 
 
 def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
@@ -464,9 +479,10 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
     now = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
     if state.snapshot is not None:
         elapsed = f"{state.snapshot.fetch_time_seconds:.1f}s"
-        state.footer_left.set_text(f"  Last refresh: {now} (took {elapsed})  r: refresh")
+        state.steady_footer_text = f"  Last refresh: {now} (took {elapsed})  r: refresh"
     else:
-        state.footer_left.set_text(f"  Last refresh: {now}  r: refresh")
+        state.steady_footer_text = f"  Last refresh: {now}  r: refresh"
+    state.footer_left.set_text(state.steady_footer_text)
 
     _schedule_next_refresh(loop, state)
 
