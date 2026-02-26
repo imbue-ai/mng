@@ -428,7 +428,7 @@ def test_plugin_add_path_and_remove_lifecycle() -> None:
     mng_bin = shutil.which("mng")
     if mng_bin is None:
         pytest.skip("mng not installed via uv tool (no mng binary on PATH)")
-        return  # unreachable, but helps type checkers narrow str | None -> str
+        return
 
     # Check that mng is installed via uv tool by looking for the receipt
     mng_venv = Path(mng_bin).resolve().parent.parent
