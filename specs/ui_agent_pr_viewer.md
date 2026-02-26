@@ -1,5 +1,47 @@
 # Agent-PR Viewer: Detailed Design Plan
 
+## Implementation Status
+
+**Status: v1 implementation complete. Visually verified on Modal with code-server.**
+
+### What was implemented
+
+- **Backend**: Added `branch` field to `AgentInfo`, populated from `agent.get_created_branch_name()` in the online path, `agent_ref.created_branch_name` in the offline path, and `agent_data.get("created_branch_name")` in Modal's optimized path. Added `created_branch_name` property to `AgentReference`. All 3120 Python tests pass.
+- **Extension scaffold**: Full VS Code extension at `apps/mng-vscode/` with package.json manifest (views, commands, menus, configuration), TypeScript config, and .vscodeignore.
+- **MngService**: Shells out to `uv run mng list --format json`, parses JSON into typed `MngAgent` objects. Includes `connectAgent`, `stopAgent`, `pullFromAgent` methods.
+- **PrService**: Shells out to `gh pr list --json`, matches branches to PRs, 60-second TTL cache.
+- **AgentNode**: TreeItem subclass with state-based icons (vm-running, debug-stop, watch, check, replace), PR/branch/type description, markdown tooltip, contextValue for conditional menus.
+- **AgentTreeProvider**: Sorts agents by state (running first) then name. Merges PR data with agent data.
+- **Commands**: All 8 commands registered (refresh, openPR, openPRSideBySide, connectAgent, openAgentUrl, stopAgent, pullFromAgent, createAgent).
+- **StatusBar**: Shows running agent count and open PR count.
+- **Unit tests**: 39 tests via vitest with vscode module mock. Covers parseAgent, PrService caching, AgentNode construction, and AgentTreeProvider sorting.
+
+### Visual verification (Modal + code-server)
+
+Tested on a Modal sandbox with code-server 4.109.2:
+- Activity bar icon for "MNG Agents" appears and is clickable
+- Sidebar shows "MNG AGENTS: AGENTS" panel with welcome view ("No agents found", Create Agent / Refresh buttons)
+- Status bar shows "MNG: no agents"
+- Command palette lists all 10 MNG commands (including "View: Show MNG Agents" and "Focus on Agents View")
+- Refresh icon appears in the sidebar title bar
+
+### What was NOT implemented (deferred to future work)
+
+- PR rendering via GitHub API (using Simple Browser approach instead)
+- VS Code integration tests (using `@vscode/test-electron`)
+- Agent log streaming
+- Auto-open on agent completion
+- Group by project/host
+- Notifications
+- Multi-repo support
+
+### Deviations from plan
+
+- The `package.json` uses `$(vm)` for the activity bar icon (codicon), which renders as a monitor icon in both VS Code and code-server. A custom SVG icon would be better for v2.
+- `mng push` and `mng pull` are not implemented for remote (Modal) agents yet, which limits the "Pull from Agent" command to local agents. Rsync via SSH works as a workaround.
+
+---
+
 ## Problem Statement
 
 When running multiple agents via `mng`, each agent typically works on its own branch and creates a PR. Currently there is no way to see all agents alongside their associated PRs in a unified view. The user has to manually track which agent produced which PR, then open each PR separately.
