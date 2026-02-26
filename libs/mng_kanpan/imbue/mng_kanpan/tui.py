@@ -66,6 +66,7 @@ PALETTE = [
     ("muted_focus", "dark gray,standout", ""),
     ("section_muted", "dark gray", ""),
     ("error_text", "light red", ""),
+    ("notification", "white", "dark magenta"),
 ]
 
 # Display order: most mature first (like Linear), muted always last
@@ -146,7 +147,8 @@ class _KanpanState(MutableModel):
     mng_ctx: MngContext
     snapshot: BoardSnapshot | None = None
     frame: Any  # urwid Frame widget
-    footer_left: Any  # urwid Text widget (left side of footer)
+    footer_left_text: Any  # urwid Text widget (left side of footer)
+    footer_left_attr: Any  # urwid AttrMap wrapping footer_left_text
     footer_right: Any  # urwid Text widget (right side of footer)
     loop: Any = None  # urwid MainLoop, set after construction
     spinner_index: int = 0
@@ -180,7 +182,7 @@ class _KanpanInputHandler(MutableModel):
             return None
         # Handle pending delete confirmation
         if self.state.pending_delete_name is not None:
-            if key in ("d", "D"):
+            if key in ("y", "Y"):
                 _confirm_delete(self.state)
             else:
                 _cancel_delete(self.state)
@@ -263,15 +265,17 @@ def _delete_focused_agent(state: _KanpanState) -> None:
         _execute_delete(state, entry.name)
     else:
         state.pending_delete_name = entry.name
-        state.footer_left.set_text(
-            f"  Delete {entry.name}? PR not merged. Press d to confirm, any other key to cancel"
+        state.footer_left_text.set_text(
+            f"  Delete {entry.name}? PR not merged. Press y to confirm, any other key to cancel"
         )
+        state.footer_left_attr.set_attr_map({None: "notification"})
 
 
 def _confirm_delete(state: _KanpanState) -> None:
     """Confirm a pending delete."""
     agent_name = state.pending_delete_name
     state.pending_delete_name = None
+    state.footer_left_attr.set_attr_map({None: "footer"})
     if agent_name is not None:
         _execute_delete(state, agent_name)
 
@@ -279,7 +283,7 @@ def _confirm_delete(state: _KanpanState) -> None:
 def _cancel_delete(state: _KanpanState) -> None:
     """Cancel a pending delete."""
     state.pending_delete_name = None
-    state.footer_left.set_text(state.steady_footer_text)
+    _restore_footer(state)
 
 
 def _execute_delete(state: _KanpanState, agent_name: AgentName) -> None:
@@ -288,7 +292,7 @@ def _execute_delete(state: _KanpanState, agent_name: AgentName) -> None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
     state.deleting_agent_name = agent_name
-    state.footer_left.set_text(f"  Deleting {agent_name}...")
+    state.footer_left_text.set_text(f"  Deleting {agent_name}...")
     state.delete_future = state.executor.submit(_run_destroy, str(agent_name))
 
     if state.loop is not None:
@@ -306,7 +310,7 @@ def _on_delete_poll(loop: MainLoop, state: _KanpanState) -> None:
 
     # Show spinner while deleting
     frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-    state.footer_left.set_text(f"  Deleting {state.deleting_agent_name} {frame_char}")
+    state.footer_left_text.set_text(f"  Deleting {state.deleting_agent_name} {frame_char}")
     state.spinner_index += 1
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_delete_poll, state)
 
@@ -360,7 +364,7 @@ def _push_focused_agent(state: _KanpanState) -> None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
     state.pushing_agent_name = entry.name
-    state.footer_left.set_text(f"  Pushing {entry.name}...")
+    state.footer_left_text.set_text(f"  Pushing {entry.name}...")
     state.push_future = state.executor.submit(_run_git_push, str(entry.work_dir))
 
     if state.loop is not None:
@@ -377,7 +381,7 @@ def _on_push_poll(loop: MainLoop, state: _KanpanState) -> None:
         return
 
     frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-    state.footer_left.set_text(f"  Pushing {state.pushing_agent_name} {frame_char}")
+    state.footer_left_text.set_text(f"  Pushing {state.pushing_agent_name} {frame_char}")
     state.spinner_index += 1
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_push_poll, state)
 
@@ -497,7 +501,7 @@ def _run_shell_command(state: _KanpanState, cmd: CustomCommand) -> None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
     agent_name = entry.name
-    state.footer_left.set_text(f"  Running {cmd.name} on {agent_name}...")
+    state.footer_left_text.set_text(f"  Running {cmd.name} on {agent_name}...")
 
     def _do_run() -> subprocess.CompletedProcess[str]:
         env = {**os.environ, "MNG_AGENT_NAME": str(agent_name)}
@@ -534,27 +538,35 @@ def _on_custom_command_poll(
             _start_refresh(loop, state)
     else:
         frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-        state.footer_left.set_text(f"  Running {cmd.name} on {agent_name} {frame_char}")
+        state.footer_left_text.set_text(f"  Running {cmd.name} on {agent_name} {frame_char}")
         state.spinner_index += 1
         loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_custom_command_poll, data)
 
 
 def _show_transient_message(state: _KanpanState, message: str) -> None:
-    """Show a transient message in the footer that auto-reverts after a few seconds."""
-    state.footer_left.set_text(message)
+    """Show a transient notification in the footer that auto-reverts after a few seconds."""
+    state.footer_left_text.set_text(message)
+    state.footer_left_attr.set_attr_map({None: "notification"})
     if state.loop is not None:
         state.loop.set_alarm_in(TRANSIENT_MESSAGE_SECONDS, _on_restore_footer, state)
 
 
+def _restore_footer(state: _KanpanState) -> None:
+    """Restore the steady-state footer styling and text."""
+    state.footer_left_text.set_text(state.steady_footer_text)
+    state.footer_left_attr.set_attr_map({None: "footer"})
+
+
 def _on_restore_footer(loop: MainLoop, state: _KanpanState) -> None:
-    """Restore the steady-state footer text after a transient message."""
-    state.footer_left.set_text(state.steady_footer_text)
+    """Alarm callback to restore the steady-state footer."""
+    _restore_footer(state)
 
 
 def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Start a background refresh and begin the spinner animation."""
     if state.executor is None:
         state.executor = ThreadPoolExecutor(max_workers=1)
+    state.footer_left_attr.set_attr_map({None: "footer"})
     state.spinner_index = 0
     state.refresh_future = state.executor.submit(fetch_board_snapshot, state.mng_ctx)
     _schedule_spinner_tick(loop, state)
@@ -576,7 +588,7 @@ def _on_spinner_tick(loop: MainLoop, state: _KanpanState) -> None:
 
     # Animate spinner
     frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-    state.footer_left.set_text(f"  Refreshing {frame_char}")
+    state.footer_left_text.set_text(f"  Refreshing {frame_char}")
     state.spinner_index += 1
     _schedule_spinner_tick(loop, state)
 
@@ -607,7 +619,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
         state.steady_footer_text = f"  Last refresh: {now} (took {elapsed})  r: refresh"
     else:
         state.steady_footer_text = f"  Last refresh: {now}  r: refresh"
-    state.footer_left.set_text(state.steady_footer_text)
+    state.footer_left_text.set_text(state.steady_footer_text)
 
     _schedule_next_refresh(loop, state)
 
@@ -844,11 +856,12 @@ def run_kanpan(mng_ctx: MngContext) -> None:
     keybinding_parts.append("q: quit")
     keybindings = "  ".join(keybinding_parts) + "  "
 
-    footer_left = Text("  Loading...")
+    footer_left_text = Text("  Loading...")
+    footer_left_attr = AttrMap(footer_left_text, "footer")
     footer_right = Text(keybindings, align="right")
     pack: int = len(keybindings)
-    footer_columns = Columns([footer_left, (pack, footer_right)])
-    footer = Pile([Divider(), AttrMap(footer_columns, "footer")])
+    footer_columns = Columns([footer_left_attr, (pack, AttrMap(footer_right, "footer"))])
+    footer = Pile([Divider(), footer_columns])
 
     header = Pile(
         [
@@ -863,7 +876,8 @@ def run_kanpan(mng_ctx: MngContext) -> None:
     state = _KanpanState(
         mng_ctx=mng_ctx,
         frame=frame,
-        footer_left=footer_left,
+        footer_left_text=footer_left_text,
+        footer_left_attr=footer_left_attr,
         footer_right=footer_right,
         commands=commands,
     )
