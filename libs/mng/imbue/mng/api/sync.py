@@ -475,7 +475,9 @@ def sync_files(
             if host.is_local:
                 destination_path.mkdir(parents=True, exist_ok=True)
             else:
-                host.execute_command(f"mkdir -p {shlex.quote(str(destination_path))}")
+                mkdir_result = host.execute_command(f"mkdir -p {shlex.quote(str(destination_path))}")
+                if not mkdir_result.success:
+                    raise MngError(f"Failed to create remote directory {destination_path}: {mkdir_result.stderr}")
 
         direction = "Pushing" if mode == SyncMode.PUSH else "Pulling"
 
