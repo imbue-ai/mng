@@ -13,7 +13,7 @@ vi.mock('./config.js', () => ({
         uvPath: 'uv',
         pollInterval: 10,
         repoRoot: '',
-        prOpenMode: 'simpleBrowser',
+        prOpenMode: 'external',
     }),
     getRepoRoot: () => '/fake/repo',
 }));

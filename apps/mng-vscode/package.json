@@ -147,9 +147,9 @@
         },
         "mng.prOpenMode": {
           "type": "string",
-          "enum": ["external", "simpleBrowser", "githubPR"],
+          "enum": ["external", "githubPR"],
           "default": "external",
-          "description": "How to open PRs: in external browser (default), VS Code Simple Browser (may not work with GitHub), or via GitHub PR extension (requires GitHub.vscode-pull-request-github)"
+          "description": "How to open PRs: in external browser (default) or via GitHub PR extension (requires GitHub.vscode-pull-request-github)"
         }
       }
     }

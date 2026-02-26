@@ -33,11 +33,6 @@ export function registerCommands(
                     );
                     await vscode.env.openExternal(vscode.Uri.parse(node.pr.url));
                 }
-            } else if (config.prOpenMode === 'simpleBrowser') {
-                await vscode.commands.executeCommand(
-                    'simpleBrowser.show',
-                    vscode.Uri.parse(node.pr.url),
-                );
             } else {
                 // 'external' (default)
                 await vscode.env.openExternal(vscode.Uri.parse(node.pr.url));
@@ -62,10 +57,7 @@ export function registerCommands(
     context.subscriptions.push(
         vscode.commands.registerCommand('mng.openAgentUrl', async (node: AgentNode) => {
             if (!node?.agent?.url) return;
-            await vscode.commands.executeCommand(
-                'simpleBrowser.show',
-                vscode.Uri.parse(node.agent.url),
-            );
+            await vscode.env.openExternal(vscode.Uri.parse(node.agent.url));
         }),
     );
 
