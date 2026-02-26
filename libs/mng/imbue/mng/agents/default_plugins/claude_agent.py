@@ -39,9 +39,9 @@ from imbue.mng.agents.default_plugins.claude_config import remove_claude_trust_f
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentStartError
-from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
+from imbue.mng.errors import SendMessageError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import is_macos
 from imbue.mng.interfaces.agent import AgentInterface
@@ -426,6 +426,18 @@ class DialogIndicator(FrozenModel, ABC):
     def get_description(self) -> str:
         """Return a human-readable description for error messages."""
         ...
+
+
+class DialogDetectedError(SendMessageError):
+    """A dialog is blocking the agent's input in the terminal."""
+
+    def __init__(self, agent_name: str, dialog_description: str) -> None:
+        self.dialog_description = dialog_description
+        super().__init__(
+            agent_name,
+            f"A dialog is blocking the agent's input ({dialog_description} detected in terminal). "
+            f"Connect to the agent with 'mng connect {agent_name}' to resolve it.",
+        )
 
 
 class PermissionDialogIndicator(DialogIndicator):
