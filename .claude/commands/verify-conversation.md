@@ -1,4 +1,5 @@
 ---
+allowed-tools: Bash:*
 description: Review a conversation transcript for errors, missed requirements, and quality issues.
 ---
 
@@ -8,19 +9,31 @@ This command reviews a conversation transcript to identify issues with the agent
 
 ## Instructions
 
-### 1. Read the Conversation
+### 1. Set Up
 
-This is the transcript of the conversation to review:
+First, determine your reviewer window name and clean up old review files:
 
----
+```bash
+./scripts/cleanup_review_files.sh
+```
 
-!`./scripts/print_review_transcript.sh`
+Then determine your window name (you'll need this for file paths later):
 
----
+```bash
+WINDOW=$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0) && echo "$WINDOW"
+```
 
-(if the above is empty, there is no conversation to review -- state this and exit.)
+### 2. Read the Conversation
 
-### 2. Create Initial Issue List
+Get the conversation transcript by running:
+
+```bash
+./scripts/print_review_transcript.sh
+```
+
+If the output is empty, there is no conversation to review -- state this and exit.
+
+### 3. Create Initial Issue List
 
 Go through the conversation and create a comprehensive list of ALL potential issues you notice, using the issue categories below. Be thorough at this stage -- it's better to identify more potential issues initially than to miss something.
 
@@ -33,13 +46,11 @@ For each potential issue, note:
 - The issue type (from the categories below)
 - A brief description of what you observed
 
-!`./scripts/cleanup_review_files.sh`
-
 Put these observations into the "initial issues file" for tracking:
 
-    .reviews/initial_issue_list/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.md
+    .reviews/initial_issue_list/$WINDOW.md
 
-### 3. Analyze Each Potential Issue
+### 4. Analyze Each Potential Issue
 
 After creating the initial list in that file, read that file, and, for each issue in that initial list:
 
@@ -52,11 +63,11 @@ After creating the initial list in that file, read that file, and, for each issu
 
 The "final output json file" is:
 
-    .reviews/final_issue_json/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.json
+    .reviews/final_issue_json/$WINDOW.json
 
-When finished with all issues, touch this file:
+When finished with all issues, touch the done marker:
 
-    .reviews/final_issue_json/!`tmux display-message -t "$TMUX_PANE" -p '#W' || echo reviewer_0`.json.done
+    .reviews/final_issue_json/$WINDOW.json.done
 
 ---
 
