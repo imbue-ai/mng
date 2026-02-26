@@ -349,8 +349,27 @@ def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
+def _update_snapshot_mute(state: _KanpanState, agent_name: AgentName, is_muted: bool) -> None:
+    """Update the snapshot in-place by toggling is_muted on the named agent."""
+    if state.snapshot is None:
+        return
+    new_entries = tuple(
+        entry.model_copy(update={"is_muted": is_muted}) if entry.name == agent_name else entry
+        for entry in state.snapshot.entries
+    )
+    state.snapshot = BoardSnapshot(
+        entries=new_entries,
+        errors=state.snapshot.errors,
+        fetch_time_seconds=state.snapshot.fetch_time_seconds,
+    )
+
+
 def _mute_focused_agent(state: _KanpanState) -> None:
-    """Toggle mute on the currently focused agent."""
+    """Toggle mute on the currently focused agent.
+
+    Optimistically updates the UI immediately, then persists in the background.
+    If the persist fails, reverts the UI change.
+    """
     entry = _get_focused_entry(state)
     if entry is None:
         return
@@ -358,35 +377,38 @@ def _mute_focused_agent(state: _KanpanState) -> None:
         state.executor = ThreadPoolExecutor(max_workers=1)
 
     agent_name = entry.name
-    action = "Unmuting" if entry.is_muted else "Muting"
-    state.footer_left.set_text(f"  {action} {agent_name}...")
+    new_muted = not entry.is_muted
 
+    # Optimistic UI update
+    _update_snapshot_mute(state, agent_name, new_muted)
+    _refresh_display(state)
+    action = "Muted" if new_muted else "Unmuted"
+    state.footer_left.set_text(f"  {action} {agent_name}")
+
+    # Persist in background
     def _do_mute() -> bool:
         return toggle_agent_mute(state.mng_ctx, agent_name)
 
     future = state.executor.submit(_do_mute)
     if state.loop is not None:
-        state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_poll, (state, future, agent_name))
+        state.loop.set_alarm_in(
+            SPINNER_INTERVAL_SECONDS, _on_mute_persist_poll, (state, future, agent_name, new_muted)
+        )
 
 
-def _on_mute_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool], AgentName]) -> None:
-    """Poll for mute toggle completion."""
-    state, future, agent_name = data
+def _on_mute_persist_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool], AgentName, bool]) -> None:
+    """Poll for mute persist completion. Revert UI on failure."""
+    state, future, agent_name, expected_muted = data
     if future.done():
         try:
-            is_muted = future.result()
-            action = "Muted" if is_muted else "Unmuted"
-            state.footer_left.set_text(f"  {action} {agent_name}")
+            future.result()
         except Exception as e:
-            state.footer_left.set_text(f"  Failed to toggle mute for {agent_name}: {e}")
-        # Refresh to show updated state
-        if state.refresh_future is None:
-            _start_refresh(loop, state)
+            # Revert the optimistic update
+            _update_snapshot_mute(state, agent_name, not expected_muted)
+            _refresh_display(state)
+            state.footer_left.set_text(f"  Failed to persist mute for {agent_name}: {e}")
     else:
-        frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-        state.footer_left.set_text(f"  Toggling mute for {agent_name} {frame_char}")
-        state.spinner_index += 1
-        loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_poll, data)
+        loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_persist_poll, data)
 
 
 def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
