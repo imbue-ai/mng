@@ -1,14 +1,3 @@
-"""Integration and release tests for the Claude agent.
-
-Integration tests verify dialog detection during send_message using tmux.
-Release tests require Modal credentials and are marked with @pytest.mark.release.
-
-To run release tests locally:
-
-    PYTEST_MAX_DURATION=600 uv run pytest --no-cov --cov-fail-under=0 -n 0 -m release \\
-        libs/mng/imbue/mng/agents/default_plugins/test_claude_agent.py::test_claude_agent_provisioning_on_modal
-"""
-
 import subprocess
 from pathlib import Path
 from uuid import uuid4
@@ -110,6 +99,11 @@ def test_claude_agent_provisioning_on_modal(
     modal_subprocess_env: ModalSubprocessTestEnv,
 ) -> None:
     """Test creating a claude agent on Modal.
+
+    Requires Modal credentials and network access. To run locally:
+
+        PYTEST_MAX_DURATION=600 uv run pytest --no-cov --cov-fail-under=0 -n 0 -m release \\
+            libs/mng/imbue/mng/agents/default_plugins/test_claude_agent.py::test_claude_agent_provisioning_on_modal
 
     This is an end-to-end release test that verifies:
     1. Claude agent can be provisioned on Modal
