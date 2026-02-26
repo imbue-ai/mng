@@ -43,7 +43,7 @@ def _setup_test_server(
     auth_dir = tmp_path / "auth"
     auth_store = FileAuthStore(data_directory=auth_dir)
 
-    changeling_name = ChangelingName(f"test-agent-{uuid4().hex[:8]}")
+    changeling_name = ChangelingName(f"test-agent-{uuid4().hex}")
 
     # Create a backend app and an httpx client using ASGI transport
     backend_app = _create_test_backend()
@@ -237,7 +237,7 @@ def test_agent_proxy_injects_websocket_shim_into_html_responses(tmp_path: Path) 
 def test_agent_proxy_returns_502_for_unknown_backend(tmp_path: Path) -> None:
     auth_dir = tmp_path / "auth"
     auth_store = FileAuthStore(data_directory=auth_dir)
-    changeling_name = ChangelingName(f"no-backend-{uuid4().hex[:8]}")
+    changeling_name = ChangelingName(f"no-backend-{uuid4().hex}")
 
     backend_resolver = StaticBackendResolver(url_by_changeling_name={})
 

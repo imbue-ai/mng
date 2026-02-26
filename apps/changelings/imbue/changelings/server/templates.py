@@ -16,17 +16,17 @@ _LANDING_PAGE_TEMPLATE: Final[str] = """<!DOCTYPE html>
   <title>Changelings</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; background: #f5f5f5; }
-    h1 { margin-bottom: 24px; color: #1a1a2e; }
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; background: whitesmoke; }
+    h1 { margin-bottom: 24px; color: rgb(26, 26, 46); }
     .agent-list { list-style: none; }
     .agent-list li { margin-bottom: 8px; }
     .agent-list a {
       display: inline-block; padding: 12px 20px;
-      background: #1a1a2e; color: white; text-decoration: none;
+      background: rgb(26, 26, 46); color: white; text-decoration: none;
       border-radius: 6px; font-size: 16px;
     }
-    .agent-list a:hover { background: #2a2a4e; }
-    .empty-state { color: #666; font-size: 16px; }
+    .agent-list a:hover { background: rgb(42, 42, 78); }
+    .empty-state { color: gray; font-size: 16px; }
   </style>
 </head>
 <body>
@@ -61,8 +61,8 @@ _AUTH_ERROR_TEMPLATE: Final[str] = """<!DOCTYPE html>
 <head>
   <title>Authentication Error</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; background: #f5f5f5; }
-    .error { background: #fee; border: 1px solid #fcc; padding: 20px; border-radius: 6px; color: #900; }
+    body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; background: whitesmoke; }
+    .error { background: rgb(255, 238, 238); border: 1px solid rgb(255, 204, 204); padding: 20px; border-radius: 6px; color: darkred; }
   </style>
 </head>
 <body>

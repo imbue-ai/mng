@@ -257,6 +257,8 @@ def create_forwarding_server(
                                 await backend_ws.send(data["text"])
                             elif "bytes" in data:
                                 await backend_ws.send(data["bytes"])
+                            else:
+                                pass
                             data = await websocket.receive()
                     except WebSocketDisconnect:
                         await backend_ws.close()
