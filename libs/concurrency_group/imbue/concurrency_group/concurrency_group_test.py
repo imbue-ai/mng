@@ -15,6 +15,7 @@ from imbue.concurrency_group.concurrency_group import InvalidConcurrencyGroupSta
 from imbue.concurrency_group.concurrency_group import StrandTimedOutError
 from imbue.concurrency_group.errors import ProcessError
 from imbue.concurrency_group.local_process import RunningProcess
+from imbue.concurrency_group.test_utils import poll_until
 from imbue.concurrency_group.test_utils import wait_interval
 from imbue.concurrency_group.thread_utils import ObservableThread
 
@@ -29,11 +30,18 @@ def _small_sleep_and_return_1() -> int:
 
 
 def test_concurrency_group_shortly_waits_for_threads_to_finish() -> None:
+    release_event = Event()
+
+    def _wait_for_event_and_return_1() -> int:
+        release_event.wait(timeout=5.0)
+        return 1
+
     with ConcurrencyGroup(name="outer") as cg:
-        thread1 = cg.start_new_thread(target=_small_sleep_and_return_1)
-        thread2 = cg.start_new_thread(target=_small_sleep_and_return_1)
+        thread1 = cg.start_new_thread(target=_wait_for_event_and_return_1)
+        thread2 = cg.start_new_thread(target=_wait_for_event_and_return_1)
         assert thread1.is_alive()
         assert thread2.is_alive()
+        release_event.set()
     assert not thread1.is_alive()
     assert not thread2.is_alive()
 
@@ -154,7 +162,15 @@ def test_checked_failed_processes_raise_when_probed(tmp_path: Path) -> None:
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with ConcurrencyGroup(name="outer") as cg:
             process = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-            wait_interval(SMALL_SLEEP)
+
+            def _probe_raises() -> bool:
+                try:
+                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
+                    return False
+                except ConcurrencyExceptionGroup:
+                    return True
+
+            assert poll_until(_probe_raises, timeout=5.0)
             cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
             i += 1
         assert process.poll() == 1
@@ -194,7 +210,15 @@ def test_do_not_allow_starting_new_strands_if_the_previous_failed(tmp_path: Path
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with ConcurrencyGroup(name="outer") as cg:
             process1 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-            wait_interval(SMALL_SLEEP)
+
+            def _failure_detected() -> bool:
+                try:
+                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
+                    return False
+                except ConcurrencyExceptionGroup:
+                    return True
+
+            assert poll_until(_failure_detected, timeout=5.0)
             process2 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)], is_checked_by_group=True)
     assert isinstance(exception_info.value.exceptions[0], ProcessError)
     assert process1 is not None
@@ -207,7 +231,15 @@ def test_all_failure_modes_get_combined(tmp_path: Path) -> None:
         with ConcurrencyGroup(name="outer", exit_timeout_seconds=SMALL_SLEEP) as cg:
             process1 = cg.run_process_in_background(["sleep", str(LARGE_SLEEP)], is_checked_by_group=True)
             process2 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-            wait_interval(SMALL_SLEEP)
+
+            def _process_failure_detected() -> bool:
+                try:
+                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
+                    return False
+                except ConcurrencyExceptionGroup:
+                    return True
+
+            assert poll_until(_process_failure_detected, timeout=5.0)
             i = 1 / 0
     assert len(exception_info.value.exceptions) == 3
     assert any(isinstance(e, ProcessError) for e in exception_info.value.exceptions)
@@ -393,7 +425,7 @@ def test_shutdown_propagates_to_children_and_kills_processes(tmp_path: Path) -> 
             target=_create_nested_concurrency_group_and_run_process,
             args=(cg, closure, tmp_path, process_started_event),
         )
-        process_started_event.wait(timeout=SMALL_SLEEP)
+        process_started_event.wait(timeout=5.0)
         cg.shutdown()
     assert closure["i"] == 10
 
@@ -423,7 +455,7 @@ def test_new_resources_cannot_be_created_when_shutting_down(tmp_path: Path) -> N
             target=_create_nested_concurrency_group_and_run_process_while_shutting_down,
             args=(cg, tmp_path, closure, process_started_event),
         )
-        process_started_event.wait(timeout=SMALL_SLEEP)
+        process_started_event.wait(timeout=5.0)
         cg.shutdown()
     assert closure["i"] == 1
 
