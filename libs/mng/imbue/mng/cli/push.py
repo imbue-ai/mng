@@ -12,7 +12,6 @@ from imbue.mng.cli.agent_utils import stop_agent_after_sync
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion_writer import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_info
@@ -47,7 +46,7 @@ class PushCliOptions(CommonCliOptions):
 
 
 @click.command()
-@click.argument("target_pos", default=None, required=False, metavar="TARGET", shell_complete=complete_agent_name)
+@click.argument("target_pos", default=None, required=False, metavar="TARGET")
 @click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Target Selection")
 @optgroup.option("--target", "target", help="Target specification: AGENT, AGENT:PATH, or PATH")

@@ -10,7 +10,6 @@ from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion_writer import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
@@ -62,7 +61,7 @@ def _output_result(
 
 
 @click.command(name="rename")
-@click.argument("current", shell_complete=complete_agent_name)
+@click.argument("current")
 @click.argument("new_name", metavar="NEW-NAME")
 @optgroup.group("Behavior")
 @optgroup.option(

@@ -15,7 +15,6 @@ from imbue.mng.api.logs import resolve_logs_target
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion_writer import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_final_json
@@ -47,7 +46,7 @@ def _write_and_flush_stdout(content: str) -> None:
 
 
 @click.command(name="logs")
-@click.argument("target", shell_complete=complete_agent_name)
+@click.argument("target")
 @click.argument("log_filename", required=False, default=None)
 @optgroup.group("Display")
 @optgroup.option(

@@ -32,18 +32,27 @@ def get_completion_cache_dir() -> Path:
     return cache_dir
 
 
-def complete_agent_name(
-    ctx: click.Context,
-    param: click.Parameter,
-    incomplete: str,
-) -> list:
-    """Marker callback for click arguments that accept agent names.
-
-    The cache writer detects this callback (via identity check) to populate
-    the agent_name_arguments field in the completions cache. The lightweight
-    completer (complete.py) handles the actual completion at runtime.
-    """
-    return []
+# Commands whose positional arguments should complete against agent names.
+# This list is used by the cache writer to populate agent_name_arguments
+# in the completions cache. The lightweight completer (complete.py) reads
+# this field to decide when to offer agent name completions.
+_AGENT_NAME_COMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "connect",
+        "destroy",
+        "exec",
+        "limit",
+        "logs",
+        "message",
+        "pair",
+        "provision",
+        "pull",
+        "push",
+        "rename",
+        "start",
+        "stop",
+    }
+)
 
 
 # =============================================================================
@@ -77,17 +86,6 @@ def _extract_choices_for_command(cmd: click.Command, key_prefix: str) -> dict[st
     return choices
 
 
-def _has_agent_name_argument(cmd: click.Command) -> bool:
-    """Check if a command has an argument using complete_agent_name for shell completion."""
-    for param in cmd.params:
-        if isinstance(param, click.Argument):
-            # click stores the shell_complete callback in _custom_shell_complete
-            custom_complete = vars(param).get("_custom_shell_complete")
-            if custom_complete is complete_agent_name:
-                return True
-    return False
-
-
 def write_cli_completions_cache(cli_group: click.Group) -> None:
     """Write all CLI commands, options, and choices to the completions cache (best-effort).
 
@@ -109,14 +107,15 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
         subcommand_by_command: dict[str, list[str]] = {}
         options_by_command: dict[str, list[str]] = {}
         option_choices: dict[str, list[str]] = {}
-        agent_name_arguments: list[str] = []
 
+        canonical_names: set[str] = set()
         for name, cmd in cli_group.commands.items():
             # Skip alias entries -- only process canonical command names
             if name in alias_to_canonical:
                 continue
 
             canonical_name = cmd.name or name
+            canonical_names.add(canonical_name)
 
             if isinstance(cmd, click.Group) and cmd.commands:
                 if canonical_name not in subcommand_by_command:
@@ -142,16 +141,13 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                     options_by_command[canonical_name] = cmd_options
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
 
-                if _has_agent_name_argument(cmd):
-                    agent_name_arguments.append(canonical_name)
-
         cache_data: dict[str, object] = {
             "commands": all_command_names,
             "aliases": alias_to_canonical,
             "subcommand_by_command": subcommand_by_command,
             "options_by_command": options_by_command,
             "option_choices": option_choices,
-            "agent_name_arguments": sorted(agent_name_arguments),
+            "agent_name_arguments": sorted(_AGENT_NAME_COMMANDS & canonical_names),
         }
 
         cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
