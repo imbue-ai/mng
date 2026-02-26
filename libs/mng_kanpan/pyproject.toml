@@ -1,7 +1,7 @@
 [project]
 name = "mng-kanpan"
 version = "0.1.0"
-description = "All-seeing tracker for vibe engineers"
+description = "All-seeing agent tracker"
 requires-python = ">=3.11"
 dependencies = [
     "mng==0.1.4",

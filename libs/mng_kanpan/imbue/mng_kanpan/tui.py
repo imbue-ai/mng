@@ -865,7 +865,7 @@ def run_kanpan(mng_ctx: MngContext) -> None:
 
     header = Pile(
         [
-            AttrMap(Text("Kanpan - all-seeing tracker for vibe engineers - 看 πᾶν", align="center"), "header"),
+            AttrMap(Text("Kanpan - all-seeing agent tracker - 看 πᾶν", align="center"), "header"),
             Divider(),
         ]
     )
