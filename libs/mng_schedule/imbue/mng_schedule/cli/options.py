@@ -11,10 +11,13 @@ class ScheduleUpdateCliOptions(CommonCliOptions):
     schedule_cron: str | None
     provider: str | None
     enabled: bool | None
+    auto_merge: bool
+    auto_merge_branch: str | None
     verify: str
     snapshot_id: str | None
     full_copy: bool
     mng_install_mode: str
+    target_dir: str
     include_user_settings: bool | None
     include_project_settings: bool | None
     pass_env: tuple[str, ...]

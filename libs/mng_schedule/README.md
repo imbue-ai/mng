@@ -63,24 +63,33 @@ The `mng schedule` plugin takes care of #2 through #4 automatically, and ensures
 
 ### 1. Ensuring code availability for `create` commands
 
-There are three strategies for ensuring that the project code and data is available to the agent when running a `create` command in a scheduled environment like Modal:
+The image is built in two stages:
 
-1. Pass `--snapshot <snapshot-id>` to `mng schedule add`. If this is provided, the snapshot is used directly as the code source for the agent (though you may want to have your agent update itself when it runs, since the snapshot will grow outdated over time). **Not yet implemented.**
-2. **(Default)** The git-based packaging strategy. On first deploy, the current HEAD commit hash is automatically resolved and the plugin verifies that the branch has been pushed to the remote. The resolved hash is cached in `~/.mng/build/<repo-hash>/commit_hash` so that subsequent deploys from the same repo reuse the same commit hash (delete the file to force re-resolution). The code at that commit is packaged into a tarball, and the Dockerfile at `.mng/Dockerfile` is used for building the Modal images (for both the deployed function and the agents it creates).
-3. Pass `--full-copy` to `mng schedule add`, which will copy the entire codebase into the Modal App's storage during deployment, and then make that available to the agent when it runs. This is the simplest option to set up, but it can be slow for large codebases and may include a lot of unnecessary files. **Not yet implemented.**
+1. **Base image (mng environment):** Built from the mng Dockerfile (bundled in the mng package at `imbue/mng/resources/Dockerfile`), which provides a complete environment with system deps, Python, uv, Claude Code, and mng installed. For editable installs, the mng monorepo is packaged and used as the build context. For package installs, a modified Dockerfile installs mng from PyPI instead.
+2. **Target repo layer:** The user's project is packaged as a tarball at a specific git commit and extracted into the container at a configurable path (default `/code/project`, controlled by `--target-dir`). WORKDIR is set to this location.
+
+On first deploy, the current HEAD commit hash is automatically resolved and the plugin verifies that the branch has been pushed to the remote. The resolved hash is cached in `~/.mng/build/<repo-hash>/commit_hash` so that subsequent deploys from the same repo reuse the same commit hash (delete the file to force re-resolution).
+
+There are also two alternative strategies that are not yet implemented:
+
+1. Pass `--snapshot <snapshot-id>` to `mng schedule add` to use an existing snapshot as the code source. **Not yet implemented.**
+2. Pass `--full-copy` to `mng schedule add` to copy the entire codebase into Modal storage during deployment. **Not yet implemented.**
+
+#### Auto-merge at runtime
+
+By default (`--auto-merge`), the scheduled function fetches and merges the latest code from the deployed branch before each run, so the agent always works with up-to-date code. This requires `GH_TOKEN` or `GITHUB_TOKEN` to be available in the deployed environment (via `--pass-env` or `--env-file`).
+
+Use `--no-auto-merge` to skip this step, or `--auto-merge-branch <branch>` to merge from a specific branch (defaults to the current branch at deploy time).
 
 ### 2. Ensuring `mng` CLI availability for remote execution
 
-The `mng schedule` plugin automatically ensures that the `mng` CLI is available in the execution environment for scheduled commands, even on remote providers like Modal.
+The `mng schedule` plugin automatically ensures that the `mng` CLI is available in the execution environment. The base image is built from the mng Dockerfile, which already includes mng and all its dependencies.
 
-This is done by introspecting to understand how `mng_schedule` is installed:
+The install mode is controlled by `--mng-install-mode` (default: `auto`, which auto-detects):
 
-1. if it is installed as a normal remote package, then that package is added as a dependency of the Modal App. This is the normal production method used by most users.
-2. if it is installed in editable mode (eg via `pip install -e .`), then the local code is packaged up and uploaded to Modal during deployment, and then used as the source for building the Modal images. This method is primarily used for development.
-3. if configured, this step can be disaled (this is an optimization for when the project *is* `mng` itself, since in that case the code will already be available in the execution environment via the strategy described in #1 above).
-
-Note that for #2, the code is packaged via the same "make a snapshot of the repo at a specific commit hash" strategy described above, since this leads to better caching.
-In this case, the GH_TOKEN secret is required in order to ensure that the code is fully up-to-date when it is deployed.
+1. **editable:** The mng monorepo source is packaged and used as the Dockerfile build context. The Dockerfile extracts it, runs `uv sync`, and installs mng as a tool. This is the development workflow.
+2. **package:** A modified version of the mng Dockerfile is generated that installs mng from PyPI via `uv pip install --system mng mng-schedule` instead of from source.
+3. **skip:** Assumes mng is already available (not currently supported for schedule deployments).
 
 ### 3. Ensuring environment variable and file availability for remote execution
 

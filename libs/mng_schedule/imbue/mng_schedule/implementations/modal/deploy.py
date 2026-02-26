@@ -1,5 +1,6 @@
 import hashlib
 import importlib.metadata
+import importlib.resources
 import json
 import os
 import platform
@@ -19,6 +20,7 @@ from dotenv import dotenv_values
 from loguru import logger
 from pydantic import ValidationError
 
+import imbue.mng.resources as mng_resources
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
@@ -38,8 +40,8 @@ from imbue.mng_schedule.implementations.modal.verification import verify_schedul
 
 _FALLBACK_TIMEZONE: Final[str] = "UTC"
 
-# Default Dockerfile path relative to repo root (symlink to the real Dockerfile)
-_DEFAULT_DOCKERFILE_PATH: Final[str] = ".mng/Dockerfile"
+# Default target directory inside the container where the target repo is extracted
+_DEFAULT_TARGET_REPO_PATH: Final[str] = "/code/project"
 
 # Path prefix on the state volume for schedule records
 _SCHEDULE_RECORDS_PREFIX: Final[str] = "/plugin/schedule"
@@ -219,85 +221,90 @@ def _get_mng_repo_root() -> Path:
     return Path(result.stdout.strip())
 
 
-@pure
-def _parse_dockerfile_user(dockerfile_content: str) -> str | None:
-    """Extract the effective USER from Dockerfile content.
+def get_mng_dockerfile_path(mode: MngInstallMode) -> Path:
+    """Get the path to the mng Dockerfile based on the install mode.
 
-    Finds the last USER instruction after the last FROM instruction,
-    returning None if no USER is set (the Docker default is root).
-    FROM instructions reset the user context since each stage starts as root.
-    """
-    last_user: str | None = None
-    for line in dockerfile_content.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        upper = stripped.upper()
-        if upper.startswith("FROM "):
-            last_user = None
-        elif upper.startswith("USER "):
-            parts = stripped.split(None, 1)
-            if len(parts) > 1:
-                last_user = parts[1]
-    return last_user
-
-
-def detect_dockerfile_user(dockerfile_path: Path) -> str | None:
-    """Detect the effective user from a Dockerfile.
-
-    Returns the user string from the last USER instruction (after the last FROM),
-    or None if the Dockerfile doesn't set a USER (meaning root).
-    """
-    return _parse_dockerfile_user(dockerfile_path.read_text())
-
-
-@pure
-def build_mng_install_commands(mode: MngInstallMode, dockerfile_user: str | None = None) -> list[str]:
-    """Build Dockerfile RUN commands to install mng in the deployed image.
-
-    Generates commands that:
-    1. Switch to root for system package installation
-    2. Install required system packages (tmux, jq, curl)
-    3. Install uv to /usr/local/bin (requires curl)
-    4. Install mng and mng-schedule (mode-specific)
-    5. Restore the original Dockerfile user if one was set
-
-    Returns an empty list for SKIP mode (mng is already available).
-    dockerfile_user is the USER from the base Dockerfile, used to restore
-    the user context after root-only installations complete.
+    For EDITABLE mode, the Dockerfile is found by navigating from the mng-schedule
+    source directory to the mng resources directory within the monorepo.
+    For PACKAGE mode, the Dockerfile is loaded from the installed mng package
+    via importlib.resources.
     """
     match mode:
-        case MngInstallMode.SKIP:
-            return []
-        case MngInstallMode.PACKAGE | MngInstallMode.EDITABLE:
-            # Switch to root and install system deps + uv (shared by both modes).
-            commands = [
-                "USER root",
-                "RUN apt-get update && apt-get install -y --no-install-recommends tmux jq curl rsync bash git && rm -rf /var/lib/apt/lists/*",
-                "RUN command -v uv || curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh",
-            ]
-            if mode == MngInstallMode.PACKAGE:
-                # pip install runs as root (needs write access to system site-packages).
-                commands.append("RUN uv pip install --system mng mng-schedule")
-                if dockerfile_user is not None:
-                    commands.append(f"USER {dockerfile_user}")
-            else:
-                # The mng source tarball is added as a separate layer at /mng_src/
-                # (separate from the staging layer for better Docker cache behavior
-                # when iterating on mng code). Tarball extraction runs as root;
-                # tool install runs as the target user so the tool is accessible
-                # at runtime.
-                commands.append(
-                    "RUN mkdir -p /code/mng_editable && tar -xzf /mng_src/current.tar.gz -C /code/mng_editable"
+        case MngInstallMode.EDITABLE:
+            mng_repo_root = _get_mng_repo_root()
+            dockerfile_path = mng_repo_root / "libs" / "mng" / "imbue" / "mng" / "resources" / "Dockerfile"
+            if not dockerfile_path.exists():
+                raise ScheduleDeployError(
+                    f"mng Dockerfile not found at {dockerfile_path}. "
+                    "Expected the mng monorepo to contain libs/mng/imbue/mng/resources/Dockerfile."
                 )
-                if dockerfile_user is not None:
-                    commands.append(f"USER {dockerfile_user}")
-                commands.append("RUN uv tool install -e /code/mng_editable/libs/mng")
-            return commands
+            return dockerfile_path
+        case MngInstallMode.PACKAGE:
+            resources_dir = importlib.resources.files(mng_resources)
+            dockerfile_resource = resources_dir / "Dockerfile"
+            dockerfile_path = Path(str(dockerfile_resource))
+            if not dockerfile_path.exists():
+                raise ScheduleDeployError(
+                    "mng Dockerfile not found in installed package. The mng package may be missing its resources."
+                )
+            return dockerfile_path
+        case MngInstallMode.SKIP:
+            raise ScheduleDeployError("SKIP mode is not supported -- mng must be installed in the image.")
         case MngInstallMode.AUTO:
-            raise ScheduleDeployError("AUTO mode must be resolved before building install commands")
+            raise ScheduleDeployError("AUTO mode must be resolved before getting Dockerfile path.")
         case _ as unreachable:
             assert_never(unreachable)
+
+
+@pure
+def _build_package_mode_dockerfile(mng_dockerfile_content: str) -> str:
+    """Build a Dockerfile for PACKAGE mode from the mng Dockerfile.
+
+    Replaces the monorepo-specific installation steps (COPY, extraction,
+    uv sync, uv tool install) with a pip install from PyPI. All preceding
+    layers (system deps, uv, Claude Code) are preserved.
+
+    The mng Dockerfile has a section that copies and extracts the monorepo
+    tarball, syncs dependencies, and installs mng as a tool. For PACKAGE
+    mode, we replace that entire section with a simple pip install.
+    """
+    lines = mng_dockerfile_content.splitlines()
+    result_lines: list[str] = []
+    is_in_install_section = False
+    install_replacement_added = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Detect start of the mng monorepo install section: the COPY instruction
+        # that copies the build context (containing the monorepo tarball) into /code/
+        if not is_in_install_section and stripped.startswith("COPY") and "/code" in stripped:
+            is_in_install_section = True
+            if not install_replacement_added:
+                result_lines.append("")
+                result_lines.append("# Install mng from PyPI (PACKAGE mode)")
+                result_lines.append("RUN uv pip install --system mng mng-schedule")
+                install_replacement_added = True
+            continue
+
+        # Skip lines until we pass the last monorepo-specific install command
+        if is_in_install_section:
+            if stripped.startswith("RUN uv tool install"):
+                is_in_install_section = False
+                continue
+            # Also skip WORKDIR, RUN uv sync, and the tarball extraction lines
+            continue
+
+        result_lines.append(line)
+
+    if is_in_install_section:
+        raise ScheduleDeployError(
+            "Failed to generate PACKAGE mode Dockerfile: could not find the end of the monorepo "
+            "install section (expected a 'RUN uv tool install' line after 'COPY . /code/'). "
+            "The mng Dockerfile structure may have changed."
+        )
+
+    return "\n".join(result_lines) + "\n"
 
 
 def parse_upload_spec(spec: str) -> tuple[Path, str]:
@@ -505,7 +512,8 @@ def build_deploy_config(
     trigger: ScheduleTriggerDefinition,
     cron_schedule: str,
     cron_timezone: str,
-    mng_install_commands: list[str],
+    target_repo_path: str,
+    auto_merge_branch: str | None,
 ) -> dict[str, Any]:
     """Build the deploy configuration dict that gets baked into the Modal image."""
     return {
@@ -513,7 +521,8 @@ def build_deploy_config(
         "trigger": json.loads(trigger.model_dump_json()),
         "cron_schedule": cron_schedule,
         "cron_timezone": cron_timezone,
-        "mng_install_commands": mng_install_commands,
+        "target_repo_path": target_repo_path,
+        "auto_merge_branch": auto_merge_branch,
     }
 
 
@@ -601,35 +610,39 @@ def deploy_schedule(
     env_files: Sequence[Path] = (),
     uploads: Sequence[tuple[Path, str]] = (),
     mng_install_mode: MngInstallMode = MngInstallMode.AUTO,
+    target_repo_path: str = _DEFAULT_TARGET_REPO_PATH,
+    auto_merge_branch: str | None = None,
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
+
+    The image is built in two stages:
+    1. Base image: built from the mng Dockerfile, which provides a complete
+       environment with system deps, Python, uv, Claude Code, and mng installed.
+       For EDITABLE mode, the mng monorepo tarball is used as the build context.
+       For PACKAGE mode, a modified Dockerfile installs mng from PyPI instead.
+    2. Target repo layer: the user's project is packaged as a tarball and
+       extracted to target_repo_path (default /code/project), with WORKDIR set
+       to that location.
 
     Full deployment flow:
     1. Find repo root and derive Modal environment name
     2. Resolve mng install mode (auto-detect if needed)
-    3. Resolve commit hash (from cache or HEAD) and package repo into a tarball
-    4. Stage deploy files (collected from plugins via hook) and env vars
-    5. For editable installs, separately package mng source (as its own layer)
+    3. Build the mng base image (EDITABLE: package monorepo, PACKAGE: modified Dockerfile)
+    4. Resolve target repo commit hash and package into a tarball
+    5. Stage deploy files (collected from plugins via hook) and env vars
     6. Write deploy config as a single JSON file
     7. Run modal deploy cron_runner.py with --env for the correct Modal environment
     8. If verify_mode is not NONE, invoke the function once via modal run to verify
     9. Save creation record to the provider's state volume
     10. Return the Modal app name
 
-    Verification must happen inside this function (before the temp directory is
-    cleaned up) because modal run requires the same build-time env vars that
-    point to local filesystem paths within the temp directory.
-
     Raises ScheduleDeployError if any step fails.
     """
-    # FIXME: hmm--we should not be assuming that we're calling deploy from inside the target repo. Allow this to be specified in the CLI
     repo_root = get_repo_root()
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
     modal_env_name = provider.environment_name
 
-    # stick this in the home directory instead, eg, ~/.mng/build/plugin/schedule/<hash_of_full_repo_root_path>/
-    # That way we will have a persistent location for this build, and the caching will work out from the modal side
     repo_root_hash = hashlib.md5(str(repo_root.absolute()).encode("utf-8")).hexdigest()
     deploy_build_path = Path(os.path.expanduser(mng_ctx.config.default_host_dir)) / "build" / repo_root_hash
     deploy_build_path.mkdir(parents=True, exist_ok=True)
@@ -640,24 +653,50 @@ def deploy_schedule(
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
 
-    # Resolve the commit hash for packaging: uses a cached value if available,
-    # otherwise determines the current HEAD and verifies the branch is pushed.
+    # Resolve the commit hash for the target repo
     commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
-    # Update the trigger with the resolved hash for record-keeping
     trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
-    logger.info("Using commit {} for code packaging", commit_hash)
+    logger.info("Using commit {} for target repo packaging", commit_hash)
 
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
 
-    # Package repo into build context
-    build_dir = deploy_build_path / "build"
-    with log_span("Packaging repo at commit {}", commit_hash):
-        package_repo_at_commit(commit_hash, build_dir, repo_root)
+    # --- Build the mng base image context ---
+    # For EDITABLE: package the mng monorepo as the build context for the mng Dockerfile.
+    # For PACKAGE: use a modified Dockerfile that installs mng from PyPI (no monorepo needed).
+    mng_dockerfile_path = get_mng_dockerfile_path(resolved_install_mode)
 
-    tarball = build_dir / "current.tar.gz"
-    if not tarball.exists():
-        raise ScheduleDeployError(f"Expected tarball at {tarball} after packaging, but it was not found") from None
+    mng_build_dir = deploy_build_path / "mng_build"
+    mng_build_dir.mkdir(parents=True, exist_ok=True)
+
+    if resolved_install_mode == MngInstallMode.EDITABLE:
+        mng_repo_root = _get_mng_repo_root()
+        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
+        with log_span("Packaging mng monorepo at commit {}", mng_head_commit):
+            package_repo_at_commit(mng_head_commit, mng_build_dir, mng_repo_root)
+        mng_tarball = mng_build_dir / "current.tar.gz"
+        if not mng_tarball.exists():
+            raise ScheduleDeployError(
+                f"Expected tarball at {mng_tarball} after packaging mng monorepo, but it was not found"
+            ) from None
+        effective_dockerfile_path = mng_dockerfile_path
+    else:
+        # PACKAGE mode: generate a modified Dockerfile that installs mng from PyPI
+        mng_dockerfile_content = mng_dockerfile_path.read_text()
+        package_mode_content = _build_package_mode_dockerfile(mng_dockerfile_content)
+        effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
+        effective_dockerfile_path.write_text(package_mode_content)
+        logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
+
+    # --- Package the target repo ---
+    target_repo_dir = deploy_build_path / "target_repo"
+    with log_span("Packaging target repo at commit {}", commit_hash):
+        package_repo_at_commit(commit_hash, target_repo_dir, repo_root)
+    target_tarball = target_repo_dir / "current.tar.gz"
+    if not target_tarball.exists():
+        raise ScheduleDeployError(
+            f"Expected tarball at {target_tarball} after packaging target repo, but it was not found"
+        ) from None
 
     # Stage deploy files (collected from plugins via hook)
     staging_dir = deploy_build_path / "staging"
@@ -673,40 +712,29 @@ def deploy_schedule(
             uploads=uploads,
         )
 
-    # For editable installs, separately package the mng monorepo source
-    # into its own directory. This is added as a separate Docker layer
-    # (after the staging layer) so that changes to mng code don't
-    # invalidate the cached staging layer.
-    mng_src_dir: Path | None = None
-    if resolved_install_mode == MngInstallMode.EDITABLE:
-        mng_repo_root = _get_mng_repo_root()
-        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
-        mng_src_dir = deploy_build_path / "mng_src"
-        with log_span("Packaging mng source at commit {}", mng_head_commit):
-            package_repo_at_commit(mng_head_commit, mng_src_dir, mng_repo_root)
-        mng_src_tarball = mng_src_dir / "current.tar.gz"
-        if not mng_src_tarball.exists():
+    # Validate that GH_TOKEN will be available at runtime when auto-merge is enabled.
+    # It must be present either in the consolidated env (via --pass-env or --env-file)
+    # or already staged into the secrets directory.
+    if auto_merge_branch is not None:
+        secrets_env_path = staging_dir / "secrets" / "env.json"
+        has_gh_token = False
+        if secrets_env_path.exists():
+            staged_env = json.loads(secrets_env_path.read_text())
+            has_gh_token = "GH_TOKEN" in staged_env or "GITHUB_TOKEN" in staged_env
+        if not has_gh_token:
             raise ScheduleDeployError(
-                f"Expected tarball at {mng_src_tarball} after packaging mng source, but it was not found"
-            ) from None
-
-    # Resolve the Dockerfile path (default: .mng/Dockerfile)
-    dockerfile_path = repo_root / _DEFAULT_DOCKERFILE_PATH
-    if not dockerfile_path.exists():
-        raise ScheduleDeployError(
-            f"Dockerfile not found at {dockerfile_path}. "
-            "Expected a Dockerfile (or symlink) at .mng/Dockerfile in the repo root."
-        ) from None
+                "Auto-merge is enabled but no GH_TOKEN or GITHUB_TOKEN was found in the deployed "
+                "environment. Pass it via --pass-env GH_TOKEN or include it in an --env-file."
+            )
 
     # Write deploy config as a single JSON file into the staging dir
-    dockerfile_user = detect_dockerfile_user(dockerfile_path)
-    mng_install_cmds = build_mng_install_commands(resolved_install_mode, dockerfile_user=dockerfile_user)
     deploy_config = build_deploy_config(
         app_name=app_name,
         trigger=trigger,
         cron_schedule=trigger.schedule_cron,
         cron_timezone=cron_timezone,
-        mng_install_commands=mng_install_cmds,
+        target_repo_path=target_repo_path,
+        auto_merge_branch=auto_merge_branch,
     )
     deploy_config_json = json.dumps(deploy_config)
     (staging_dir / "deploy_config.json").write_text(deploy_config_json)
@@ -714,11 +742,10 @@ def deploy_schedule(
     # Build env vars: deploy config as single JSON + local-only paths for image building
     env = os.environ.copy()
     env["SCHEDULE_DEPLOY_CONFIG"] = deploy_config_json
-    env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(build_dir)
+    env["SCHEDULE_BUILD_CONTEXT_DIR"] = str(mng_build_dir)
     env["SCHEDULE_STAGING_DIR"] = str(staging_dir)
-    env["SCHEDULE_DOCKERFILE"] = str(dockerfile_path)
-    if mng_src_dir is not None:
-        env["SCHEDULE_MNG_SRC_DIR"] = str(mng_src_dir)
+    env["SCHEDULE_DOCKERFILE"] = str(effective_dockerfile_path)
+    env["SCHEDULE_TARGET_REPO_DIR"] = str(target_repo_dir)
 
     cron_runner_path = Path(__file__).parent / "cron_runner.py"
     cmd = ["uv", "run", "modal", "deploy", "--env", modal_env_name, str(cron_runner_path)]
