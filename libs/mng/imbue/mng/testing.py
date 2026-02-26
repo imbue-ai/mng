@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -27,6 +28,7 @@ from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import PROFILES_DIRNAME
 from imbue.mng.errors import MngError
+from imbue.mng.hosts.tmux import build_tmux_capture_pane_command
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.interfaces.data_types import SnapshotInfo
@@ -273,9 +275,14 @@ def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
 
 
 def capture_tmux_pane_contents(session_name: str) -> str:
-    """Capture the contents of a tmux session's pane and return as a string."""
+    """Capture the contents of a tmux session's pane via local subprocess.
+
+    This is the local-only variant for test code that doesn't have a host object.
+    For the host-based version (works over SSH), use
+    imbue.mng.hosts.tmux.capture_tmux_pane_content.
+    """
     result = subprocess.run(
-        ["tmux", "capture-pane", "-t", session_name, "-p"],
+        shlex.split(build_tmux_capture_pane_command(session_name)),
         capture_output=True,
         text=True,
     )
