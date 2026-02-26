@@ -468,6 +468,99 @@ def check_no_ruff_errors(project_root: Path) -> None:
         raise AssertionError("\n".join(failure_message))
 
 
+_TEST_MODULE_SUFFIXES: Final[tuple[str, ...]] = ("_test", "conftest", "testing", "plugin_testing", "test_fixtures")
+
+
+def _is_test_module(module_path: str) -> bool:
+    """Check if an import-linter module path refers to a test module."""
+    last_segment = module_path.rsplit(".", 1)[-1]
+    if last_segment.startswith("test_"):
+        return True
+    return any(last_segment.endswith(suffix) or last_segment == suffix for suffix in _TEST_MODULE_SUFFIXES)
+
+
+def check_no_import_lint_errors(project_root: Path) -> None:
+    """Run import-linter and raise AssertionError if any production code violations are found.
+
+    Test files (modules matching *_test, test_*, conftest, testing, plugin_testing)
+    are excluded from the check -- only production code violations cause failure.
+    """
+    result = subprocess.run(
+        ["uv", "run", "lint-imports"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        return
+
+    # Parse violation lines to find production code violations.
+    # Violation lines look like: "- imbue.mng.foo.bar -> imbue.mng.baz.qux (l.42)"
+    # or chain starts: "- imbue.mng.foo.bar (l.42, l.43)"
+    import re
+
+    violation_pattern = re.compile(r"^- (\S+)")
+    chain_pattern = re.compile(r"^\s+(\S+) -> (\S+)")
+    production_violations: list[str] = []
+    current_section_lines: list[str] = []
+    in_violation_section = False
+
+    for line in result.stdout.splitlines():
+        # Detect section headers like "imbue.mng.X is not allowed to import imbue.mng.Y:"
+        if "is not allowed to import" in line:
+            # Flush previous section
+            if current_section_lines:
+                production_violations.extend(current_section_lines)
+            current_section_lines = []
+            in_violation_section = True
+            continue
+
+        if not in_violation_section:
+            continue
+
+        # Empty line ends a violation section
+        if not line.strip():
+            if current_section_lines:
+                production_violations.extend(current_section_lines)
+            current_section_lines = []
+            in_violation_section = False
+            continue
+
+        # Check if this is a violation line
+        match = violation_pattern.match(line)
+        if match:
+            importer = match.group(1)
+            if not _is_test_module(importer):
+                current_section_lines.append(line)
+            continue
+
+        # Check chain continuation lines
+        chain_match = chain_pattern.match(line)
+        if chain_match:
+            importer = chain_match.group(1)
+            if not _is_test_module(importer):
+                current_section_lines.append(line)
+            continue
+
+    # Flush last section
+    if current_section_lines:
+        production_violations.extend(current_section_lines)
+
+    if production_violations:
+        failure_message = [
+            f"import-linter found {len(production_violations)} production code layer violation(s):",
+            "",
+            *production_violations,
+            "",
+            "Full lint-imports output:",
+            "=" * 80,
+            result.stdout,
+            "=" * 80,
+        ]
+        raise AssertionError("\n".join(failure_message))
+
+
 def find_bash_scripts_without_strict_mode(cwd: Path) -> list[str]:
     """Find bash scripts missing 'set -euo pipefail' in the git repo containing cwd."""
     result = subprocess.run(
