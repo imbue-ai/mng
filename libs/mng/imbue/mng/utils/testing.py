@@ -209,10 +209,10 @@ def cleanup_tmux_session(session_name: str) -> None:
 
 
 @contextmanager
-def tmux_session_cleanup(session_name: str) -> Generator[str, None, None]:
+def tmux_session_cleanup(session_name: str) -> Generator[None, None, None]:
     """Context manager that cleans up a tmux session and all its processes on exit."""
     try:
-        yield session_name
+        yield
     finally:
         cleanup_tmux_session(session_name)
 
@@ -223,10 +223,10 @@ def mng_agent_cleanup(
     *,
     env: dict[str, str] | None = None,
     disable_plugins: Sequence[str] = (),
-) -> Generator[str, None, None]:
+) -> Generator[None, None, None]:
     """Context manager that destroys a mng agent on exit (via subprocess)."""
     try:
-        yield agent_name
+        yield
     finally:
         args = ["destroy", agent_name, "--force"]
         for plugin in disable_plugins:
