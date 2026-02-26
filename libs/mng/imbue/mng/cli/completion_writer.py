@@ -1,9 +1,6 @@
 import json
 import os
-import subprocess
-import sys
 import tempfile
-import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -18,7 +15,6 @@ from imbue.mng.utils.file_utils import atomic_write
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
-_BACKGROUND_REFRESH_COOLDOWN_SECONDS: Final[int] = 30
 
 
 def get_completion_cache_dir() -> Path:
@@ -27,8 +23,6 @@ def get_completion_cache_dir() -> Path:
     Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
     system temp directory namespaced by uid to avoid collisions between users.
     The directory is created if it does not exist.
-
-    This avoids importing the config system, keeping tab completion fast.
     """
     env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
     if env_dir:
@@ -39,85 +33,18 @@ def get_completion_cache_dir() -> Path:
     return cache_dir
 
 
-# =============================================================================
-# Agent name completion (read from runtime cache)
-# =============================================================================
-
-
-def _read_agent_names_from_cache() -> list[str]:
-    """Read agent names from the completion cache file.
-
-    Reads .agent_completions.json and returns the "names" list.
-    The cache is written by write_agent_names_cache() below.
-
-    Returns an empty list on expected errors (missing file, malformed JSON).
-    Callers are responsible for guarding against unexpected exceptions.
-    """
-    try:
-        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
-        if not cache_path.is_file():
-            return []
-
-        data = json.loads(cache_path.read_text())
-        names = data.get("names")
-        if not isinstance(names, list):
-            return []
-
-        return sorted(name for name in names if isinstance(name, str) and name)
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def _trigger_background_cache_refresh() -> None:
-    """Fire-and-forget a background `mng list` to refresh the completion cache.
-
-    Spawns a detached subprocess so shell completion returns immediately.
-    Skips the refresh if the cache was updated within the last N seconds
-    to avoid excessive subprocess spawning.
-
-    Catches OSError from subprocess spawning. Callers are responsible for
-    guarding against unexpected exceptions.
-    """
-    try:
-        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
-        if cache_path.is_file():
-            age = time.time() - cache_path.stat().st_mtime
-            if age < _BACKGROUND_REFRESH_COOLDOWN_SECONDS:
-                return
-
-        # Uses subprocess.Popen directly instead of ConcurrencyGroup's
-        # run_background because the child must outlive the parent process
-        # (start_new_session=True). run_background doesn't support detaching.
-        devnull = subprocess.DEVNULL
-        subprocess.Popen(
-            [sys.executable, "-c", "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])"],
-            stdout=devnull,
-            stderr=devnull,
-            start_new_session=True,
-        )
-    except OSError:
-        pass
-
-
 def complete_agent_name(
     ctx: click.Context,
     param: click.Parameter,
     incomplete: str,
 ) -> list[CompletionItem]:
-    """Click shell_complete callback that provides agent name completions.
+    """Marker callback for click arguments that accept agent names.
 
-    Used on click.Argument decorators to mark commands that accept agent names
-    as positional arguments. The cache writer detects this callback to populate
-    the agent_name_arguments field in the completions cache.
-
-    Never raises -- shell completion must not interfere with normal CLI operation.
+    The cache writer detects this callback (via identity check) to populate
+    the agent_name_arguments field in the completions cache. The lightweight
+    completer (complete.py) handles the actual completion at runtime.
     """
-    try:
-        names = _read_agent_names_from_cache()
-        _trigger_background_cache_refresh()
-        return [CompletionItem(name) for name in names if name.startswith(incomplete)]
-    except Exception:
-        return []
+    return []
 
 
 # =============================================================================
