@@ -20,7 +20,6 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.common import determine_lifecycle_state
@@ -258,12 +257,11 @@ class BaseAgent(AgentInterface):
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
 
-        Before sending, checks for blocking dialogs (e.g., permission prompts)
-        that would intercept the input. Raises DialogDetectedError if found.
+        Before sending, runs preflight checks (e.g., dialog detection) that
+        subclasses can customize by overriding _preflight_send_message().
         """
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
-            # Check for blocking dialogs before sending any input
-            self._check_for_blocking_dialog(self.session_name)
+            self._preflight_send_message(self.session_name)
 
             if self.uses_marker_based_send_message():
                 self._send_message_with_marker(self.session_name, message)
@@ -292,57 +290,16 @@ class BaseAgent(AgentInterface):
         """
         return None
 
-    def get_dialog_indicators(self) -> Sequence[DialogIndicator]:
-        """Return dialog indicators to check for before sending messages.
+    def _preflight_send_message(self, session_name: str) -> None:
+        """Run preflight checks before sending a message.
 
-        Each indicator's get_match_string() is checked against the tmux pane
-        content. If a match is found, a DialogDetectedError is raised using
-        the indicator's class name as the description.
-
-        Returns empty by default. Subclasses can override to detect
-        agent-specific dialogs (e.g., permission prompts).
+        Called at the start of send_message. Default is a no-op.
+        Subclasses can override to perform checks (e.g., dialog detection)
+        and raise an appropriate error to abort the send.
         """
-        return ()
-
-    def _check_for_blocking_dialog(self, session_name: str) -> None:
-        """Check if a dialog is blocking the agent's input.
-
-        Captures the tmux pane and checks for known dialog indicators.
-        Raises DialogDetectedError if a dialog is found.
-        Silently returns if no indicators are configured or pane capture fails.
-        """
-        indicators = self.get_dialog_indicators()
-        if not indicators:
-            return
-
-        content = self._capture_pane_content(session_name)
-        if content is None:
-            return
-
-        for indicator in indicators:
-            match_string = indicator.get_match_string()
-            if match_string in content:
-                description = indicator.get_description()
-                logger.warning(
-                    "Dialog detected in agent {} pane: {} (matched: {})",
-                    self.name,
-                    description,
-                    match_string,
-                )
-                raise DialogDetectedError(str(self.name), description)
 
     def _raise_send_timeout(self, session_name: str, timeout_reason: str) -> NoReturn:
-        """Check for a blocking dialog before raising a generic send timeout.
-
-        Only called from sub-steps of send_message (marker visibility, message
-        ending, and submission signal waits). This provides a second chance to
-        detect dialogs that appeared *during* the send, after the initial
-        _check_for_blocking_dialog at the top of send_message already passed.
-
-        If a dialog is detected, raises DialogDetectedError (more actionable).
-        Otherwise raises SendMessageError with the provided timeout reason.
-        """
-        self._check_for_blocking_dialog(session_name)
+        """Raise a SendMessageError for a send timeout."""
         raise SendMessageError(str(self.name), timeout_reason)
 
     def wait_for_ready_signal(

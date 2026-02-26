@@ -37,6 +37,7 @@ from imbue.mng.agents.default_plugins.claude_config import remove_claude_trust_f
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentStartError
+from imbue.mng.errors import DialogDetectedError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
 from imbue.mng.hosts.common import is_macos
@@ -482,21 +483,35 @@ class ClaudeAgent(BaseAgent):
         """
         return "Claude Code"
 
-    def get_dialog_indicators(self) -> Sequence[DialogIndicator]:
-        """Return Claude Code dialog indicators for runtime detection.
+    _DIALOG_INDICATORS: tuple[DialogIndicator, ...] = (
+        PermissionDialogIndicator(),
+        TrustDialogIndicator(),
+        ThemeSelectionIndicator(),
+        EffortCalloutIndicator(),
+    )
 
-        Detects dialogs that block automated input via tmux send-keys:
-        - Permission dialogs (mid-session tool approval prompts)
-        - Trust dialogs (first launch in a new directory)
-        - Theme selection (onboarding)
-        - Effort callout (after model selection)
+    def _preflight_send_message(self, session_name: str) -> None:
+        """Check for blocking dialogs before sending a message.
+
+        Captures the tmux pane and checks for known dialog indicators
+        (permission prompts, trust dialogs, theme selection, effort callout).
+        Raises DialogDetectedError if any are found.
         """
-        return (
-            PermissionDialogIndicator(),
-            TrustDialogIndicator(),
-            ThemeSelectionIndicator(),
-            EffortCalloutIndicator(),
-        )
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return
+
+        for indicator in self._DIALOG_INDICATORS:
+            match_string = indicator.get_match_string()
+            if match_string in content:
+                description = indicator.get_description()
+                logger.warning(
+                    "Dialog detected in agent {} pane: {} (matched: {})",
+                    self.name,
+                    description,
+                    match_string,
+                )
+                raise DialogDetectedError(str(self.name), description)
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
