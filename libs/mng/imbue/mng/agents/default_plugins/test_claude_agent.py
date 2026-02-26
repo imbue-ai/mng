@@ -11,7 +11,6 @@ To run release tests locally:
 
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -25,22 +24,12 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import cleanup_tmux_session
 
-_SHORT_TIMEOUT = 0.5
-
-
-def _short_send_message_timeouts():
-    """Shorten send_message timeouts for tests without a real agent process."""
-    return (
-        patch("imbue.mng.agents.base_agent._SEND_MESSAGE_TIMEOUT_SECONDS", _SHORT_TIMEOUT),
-        patch("imbue.mng.agents.base_agent._ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS", _SHORT_TIMEOUT),
-    )
-
-
 # =============================================================================
-# Dialog Detection Integration Tests
+# Dialog Detection Acceptance Tests
 # =============================================================================
 
 
+@pytest.mark.acceptance
 def test_send_message_raises_dialog_detected_when_dialog_visible(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -66,6 +55,7 @@ def test_send_message_raises_dialog_detected_when_dialog_visible(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.acceptance
 def test_send_message_does_not_raise_dialog_detected_when_no_dialog(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -91,8 +81,7 @@ def test_send_message_does_not_raise_dialog_detected_when_no_dialog(
 
         # Should NOT raise DialogDetectedError. Will raise SendMessageError
         # because there's no real Claude Code process to handle the input.
-        p1, p2 = _short_send_message_timeouts()
-        with p1, p2, pytest.raises(SendMessageError) as exc_info:
+        with pytest.raises(SendMessageError) as exc_info:
             agent.send_message("hello")
         assert not isinstance(exc_info.value, DialogDetectedError)
     finally:
