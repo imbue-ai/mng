@@ -185,7 +185,6 @@ class _ScheduleGroup(DefaultCommandGroup):
     """Schedule group that defaults to 'add' when no subcommand is given."""
 
     _default_command: str = "add"
-    _config_key: str = "schedule"
 
 
 @click.group(name="schedule", cls=_ScheduleGroup)

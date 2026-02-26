@@ -684,9 +684,11 @@ def deploy_schedule(
     # Resolve the project root directory.
     # In full-copy mode, fall back to cwd if not in a git repo.
     if is_full_copy:
-        repo_root = try_get_repo_root() or Path.cwd()
+        maybe_git_root = try_get_repo_root()
+        repo_root = maybe_git_root or Path.cwd()
     else:
-        repo_root = get_repo_root()
+        maybe_git_root = get_repo_root()
+        repo_root = maybe_git_root
 
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
@@ -709,8 +711,7 @@ def deploy_schedule(
         # Full-copy mode: skip the incremental caching and branch-push validation.
         # If in a git repo, export at current HEAD (excludes gitignored files like
         # venvs and node_modules). Otherwise, tar the whole directory.
-        is_git_repo = try_get_repo_root() is not None
-        if is_git_repo:
+        if maybe_git_root is not None:
             head_hash = resolve_git_ref("HEAD", cwd=repo_root)
             trigger = trigger.model_copy(update={"git_image_hash": head_hash})
             logger.info("Full-copy from git repo at HEAD ({})", head_hash)

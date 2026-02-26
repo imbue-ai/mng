@@ -7,6 +7,21 @@ from click.testing import CliRunner
 from imbue.mng_schedule.cli.commands import schedule
 
 
+def test_schedule_defaults_to_add_subcommand(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that 'mng schedule' without a subcommand defaults to 'add'."""
+    result = cli_runner.invoke(
+        schedule,
+        [],
+        obj=plugin_manager,
+    )
+    # Should fail for missing --schedule (from add), not "No such command"
+    assert result.exit_code != 0
+    assert "--schedule is required" in result.output
+
+
 def test_schedule_add_defaults_command_to_create(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
