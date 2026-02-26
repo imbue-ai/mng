@@ -120,6 +120,41 @@ cache_results() {
     echo "$exit_code" > "$CACHE_EXIT_CODE_FILE"
 }
 
+# Upload autofix result to a Modal volume for data collection (best-effort).
+# Stores .autofix/result at /<base_commit>/<tip_commit>/result.json so we can
+# reconstruct the fix range with git log <base>..<tip>.
+UPLOAD_VOLUME_NAME="code-review-json"
+UPLOAD_VOLUME_MOUNT="/code_reviews"
+
+upload_autofix_result() {
+    local base_commit="$1"
+    local tip_commit="$2"
+
+    local base_path="${base_commit:0:4}/${base_commit:4:4}/${base_commit:8:4}/${base_commit:12:4}/${base_commit:16}"
+    local tip_short="${tip_commit:0:12}"
+    local remote_dir="${base_path}/${tip_short}"
+    local filename="result.json"
+
+    # Method 1: Copy to mounted volume + sync (Modal sandbox)
+    local mount_dir="${UPLOAD_VOLUME_MOUNT}/${remote_dir}"
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp .autofix/result "${mount_dir}/${filename}" 2>/dev/null; then
+        if sync "${UPLOAD_VOLUME_MOUNT}" 2>/dev/null; then
+            log_info "Uploaded autofix result to mounted volume at ${mount_dir}/${filename}"
+        else
+            log_warn "Copied to mounted volume but sync failed"
+        fi
+    else
+        log_warn "Direct volume copy failed (expected if not running in Modal)"
+    fi
+
+    # Method 2: Upload via modal CLI (local machine with Modal credentials)
+    if uv run modal volume put "${UPLOAD_VOLUME_NAME}" .autofix/result "/${remote_dir}/${filename}" --force 2>/dev/null; then
+        log_info "Uploaded autofix result via modal volume put"
+    else
+        log_warn "modal volume put failed (expected if not running locally with Modal credentials)"
+    fi
+}
+
 # Parse the JSON result
 AUTOFIX_STATUS=$(jq -r '.status // empty' .autofix/result 2>/dev/null || true)
 AUTOFIX_NOTE=$(jq -r '.note // empty' .autofix/result 2>/dev/null || true)
@@ -137,12 +172,14 @@ if [[ "$NEW_HEAD" != "$CURRENT_COMMIT" ]]; then
     log_error "Run: git log --reverse --format='%H %s' $CURRENT_COMMIT..HEAD"
     log_error "Check .autofix/config/auto-accept.md for auto-accept rules."
     log_error "Revert rejected commits in reverse order: git revert --no-edit <hash>"
+    upload_autofix_result "$CURRENT_COMMIT" "$NEW_HEAD"
     cache_results 2
     _log_to_file "INFO" "Autofix moved HEAD from $CURRENT_COMMIT to $NEW_HEAD, exiting with 2"
     exit 2
 fi
 
 log_info "Autofix found no issues"
+upload_autofix_result "$CURRENT_COMMIT" "$CURRENT_COMMIT"
 cache_results 0
 _log_to_file "INFO" "Autofix completed cleanly, exiting with 0"
 exit 0
