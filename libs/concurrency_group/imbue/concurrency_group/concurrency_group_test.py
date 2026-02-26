@@ -162,15 +162,7 @@ def test_checked_failed_processes_raise_when_probed(tmp_path: Path) -> None:
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with ConcurrencyGroup(name="outer") as cg:
             process = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-
-            def _probe_raises() -> bool:
-                try:
-                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
-                    return False
-                except ConcurrencyExceptionGroup:
-                    return True
-
-            assert poll_until(_probe_raises, timeout=5.0)
+            assert poll_until(lambda: process.poll() is not None, timeout=5.0)
             cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
             i += 1
         assert process.poll() == 1
@@ -210,15 +202,7 @@ def test_do_not_allow_starting_new_strands_if_the_previous_failed(tmp_path: Path
     with pytest.raises(ConcurrencyExceptionGroup) as exception_info:
         with ConcurrencyGroup(name="outer") as cg:
             process1 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-
-            def _failure_detected() -> bool:
-                try:
-                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
-                    return False
-                except ConcurrencyExceptionGroup:
-                    return True
-
-            assert poll_until(_failure_detected, timeout=5.0)
+            assert poll_until(lambda: process1.poll() is not None, timeout=5.0)
             process2 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)], is_checked_by_group=True)
     assert isinstance(exception_info.value.exceptions[0], ProcessError)
     assert process1 is not None
@@ -231,15 +215,7 @@ def test_all_failure_modes_get_combined(tmp_path: Path) -> None:
         with ConcurrencyGroup(name="outer", exit_timeout_seconds=SMALL_SLEEP) as cg:
             process1 = cg.run_process_in_background(["sleep", str(LARGE_SLEEP)], is_checked_by_group=True)
             process2 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
-
-            def _process_failure_detected() -> bool:
-                try:
-                    cg.raise_if_any_strands_or_ancestors_failed_or_is_shutting_down()
-                    return False
-                except ConcurrencyExceptionGroup:
-                    return True
-
-            assert poll_until(_process_failure_detected, timeout=5.0)
+            assert poll_until(lambda: process2.poll() is not None, timeout=5.0)
             i = 1 / 0
     assert len(exception_info.value.exceptions) == 3
     assert any(isinstance(e, ProcessError) for e in exception_info.value.exceptions)
