@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -7,9 +8,12 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
+from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.list import list_agents
+from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.utils.git_utils import get_current_git_branch
@@ -18,6 +22,8 @@ from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.data_types import PrInfo
 from imbue.mng_kanpan.data_types import PrState
 from imbue.mng_kanpan.github import fetch_all_prs
+
+PLUGIN_NAME = "kanpan"
 
 
 def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
@@ -34,6 +40,9 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     result = list_agents(mng_ctx, is_streaming=False, error_behavior=ErrorBehavior.CONTINUE)
     for error in result.errors:
         errors.append(f"{error.exception_type}: {error.message}")
+
+    # Load agent references to read plugin data (certified_data from data.json)
+    muted_agents = _load_muted_agents(mng_ctx)
 
     # Find a local agent work_dir to use as cwd for gh (so it can detect the repo)
     gh_cwd = _find_git_cwd(result.agents)
@@ -66,6 +75,7 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
                 pr=pr,
                 commits_ahead=commits_ahead,
                 create_pr_url=create_pr_url,
+                is_muted=agent.name in muted_agents,
             )
         )
 
@@ -75,6 +85,38 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
         errors=tuple(errors),
         fetch_time_seconds=elapsed,
     )
+
+
+def toggle_agent_mute(mng_ctx: MngContext, agent_name: AgentName) -> bool:
+    """Toggle the mute state of an agent. Returns the new mute state."""
+    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx)
+    agent, _host = find_and_maybe_start_agent_by_name_or_id(
+        str(agent_name),
+        agents_by_host,
+        mng_ctx,
+        command_name="kanpan",
+        skip_agent_state_check=True,
+    )
+    plugin_data = agent.get_plugin_data(PLUGIN_NAME)
+    is_muted = not plugin_data.get("muted", False)
+    plugin_data["muted"] = is_muted
+    agent.set_plugin_data(PLUGIN_NAME, plugin_data)
+    return is_muted
+
+
+def _load_muted_agents(mng_ctx: MngContext) -> set[AgentName]:
+    """Load the set of muted agent names from plugin data."""
+    muted: set[AgentName] = set()
+    try:
+        agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx)
+        for _host_ref, agent_refs in agents_by_host.items():
+            for agent_ref in agent_refs:
+                plugin_data: dict[str, Any] = agent_ref.certified_data.get("plugin", {}).get(PLUGIN_NAME, {})
+                if plugin_data.get("muted", False):
+                    muted.add(agent_ref.agent_name)
+    except Exception as e:
+        logger.debug("Failed to load muted agents: {}", e)
+    return muted
 
 
 def _find_git_cwd(agents: list[AgentInfo]) -> Path | None:

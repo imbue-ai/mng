@@ -34,6 +34,7 @@ class BoardSection(UpperCaseStrEnum):
     PR_BEING_REVIEWED = auto()
     PR_MERGED = auto()
     PR_CLOSED = auto()
+    MUTED = auto()
 
 
 class PrInfo(FrozenModel):
@@ -61,6 +62,7 @@ class AgentBoardEntry(FrozenModel):
         default=None, description="Commits ahead of remote tracking branch (None if unknown/no upstream)"
     )
     create_pr_url: str | None = Field(default=None, description="URL to create a new PR for this branch")
+    is_muted: bool = Field(default=False, description="Whether the agent is muted (relegated to bottom)")
 
 
 class BoardSnapshot(FrozenModel):

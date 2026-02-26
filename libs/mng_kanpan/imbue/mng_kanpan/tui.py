@@ -31,6 +31,7 @@ from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.data_types import CheckStatus
 from imbue.mng_kanpan.data_types import PrState
 from imbue.mng_kanpan.fetcher import fetch_board_snapshot
+from imbue.mng_kanpan.fetcher import toggle_agent_mute
 
 REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
 
@@ -56,15 +57,19 @@ PALETTE = [
     ("check_failing_focus", "light red,standout", ""),
     ("check_pending", "yellow", ""),
     ("check_pending_focus", "yellow,standout", ""),
+    ("muted", "dark gray", ""),
+    ("muted_focus", "dark gray,standout", ""),
+    ("section_muted", "dark gray", ""),
     ("error_text", "light red", ""),
 ]
 
-# Display order: most mature first (like Linear)
+# Display order: most mature first (like Linear), muted always last
 BOARD_SECTION_ORDER: tuple[BoardSection, ...] = (
     BoardSection.PR_MERGED,
     BoardSection.PR_CLOSED,
     BoardSection.PR_BEING_REVIEWED,
     BoardSection.STILL_COOKING,
+    BoardSection.MUTED,
 )
 
 # Section labels split into colored prefix and plain suffix
@@ -73,6 +78,7 @@ _SECTION_PREFIX: dict[BoardSection, str] = {
     BoardSection.PR_CLOSED: "Cancelled",
     BoardSection.PR_BEING_REVIEWED: "In review",
     BoardSection.STILL_COOKING: "In progress",
+    BoardSection.MUTED: "Muted",
 }
 
 _SECTION_SUFFIX: dict[BoardSection, str] = {
@@ -80,6 +86,7 @@ _SECTION_SUFFIX: dict[BoardSection, str] = {
     BoardSection.PR_CLOSED: "PR closed",
     BoardSection.PR_BEING_REVIEWED: "PR pending",
     BoardSection.STILL_COOKING: "no PR yet",
+    BoardSection.MUTED: "",
 }
 
 _SECTION_ATTR: dict[BoardSection, str] = {
@@ -87,6 +94,7 @@ _SECTION_ATTR: dict[BoardSection, str] = {
     BoardSection.PR_CLOSED: "section_cancelled",
     BoardSection.PR_BEING_REVIEWED: "section_in_review",
     BoardSection.STILL_COOKING: "section_in_progress",
+    BoardSection.MUTED: "section_muted",
 }
 
 _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
@@ -95,7 +103,7 @@ _CHECK_STATUS_ATTR: dict[CheckStatus, str] = {
 }
 
 # All attributes that can appear in agent lines and need focus variants
-_AGENT_LINE_ATTRS = ("state_running", "state_attention", "check_failing", "check_pending")
+_AGENT_LINE_ATTRS = ("state_running", "state_attention", "check_failing", "check_pending", "muted")
 
 
 class _SelectableText(Text):
@@ -132,6 +140,8 @@ class _KanpanState(MutableModel):
     # Maps list walker index -> AgentBoardEntry for selectable agent entries
     index_to_entry: dict[int, AgentBoardEntry] = {}
     list_walker: Any = None  # SimpleFocusListWalker, set during display build
+    # Name of the agent that was focused before refresh (for focus persistence)
+    focused_agent_name: AgentName | None = None
 
 
 class _KanpanInputHandler(MutableModel):
@@ -154,6 +164,9 @@ class _KanpanInputHandler(MutableModel):
             return True
         if key in ("p", "P"):
             _push_focused_agent(self.state)
+            return True
+        if key in ("m", "M"):
+            _mute_focused_agent(self.state)
             return True
         if key in ("up", "down", "page up", "page down", "home", "end"):
             return None
@@ -310,6 +323,46 @@ def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
         _start_refresh(loop, state)
 
 
+def _mute_focused_agent(state: _KanpanState) -> None:
+    """Toggle mute on the currently focused agent."""
+    entry = _get_focused_entry(state)
+    if entry is None:
+        return
+    if state.executor is None:
+        state.executor = ThreadPoolExecutor(max_workers=1)
+
+    agent_name = entry.name
+    action = "Unmuting" if entry.is_muted else "Muting"
+    state.footer_left.set_text(f"  {action} {agent_name}...")
+
+    def _do_mute() -> bool:
+        return toggle_agent_mute(state.mng_ctx, agent_name)
+
+    future = state.executor.submit(_do_mute)
+    if state.loop is not None:
+        state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_poll, (state, future, agent_name))
+
+
+def _on_mute_poll(loop: MainLoop, data: tuple[_KanpanState, Future[bool], AgentName]) -> None:
+    """Poll for mute toggle completion."""
+    state, future, agent_name = data
+    if future.done():
+        try:
+            is_muted = future.result()
+            action = "Muted" if is_muted else "Unmuted"
+            state.footer_left.set_text(f"  {action} {agent_name}")
+        except Exception as e:
+            state.footer_left.set_text(f"  Failed to toggle mute for {agent_name}: {e}")
+        # Refresh to show updated state
+        if state.refresh_future is None:
+            _start_refresh(loop, state)
+    else:
+        frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
+        state.footer_left.set_text(f"  Toggling mute for {agent_name} {frame_char}")
+        state.spinner_index += 1
+        loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_mute_poll, data)
+
+
 def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Start a background refresh and begin the spinner animation."""
     if state.executor is None:
@@ -371,7 +424,12 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
 
 
 def _classify_entry(entry: AgentBoardEntry) -> BoardSection:
-    """Determine which board section an agent belongs to based on its PR state."""
+    """Determine which board section an agent belongs to based on its PR state.
+
+    Muted agents are always placed in the MUTED section regardless of PR state.
+    """
+    if entry.is_muted:
+        return BoardSection.MUTED
     if entry.pr is None:
         return BoardSection.STILL_COOKING
     if entry.pr.state == PrState.MERGED:
@@ -423,7 +481,15 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
     """Build urwid text markup for a single agent line.
 
     Shows: name, agent state, push status, PR info or create-PR link.
+    Muted agents are rendered entirely in gray.
     """
+    if section == BoardSection.MUTED:
+        # Muted: entire line in gray
+        line = f"  {entry.name:<24}{entry.state}"
+        if entry.pr is not None:
+            line += f"  PR #{entry.pr.number}"
+        return [("muted", line)]
+
     state_attr = _get_state_attr(entry, section)
     state_text = str(entry.state)
     parts: list[str | tuple[Hashable, str]] = [
@@ -456,7 +522,9 @@ def _format_section_heading(section: BoardSection, count: int) -> list[str | tup
     prefix = _SECTION_PREFIX[section]
     suffix = _SECTION_SUFFIX[section]
     attr = _SECTION_ATTR[section]
-    return [(attr, prefix), f" - {suffix} ({count})"]
+    if suffix:
+        return [(attr, prefix), f" - {suffix} ({count})"]
+    return [(attr, prefix), f" ({count})"]
 
 
 def _build_board_widgets(state: _KanpanState) -> SimpleFocusListWalker[AttrMap | Text | Divider]:
@@ -517,10 +585,25 @@ def _build_board_widgets(state: _KanpanState) -> SimpleFocusListWalker[AttrMap |
 
 
 def _refresh_display(state: _KanpanState) -> None:
-    """Rebuild the body display from the current snapshot."""
+    """Rebuild the body display from the current snapshot.
+
+    Preserves focus on the previously selected agent if it still exists.
+    """
+    # Save the currently focused agent name before rebuilding
+    focused_entry = _get_focused_entry(state)
+    if focused_entry is not None:
+        state.focused_agent_name = focused_entry.name
+
     walker = _build_board_widgets(state)
     state.list_walker = walker
     state.frame.body = ListBox(walker)
+
+    # Restore focus to the previously focused agent
+    if state.focused_agent_name is not None:
+        for idx, entry in state.index_to_entry.items():
+            if entry.name == state.focused_agent_name:
+                walker.set_focus(idx)
+                return
 
 
 def _schedule_next_refresh(loop: MainLoop, state: _KanpanState) -> None:
@@ -537,7 +620,7 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
 def run_kanpan(mng_ctx: MngContext) -> None:
     """Run the pankan TUI board."""
     footer_left = Text("  Loading...")
-    keybindings = "p: push  d: delete  q: quit  "
+    keybindings = "m: mute  p: push  d: delete  q: quit  "
     footer_right = Text(keybindings, align="right")
     pack: int = len(keybindings)
     footer_columns = Columns([footer_left, (pack, footer_right)])
