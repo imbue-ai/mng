@@ -172,7 +172,7 @@ def _deploy_modal(
         else:
             try:
                 auto_merge_branch = resolve_current_branch_name()
-            except Exception as e:
+            except ScheduleDeployError as e:
                 raise click.ClickException(
                     f"--auto-merge requires a git branch, but could not resolve one: {e}. "
                     "Use --no-auto-merge or --auto-merge-branch to specify explicitly."

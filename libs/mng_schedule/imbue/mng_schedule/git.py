@@ -33,19 +33,7 @@ def ensure_current_branch_is_pushed(cwd: Path | None = None) -> None:
 
     Raises ScheduleDeployError if the branch is not fully pushed.
     """
-    # Get current branch name
-    with ConcurrencyGroup(name="git-branch-name") as cg:
-        result = cg.run_process_to_completion(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            is_checked_after=False,
-            cwd=cwd,
-        )
-    if result.returncode != 0:
-        raise ScheduleDeployError(f"Could not determine current branch: {result.stderr.strip()}") from None
-    branch_name = result.stdout.strip()
-
-    if branch_name == "HEAD":
-        raise ScheduleDeployError("Cannot deploy from a detached HEAD. Check out a branch first.") from None
+    branch_name = resolve_current_branch_name(cwd=cwd)
 
     # Check if there is anything unpushed on this branch:
     with ConcurrencyGroup(name="git-upstream-check") as cg:
