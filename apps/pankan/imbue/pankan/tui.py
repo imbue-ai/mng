@@ -110,6 +110,8 @@ class _PankanState(MutableModel):
     loop: Any = None  # urwid MainLoop, set after construction
     spinner_index: int = 0
     refresh_future: Future[BoardSnapshot] | None = None
+    delete_future: Future[subprocess.CompletedProcess[str]] | None = None
+    deleting_agent_name: AgentName | None = None
     executor: ThreadPoolExecutor | None = None
     # Maps list walker index -> AgentName for selectable agent entries
     index_to_agent: dict[int, AgentName] = {}
@@ -149,29 +151,72 @@ def _get_focused_agent_name(state: _PankanState) -> AgentName | None:
     return state.index_to_agent.get(focus_index)
 
 
+def _run_destroy(agent_name: str) -> subprocess.CompletedProcess[str]:
+    """Run mng destroy in a subprocess. Called from a background thread."""
+    return subprocess.run(
+        ["mng", "destroy", agent_name, "--force"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 def _delete_focused_agent(state: _PankanState) -> None:
-    """Delete the currently focused agent via mng destroy."""
+    """Start async deletion of the currently focused agent via mng destroy."""
+    if state.delete_future is not None:
+        return  # Already deleting
     agent_name = _get_focused_agent_name(state)
     if agent_name is None:
         return
+    if state.executor is None:
+        state.executor = ThreadPoolExecutor(max_workers=1)
 
+    state.deleting_agent_name = agent_name
     state.footer_left.set_text(f"  Deleting {agent_name}...")
+    state.delete_future = state.executor.submit(_run_destroy, str(agent_name))
 
-    try:
-        subprocess.run(
-            ["mng", "destroy", str(agent_name), "--force"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        state.footer_left.set_text(f"  Deleted {agent_name}")
-    except (subprocess.TimeoutExpired, OSError) as e:
-        state.footer_left.set_text(f"  Failed to delete {agent_name}: {e}")
+    if state.loop is not None:
+        state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_delete_poll, state)
+
+
+def _on_delete_poll(loop: MainLoop, state: _PankanState) -> None:
+    """Poll for delete completion."""
+    if state.delete_future is None:
         return
 
+    if state.delete_future.done():
+        _finish_delete(loop, state)
+        return
+
+    # Show spinner while deleting
+    frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
+    state.footer_left.set_text(f"  Deleting {state.deleting_agent_name} {frame_char}")
+    state.spinner_index += 1
+    loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_delete_poll, state)
+
+
+def _finish_delete(loop: MainLoop, state: _PankanState) -> None:
+    """Complete a background deletion."""
+    if state.delete_future is None:
+        return
+
+    agent_name = state.deleting_agent_name
+    try:
+        result = state.delete_future.result()
+        if result.returncode == 0:
+            state.footer_left.set_text(f"  Deleted {agent_name}")
+        else:
+            stderr = result.stderr.strip()
+            state.footer_left.set_text(f"  Failed to delete {agent_name}: {stderr}")
+    except Exception as e:
+        state.footer_left.set_text(f"  Failed to delete {agent_name}: {e}")
+    finally:
+        state.delete_future = None
+        state.deleting_agent_name = None
+
     # Trigger a refresh to update the board
-    if state.refresh_future is None and state.loop is not None:
-        _start_refresh(state.loop, state)
+    if state.refresh_future is None:
+        _start_refresh(loop, state)
 
 
 def _start_refresh(loop: MainLoop, state: _PankanState) -> None:
