@@ -11,13 +11,7 @@ This command reviews a conversation transcript to identify issues with the agent
 
 ### 1. Set Up
 
-First, determine your reviewer window name and clean up old review files:
-
-```bash
-./scripts/cleanup_review_files.sh
-```
-
-Then determine your window name (you'll need this for file paths later):
+Determine your reviewer window name (you'll need this for file paths later):
 
 ```bash
 WINDOW=$(tmux display-message -t "$TMUX_PANE" -p '#W' 2>/dev/null || echo reviewer_0) && echo "$WINDOW"
