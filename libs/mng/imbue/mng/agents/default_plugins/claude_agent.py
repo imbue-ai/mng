@@ -498,13 +498,19 @@ class ClaudeAgent(BaseAgent):
         agent_args: tuple[str, ...],
         command_override: CommandString | None,
     ) -> CommandString:
-        """Assemble command with --resume || --session-id format for session resumption.
+        """Assemble command with resume/fallback chain for session resumption.
 
-        The command format is: 'claude --resume $SID args || claude --session-id UUID args'
-        This allows users to hit 'up' and 'enter' in tmux to resume the session (--resume)
-        or create it with that ID (--session-id). The resume path uses $MAIN_CLAUDE_SESSION_ID,
-        resolved at runtime from the session tracking file (falling back to the agent UUID on
-        first run).
+        The command format is:
+            claude --resume $SID args || claude --resume UUID args || claude --session-id UUID args
+
+        This three-stage chain handles all restart scenarios:
+        1. Resume the tracked session (from claude_session_id file, updated by SessionStart hook)
+        2. Resume the original agent UUID session (handles cases where the tracked session's
+           conversation data is gone but the original session still exists)
+        3. Create a new session with the agent UUID (first run only)
+
+        The resume path uses $MAIN_CLAUDE_SESSION_ID, resolved at runtime from the session
+        tracking file (falling back to the agent UUID on first run).
 
         An activity updater is started in the background to keep the agent's activity
         timestamp up-to-date while the tmux session is alive.
@@ -532,13 +538,15 @@ class ClaudeAgent(BaseAgent):
             f' export MAIN_CLAUDE_SESSION_ID="${{_MNG_READ_SID:-{agent_uuid}}}"'
         )
 
-        # Build both command variants using the dynamic session ID
-        resume_cmd = f'( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && {base} --resume "$MAIN_CLAUDE_SESSION_ID"'
+        # Build all three command variants using the dynamic session ID
+        resume_cmd = f'{base} --resume "$MAIN_CLAUDE_SESSION_ID"'
+        fallback_resume_cmd = f"{base} --resume {agent_uuid}"
         create_cmd = f"{base} --session-id {agent_uuid}"
 
-        # Append additional args to both commands if present
+        # Append additional args to all commands if present
         if args_str:
             resume_cmd = f"{resume_cmd} {args_str}"
+            fallback_resume_cmd = f"{fallback_resume_cmd} {args_str}"
             create_cmd = f"{create_cmd} {args_str}"
 
         # Build the environment exports
@@ -549,9 +557,12 @@ class ClaudeAgent(BaseAgent):
         session_name = f"{self.mng_ctx.config.prefix}{self.name}"
         background_cmd = self._build_background_tasks_command(session_name)
 
-        # Combine: start background tasks, export env (including session ID), then run the main command (and make sure we get rid of the session started marker on each run so that wait_for_ready_signal works correctly for both new and resumed sessions)
+        # Combine: start background tasks, export env (including session ID), then run
+        # the three-stage resume/fallback chain. We also remove the session_started marker
+        # on each run so wait_for_ready_signal works correctly for both new and resumed sessions.
         return CommandString(
-            f"{background_cmd} {env_exports} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( {resume_cmd} ) || {create_cmd}"
+            f"{background_cmd} {env_exports} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+            f" && ( {resume_cmd} ) || ( {fallback_resume_cmd} ) || {create_cmd}"
         )
 
     def on_before_provisioning(

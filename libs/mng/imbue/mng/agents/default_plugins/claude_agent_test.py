@@ -242,7 +242,7 @@ def test_claude_agent_config_merge_uses_override_cli_args_when_base_empty() -> N
 def test_claude_agent_assemble_command_with_no_args(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """ClaudeAgent should generate resume/session-id command format with no args."""
+    """ClaudeAgent should generate three-stage resume/fallback command format with no args."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
     command = agent.assemble_command(host=host, agent_args=(), command_override=None)
@@ -254,14 +254,17 @@ def test_claude_agent_assemble_command_with_no_args(
     sid_export = _sid_export_for(uuid)
     # Local hosts should NOT have IS_SANDBOX set
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f"{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+        f' && ( claude --resume "$MAIN_CLAUDE_SESSION_ID" )'
+        f" || ( claude --resume {uuid} )"
+        f" || claude --session-id {uuid}"
     )
 
 
 def test_claude_agent_assemble_command_with_agent_args(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """ClaudeAgent should append agent args to both command variants."""
+    """ClaudeAgent should append agent args to all command variants."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
 
     command = agent.assemble_command(host=host, agent_args=("--model", "opus"), command_override=None)
@@ -272,14 +275,17 @@ def test_claude_agent_assemble_command_with_agent_args(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || claude --session-id {uuid} --model opus'
+        f"{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+        f' && ( claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus )'
+        f" || ( claude --resume {uuid} --model opus )"
+        f" || claude --session-id {uuid} --model opus"
     )
 
 
 def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """ClaudeAgent should append both cli_args and agent_args to both command variants."""
+    """ClaudeAgent should append both cli_args and agent_args to all command variants."""
     agent, host = make_claude_agent(
         local_provider,
         tmp_path,
@@ -295,7 +301,10 @@ def test_claude_agent_assemble_command_with_cli_args_and_agent_args(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus ) || claude --session-id {uuid} --verbose --model opus'
+        f"{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+        f' && ( claude --resume "$MAIN_CLAUDE_SESSION_ID" --verbose --model opus )'
+        f" || ( claude --resume {uuid} --verbose --model opus )"
+        f" || claude --session-id {uuid} --verbose --model opus"
     )
 
 
@@ -317,7 +326,10 @@ def test_claude_agent_assemble_command_with_command_override(
     background_cmd = agent._build_background_tasks_command(session_name)
     sid_export = _sid_export_for(uuid)
     assert command == CommandString(
-        f'{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus ) || custom-claude --session-id {uuid} --model opus'
+        f"{background_cmd} {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+        f' && ( custom-claude --resume "$MAIN_CLAUDE_SESSION_ID" --model opus )'
+        f" || ( custom-claude --resume {uuid} --model opus )"
+        f" || custom-claude --session-id {uuid} --model opus"
     )
 
 
@@ -357,7 +369,10 @@ def test_claude_agent_assemble_command_sets_is_sandbox_for_remote_host(
     sid_export = _sid_export_for(uuid)
     # Remote hosts SHOULD have IS_SANDBOX set
     assert command == CommandString(
-        f'{background_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started && ( ( find ~/.claude/ -name "$MAIN_CLAUDE_SESSION_ID" | grep . ) && claude --resume "$MAIN_CLAUDE_SESSION_ID" ) || claude --session-id {uuid}'
+        f"{background_cmd} export IS_SANDBOX=1 && {sid_export} && rm -rf $MNG_AGENT_STATE_DIR/session_started"
+        f' && ( claude --resume "$MAIN_CLAUDE_SESSION_ID" )'
+        f" || ( claude --resume {uuid} )"
+        f" || claude --session-id {uuid}"
     )
 
 
