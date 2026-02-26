@@ -1326,6 +1326,11 @@ class FakeApiListAgents:
         return result
 
 
+def _patch_list_agents(monkeypatch: pytest.MonkeyPatch, agents: list[AgentInfo]) -> None:
+    """Replace api_list_agents with a fake that returns the given agents."""
+    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+
+
 # =============================================================================
 # CLI-level tests: list_command output formatting with monkeypatched agents
 # =============================================================================
@@ -1341,7 +1346,7 @@ def test_list_command_json_format_with_agents(
         make_test_agent_info(name="alpha", state=AgentLifecycleState.RUNNING),
         make_test_agent_info(name="bravo", state=AgentLifecycleState.STOPPED),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1368,7 +1373,7 @@ def test_list_command_jsonl_format_with_agents(
         make_test_agent_info(name="agent-one"),
         make_test_agent_info(name="agent-two"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1393,7 +1398,7 @@ def test_list_command_human_format_table_with_agents(
     agents = [
         make_test_agent_info(name="my-agent", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1419,7 +1424,7 @@ def test_list_command_human_format_custom_fields(
     agents = [
         make_test_agent_info(name="field-test"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1446,7 +1451,7 @@ def test_list_command_template_format_with_agents(
     agents = [
         make_test_agent_info(name="tpl-agent", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1469,7 +1474,7 @@ def test_list_command_json_format_with_sort(
         make_test_agent_info(name="zeta"),
         make_test_agent_info(name="alpha"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1494,7 +1499,7 @@ def test_list_command_json_format_with_limit(
         make_test_agent_info(name="first"),
         make_test_agent_info(name="second"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1519,7 +1524,7 @@ def test_list_command_jsonl_format_with_limit(
         make_test_agent_info(name="second"),
         make_test_agent_info(name="third"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1543,7 +1548,7 @@ def test_list_command_template_format_with_sort_falls_back_to_batch(
         make_test_agent_info(name="zz-last"),
         make_test_agent_info(name="aa-first"),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,
@@ -1568,7 +1573,7 @@ def test_list_command_human_streaming_with_agents(
     agents = [
         make_test_agent_info(name="stream-agent", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
+    _patch_list_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         list_command,

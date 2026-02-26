@@ -215,13 +215,12 @@ def test_cleanup_snapshot_before_raises_not_implemented(
 # =============================================================================
 
 
-def _fake_find_agents(agents: list[AgentInfo]):
-    """Return a callable that replaces find_agents_for_cleanup, returning pre-built agents."""
-
-    def _find(**kwargs) -> list[AgentInfo]:
-        return agents
-
-    return _find
+def _patch_find_agents(monkeypatch: pytest.MonkeyPatch, agents: list[AgentInfo]) -> None:
+    """Replace find_agents_for_cleanup with a fake that returns the given agents."""
+    monkeypatch.setattr(
+        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+        lambda **kwargs: agents,
+    )
 
 
 def test_cleanup_dry_run_human_format_with_agents(
@@ -234,10 +233,7 @@ def test_cleanup_dry_run_human_format_with_agents(
         make_test_agent_info(name="cleanup-alpha", state=AgentLifecycleState.RUNNING),
         make_test_agent_info(name="cleanup-beta", state=AgentLifecycleState.STOPPED),
     ]
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        _fake_find_agents(agents),
-    )
+    _patch_find_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -261,10 +257,7 @@ def test_cleanup_dry_run_stop_action_human_format(
     agents = [
         make_test_agent_info(name="stop-me", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        _fake_find_agents(agents),
-    )
+    _patch_find_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -287,10 +280,7 @@ def test_cleanup_dry_run_json_format_with_agents(
     agents = [
         make_test_agent_info(name="json-agent", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        _fake_find_agents(agents),
-    )
+    _patch_find_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -316,10 +306,7 @@ def test_cleanup_dry_run_jsonl_format_with_agents(
     agents = [
         make_test_agent_info(name="jsonl-agent", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        _fake_find_agents(agents),
-    )
+    _patch_find_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -347,10 +334,7 @@ def test_cleanup_dry_run_stop_json_format(
     agents = [
         make_test_agent_info(name="stop-json", state=AgentLifecycleState.RUNNING),
     ]
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        _fake_find_agents(agents),
-    )
+    _patch_find_agents(monkeypatch, agents)
 
     result = cli_runner.invoke(
         cleanup,
