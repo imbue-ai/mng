@@ -18,7 +18,6 @@ import imbue.mng.providers.local.backend as local_backend_module
 import imbue.mng.providers.modal.backend as modal_backend_module
 import imbue.mng.providers.ssh.backend as ssh_backend_module
 from imbue.imbue_common.pure import pure
-from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.errors import ConfigStructureError
@@ -43,9 +42,11 @@ def load_all_registries(pm: pluggy.PluginManager) -> None:
 
     This is the main entry point for loading all pluggy-based registries.
     Call this once during application startup, before using any registry lookups.
+
+    Note: agent registries are loaded separately via
+    agents.agent_registry.load_agents_from_plugins(), called from main.py.
     """
     load_backends_from_plugins(pm)
-    load_agents_from_plugins(pm)
 
 
 def reset_backend_registry() -> None:
