@@ -1,7 +1,7 @@
 [project]
 name = "mng-kanpan"
 version = "0.1.0"
-description = "TUI kanban board for mng agents with GitHub PR status"
+description = "All-seeing tracker for vibe engineers"
 requires-python = ">=3.11"
 dependencies = [
     "mng==0.1.4",
