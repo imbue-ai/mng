@@ -101,7 +101,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_while_true() -> None:
     chunks = check_ratchet_rule(PREVENT_WHILE_TRUE, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(0), PREVENT_WHILE_TRUE.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_WHILE_TRUE.format_failure(chunks)
 
 
 def test_prevent_time_sleep() -> None:

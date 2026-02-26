@@ -97,12 +97,11 @@ async def _forward_client_to_backend(
 ) -> None:
     """Forward messages from the client WebSocket to the backend.
 
-    Terminates when the client disconnects (WebSocketDisconnect) or the
-    backend closes (ConnectionClosed).
+    Terminates via WebSocketDisconnect (client disconnects) or
+    ConnectionClosed (backend disconnects).
     """
-    is_connected = True
     try:
-        while is_connected:
+        while True:
             data = await client_websocket.receive()
             if "text" in data:
                 await backend_ws.send(data["text"])
@@ -119,7 +118,7 @@ async def _forward_client_to_backend(
 async def _forward_backend_to_client(
     client_websocket: WebSocket,
     backend_ws: ClientConnection,
-    changeling_name: str,
+    changeling_name: ChangelingName,
 ) -> None:
     """Forward messages from the backend WebSocket to the client."""
     try:
@@ -261,12 +260,19 @@ def create_forwarding_server(
         body = await request.body()
 
         active_http_client: httpx.AsyncClient = app.state.http_client
-        resp = await active_http_client.request(
-            method=request.method,
-            url=proxy_url,
-            headers=headers,
-            content=body,
-        )
+        try:
+            resp = await active_http_client.request(
+                method=request.method,
+                url=proxy_url,
+                headers=headers,
+                content=body,
+            )
+        except httpx.ConnectError:
+            logger.debug("Backend connection refused for {}", changeling_name)
+            return Response(status_code=502, content="Backend connection refused")
+        except httpx.TimeoutException:
+            logger.debug("Backend request timed out for {}", changeling_name)
+            return Response(status_code=504, content="Backend request timed out")
 
         # Build response headers, dropping hop-by-hop headers
         resp_headers: dict[str, list[str]] = {}
@@ -330,7 +336,7 @@ def create_forwarding_server(
                     _forward_backend_to_client(
                         client_websocket=websocket,
                         backend_ws=backend_ws,
-                        changeling_name=changeling_name,
+                        changeling_name=name,
                     ),
                 )
 

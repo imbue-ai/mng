@@ -124,7 +124,7 @@ extra-paths = ["scripts"]
 [tool.coverage.run]
 source = ["imbue"]
 parallel = true
-concurrency = ["multiprocessing", "thread"]
+concurrency = ["multiprocessing"]
 omit = [
     "*_test.py",
     "test_*.py",

@@ -38,32 +38,43 @@ def _create_test_backend() -> FastAPI:
     return backend
 
 
+def _create_test_forwarding_server(
+    tmp_path: Path,
+    url_by_changeling_name: dict[str, str],
+    http_client: httpx.AsyncClient | None,
+) -> tuple[TestClient, FileAuthStore, StaticBackendResolver]:
+    """Create a forwarding server with the given backend configuration."""
+    auth_dir = tmp_path / "auth"
+    auth_store = FileAuthStore(data_directory=auth_dir)
+    backend_resolver = StaticBackendResolver(url_by_changeling_name=url_by_changeling_name)
+
+    app = create_forwarding_server(
+        auth_store=auth_store,
+        backend_resolver=backend_resolver,
+        http_client=http_client,
+    )
+    client = TestClient(app)
+
+    return client, auth_store, backend_resolver
+
+
 def _setup_test_server(
     tmp_path: Path,
 ) -> tuple[TestClient, FileAuthStore, ChangelingName, StaticBackendResolver]:
-    """Set up a forwarding server with an authenticated changeling for testing."""
-    auth_dir = tmp_path / "auth"
-    auth_store = FileAuthStore(data_directory=auth_dir)
-
+    """Set up a forwarding server with a test backend for proxy testing."""
     changeling_name = ChangelingName(f"test-agent-{uuid4().hex}")
 
-    # Create a backend app and an httpx client using ASGI transport
     backend_app = _create_test_backend()
     test_http_client = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=backend_app),
         base_url="http://test-backend",
     )
 
-    backend_resolver = StaticBackendResolver(
+    client, auth_store, backend_resolver = _create_test_forwarding_server(
+        tmp_path=tmp_path,
         url_by_changeling_name={str(changeling_name): "http://test-backend"},
-    )
-
-    app = create_forwarding_server(
-        auth_store=auth_store,
-        backend_resolver=backend_resolver,
         http_client=test_http_client,
     )
-    client = TestClient(app)
 
     return client, auth_store, changeling_name, backend_resolver
 
@@ -240,18 +251,13 @@ def _setup_test_server_without_backend(
     tmp_path: Path,
 ) -> tuple[TestClient, FileAuthStore, ChangelingName]:
     """Set up a forwarding server with no backends for testing error paths."""
-    auth_dir = tmp_path / "auth"
-    auth_store = FileAuthStore(data_directory=auth_dir)
     changeling_name = ChangelingName(f"no-backend-{uuid4().hex}")
 
-    backend_resolver = StaticBackendResolver(url_by_changeling_name={})
-
-    app = create_forwarding_server(
-        auth_store=auth_store,
-        backend_resolver=backend_resolver,
+    client, auth_store, _ = _create_test_forwarding_server(
+        tmp_path=tmp_path,
+        url_by_changeling_name={},
         http_client=None,
     )
-    client = TestClient(app)
 
     _authenticate_client(client=client, auth_store=auth_store, changeling_name=changeling_name)
 
