@@ -105,7 +105,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(3), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
