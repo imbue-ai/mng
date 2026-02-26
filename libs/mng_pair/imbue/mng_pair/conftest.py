@@ -23,8 +23,8 @@ from imbue.mng.conftest import temp_host_dir as temp_host_dir
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
-from imbue.mng.utils.testing import assert_home_is_temp_directory
-from imbue.mng.utils.testing import isolate_home
+from imbue.mng.testing import assert_home_is_temp_directory
+from imbue.mng.testing import isolate_home
 
 
 @pytest.fixture(autouse=True)

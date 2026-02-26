@@ -12,8 +12,8 @@ from click.testing import CliRunner
 
 from imbue.imbue_common.logging import log_span
 from imbue.mng.cli.snapshot import snapshot
-from imbue.mng.utils.testing import ModalSubprocessTestEnv
-from imbue.mng.utils.testing import get_short_random_string
+from imbue.mng.testing import ModalSubprocessTestEnv
+from imbue.mng.testing import get_short_random_string
 
 # =============================================================================
 # Tests with real local agents

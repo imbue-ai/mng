@@ -9,8 +9,8 @@ from click.testing import CliRunner
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.connect import ConnectCliOptions
 from imbue.mng.cli.create import CreateCliOptions
-from imbue.mng.utils.testing import cleanup_tmux_session
-from imbue.mng.utils.testing import create_test_agent_via_cli
+from imbue.mng.testing import cleanup_tmux_session
+from imbue.mng.testing import create_test_agent_via_cli
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ import pytest
 from imbue.changelings.data_types import ChangelingDefinition
 from imbue.changelings.data_types import DEFAULT_INITIAL_MESSAGE
 from imbue.changelings.primitives import ChangelingName
-from imbue.mng.utils.testing import isolate_home
+from imbue.mng.testing import isolate_home
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 

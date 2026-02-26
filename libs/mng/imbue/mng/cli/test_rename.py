@@ -15,8 +15,8 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.providers.local.instance import LocalProviderInstance
-from imbue.mng.utils.testing import tmux_session_cleanup
-from imbue.mng.utils.testing import tmux_session_exists
+from imbue.mng.testing import tmux_session_cleanup
+from imbue.mng.testing import tmux_session_exists
 
 
 def _create_stopped_agent(

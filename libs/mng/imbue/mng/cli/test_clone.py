@@ -7,8 +7,8 @@ from click.testing import CliRunner
 
 from imbue.mng.cli.clone import clone
 from imbue.mng.cli.list import list_command
-from imbue.mng.utils.testing import tmux_session_cleanup
-from imbue.mng.utils.testing import tmux_session_exists
+from imbue.mng.testing import tmux_session_cleanup
+from imbue.mng.testing import tmux_session_exists
 
 
 def test_clone_creates_agent_from_source(
