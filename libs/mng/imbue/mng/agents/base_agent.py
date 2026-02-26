@@ -336,9 +336,6 @@ class BaseAgent(AgentInterface):
         # Send backspaces and noop keys to clean up the marker
         self._send_backspace_with_noop(session_name, count=len(marker))
 
-        # just adding for debugging
-        time.sleep(3600)
-
         # Verify the marker is gone and the message ends correctly
         # Use the tail of the last line of the message as the expected ending, since
         # only that portion is visible on the current input line in the tmux pane.
