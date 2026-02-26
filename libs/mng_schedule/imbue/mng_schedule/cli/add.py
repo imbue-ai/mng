@@ -1,5 +1,6 @@
 import shlex
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,7 +18,6 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.instance import ModalProviderInstance
-from imbue.mng.providers.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng_schedule.cli.group import add_trigger_options
 from imbue.mng_schedule.cli.group import resolve_positional_name
 from imbue.mng_schedule.cli.group import schedule
@@ -38,21 +38,22 @@ from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 
 
 @pure
-def _split_args_at_separator(parts: list[str]) -> tuple[list[str], list[str]]:
+def _split_args_at_separator(parts: Sequence[str]) -> tuple[list[str], list[str]]:
     """Split a list of args at the first '--' separator.
 
     Returns (mng_args, passthrough_args) where passthrough_args includes
     the '--' separator itself.
     """
+    parts_list = list(parts)
     try:
-        separator_idx = parts.index("--")
-        return parts[:separator_idx], parts[separator_idx:]
+        separator_idx = parts_list.index("--")
+        return parts_list[:separator_idx], parts_list[separator_idx:]
     except ValueError:
-        return parts, []
+        return parts_list, []
 
 
 @pure
-def _has_flag(mng_args: list[str], flag: str, negative_flag: str | None = None) -> bool:
+def _has_flag(mng_args: Sequence[str], flag: str, negative_flag: str | None = None) -> bool:
     """Check if a flag (or its negative counterpart) is present in the args."""
     if flag in mng_args:
         return True
@@ -62,7 +63,7 @@ def _has_flag(mng_args: list[str], flag: str, negative_flag: str | None = None) 
 
 
 @pure
-def _has_tag_with_key(mng_args: list[str], tag_key: str) -> bool:
+def _has_tag_with_key(mng_args: Sequence[str], tag_key: str) -> bool:
     """Check if a --tag with the given key prefix exists in the args."""
     for i, part in enumerate(mng_args):
         if part == "--tag" and i + 1 < len(mng_args) and mng_args[i + 1].startswith(f"{tag_key}="):
@@ -141,18 +142,18 @@ def check_safe_create_command(args: str) -> str | None:
 
 def _get_provider_ssh_public_key(
     provider: LocalProviderInstance | ModalProviderInstance,
-    mng_ctx: MngContext,
 ) -> str | None:
     """Get the SSH public key for the given provider, or None if not applicable.
 
-    For modal: loads or creates the modal_ssh_key keypair and returns the public key.
+    For modal: returns the provider's SSH public key (for agent --authorized-key).
     For local: returns None (local provider doesn't use SSH for agent connections).
     """
     if isinstance(provider, ModalProviderInstance):
-        keys_dir = mng_ctx.profile_dir / "providers" / "modal"
-        _private_key_path, public_key_content = load_or_create_ssh_keypair(keys_dir, key_name="modal_ssh_key")
-        return public_key_content
-    return None
+        return provider.get_ssh_public_key()
+    elif isinstance(provider, LocalProviderInstance):
+        return None
+    else:
+        raise TypeError(f"Unsupported provider type: {type(provider).__name__}")
 
 
 # =============================================================================
@@ -246,16 +247,17 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     trigger_name = opts.name if opts.name else f"trigger-{uuid4().hex[:8]}"
 
     command = ScheduledMngCommand(opts.command.upper())
-    args = opts.args or ""
+    raw_args = opts.args or ""
+    final_args = raw_args
 
     # Apply auto-fix and safety checks for create commands
     if command == ScheduledMngCommand.CREATE:
         if opts.auto_fix_args:
-            ssh_public_key = _get_provider_ssh_public_key(provider, mng_ctx)
-            args = auto_fix_create_args(args, trigger_name, ssh_public_key)
-            logger.info("Auto-fixed args for create command: {}", args)
+            ssh_public_key = _get_provider_ssh_public_key(provider)
+            final_args = auto_fix_create_args(raw_args, trigger_name, ssh_public_key)
+            logger.info("Auto-fixed args for create command: {}", final_args)
 
-        safety_issue = check_safe_create_command(args)
+        safety_issue = check_safe_create_command(final_args)
         if safety_issue is not None:
             if opts.ensure_safe_commands:
                 raise click.UsageError(safety_issue)
@@ -265,7 +267,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
         command=command,
-        args=args,
+        args=final_args,
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,
         is_enabled=opts.enabled if opts.enabled is not None else True,
