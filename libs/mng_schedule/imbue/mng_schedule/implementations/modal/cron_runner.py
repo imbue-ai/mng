@@ -200,9 +200,6 @@ def run_scheduled_trigger() -> None:
         _run_and_stream(["git", "checkout", _AUTO_MERGE_BRANCH])
         _run_and_stream(["git", "merge", f"origin/{_AUTO_MERGE_BRANCH}"])
 
-    # REMOVE THIS, just checking more quickly
-    _run_and_stream(["modal", "environment", "create", "--help"])
-
     # Build the mng command (command is stored uppercase from the enum, mng CLI expects lowercase)
     command = trigger["command"].lower()
     args_str = trigger.get("args", "")
