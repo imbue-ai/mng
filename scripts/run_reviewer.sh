@@ -54,9 +54,11 @@ if [[ -f "$CACHE_COMMIT_FILE" && -f "$CACHE_OUTPUT_FILE" && -f "$CACHE_EXIT_CODE
     fi
 fi
 
-# remove the old files
-rm -rf $REVIEW_DONE_MARKER
-rm -rf $REVIEW_OUTPUT_FILE
+# remove old files and ensure directories exist
+rm -rf "$REVIEW_DONE_MARKER"
+rm -rf "$REVIEW_OUTPUT_FILE"
+rm -rf ".reviews/initial_issue_list/$WINDOW.md"
+mkdir -p .reviews/initial_issue_list .reviews/final_issue_json
 
 # Override console log functions to include window name prefix
 log_error() {
