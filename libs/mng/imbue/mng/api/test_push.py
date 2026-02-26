@@ -845,18 +845,14 @@ def remote_git_push_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
-def test_push_files_with_remote_host_raises_not_implemented(
+def test_push_files_with_remote_host_without_ssh_info_raises_assertion(
     remote_push_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Test that push_files raises NotImplementedError for remote hosts.
-
-    File sync via rsync requires local paths on both sides. Remote host
-    support will require SSH-based rsync or a different transfer mechanism.
-    """
+    """Test that push_files fails when remote host has no SSH info configured."""
     (remote_push_ctx.local_dir / "file.txt").write_text("host content")
 
-    with pytest.raises(NotImplementedError, match="remote hosts"):
+    with pytest.raises(AssertionError, match="SSH connection info"):
         push_files(
             agent=remote_push_ctx.agent,
             host=remote_push_ctx.host,
@@ -869,19 +865,16 @@ def test_push_files_with_remote_host_raises_not_implemented(
         )
 
 
-def test_push_git_with_remote_host_raises_not_implemented(
+def test_push_git_with_remote_host_without_ssh_info_raises_assertion(
     remote_git_push_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Test that push_git raises NotImplementedError for remote hosts.
-
-    Git push to remote hosts requires SSH URL support which is not implemented.
-    """
+    """Test that push_git fails when remote host has no SSH info configured."""
     (remote_git_push_ctx.local_dir / "new_file.txt").write_text("new content")
     run_git_command(remote_git_push_ctx.local_dir, "add", "new_file.txt")
     run_git_command(remote_git_push_ctx.local_dir, "commit", "-m", "Add new file")
 
-    with pytest.raises(NotImplementedError, match="remote hosts is not yet implemented"):
+    with pytest.raises(AssertionError, match="SSH connection info"):
         push_git(
             agent=remote_git_push_ctx.agent,
             host=remote_git_push_ctx.host,

@@ -13,6 +13,10 @@ from imbue.mng.api.sync import RemoteGitContext
 from imbue.mng.api.sync import SyncFilesResult
 from imbue.mng.api.sync import SyncGitResult
 from imbue.mng.api.sync import UncommittedChangesError
+from imbue.mng.api.sync import _build_remote_rsync_command
+from imbue.mng.api.sync import _build_rsync_command
+from imbue.mng.api.sync import _build_ssh_git_url
+from imbue.mng.api.sync import _build_ssh_transport_args
 from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.host import OnlineHostInterface
@@ -446,3 +450,101 @@ def test_remote_git_context_is_git_repository_returns_false_for_non_git_dir(
     host = cast(OnlineHostInterface, FakeHost())
     ctx = RemoteGitContext(host=host)
     assert ctx.is_git_repository(tmp_path) is False
+
+
+# =============================================================================
+# SSH helper function tests
+# =============================================================================
+
+
+def test_build_ssh_transport_args_produces_correct_ssh_command() -> None:
+    ssh_info = ("root", "example.com", 2222, Path("/tmp/test_key"))
+    result = _build_ssh_transport_args(ssh_info)
+    assert "ssh" in result
+    assert "-i /tmp/test_key" in result
+    assert "-p 2222" in result
+    assert "-o StrictHostKeyChecking=no" in result
+
+
+def test_build_ssh_transport_args_quotes_key_path_with_spaces() -> None:
+    ssh_info = ("user", "host.com", 22, Path("/path with spaces/key"))
+    result = _build_ssh_transport_args(ssh_info)
+    assert "'/path with spaces/key'" in result
+
+
+def test_build_ssh_git_url_produces_correct_url() -> None:
+    ssh_info = ("root", "example.com", 2222, Path("/tmp/key"))
+    result = _build_ssh_git_url(ssh_info, Path("/home/user/project"))
+    assert result == "ssh://root@example.com:2222/home/user/project/.git"
+
+
+def test_build_ssh_git_url_with_default_port() -> None:
+    ssh_info = ("user", "myhost.local", 22, Path("/key"))
+    result = _build_ssh_git_url(ssh_info, Path("/work"))
+    assert result == "ssh://user@myhost.local:22/work/.git"
+
+
+# =============================================================================
+# rsync command builder tests
+# =============================================================================
+
+
+def test_build_rsync_command_includes_stats_and_excludes_git() -> None:
+    cmd = _build_rsync_command(Path("/src"), Path("/dst"), is_dry_run=False, is_delete=False)
+    assert "--stats" in cmd
+    assert "--exclude=.git" in cmd
+    assert cmd[-2] == "/src/"
+    assert cmd[-1] == "/dst"
+
+
+def test_build_rsync_command_adds_dry_run_flag() -> None:
+    cmd = _build_rsync_command(Path("/src"), Path("/dst"), is_dry_run=True, is_delete=False)
+    assert "--dry-run" in cmd
+
+
+def test_build_rsync_command_adds_delete_flag() -> None:
+    cmd = _build_rsync_command(Path("/src"), Path("/dst"), is_dry_run=False, is_delete=True)
+    assert "--delete" in cmd
+
+
+def test_build_remote_rsync_command_push_mode_uses_remote_destination() -> None:
+    ssh_info = ("root", "example.com", 22, Path("/tmp/key"))
+    cmd = _build_remote_rsync_command(
+        source_path=Path("/local/src"),
+        destination_path=Path("/remote/dst"),
+        ssh_info=ssh_info,
+        mode=SyncMode.PUSH,
+        is_dry_run=False,
+        is_delete=False,
+    )
+    assert cmd[-2] == "/local/src/"
+    assert cmd[-1] == "root@example.com:/remote/dst/"
+    assert "-e" in cmd
+
+
+def test_build_remote_rsync_command_pull_mode_uses_remote_source() -> None:
+    ssh_info = ("user", "host.com", 2222, Path("/key"))
+    cmd = _build_remote_rsync_command(
+        source_path=Path("/remote/src"),
+        destination_path=Path("/local/dst"),
+        ssh_info=ssh_info,
+        mode=SyncMode.PULL,
+        is_dry_run=False,
+        is_delete=False,
+    )
+    assert cmd[-2] == "user@host.com:/remote/src/"
+    assert cmd[-1] == "/local/dst"
+
+
+def test_build_remote_rsync_command_includes_dry_run_and_delete() -> None:
+    ssh_info = ("root", "host", 22, Path("/key"))
+    cmd = _build_remote_rsync_command(
+        source_path=Path("/src"),
+        destination_path=Path("/dst"),
+        ssh_info=ssh_info,
+        mode=SyncMode.PUSH,
+        is_dry_run=True,
+        is_delete=True,
+    )
+    assert "--dry-run" in cmd
+    assert "--delete" in cmd

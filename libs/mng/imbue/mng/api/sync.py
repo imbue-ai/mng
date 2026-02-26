@@ -1,3 +1,4 @@
+import os
 import shlex
 from abc import ABC
 from abc import abstractmethod
@@ -30,6 +31,9 @@ from imbue.mng.utils.git_utils import get_head_commit
 from imbue.mng.utils.git_utils import is_ancestor
 from imbue.mng.utils.git_utils import is_git_repository
 from imbue.mng.utils.rsync_utils import parse_rsync_output
+
+# Type alias for SSH connection info: (user, hostname, port, private_key_path)
+SshConnectionInfo = tuple[str, str, int, Path]
 
 # === Error Classes ===
 
@@ -367,6 +371,62 @@ def _build_rsync_command(
     return rsync_cmd
 
 
+@pure
+def _build_ssh_transport_args(ssh_info: SshConnectionInfo) -> str:
+    """Build the SSH transport string for rsync -e or GIT_SSH_COMMAND."""
+    user, hostname, port, key_path = ssh_info
+    return f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"
+
+
+@pure
+def _build_ssh_git_url(ssh_info: SshConnectionInfo, remote_path: Path) -> str:
+    """Build an SSH git URL from connection info and a remote path."""
+    user, hostname, port, key_path = ssh_info
+    return f"ssh://{user}@{hostname}:{port}{remote_path}/.git"
+
+
+@pure
+def _build_remote_rsync_command(
+    source_path: Path,
+    destination_path: Path,
+    ssh_info: SshConnectionInfo,
+    mode: SyncMode,
+    is_dry_run: bool,
+    is_delete: bool,
+) -> list[str]:
+    """Build an rsync command that transfers files over SSH to/from a remote host."""
+    user, hostname, port, key_path = ssh_info
+    ssh_transport = _build_ssh_transport_args(ssh_info)
+
+    rsync_cmd = ["rsync", "-avz", "--stats", "--exclude=.git", "-e", ssh_transport]
+
+    if is_dry_run:
+        rsync_cmd.append("--dry-run")
+
+    if is_delete:
+        rsync_cmd.append("--delete")
+
+    if mode == SyncMode.PUSH:
+        # Local source -> remote destination
+        source_str = str(source_path)
+        if not source_str.endswith("/"):
+            source_str += "/"
+        dest_str = str(destination_path)
+        if not dest_str.endswith("/"):
+            dest_str += "/"
+        rsync_cmd.append(source_str)
+        rsync_cmd.append(f"{user}@{hostname}:{dest_str}")
+    else:
+        # Remote source -> local destination
+        source_str = str(source_path)
+        if not source_str.endswith("/"):
+            source_str += "/"
+        rsync_cmd.append(f"{user}@{hostname}:{source_str}")
+        rsync_cmd.append(str(destination_path))
+
+    return rsync_cmd
+
+
 def sync_files(
     agent: AgentInterface,
     host: OnlineHostInterface,
@@ -380,8 +440,6 @@ def sync_files(
 ) -> SyncFilesResult:
     """Sync files between local and agent using rsync."""
     RSYNC.require()
-    if not host.is_local:
-        raise NotImplementedError("File sync with remote hosts is not yet implemented")
 
     actual_remote_path = remote_path if remote_path is not None else agent.work_dir
 
@@ -404,29 +462,61 @@ def sync_files(
     #
     # Also skip if the destination doesn't exist yet (e.g. pushing to a new
     # subdirectory) or isn't a git repo (e.g. pulling to a plain directory).
-    is_destination_git_repo = destination_path.is_dir() and git_ctx.is_git_repository(destination_path)
+    is_destination_git_repo = (
+        git_ctx.is_git_repository(destination_path) if _dir_exists(host, destination_path) else False
+    )
     should_stash = uncommitted_changes != UncommittedChangesMode.CLOBBER and is_destination_git_repo
 
     stash_cm = _stash_guard(git_ctx, destination_path, uncommitted_changes) if should_stash else nullcontext(False)
 
     with stash_cm:
         # Ensure destination directory exists for push mode subdirectory targets
-        if mode == SyncMode.PUSH and not destination_path.is_dir():
-            destination_path.mkdir(parents=True, exist_ok=True)
+        if mode == SyncMode.PUSH and not _dir_exists(host, destination_path):
+            if host.is_local:
+                destination_path.mkdir(parents=True, exist_ok=True)
+            else:
+                host.execute_command(f"mkdir -p {shlex.quote(str(destination_path))}")
 
-        rsync_cmd = _build_rsync_command(source_path, destination_path, is_dry_run, is_delete)
-        cmd_str = shlex.join(rsync_cmd)
         direction = "Pushing" if mode == SyncMode.PUSH else "Pulling"
 
-        with log_span("{} files from {} to {}", direction, source_path, destination_path):
-            logger.debug("Running rsync command: {}", cmd_str)
-            result: CommandResult = host.execute_command(cmd_str)
+        if host.is_local:
+            # Local host: run rsync via host.execute_command (both paths are local)
+            rsync_cmd = _build_rsync_command(source_path, destination_path, is_dry_run, is_delete)
+            cmd_str = shlex.join(rsync_cmd)
 
-        if not result.success:
-            raise MngError(f"rsync failed: {result.stderr}")
+            with log_span("{} files from {} to {}", direction, source_path, destination_path):
+                logger.debug("Running rsync command: {}", cmd_str)
+                result: CommandResult = host.execute_command(cmd_str)
+
+            if not result.success:
+                raise MngError(f"rsync failed: {result.stderr}")
+
+            rsync_stdout = result.stdout
+        else:
+            # Remote host: run rsync locally with SSH transport
+            ssh_info = host._get_ssh_connection_info()
+            assert ssh_info is not None, "Remote host must provide SSH connection info"
+
+            rsync_cmd = _build_remote_rsync_command(
+                source_path=source_path,
+                destination_path=destination_path,
+                ssh_info=ssh_info,
+                mode=mode,
+                is_dry_run=is_dry_run,
+                is_delete=is_delete,
+            )
+
+            with log_span("{} files from {} to {} via SSH", direction, source_path, destination_path):
+                logger.debug("Running rsync command: {}", shlex.join(rsync_cmd))
+                try:
+                    process_result = cg.run_process_to_completion(rsync_cmd)
+                except ProcessError as e:
+                    raise MngError(f"rsync failed: {e.stderr}") from e
+
+            rsync_stdout = process_result.stdout
 
         # Parse rsync output to extract statistics
-        files_transferred, bytes_transferred = parse_rsync_output(result.stdout)
+        files_transferred, bytes_transferred = parse_rsync_output(rsync_stdout)
 
     logger.debug(
         "Sync complete: {} files, {} bytes transferred{}",
@@ -443,6 +533,14 @@ def sync_files(
         is_dry_run=is_dry_run,
         mode=mode,
     )
+
+
+def _dir_exists(host: OnlineHostInterface, path: Path) -> bool:
+    """Check if a directory exists on the given host."""
+    if host.is_local:
+        return path.is_dir()
+    result = host.execute_command(f"test -d {shlex.quote(str(path))}")
+    return result.success
 
 
 # === Git Sync Helper Functions ===
@@ -625,6 +723,135 @@ def _local_git_push_branch(
     return commits_transferred
 
 
+def _remote_git_push_mirror(
+    local_path: Path,
+    destination_path: Path,
+    host: OnlineHostInterface,
+    ssh_info: SshConnectionInfo,
+    source_branch: str,
+    is_dry_run: bool,
+    cg: ConcurrencyGroup,
+) -> int:
+    """Push via git push --mirror over SSH, overwriting all refs in the target.
+
+    Returns the number of commits transferred.
+    """
+    git_url = _build_ssh_git_url(ssh_info, destination_path)
+    git_ssh_cmd = _build_ssh_transport_args(ssh_info)
+    env = {**os.environ, "GIT_SSH_COMMAND": git_ssh_cmd, "GIT_LFS_SKIP_PUSH": "1"}
+
+    logger.debug("Performing mirror push to {}", git_url)
+
+    # Get pre-push HEAD from the remote
+    pre_push_head_result = host.execute_command("git rev-parse HEAD", cwd=destination_path)
+    pre_push_head = pre_push_head_result.stdout.strip() if pre_push_head_result.success else None
+
+    if is_dry_run:
+        # Estimate commits by fetching remote HEAD locally and counting
+        if pre_push_head is not None:
+            return count_commits_between(local_path, pre_push_head, source_branch, cg)
+        return 0
+
+    # Push all refs from local to remote
+    try:
+        cg.run_process_to_completion(
+            ["git", "-C", str(local_path), "push", "--no-verify", "--mirror", "--force", git_url],
+            env=env,
+        )
+    except ProcessError as e:
+        raise GitSyncError(e.stderr) from e
+
+    # Reset working tree on remote to match the source branch
+    reset_result = host.execute_command(
+        f"git reset --hard refs/heads/{source_branch}",
+        cwd=destination_path,
+    )
+    if not reset_result.success:
+        raise GitSyncError(f"Failed to update working tree: {reset_result.stderr}")
+
+    # Count actual commits transferred by comparing pre/post HEAD
+    post_push_head_result = host.execute_command("git rev-parse HEAD", cwd=destination_path)
+    post_push_head = post_push_head_result.stdout.strip() if post_push_head_result.success else None
+
+    if pre_push_head is not None and post_push_head is not None and pre_push_head != post_push_head:
+        return count_commits_between(local_path, pre_push_head, post_push_head, cg)
+    return 0
+
+
+def _remote_git_push_branch(
+    local_path: Path,
+    destination_path: Path,
+    host: OnlineHostInterface,
+    ssh_info: SshConnectionInfo,
+    source_branch: str,
+    target_branch: str,
+    is_dry_run: bool,
+    cg: ConcurrencyGroup,
+) -> int:
+    """Push a single branch to a remote host via git push over SSH.
+
+    Returns the number of commits transferred.
+    """
+    git_url = _build_ssh_git_url(ssh_info, destination_path)
+    git_ssh_cmd = _build_ssh_transport_args(ssh_info)
+    env = {**os.environ, "GIT_SSH_COMMAND": git_ssh_cmd, "GIT_LFS_SKIP_PUSH": "1"}
+
+    logger.debug("Pushing branch {} to {} via SSH", source_branch, git_url)
+
+    # Get pre-push HEAD from the remote
+    pre_push_head_result = host.execute_command("git rev-parse HEAD", cwd=destination_path)
+    pre_push_head = pre_push_head_result.stdout.strip() if pre_push_head_result.success else None
+
+    if is_dry_run:
+        if pre_push_head is not None:
+            return count_commits_between(local_path, pre_push_head, source_branch, cg)
+        return 0
+
+    # Configure remote to accept pushes to the checked-out branch
+    config_result = host.execute_command(
+        "git config receive.denyCurrentBranch updateInstead",
+        cwd=destination_path,
+    )
+    if not config_result.success:
+        raise GitSyncError(f"Failed to configure remote: {config_result.stderr}")
+
+    # Check for non-fast-forward push before attempting the push.
+    # Fetch the remote HEAD locally to check ancestry.
+    if pre_push_head is not None:
+        is_fast_forward = is_ancestor(local_path, pre_push_head, source_branch, cg)
+        if not is_fast_forward:
+            raise GitSyncError(
+                f"Cannot push: agent branch '{target_branch}' has diverged from "
+                f"local branch '{source_branch}'. Use --mirror to force-overwrite "
+                f"all refs, or pull agent changes first to reconcile."
+            )
+
+    # Push the branch to the remote
+    try:
+        cg.run_process_to_completion(
+            ["git", "-C", str(local_path), "push", git_url, f"{source_branch}:{target_branch}"],
+            env=env,
+        )
+    except ProcessError as e:
+        raise GitSyncError(e.stderr) from e
+
+    # Count actual commits transferred
+    post_push_head_result = host.execute_command("git rev-parse HEAD", cwd=destination_path)
+    post_push_head = post_push_head_result.stdout.strip() if post_push_head_result.success else None
+
+    commits_transferred = 0
+    if pre_push_head is not None and post_push_head is not None and pre_push_head != post_push_head:
+        commits_transferred = count_commits_between(local_path, pre_push_head, post_push_head, cg)
+
+    logger.debug(
+        "Git push complete: pushed {} commits from {} to {}",
+        commits_transferred,
+        source_branch,
+        target_branch,
+    )
+    return commits_transferred
+
+
 def _sync_git_push(
     agent: AgentInterface,
     host: OnlineHostInterface,
@@ -662,7 +889,29 @@ def _sync_git_push(
                     cg,
                 )
         else:
-            raise NotImplementedError("Pushing to remote hosts is not yet implemented")
+            ssh_info = host._get_ssh_connection_info()
+            assert ssh_info is not None, "Remote host must provide SSH connection info"
+            if is_mirror:
+                commits_transferred = _remote_git_push_mirror(
+                    local_path,
+                    destination_path,
+                    host,
+                    ssh_info,
+                    source_branch,
+                    is_dry_run,
+                    cg,
+                )
+            else:
+                commits_transferred = _remote_git_push_branch(
+                    local_path,
+                    destination_path,
+                    host,
+                    ssh_info,
+                    source_branch,
+                    target_branch,
+                    is_dry_run,
+                    cg,
+                )
 
     return SyncGitResult(
         source_branch=source_branch,
@@ -686,22 +935,42 @@ def _fetch_and_merge(
     original_branch: str,
     is_dry_run: bool,
     cg: ConcurrencyGroup,
+    ssh_info: SshConnectionInfo | None,
 ) -> int:
     """Fetch from source repo and merge into target branch.
 
     Handles checkout to target_branch if different from original_branch, and
     restores original_branch on both success and failure. Returns the number
     of commits transferred.
+
+    When ssh_info is provided, fetches from the remote host via SSH URL instead
+    of a local path.
     """
     # Fetch from the agent's repository (sets FETCH_HEAD)
-    logger.debug("Fetching from agent repository: {}", source_path)
-    try:
-        cg.run_process_to_completion(
-            ["git", "fetch", str(source_path), source_branch],
-            cwd=local_path,
-        )
-    except ProcessError as e:
-        raise MngError(f"Failed to fetch from agent: {e.stderr}") from e
+    if ssh_info is not None:
+        # Remote host: fetch via SSH URL
+        git_url = _build_ssh_git_url(ssh_info, source_path)
+        git_ssh_cmd = _build_ssh_transport_args(ssh_info)
+        fetch_env = {**os.environ, "GIT_SSH_COMMAND": git_ssh_cmd}
+        logger.debug("Fetching from remote agent repository via SSH: {}", git_url)
+        try:
+            cg.run_process_to_completion(
+                ["git", "fetch", git_url, source_branch],
+                cwd=local_path,
+                env=fetch_env,
+            )
+        except ProcessError as e:
+            raise MngError(f"Failed to fetch from agent: {e.stderr}") from e
+    else:
+        # Local host: fetch from local path
+        logger.debug("Fetching from agent repository: {}", source_path)
+        try:
+            cg.run_process_to_completion(
+                ["git", "fetch", str(source_path), source_branch],
+                cwd=local_path,
+            )
+        except ProcessError as e:
+            raise MngError(f"Failed to fetch from agent: {e.stderr}") from e
 
     # Checkout the target branch if different from current
     did_checkout = original_branch != target_branch
@@ -786,6 +1055,9 @@ def _sync_git_pull(
     git_ctx = LocalGitContext(cg=cg)
     original_branch = get_current_branch(local_path, cg)
 
+    # Get SSH info for remote hosts so _fetch_and_merge can use SSH URLs
+    ssh_info = host._get_ssh_connection_info() if not host.is_local else None
+
     with _stash_guard(git_ctx, local_path, uncommitted_changes):
         commits_transferred = _fetch_and_merge(
             local_path=local_path,
@@ -795,6 +1067,7 @@ def _sync_git_pull(
             original_branch=original_branch,
             is_dry_run=is_dry_run,
             cg=cg,
+            ssh_info=ssh_info,
         )
 
     return SyncGitResult(
