@@ -65,7 +65,7 @@ def test_concurrency_group_shortly_waits_for_processes_to_finish(tmp_path: Path)
 
 def test_concurrency_group_supports_running_process_to_completion(tmp_path: Path) -> None:
     with ConcurrencyGroup(name="outer") as cg:
-        process = cg.run_process_to_completion(["sleep", str(SMALL_SLEEP)])
+        process = cg.run_process_to_completion(["true"])
     assert process.returncode == 0
 
 
@@ -84,7 +84,7 @@ def test_concurrency_group_supports_running_processes_with_on_output_callbacks(t
 
 def test_concurrency_group_supports_running_running_local_process_in_background(tmp_path: Path) -> None:
     with ConcurrencyGroup(name="outer") as cg:
-        process = cg.run_process_in_background(["sleep", str(TINY_SLEEP)])
+        process = cg.run_process_in_background(["true"])
         process.wait()
     assert process.poll() == 0
 
@@ -203,7 +203,7 @@ def test_do_not_allow_starting_new_strands_if_the_previous_failed(tmp_path: Path
         with ConcurrencyGroup(name="outer") as cg:
             process1 = cg.run_process_in_background(["bash", "-c", "exit 1"], is_checked_by_group=True)
             assert poll_until(lambda: process1.poll() is not None, timeout=5.0)
-            process2 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)], is_checked_by_group=True)
+            process2 = cg.run_process_in_background(["true"], is_checked_by_group=True)
     assert isinstance(exception_info.value.exceptions[0], ProcessError)
     assert process1 is not None
     assert process1.poll() == 1
