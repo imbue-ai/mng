@@ -12,15 +12,15 @@ from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.pankan.data_types import CheckStatus
-from imbue.pankan.data_types import PrInfo
-from imbue.pankan.data_types import PrState
-from imbue.pankan.fetcher import _build_pr_branch_index
-from imbue.pankan.fetcher import _find_git_cwd
-from imbue.pankan.fetcher import _pr_priority
-from imbue.pankan.fetcher import _resolve_agent_branch
-from imbue.pankan.fetcher import fetch_board_snapshot
-from imbue.pankan.github import FetchPrsResult
+from imbue.mng_kanpan.data_types import CheckStatus
+from imbue.mng_kanpan.data_types import PrInfo
+from imbue.mng_kanpan.data_types import PrState
+from imbue.mng_kanpan.fetcher import _build_pr_branch_index
+from imbue.mng_kanpan.fetcher import _find_git_cwd
+from imbue.mng_kanpan.fetcher import _pr_priority
+from imbue.mng_kanpan.fetcher import _resolve_agent_branch
+from imbue.mng_kanpan.fetcher import fetch_board_snapshot
+from imbue.mng_kanpan.github import FetchPrsResult
 
 
 def _make_host_info(provider_name: str = "local") -> HostInfo:
@@ -135,7 +135,7 @@ def test_build_pr_branch_index_merged_wins_over_closed() -> None:
 def test_resolve_agent_branch_local_with_git(tmp_path: Path) -> None:
     agent = _make_agent_info(name="my-agent", work_dir=tmp_path, provider_name="local")
     cg = MagicMock()
-    with patch("imbue.pankan.fetcher.get_current_git_branch", return_value="mng/my-agent-local"):
+    with patch("imbue.mng_kanpan.fetcher.get_current_git_branch", return_value="mng/my-agent-local"):
         branch = _resolve_agent_branch(agent, cg)
     assert branch == "mng/my-agent-local"
 
@@ -150,7 +150,7 @@ def test_resolve_agent_branch_local_nonexistent_dir() -> None:
 def test_resolve_agent_branch_local_git_fails(tmp_path: Path) -> None:
     agent = _make_agent_info(name="my-agent", work_dir=tmp_path, provider_name="local")
     cg = MagicMock()
-    with patch("imbue.pankan.fetcher.get_current_git_branch", return_value=None):
+    with patch("imbue.mng_kanpan.fetcher.get_current_git_branch", return_value=None):
         branch = _resolve_agent_branch(agent, cg)
     assert branch == "mng/my-agent-local"
 
@@ -202,8 +202,8 @@ def test_fetch_board_snapshot_integrates_agents_and_prs() -> None:
     mng_ctx.concurrency_group = MagicMock()
 
     with (
-        patch("imbue.pankan.fetcher.list_agents", return_value=mock_list_result),
-        patch("imbue.pankan.fetcher.fetch_all_prs", return_value=pr_result),
+        patch("imbue.mng_kanpan.fetcher.list_agents", return_value=mock_list_result),
+        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result),
     ):
         snapshot = fetch_board_snapshot(mng_ctx)
 
@@ -232,8 +232,8 @@ def test_fetch_board_snapshot_with_list_errors() -> None:
     mng_ctx.concurrency_group = MagicMock()
 
     with (
-        patch("imbue.pankan.fetcher.list_agents", return_value=mock_list_result),
-        patch("imbue.pankan.fetcher.fetch_all_prs", return_value=pr_result),
+        patch("imbue.mng_kanpan.fetcher.list_agents", return_value=mock_list_result),
+        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result),
     ):
         snapshot = fetch_board_snapshot(mng_ctx)
 
@@ -253,8 +253,8 @@ def test_fetch_board_snapshot_surfaces_gh_errors() -> None:
     mng_ctx.concurrency_group = MagicMock()
 
     with (
-        patch("imbue.pankan.fetcher.list_agents", return_value=mock_list_result),
-        patch("imbue.pankan.fetcher.fetch_all_prs", return_value=pr_result),
+        patch("imbue.mng_kanpan.fetcher.list_agents", return_value=mock_list_result),
+        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result),
     ):
         snapshot = fetch_board_snapshot(mng_ctx)
 

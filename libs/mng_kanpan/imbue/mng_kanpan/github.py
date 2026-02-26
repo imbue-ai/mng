@@ -7,9 +7,9 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.pure import pure
-from imbue.pankan.data_types import CheckStatus
-from imbue.pankan.data_types import PrInfo
-from imbue.pankan.data_types import PrState
+from imbue.mng_kanpan.data_types import CheckStatus
+from imbue.mng_kanpan.data_types import PrInfo
+from imbue.mng_kanpan.data_types import PrState
 
 
 class FetchPrsResult:

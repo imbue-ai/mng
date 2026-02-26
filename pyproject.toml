@@ -62,7 +62,7 @@ addopts = [
   "--cov=imbue.mng_pair",
   "--cov=imbue.mng_schedule",
   "--cov=imbue.mng_tutor",
-  "--cov=imbue.pankan",
+  "--cov=imbue.mng_kanpan",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -149,9 +149,9 @@ omit = [
     # Tutor TUI is interactive and should not have automated tests
     "libs/mng_tutor/imbue/mng_tutor/tui.py",
     "libs/mng_tutor/imbue/mng_tutor/cli.py",
-    # Pankan TUI is interactive and should not have automated tests
-    "apps/pankan/imbue/pankan/tui.py",
-    "apps/pankan/imbue/pankan/cli.py",
+    # Kanpan TUI is interactive and should not have automated tests
+    "libs/mng_kanpan/imbue/mng_kanpan/tui.py",
+    "libs/mng_kanpan/imbue/mng_kanpan/cli.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]

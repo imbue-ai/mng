@@ -25,12 +25,12 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
-from imbue.pankan.data_types import AgentBoardEntry
-from imbue.pankan.data_types import BoardSection
-from imbue.pankan.data_types import BoardSnapshot
-from imbue.pankan.data_types import CheckStatus
-from imbue.pankan.data_types import PrState
-from imbue.pankan.fetcher import fetch_board_snapshot
+from imbue.mng_kanpan.data_types import AgentBoardEntry
+from imbue.mng_kanpan.data_types import BoardSection
+from imbue.mng_kanpan.data_types import BoardSnapshot
+from imbue.mng_kanpan.data_types import CheckStatus
+from imbue.mng_kanpan.data_types import PrState
+from imbue.mng_kanpan.fetcher import fetch_board_snapshot
 
 REFRESH_INTERVAL_SECONDS: int = 600  # 10 minutes
 
@@ -116,7 +116,7 @@ class _SelectableText(Text):
         return key
 
 
-class _PankanState(MutableModel):
+class _KanpanState(MutableModel):
     """Mutable state for the pankan TUI."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -139,10 +139,10 @@ class _PankanState(MutableModel):
     list_walker: Any = None  # SimpleFocusListWalker, set during display build
 
 
-class _PankanInputHandler(MutableModel):
+class _KanpanInputHandler(MutableModel):
     """Callable input handler for the pankan TUI."""
 
-    state: _PankanState
+    state: _KanpanState
 
     def __call__(self, key: str | tuple[str, int, int, int]) -> bool | None:
         """Handle keyboard input. Returns True if handled, None to pass through."""
@@ -165,7 +165,7 @@ class _PankanInputHandler(MutableModel):
         return True
 
 
-def _get_focused_entry(state: _PankanState) -> AgentBoardEntry | None:
+def _get_focused_entry(state: _KanpanState) -> AgentBoardEntry | None:
     """Get the AgentBoardEntry of the currently focused entry, or None."""
     if state.list_walker is None:
         return None
@@ -185,7 +185,7 @@ def _run_destroy(agent_name: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _delete_focused_agent(state: _PankanState) -> None:
+def _delete_focused_agent(state: _KanpanState) -> None:
     """Start async deletion of the currently focused agent via mng destroy."""
     if state.delete_future is not None:
         return  # Already deleting
@@ -204,7 +204,7 @@ def _delete_focused_agent(state: _PankanState) -> None:
         state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_delete_poll, state)
 
 
-def _on_delete_poll(loop: MainLoop, state: _PankanState) -> None:
+def _on_delete_poll(loop: MainLoop, state: _KanpanState) -> None:
     """Poll for delete completion."""
     if state.delete_future is None:
         return
@@ -220,7 +220,7 @@ def _on_delete_poll(loop: MainLoop, state: _PankanState) -> None:
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_delete_poll, state)
 
 
-def _finish_delete(loop: MainLoop, state: _PankanState) -> None:
+def _finish_delete(loop: MainLoop, state: _KanpanState) -> None:
     """Complete a background deletion."""
     if state.delete_future is None:
         return
@@ -255,7 +255,7 @@ def _run_git_push(work_dir: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _push_focused_agent(state: _PankanState) -> None:
+def _push_focused_agent(state: _KanpanState) -> None:
     """Start async push of the currently focused agent's branch."""
     if state.push_future is not None:
         return  # Already pushing
@@ -276,7 +276,7 @@ def _push_focused_agent(state: _PankanState) -> None:
         state.loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_push_poll, state)
 
 
-def _on_push_poll(loop: MainLoop, state: _PankanState) -> None:
+def _on_push_poll(loop: MainLoop, state: _KanpanState) -> None:
     """Poll for push completion."""
     if state.push_future is None:
         return
@@ -291,7 +291,7 @@ def _on_push_poll(loop: MainLoop, state: _PankanState) -> None:
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_push_poll, state)
 
 
-def _finish_push(loop: MainLoop, state: _PankanState) -> None:
+def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
     """Complete a background push."""
     if state.push_future is None:
         return
@@ -315,7 +315,7 @@ def _finish_push(loop: MainLoop, state: _PankanState) -> None:
         _start_refresh(loop, state)
 
 
-def _start_refresh(loop: MainLoop, state: _PankanState) -> None:
+def _start_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Start a background refresh and begin the spinner animation."""
     if state.executor is None:
         state.executor = ThreadPoolExecutor(max_workers=1)
@@ -324,12 +324,12 @@ def _start_refresh(loop: MainLoop, state: _PankanState) -> None:
     _schedule_spinner_tick(loop, state)
 
 
-def _schedule_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
+def _schedule_spinner_tick(loop: MainLoop, state: _KanpanState) -> None:
     """Schedule the next spinner tick."""
     loop.set_alarm_in(SPINNER_INTERVAL_SECONDS, _on_spinner_tick, state)
 
 
-def _on_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
+def _on_spinner_tick(loop: MainLoop, state: _KanpanState) -> None:
     """Alarm callback: update spinner, check if fetch is done."""
     if state.refresh_future is None:
         return
@@ -345,7 +345,7 @@ def _on_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
     _schedule_spinner_tick(loop, state)
 
 
-def _finish_refresh(loop: MainLoop, state: _PankanState) -> None:
+def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Complete a background refresh: update snapshot and display."""
     if state.refresh_future is None:
         return
@@ -432,7 +432,7 @@ def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[st
     Shows: name, agent state, push status, PR info or create-PR link.
     """
     state_attr = _get_state_attr(entry, section)
-    state_text = f"{entry.state:<10}"
+    state_text = str(entry.state)
     parts: list[str | tuple[Hashable, str]] = [
         f"  {entry.name:<24}",
     ]
@@ -466,7 +466,7 @@ def _format_section_heading(section: BoardSection, count: int) -> list[str | tup
     return [(attr, prefix), f" - {suffix} ({count})"]
 
 
-def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap | Text | Divider]:
+def _build_board_widgets(state: _KanpanState) -> SimpleFocusListWalker[AttrMap | Text | Divider]:
     """Build the urwid widget list from a BoardSnapshot, grouped by PR state.
 
     Returns a SimpleFocusListWalker and populates state.index_to_entry with the
@@ -523,25 +523,25 @@ def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap |
     return walker
 
 
-def _refresh_display(state: _PankanState) -> None:
+def _refresh_display(state: _KanpanState) -> None:
     """Rebuild the body display from the current snapshot."""
     walker = _build_board_widgets(state)
     state.list_walker = walker
     state.frame.body = ListBox(walker)
 
 
-def _schedule_next_refresh(loop: MainLoop, state: _PankanState) -> None:
+def _schedule_next_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Schedule the next auto-refresh alarm."""
     loop.set_alarm_in(REFRESH_INTERVAL_SECONDS, _on_auto_refresh_alarm, state)
 
 
-def _on_auto_refresh_alarm(loop: MainLoop, state: _PankanState) -> None:
+def _on_auto_refresh_alarm(loop: MainLoop, state: _KanpanState) -> None:
     """Alarm callback for periodic auto-refresh."""
     if state.refresh_future is None:
         _start_refresh(loop, state)
 
 
-def run_pankan(mng_ctx: MngContext) -> None:
+def run_kanpan(mng_ctx: MngContext) -> None:
     """Run the pankan TUI board."""
     footer_left = Text("  Loading...")
     keybindings = "p: push  d: delete  q: quit  "
@@ -552,7 +552,7 @@ def run_pankan(mng_ctx: MngContext) -> None:
 
     header = Pile(
         [
-            AttrMap(Text("pankan - Agent Work Tracker", align="center"), "header"),
+            AttrMap(Text("kanpan - Agent Work Tracker", align="center"), "header"),
             Divider(),
         ]
     )
@@ -560,14 +560,14 @@ def run_pankan(mng_ctx: MngContext) -> None:
     initial_body = Filler(Pile([Text("Loading...")]), valign="top")
     frame = Frame(body=initial_body, header=header, footer=footer)
 
-    state = _PankanState(
+    state = _KanpanState(
         mng_ctx=mng_ctx,
         frame=frame,
         footer_left=footer_left,
         footer_right=footer_right,
     )
 
-    input_handler = _PankanInputHandler(state=state)
+    input_handler = _KanpanInputHandler(state=state)
 
     screen = Screen()
     screen.tty_signal_keys(intr="undefined")
