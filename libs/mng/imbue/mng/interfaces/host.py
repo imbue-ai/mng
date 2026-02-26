@@ -278,7 +278,9 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
-    def to_offline_host(self) -> HostInterface: ...
+    def to_offline_host(self) -> HostInterface:
+        """Return an offline representation of this host for use when the host is unreachable."""
+        ...
 
     # =========================================================================
     # Agent-Derived Information

@@ -167,7 +167,9 @@ class ProviderInstanceInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
-    def to_offline_host(self, host_id: HostId) -> HostInterface: ...
+    def to_offline_host(self, host_id: HostId) -> HostInterface:
+        """Return an offline representation of the given host for use when it is unreachable."""
+        ...
 
     @abstractmethod
     def list_hosts(
