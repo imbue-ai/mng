@@ -70,9 +70,10 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
         command_class=ScheduleAddCliOptions,
     )
 
+    # Default --command to "create" when not specified
+    effective_command = opts.command if opts.command is not None else "create"
+
     # Validate required options for add
-    if opts.command is None:
-        raise click.UsageError("--command is required for schedule add")
     if opts.schedule_cron is None:
         raise click.UsageError("--schedule is required for schedule add")
     if opts.provider is None:
@@ -81,8 +82,6 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Code packaging strategy validation
     if opts.snapshot_id is not None:
         raise NotImplementedError("--snapshot is not yet implemented for schedule add")
-    if opts.full_copy:
-        raise NotImplementedError("--full-copy is not yet implemented for schedule add")
 
     # Load the provider instance
     try:
@@ -101,7 +100,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
 
     trigger = ScheduleTriggerDefinition(
         name=trigger_name,
-        command=ScheduledMngCommand(opts.command.upper()),
+        command=ScheduledMngCommand(effective_command.upper()),
         args=opts.args or "",
         schedule_cron=opts.schedule_cron,
         provider=opts.provider,
@@ -194,6 +193,7 @@ def _deploy_modal(
             mng_install_mode=MngInstallMode(opts.mng_install_mode.upper()),
             target_repo_path=opts.target_dir,
             auto_merge_branch=auto_merge_branch,
+            is_full_copy=opts.full_copy,
         )
     except ScheduleDeployError as e:
         raise click.ClickException(str(e)) from e

@@ -92,15 +92,26 @@ def get_repo_root() -> Path:
 
     Raises ScheduleDeployError if not inside a git repository.
     """
+    repo_root = try_get_repo_root()
+    if repo_root is None:
+        raise ScheduleDeployError(
+            "Could not find git repository root. Must be run from within a git repository."
+        ) from None
+    return repo_root
+
+
+def try_get_repo_root() -> Path | None:
+    """Try to find the git repository root directory.
+
+    Returns the repo root Path if inside a git repo, or None if not.
+    """
     with ConcurrencyGroup(name="git-toplevel") as cg:
         result = cg.run_process_to_completion(
             ["git", "rev-parse", "--show-toplevel"],
             is_checked_after=False,
         )
     if result.returncode != 0:
-        raise ScheduleDeployError(
-            "Could not find git repository root. Must be run from within a git repository."
-        ) from None
+        return None
     return Path(result.stdout.strip())
 
 
@@ -139,6 +150,29 @@ def package_repo_at_commit(commit_hash: str, dest_dir: Path, repo_root: Path) ->
     if result.returncode != 0:
         raise ScheduleDeployError(
             f"Failed to package repo at commit {commit_hash}: {(result.stdout + result.stderr).strip()}"
+        ) from None
+
+
+def package_directory_as_tarball(source_dir: Path, dest_dir: Path) -> None:
+    """Package a directory into a tarball at dest_dir/current.tar.gz.
+
+    Unlike package_repo_at_commit(), this does not use git and simply
+    creates a tarball of the entire directory contents. Used for --full-copy
+    mode where we want to capture the current working tree state without
+    relying on git.
+
+    Raises ScheduleDeployError if packaging fails.
+    """
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    with ConcurrencyGroup(name="package-directory") as cg:
+        result = cg.run_process_to_completion(
+            ["tar", "-czf", str(dest_dir / "current.tar.gz"), "-C", str(source_dir), "."],
+            is_checked_after=False,
+        )
+    if result.returncode != 0:
+        raise ScheduleDeployError(
+            f"Failed to package directory {source_dir}: {(result.stdout + result.stderr).strip()}"
         ) from None
 
 
@@ -609,6 +643,7 @@ def deploy_schedule(
     mng_install_mode: MngInstallMode = MngInstallMode.AUTO,
     target_repo_path: str = _DEFAULT_TARGET_REPO_PATH,
     auto_merge_branch: str | None = None,
+    is_full_copy: bool = False,
 ) -> str:
     """Deploy a scheduled trigger to Modal, optionally verifying it works.
 
@@ -635,7 +670,13 @@ def deploy_schedule(
 
     Raises ScheduleDeployError if any step fails.
     """
-    repo_root = get_repo_root()
+    # Resolve the project root directory.
+    # In full-copy mode, fall back to cwd if not in a git repo.
+    if is_full_copy:
+        repo_root = try_get_repo_root() or Path.cwd()
+    else:
+        repo_root = get_repo_root()
+
     app_name = get_modal_app_name(trigger.name)
     cron_timezone = detect_local_timezone()
     modal_env_name = provider.environment_name
@@ -650,10 +691,27 @@ def deploy_schedule(
 
     logger.info("Deploying schedule '{}' (app: {}, env: {})", trigger.name, app_name, modal_env_name)
 
-    # Resolve the commit hash for the target repo
-    commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
-    trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
-    logger.info("Using commit {} for target repo packaging", commit_hash)
+    # --- Resolve and package the target repo ---
+    target_repo_dir: Path | None = deploy_build_path / "target_repo"
+
+    if is_full_copy:
+        # Full-copy mode: package the entire directory as-is, no git required.
+        with log_span("Packaging project directory (full copy)"):
+            package_directory_as_tarball(repo_root, target_repo_dir)
+        logger.info("Packaged full copy of {}", repo_root)
+    else:
+        # Incremental mode (default): resolve commit hash and package via git.
+        commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
+        trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
+        logger.info("Using commit {} for target repo packaging", commit_hash)
+        with log_span("Packaging target repo at commit {}", commit_hash):
+            package_repo_at_commit(commit_hash, target_repo_dir, repo_root)
+
+    target_tarball = target_repo_dir / "current.tar.gz"
+    if not target_tarball.exists():
+        raise ScheduleDeployError(
+            f"Expected tarball at {target_tarball} after packaging target repo, but it was not found"
+        ) from None
 
     # Ensure the Modal environment exists (modal deploy does not auto-create it)
     _ensure_modal_environment(modal_env_name)
@@ -662,16 +720,6 @@ def deploy_schedule(
     # For EDITABLE: package the mng monorepo as the build context for the mng Dockerfile.
     # For PACKAGE: use a modified Dockerfile that installs mng from PyPI (no monorepo needed).
     mng_dockerfile_path = get_mng_dockerfile_path(resolved_install_mode)
-
-    # --- Package the target repo ---
-    target_repo_dir: Path | None = deploy_build_path / "target_repo"
-    with log_span("Packaging target repo at commit {}", commit_hash):
-        package_repo_at_commit(commit_hash, target_repo_dir, repo_root)
-    target_tarball = target_repo_dir / "current.tar.gz"
-    if not target_tarball.exists():
-        raise ScheduleDeployError(
-            f"Expected tarball at {target_tarball} after packaging target repo, but it was not found"
-        ) from None
 
     # Stage deploy files (collected from plugins via hook)
     staging_dir = deploy_build_path / "staging"

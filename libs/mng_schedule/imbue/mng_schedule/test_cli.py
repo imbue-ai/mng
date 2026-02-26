@@ -7,18 +7,19 @@ from click.testing import CliRunner
 from imbue.mng_schedule.cli.commands import schedule
 
 
-def test_schedule_add_requires_command(
+def test_schedule_add_defaults_command_to_create(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that schedule add requires --command."""
+    """Test that schedule add defaults --command to 'create' when not specified."""
     result = cli_runner.invoke(
         schedule,
         ["add"],
         obj=plugin_manager,
     )
+    # Should fail for missing --schedule, not missing --command
     assert result.exit_code != 0
-    assert "--command is required" in result.output
+    assert "--schedule is required" in result.output
 
 
 def test_schedule_add_requires_schedule(
@@ -270,11 +271,11 @@ def test_schedule_add_snapshot_raises_not_implemented(
     assert "--snapshot is not yet implemented" in str(result.exception)
 
 
-def test_schedule_add_full_copy_raises_not_implemented(
+def test_schedule_add_full_copy_accepted(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Test that --full-copy raises NotImplementedError."""
+    """Test that --full-copy is accepted and does not raise NotImplementedError."""
     result = cli_runner.invoke(
         schedule,
         [
@@ -286,9 +287,10 @@ def test_schedule_add_full_copy_raises_not_implemented(
             "--provider",
             "modal",
             "--full-copy",
+            "--no-auto-merge",
         ],
         obj=plugin_manager,
     )
+    # Should fail at deploy (provider loading), not NotImplementedError
     assert result.exit_code != 0
-    assert isinstance(result.exception, NotImplementedError)
-    assert "--full-copy is not yet implemented" in str(result.exception)
+    assert not isinstance(result.exception, NotImplementedError)

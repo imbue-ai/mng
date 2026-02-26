@@ -23,9 +23,11 @@ from imbue.mng_schedule.implementations.modal.deploy import build_deploy_config
 from imbue.mng_schedule.implementations.modal.deploy import detect_mng_install_mode
 from imbue.mng_schedule.implementations.modal.deploy import get_mng_dockerfile_path
 from imbue.mng_schedule.implementations.modal.deploy import get_modal_app_name
+from imbue.mng_schedule.implementations.modal.deploy import package_directory_as_tarball
 from imbue.mng_schedule.implementations.modal.deploy import parse_upload_spec
 from imbue.mng_schedule.implementations.modal.deploy import resolve_commit_hash_for_deploy
 from imbue.mng_schedule.implementations.modal.deploy import stage_deploy_files
+from imbue.mng_schedule.implementations.modal.deploy import try_get_repo_root
 from imbue.mng_schedule.implementations.modal.verification import build_modal_run_command
 
 
@@ -981,3 +983,92 @@ def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
     # Will fail because tmp_path is not a git repo, proving it tried to resolve fresh
     with pytest.raises(ScheduleDeployError):
         resolve_commit_hash_for_deploy(commit_hash_file, repo_root=tmp_path)
+
+
+# =============================================================================
+# try_get_repo_root Tests
+# =============================================================================
+
+
+def test_try_get_repo_root_returns_path_in_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """try_get_repo_root returns a Path when inside a git repository."""
+    import subprocess
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", str(repo_dir)], check=True, capture_output=True)
+    monkeypatch.chdir(repo_dir)
+
+    result = try_get_repo_root()
+    assert result is not None
+    assert result.is_dir()
+    assert (result / ".git").exists()
+
+
+def test_try_get_repo_root_returns_none_outside_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """try_get_repo_root returns None when not inside a git repository."""
+    monkeypatch.chdir(tmp_path)
+    result = try_get_repo_root()
+    assert result is None
+
+
+# =============================================================================
+# package_directory_as_tarball Tests
+# =============================================================================
+
+
+def test_package_directory_as_tarball_creates_tarball(tmp_path: Path) -> None:
+    """package_directory_as_tarball creates a current.tar.gz from the source directory."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file1.txt").write_text("hello")
+    (source_dir / "file2.txt").write_text("world")
+    sub_dir = source_dir / "subdir"
+    sub_dir.mkdir()
+    (sub_dir / "nested.txt").write_text("nested content")
+
+    dest_dir = tmp_path / "dest"
+    package_directory_as_tarball(source_dir, dest_dir)
+
+    tarball = dest_dir / "current.tar.gz"
+    assert tarball.exists()
+    assert tarball.stat().st_size > 0
+
+
+def test_package_directory_as_tarball_contents_extractable(tmp_path: Path) -> None:
+    """package_directory_as_tarball produces a tarball that extracts correctly."""
+    import tarfile
+
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "hello.txt").write_text("hello world")
+    sub_dir = source_dir / "sub"
+    sub_dir.mkdir()
+    (sub_dir / "nested.txt").write_text("nested")
+
+    dest_dir = tmp_path / "dest"
+    package_directory_as_tarball(source_dir, dest_dir)
+
+    # Extract and verify contents
+    extract_dir = tmp_path / "extracted"
+    extract_dir.mkdir()
+    with tarfile.open(dest_dir / "current.tar.gz", "r:gz") as tf:
+        tf.extractall(extract_dir)
+
+    assert (extract_dir / "hello.txt").read_text() == "hello world"
+    assert (extract_dir / "sub" / "nested.txt").read_text() == "nested"
+
+
+def test_package_directory_as_tarball_creates_dest_dir(tmp_path: Path) -> None:
+    """package_directory_as_tarball creates the destination directory if it does not exist."""
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    (source_dir / "file.txt").write_text("content")
+
+    dest_dir = tmp_path / "nonexistent" / "nested" / "dest"
+    assert not dest_dir.exists()
+
+    package_directory_as_tarball(source_dir, dest_dir)
+
+    assert dest_dir.exists()
+    assert (dest_dir / "current.tar.gz").exists()
