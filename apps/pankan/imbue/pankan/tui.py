@@ -1,3 +1,4 @@
+import subprocess
 from collections.abc import Hashable
 from concurrent.futures import Future
 from concurrent.futures import ThreadPoolExecutor
@@ -11,6 +12,7 @@ from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
 from urwid.widget.attr_map import AttrMap
+from urwid.widget.columns import Columns
 from urwid.widget.divider import Divider
 from urwid.widget.filler import Filler
 from urwid.widget.frame import Frame
@@ -18,10 +20,12 @@ from urwid.widget.listbox import ListBox
 from urwid.widget.listbox import SimpleFocusListWalker
 from urwid.widget.pile import Pile
 from urwid.widget.text import Text
+from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import AgentLifecycleState
+from imbue.mng.primitives import AgentName
 from imbue.pankan.data_types import AgentBoardEntry
 from imbue.pankan.data_types import BoardSection
 from imbue.pankan.data_types import BoardSnapshot
@@ -37,6 +41,7 @@ SPINNER_INTERVAL_SECONDS: float = 0.15
 PALETTE = [
     ("header", "white", "dark blue"),
     ("footer", "white", "dark blue"),
+    ("reversed", "standout", ""),
     # Agent states: only RUNNING and WAITING-needing-attention get color
     ("state_running", "light green", ""),
     ("state_attention", "light magenta", ""),
@@ -100,11 +105,15 @@ class _PankanState(MutableModel):
     mng_ctx: MngContext
     snapshot: BoardSnapshot | None = None
     frame: Any  # urwid Frame widget
-    footer_text: Any  # urwid Text widget
+    footer_left: Any  # urwid Text widget (left side of footer)
+    footer_right: Any  # urwid Text widget (right side of footer)
     loop: Any = None  # urwid MainLoop, set after construction
     spinner_index: int = 0
     refresh_future: Future[BoardSnapshot] | None = None
     executor: ThreadPoolExecutor | None = None
+    # Maps list walker index -> AgentName for selectable agent entries
+    index_to_agent: dict[int, AgentName] = {}
+    list_walker: Any = None  # SimpleFocusListWalker, set during display build
 
 
 class _PankanInputHandler(MutableModel):
@@ -122,9 +131,47 @@ class _PankanInputHandler(MutableModel):
             if self.state.refresh_future is None and self.state.loop is not None:
                 _start_refresh(self.state.loop, self.state)
             return True
+        if key in ("d", "D"):
+            _delete_focused_agent(self.state)
+            return True
         if key in ("up", "down", "page up", "page down", "home", "end"):
             return None
         return True
+
+
+def _get_focused_agent_name(state: _PankanState) -> AgentName | None:
+    """Get the agent name of the currently focused entry, or None."""
+    if state.list_walker is None:
+        return None
+    _, focus_index = state.list_walker.get_focus()
+    if focus_index is None:
+        return None
+    return state.index_to_agent.get(focus_index)
+
+
+def _delete_focused_agent(state: _PankanState) -> None:
+    """Delete the currently focused agent via mng destroy."""
+    agent_name = _get_focused_agent_name(state)
+    if agent_name is None:
+        return
+
+    state.footer_left.set_text(f"  Deleting {agent_name}...")
+
+    try:
+        subprocess.run(
+            ["mng", "destroy", str(agent_name), "--force"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        state.footer_left.set_text(f"  Deleted {agent_name}")
+    except (subprocess.TimeoutExpired, OSError) as e:
+        state.footer_left.set_text(f"  Failed to delete {agent_name}: {e}")
+        return
+
+    # Trigger a refresh to update the board
+    if state.refresh_future is None and state.loop is not None:
+        _start_refresh(state.loop, state)
 
 
 def _start_refresh(loop: MainLoop, state: _PankanState) -> None:
@@ -152,7 +199,7 @@ def _on_spinner_tick(loop: MainLoop, state: _PankanState) -> None:
 
     # Animate spinner
     frame_char = SPINNER_FRAMES[state.spinner_index % len(SPINNER_FRAMES)]
-    state.footer_text.set_text(f"  Refreshing {frame_char}")
+    state.footer_left.set_text(f"  Refreshing {frame_char}")
     state.spinner_index += 1
     _schedule_spinner_tick(loop, state)
 
@@ -166,7 +213,6 @@ def _finish_refresh(loop: MainLoop, state: _PankanState) -> None:
         state.snapshot = state.refresh_future.result()
     except Exception as e:
         logger.debug("Refresh failed: {}", e)
-        # Keep the old snapshot, just report the error
         if state.snapshot is not None:
             state.snapshot = BoardSnapshot(
                 entries=state.snapshot.entries,
@@ -181,9 +227,9 @@ def _finish_refresh(loop: MainLoop, state: _PankanState) -> None:
     now = datetime.now(tz=timezone.utc).strftime("%H:%M:%S")
     if state.snapshot is not None:
         elapsed = f"{state.snapshot.fetch_time_seconds:.1f}s"
-        state.footer_text.set_text(f"  Last refresh: {now} (took {elapsed}) | r: refresh | q: quit")
+        state.footer_left.set_text(f"  Last refresh: {now} (took {elapsed})  r: refresh")
     else:
-        state.footer_text.set_text(f"  Last refresh: {now} | r: refresh | q: quit")
+        state.footer_left.set_text(f"  Last refresh: {now}  r: refresh")
 
     _schedule_next_refresh(loop, state)
 
@@ -215,42 +261,28 @@ def _get_state_attr(entry: AgentBoardEntry, section: BoardSection) -> str:
     return ""
 
 
-def _format_check_markup(entry: AgentBoardEntry) -> list[str | tuple[Hashable, str]]:
-    """Build urwid text markup for CI check status.
+def _format_check_markup(entry: AgentBoardEntry) -> str:
+    """Build plain text for CI check status.
 
-    Only failing and pending checks get color. Passing checks are shown
-    in default color. Unknown checks are not shown at all.
+    Only failing and pending checks get color (handled at the widget level).
+    Passing checks are shown in plain text. Unknown checks are not shown.
     """
     if entry.pr is None or entry.pr.check_status == CheckStatus.UNKNOWN:
-        return []
-    check_attr = _CHECK_STATUS_ATTR.get(entry.pr.check_status)
-    if check_attr is not None:
-        return ["  checks ", (check_attr, entry.pr.check_status.lower())]
-    # PASSING: show in default color
-    return [f"  checks {entry.pr.check_status.lower()}"]
+        return ""
+    return f"  checks {entry.pr.check_status.lower()}"
 
 
-def _format_agent_line(entry: AgentBoardEntry, section: BoardSection) -> list[str | tuple[Hashable, str]]:
-    """Build urwid text markup for a single agent line.
-
-    Shows: name, agent state, PR info (number + checks + URL if applicable).
-    """
-    state_attr = _get_state_attr(entry, section)
+def _format_agent_text(entry: AgentBoardEntry, section: BoardSection) -> str:
+    """Build plain text for a single agent line (used with SelectableIcon)."""
     state_text = f"{entry.state:<10}"
-    parts: list[str | tuple[Hashable, str]] = [
-        f"  {entry.name:<24}",
-    ]
-    if state_attr:
-        parts.append((state_attr, state_text))
-    else:
-        parts.append(state_text)
+    parts = [f"  {entry.name:<24}", state_text]
 
     if entry.pr is not None:
         parts.append(f"  PR #{entry.pr.number}")
-        parts.extend(_format_check_markup(entry))
+        parts.append(_format_check_markup(entry))
         parts.append(f"  {entry.pr.url}")
 
-    return parts
+    return "".join(parts)
 
 
 def _format_section_heading(section: BoardSection, count: int) -> list[str | tuple[Hashable, str]]:
@@ -264,51 +296,65 @@ def _format_section_heading(section: BoardSection, count: int) -> list[str | tup
     return [(attr, prefix), f" - {suffix} ({count})"]
 
 
-def _build_board_widgets(snapshot: BoardSnapshot) -> list[Text | Divider]:
-    """Build the urwid widget list from a BoardSnapshot, grouped by PR state."""
+def _build_board_widgets(state: _PankanState) -> SimpleFocusListWalker[AttrMap | Text | Divider]:
+    """Build the urwid widget list from a BoardSnapshot, grouped by PR state.
+
+    Returns a SimpleFocusListWalker and populates state.index_to_agent with the
+    mapping from list walker index to agent name for selectable entries.
+    """
+    snapshot = state.snapshot
+    state.index_to_agent = {}
+
+    walker: SimpleFocusListWalker[AttrMap | Text | Divider] = SimpleFocusListWalker([])
+
+    if snapshot is None:
+        walker.append(Text("Loading..."))
+        return walker
+
     # Classify entries into sections
     by_section: dict[BoardSection, list[AgentBoardEntry]] = {}
     for entry in snapshot.entries:
         section = _classify_entry(entry)
         by_section.setdefault(section, []).append(entry)
 
-    widgets: list[Text | Divider] = []
+    has_content = False
 
     for section in BOARD_SECTION_ORDER:
         entries = by_section.get(section)
         if not entries:
             continue
 
-        if widgets:
-            widgets.append(Divider())
+        if has_content:
+            walker.append(Divider())
 
-        widgets.append(Text(_format_section_heading(section, len(entries))))
+        walker.append(Text(_format_section_heading(section, len(entries))))
+        has_content = True
 
         for entry in entries:
-            widgets.append(Text(_format_agent_line(entry, section)))
+            text = _format_agent_text(entry, section)
+            item = SelectableIcon(text, cursor_position=0)
+            idx = len(walker)
+            walker.append(AttrMap(item, None, focus_map="reversed"))
+            state.index_to_agent[idx] = entry.name
 
-    if not widgets:
-        widgets.append(Text("No agents found."))
+    if not has_content:
+        walker.append(Text("No agents found."))
 
     # Show errors if any
     if snapshot.errors:
-        widgets.append(Divider())
-        widgets.append(Text(("error_text", "Errors:")))
+        walker.append(Divider())
+        walker.append(Text(("error_text", "Errors:")))
         for error in snapshot.errors:
-            widgets.append(Text(("error_text", f"  {error}")))
+            walker.append(Text(("error_text", f"  {error}")))
 
-    return widgets
+    return walker
 
 
 def _refresh_display(state: _PankanState) -> None:
     """Rebuild the body display from the current snapshot."""
-    if state.snapshot is None:
-        body = Filler(Pile([Text("Loading...")]), valign="top")
-    else:
-        widgets = _build_board_widgets(state.snapshot)
-        body = ListBox(SimpleFocusListWalker(widgets))
-
-    state.frame.body = body
+    walker = _build_board_widgets(state)
+    state.list_walker = walker
+    state.frame.body = ListBox(walker)
 
 
 def _schedule_next_refresh(loop: MainLoop, state: _PankanState) -> None:
@@ -324,8 +370,11 @@ def _on_auto_refresh_alarm(loop: MainLoop, state: _PankanState) -> None:
 
 def run_pankan(mng_ctx: MngContext) -> None:
     """Run the pankan TUI board."""
-    footer_text = Text("  Loading...")
-    footer = Pile([Divider(), AttrMap(footer_text, "footer")])
+    footer_left = Text("  Loading...")
+    footer_right = Text("d: delete  q: quit  ", align="right")
+    pack: int = len("d: delete  q: quit  ")
+    footer_columns = Columns([footer_left, (pack, footer_right)])
+    footer = Pile([Divider(), AttrMap(footer_columns, "footer")])
 
     header = Pile(
         [
@@ -340,7 +389,8 @@ def run_pankan(mng_ctx: MngContext) -> None:
     state = _PankanState(
         mng_ctx=mng_ctx,
         frame=frame,
-        footer_text=footer_text,
+        footer_left=footer_left,
+        footer_right=footer_right,
     )
 
     input_handler = _PankanInputHandler(state=state)
