@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -22,11 +23,11 @@ def deploy_function(function: str, app_name: str, environment_name: str | None, 
         tmpdir_path = Path(tmpdir)
         with log_span("Deploying {} function for app: {}", function, app_name):
             try:
-                logger.debug("Currently running from {}", os.getcwd())
+                logger.trace("Currently running from {}", os.getcwd())
                 cg.run_process_to_completion(
                     [
-                        "uv",
-                        "run",
+                        sys.executable,
+                        "-m",
                         "modal",
                         "deploy",
                         *(["--env", environment_name] if environment_name else []),
