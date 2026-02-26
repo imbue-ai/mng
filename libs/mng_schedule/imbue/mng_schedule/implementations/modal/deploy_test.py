@@ -924,6 +924,39 @@ def test_build_package_mode_dockerfile_preserves_env_vars() -> None:
     assert "ENV UV_LINK_MODE=copy" in result
 
 
+def test_build_package_mode_dockerfile_raises_on_missing_sentinel() -> None:
+    """_build_package_mode_dockerfile raises if the install section end sentinel is missing."""
+    mng_dockerfile = (
+        "FROM python:3.11-slim\n"
+        "COPY . /code/\n"
+        "RUN tar -xzf /code/current.tar.gz -C /code/mng/\n"
+        "WORKDIR /code/mng/\n"
+        "RUN uv sync --all-packages\n"
+        # Missing 'RUN uv tool install' sentinel
+        'CMD ["sh", "-c", "tail -f /dev/null"]\n'
+    )
+    with pytest.raises(ScheduleDeployError, match="could not find the end of the monorepo install section"):
+        _build_package_mode_dockerfile(mng_dockerfile)
+
+
+def test_build_package_mode_dockerfile_works_with_real_dockerfile() -> None:
+    """_build_package_mode_dockerfile produces valid output from the actual mng Dockerfile."""
+    dockerfile_path = get_mng_dockerfile_path(MngInstallMode.EDITABLE)
+    mng_dockerfile_content = dockerfile_path.read_text()
+    result = _build_package_mode_dockerfile(mng_dockerfile_content)
+
+    # Must contain pip install replacement
+    assert "uv pip install --system mng mng-schedule" in result
+    # Must NOT contain monorepo-specific steps
+    assert "COPY . /code/" not in result
+    assert "uv sync" not in result
+    assert "uv tool install -e" not in result
+    # Must preserve the FROM instruction
+    assert "FROM" in result
+    # Must preserve system deps
+    assert "apt-get" in result
+
+
 # =============================================================================
 # resolve_commit_hash_for_deploy Tests
 # =============================================================================

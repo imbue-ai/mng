@@ -297,6 +297,13 @@ def _build_package_mode_dockerfile(mng_dockerfile_content: str) -> str:
 
         result_lines.append(line)
 
+    if is_in_install_section:
+        raise ScheduleDeployError(
+            "Failed to generate PACKAGE mode Dockerfile: could not find the end of the monorepo "
+            "install section (expected a 'RUN uv tool install' line after 'COPY . /code/'). "
+            "The mng Dockerfile structure may have changed."
+        )
+
     return "\n".join(result_lines) + "\n"
 
 
