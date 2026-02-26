@@ -406,23 +406,26 @@ def _build_remote_rsync_command(
     if is_delete:
         rsync_cmd.append("--delete")
 
-    if mode == SyncMode.PUSH:
-        # Local source -> remote destination
-        source_str = str(source_path)
-        if not source_str.endswith("/"):
-            source_str += "/"
-        dest_str = str(destination_path)
-        if not dest_str.endswith("/"):
-            dest_str += "/"
-        rsync_cmd.append(source_str)
-        rsync_cmd.append(f"{user}@{hostname}:{dest_str}")
-    else:
-        # Remote source -> local destination
-        source_str = str(source_path)
-        if not source_str.endswith("/"):
-            source_str += "/"
-        rsync_cmd.append(f"{user}@{hostname}:{source_str}")
-        rsync_cmd.append(str(destination_path))
+    match mode:
+        case SyncMode.PUSH:
+            # Local source -> remote destination
+            source_str = str(source_path)
+            if not source_str.endswith("/"):
+                source_str += "/"
+            dest_str = str(destination_path)
+            if not dest_str.endswith("/"):
+                dest_str += "/"
+            rsync_cmd.append(source_str)
+            rsync_cmd.append(f"{user}@{hostname}:{dest_str}")
+        case SyncMode.PULL:
+            # Remote source -> local destination
+            source_str = str(source_path)
+            if not source_str.endswith("/"):
+                source_str += "/"
+            rsync_cmd.append(f"{user}@{hostname}:{source_str}")
+            rsync_cmd.append(str(destination_path))
+        case _ as unreachable:
+            assert_never(unreachable)
 
     return rsync_cmd
 
