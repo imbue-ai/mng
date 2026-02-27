@@ -1,6 +1,5 @@
 import json
 import shlex
-import time
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import Callable
 from typing import Final
 from typing import Mapping
 from typing import Sequence
-from uuid import uuid4
 
 from loguru import logger
 from pydantic import Field
@@ -30,15 +28,11 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import Permission
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.polling import poll_until
+from imbue.mng.utils.tmux import TmuxSendError
+from imbue.mng.utils.tmux import send_message_to_tmux_pane
 
-# Constants for send_message marker-based synchronization
-_SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
-
-# Constants for signal-based synchronization
-# Note that this does need to be fairly long, since it can takea little while for the machine to respond if you're unlucky
-_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
 class BaseAgent(AgentInterface):
@@ -307,69 +301,13 @@ class BaseAgent(AgentInterface):
     def _send_message_with_marker(self, session_name: str, message: str) -> None:
         """Send a message using marker-based synchronization.
 
-        This approach appends a unique marker to the message, waits for it to appear
-        in the terminal, removes it with backspaces, and then sends Enter. This ensures
-        the input handler has fully processed the message text before submitting.
-
-        On failure (e.g. marker visibility or submission timeout), partial text
-        including the marker may remain in the input field. We intentionally do not
-        attempt cleanup because deleting text risks accidentally removing part of
-        the user's message -- leaving stale marker text is safer than data loss.
+        Delegates to the standalone tmux utility, translating TmuxSendError
+        to SendMessageError for backwards compatibility.
         """
-
-        # Generate a unique marker to detect when the message has been fully received
-        # Using just the UUID without newlines - newlines are harder to reliably delete
-        # with backspace in some input areas
-        marker = uuid4().hex
-        message_with_marker = message + marker
-
-        # Send the message with marker
-        send_msg_cmd = f"tmux send-keys -t '{session_name}' -l {shlex.quote(message_with_marker)}"
-        result = self.host.execute_command(send_msg_cmd)
-        if not result.success:
-            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
-
-        # Wait for the marker to appear in the pane (confirms message was fully received)
-        self._wait_for_marker_visible(session_name, marker)
-
-        # Remove the marker by sending backspaces (32 hex chars for UUID)
-        # Send backspaces and noop keys to clean up the marker
-        self._send_backspace_with_noop(session_name, count=len(marker))
-
-        # Verify the marker is gone and the message ends correctly
-        # Use the tail of the last line of the message as the expected ending, since
-        # only that portion is visible on the current input line in the tmux pane.
-        last_line = message.rsplit("\n", 1)[-1]
-        expected_ending = last_line[-32:] if len(last_line) > 32 else last_line
-        self._wait_for_message_ending(session_name, marker, expected_ending)
-
-        # Send Enter and wait for submission signal
-        self._send_enter_and_wait(session_name)
-
-    def _send_backspace_with_noop(self, session_name: str, count: int = 1) -> None:
-        """Send backspace(s) followed by noop keys to reset input handler state.
-
-        This helper sends the specified number of backspaces, then sends a no-op
-        key sequence (Left then Right) to reset state.
-
-        The noop keys are necessary because Claude Code's input handler can get into
-        a state after backspaces where Enter is interpreted as a literal newline.
-        Sending any key (even a no-op) before Enter fixes this.
-        """
-        if count > 0:
-            backspace_keys = " ".join(["BSpace"] * count)
-            backspace_cmd = f"tmux send-keys -t '{session_name}' {backspace_keys}"
-            result = self.host.execute_command(backspace_cmd)
-            if not result.success:
-                raise SendMessageError(
-                    str(self.name), f"tmux send-keys BSpace failed: {result.stderr or result.stdout}"
-                )
-
-        # Send a no-op key sequence (Left then Right) to reset input handler state
-        noop_cmd = f"tmux send-keys -t '{session_name}' Left Right"
-        result = self.host.execute_command(noop_cmd)
-        if not result.success:
-            logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
+        try:
+            send_message_to_tmux_pane(session_name, message, self.mng_ctx.concurrency_group)
+        except TmuxSendError as e:
+            raise SendMessageError(str(self.name), e.reason) from e
 
     def _capture_pane_content(self, session_name: str) -> str | None:
         """Capture the current pane content, returning None on failure."""
@@ -407,107 +345,10 @@ class BaseAgent(AgentInterface):
                     + (f"\nPane content:\n{pane_content}" if pane_content else ""),
                 )
 
-    def _wait_for_marker_visible(self, session_name: str, marker: str) -> None:
-        """Wait until the marker is visible in the tmux pane.
-
-        Note: We check if marker is IN the pane, not at the end, because
-        Claude Code has a status line at the bottom that appears after the input area.
-        """
-        with log_span("Waiting for marker: {}", marker):
-            if not poll_until(
-                lambda: self._check_pane_contains(session_name, marker),
-                timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-            ):
-                raise SendMessageError(
-                    str(self.name),
-                    f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
-                )
-
     def _check_pane_contains(self, session_name: str, text: str) -> bool:
         """Check if the pane content contains the given text."""
         content = self._capture_pane_content(session_name)
-        found = content is not None and text in content
-        return found
-
-    def _wait_for_message_ending(self, session_name: str, marker: str, expected_ending: str) -> None:
-        """Wait until the marker is removed and the expected message ending is visible.
-
-        Note: We check if expected_ending is IN the pane, not at the end, because
-        Claude Code has a status line at the bottom that appears after the input area.
-        """
-        if not poll_until(
-            lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
-            timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
-        ):
-            raise SendMessageError(
-                str(self.name),
-                f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
-            )
-        logger.trace("Verified marker removed and expected content visible in pane")
-
-    def _check_marker_removed_and_contains(self, session_name: str, marker: str, expected_ending: str) -> bool:
-        """Check if the marker is gone and pane contains expected content."""
-        content = self._capture_pane_content(session_name)
-        if content is None:
-            return False
-        marker_gone = marker not in content
-        contains_expected = expected_ending in content
-        return marker_gone and contains_expected
-
-    def _send_enter_and_wait(self, session_name: str) -> None:
-        """Send Enter to submit the message and wait for the submission signal.
-
-        Uses tmux wait-for to detect when the UserPromptSubmit hook fires.
-        Raises SendMessageError if the signal is not received within the timeout.
-        """
-        wait_channel = f"mng-submit-{session_name}"
-        if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-            logger.trace("Submitted message successfully")
-            return
-
-        pane_content = self._capture_pane_content(session_name)
-        if pane_content is not None:
-            logger.error(
-                "TUI send enter and wait timeout -- remote pane content:\n{}",
-                pane_content,
-            )
-        else:
-            logger.error("TUI send enter and wait timeout -- failed to capture remote pane content")
-
-        raise SendMessageError(
-            str(self.name),
-            f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
-        )
-
-    def _send_enter_and_wait_for_signal(self, session_name: str, wait_channel: str) -> bool:
-        """Send Enter and wait for the tmux wait-for signal from the hook.
-
-        This starts waiting BEFORE sending Enter to avoid a race condition where
-        the hook might fire before we start listening for the signal.
-
-        The sequence is:
-        1. Start tmux wait-for (with timeout) in background
-        2. Send Enter
-        3. Wait for the background process to complete
-
-        Returns True if signal received, False if timeout.
-        """
-        timeout_secs = _ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
-        cmd = (
-            f"bash -c '"
-            f'timeout {timeout_secs} tmux wait-for "$0" & W=$!; '
-            f'tmux send-keys -t "$1" Enter; '
-            f"wait $W"
-            f"' {shlex.quote(wait_channel)} {shlex.quote(session_name)}"
-        )
-        start = time.time()
-        result = self.host.execute_command(cmd, timeout_seconds=timeout_secs + 1)
-        elapsed_ms = (time.time() - start) * 1000
-        if result.success:
-            logger.trace("Received submission signal in {:.0f}ms", elapsed_ms)
-            return True
-        logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)
-        return False
+        return content is not None and text in content
 
     # =========================================================================
     # Status (Reported)
