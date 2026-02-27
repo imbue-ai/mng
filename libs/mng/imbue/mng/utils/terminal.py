@@ -1,3 +1,5 @@
+import math
+import re
 import sys
 from collections.abc import Callable
 from types import TracebackType
@@ -6,6 +8,7 @@ from typing import Final
 from typing import Self
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 
 ANSI_ERASE_LINE: Final[str] = "\r\x1b[K"
 ANSI_ERASE_TO_END: Final[str] = "\x1b[J"
@@ -16,6 +19,39 @@ ANSI_RESET: Final[str] = "\x1b[0m"
 def ansi_cursor_up(lines: int) -> str:
     """ANSI escape sequence to move the cursor up by the given number of lines."""
     return f"\x1b[{lines}A"
+
+
+_ANSI_ESCAPE_PATTERN: Final[re.Pattern[str]] = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\r")
+
+
+@pure
+def count_visual_lines(text: str, terminal_width: int) -> int:
+    """Count the number of visual terminal lines a text string occupies.
+
+    Accounts for both explicit newlines and line wrapping at the terminal width.
+    ANSI escape sequences are stripped before measuring visible length.
+    """
+    if not text:
+        return 0
+
+    if terminal_width <= 0:
+        return text.count("\n")
+
+    segments = text.split("\n")
+    count = 0
+    for segment in segments:
+        visible_len = len(_ANSI_ESCAPE_PATTERN.sub("", segment))
+        if visible_len == 0:
+            count += 1
+        else:
+            count += math.ceil(visible_len / terminal_width)
+
+    # The trailing empty segment from a final \n represents the cursor
+    # position at the start of the next line, not an additional visual line
+    if text.endswith("\n"):
+        count -= 1
+
+    return max(count, 0)
 
 
 class StderrInterceptor(MutableModel):

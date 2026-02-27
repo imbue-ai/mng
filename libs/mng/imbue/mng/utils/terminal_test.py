@@ -1,6 +1,7 @@
 from io import StringIO
 
 from imbue.mng.utils.terminal import StderrInterceptor
+from imbue.mng.utils.terminal import count_visual_lines
 
 
 def test_interceptor_routes_writes_through_callback() -> None:
@@ -82,3 +83,59 @@ def test_interceptor_errors_from_original() -> None:
 
     interceptor = StderrInterceptor(callback=lambda s: None, original_stderr=_WithErrors())
     assert interceptor.errors == "replace"
+
+
+# =============================================================================
+# Tests for count_visual_lines
+# =============================================================================
+
+
+def test_count_visual_lines_short_line() -> None:
+    """A short line that fits in the terminal is 1 visual line."""
+    assert count_visual_lines("hello\n", terminal_width=80) == 1
+
+
+def test_count_visual_lines_wrapping_line() -> None:
+    """A line longer than terminal width wraps to multiple visual lines."""
+    assert count_visual_lines("x" * 150 + "\n", terminal_width=100) == 2
+
+
+def test_count_visual_lines_exact_width() -> None:
+    """A line exactly at terminal width occupies 1 visual line."""
+    assert count_visual_lines("x" * 100 + "\n", terminal_width=100) == 1
+
+
+def test_count_visual_lines_multiple_lines() -> None:
+    """Multiple short lines are counted individually."""
+    assert count_visual_lines("line1\nline2\n", terminal_width=80) == 2
+
+
+def test_count_visual_lines_long_and_short_mixed() -> None:
+    """Mix of wrapping and non-wrapping lines."""
+    text = "x" * 150 + "\nshort\n"
+    assert count_visual_lines(text, terminal_width=100) == 3
+
+
+def test_count_visual_lines_strips_ansi_codes() -> None:
+    """ANSI escape codes should not count toward visible length."""
+    text = "\x1b[38;5;245m" + "x" * 50 + "\x1b[0m\n"
+    assert count_visual_lines(text, terminal_width=100) == 1
+
+
+def test_count_visual_lines_long_with_ansi_codes() -> None:
+    """A visually-long line with ANSI codes should still wrap correctly."""
+    text = "\x1b[31m" + "x" * 150 + "\x1b[0m\n"
+    assert count_visual_lines(text, terminal_width=100) == 2
+
+
+def test_count_visual_lines_no_trailing_newline() -> None:
+    """Text without a trailing newline."""
+    assert count_visual_lines("hello", terminal_width=80) == 1
+
+
+def test_count_visual_lines_empty_string() -> None:
+    assert count_visual_lines("", terminal_width=80) == 0
+
+
+def test_count_visual_lines_just_newline() -> None:
+    assert count_visual_lines("\n", terminal_width=80) == 1

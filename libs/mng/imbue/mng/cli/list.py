@@ -43,6 +43,7 @@ from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
 from imbue.mng.utils.terminal import ANSI_RESET
 from imbue.mng.utils.terminal import StderrInterceptor
 from imbue.mng.utils.terminal import ansi_cursor_up
+from imbue.mng.utils.terminal import count_visual_lines
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -592,12 +593,14 @@ class _StreamingHumanRenderer(MutableModel):
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
     _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
+    _terminal_width: int = PrivateAttr(default=120)
     _warning_texts: list[str] = PrivateAttr(default_factory=list)
     _warning_line_count: int = PrivateAttr(default=0)
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
         terminal_width = shutil.get_terminal_size((120, 24)).columns
+        self._terminal_width = terminal_width
         self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
@@ -613,7 +616,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             self.output.write(text)
             self._warning_texts.append(text)
-            self._warning_line_count += text.count("\n")
+            self._warning_line_count += count_visual_lines(text, self._terminal_width)
 
             if self.is_tty:
                 # Re-write the status line below the warning

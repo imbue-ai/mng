@@ -849,6 +849,32 @@ def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
     assert warning2_pos > warning1_pos
 
 
+def test_streaming_renderer_long_wrapping_warning_stays_pinned() -> None:
+    """A warning longer than terminal width should still be pinned at the bottom.
+
+    This is a regression test for a bug where _warning_line_count only counted
+    explicit newlines, not terminal line wrapping. Long warnings would leave ghost
+    copies between agent rows because cursor-up did not go back far enough.
+    """
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+
+    # Emit a warning that exceeds the default 120-column terminal width
+    long_warning = "WARNING: " + "x" * 200 + "\n"
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning(long_warning)
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # The warning should appear after agent-3 in the final output
+    agent3_pos = output.rfind("agent-3")
+    warning_pos = output.rfind("WARNING: " + "x" * 200)
+    assert warning_pos > agent3_pos
+
+
 # =============================================================================
 # Tests for _should_use_streaming_mode
 # =============================================================================
