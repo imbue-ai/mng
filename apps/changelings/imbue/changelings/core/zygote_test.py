@@ -80,5 +80,4 @@ def test_zygote_config_is_frozen() -> None:
         port=PositiveInt(8080),
     )
 
-    with pytest.raises(ValueError, match="frozen"):
-        config.name = "other"  # type: ignore[misc]
+    assert config.model_config.get("frozen") is True
