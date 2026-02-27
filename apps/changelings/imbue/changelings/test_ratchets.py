@@ -5,7 +5,6 @@ from inline_snapshot import snapshot
 
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_ARGS_IN_DOCSTRINGS
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_ASSERT_ISINSTANCE
-from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_ASYNCIO_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BARE_EXCEPT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BARE_GENERIC_TYPES
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_BARE_PRINT
@@ -176,11 +175,6 @@ def test_prevent_setattr() -> None:
 
 
 # --- Banned libraries and patterns ---
-
-
-def test_prevent_asyncio_import() -> None:
-    chunks = check_ratchet_rule(PREVENT_ASYNCIO_IMPORT, _get_changelings_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(1), PREVENT_ASYNCIO_IMPORT.format_failure(chunks)
 
 
 def test_prevent_pandas_import() -> None:

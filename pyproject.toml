@@ -183,13 +183,15 @@ ignore_imports = [
 name = "changelings layers contract"
 type = "layers"
 layers = [
-    "imbue.changelings.main",
+    "imbue.changelings.desktop_client",
     "imbue.changelings.cli",
-    "imbue.changelings.deploy",
+    "imbue.changelings.deployment",
     "imbue.changelings.server",
+    "imbue.changelings.core",
+    "imbue.changelings.interfaces",
     "imbue.changelings.config",
-    "imbue.changelings.mng_commands",
-    "imbue.changelings.data_types",
     "imbue.changelings.errors",
+    "imbue.changelings.data_types",
+    "imbue.changelings.utils",
     "imbue.changelings.primitives",
 ]

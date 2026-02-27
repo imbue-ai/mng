@@ -10,6 +10,8 @@ Each aspect of python software engineering is covered below in more detail in th
 
 Always follow these style directives. Keep the style consistent throughout the codebase
 
+Note that individual projects may have their own style_guide.md files--if they do, those are to be treated as *deltas* to this style guide (any directives there override the rules here) 
+
 # Primitives
 
 Avoid using primitives directly
