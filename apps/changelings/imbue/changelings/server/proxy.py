@@ -6,6 +6,13 @@ from imbue.imbue_common.pure import pure
 
 _COOKIE_PATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"(;\s*[Pp]ath\s*=\s*)([^;]*)")
 
+# Matches HTML attributes containing absolute-path URLs (starting with /)
+# Handles href, src, action, formaction with both single and double quotes
+_ABSOLUTE_PATH_ATTR_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"""((?:href|src|action|formaction)\s*=\s*)(["'])(/(?!/))""",
+    re.IGNORECASE,
+)
+
 
 @pure
 def _get_agent_prefix(changeling_name: ChangelingName) -> str:
@@ -141,17 +148,72 @@ def rewrite_cookie_path(set_cookie_header: str, changeling_name: ChangelingName)
 
 
 @pure
-def inject_websocket_shim_into_html(
+def rewrite_absolute_paths_in_html(
     html_content: str,
     changeling_name: ChangelingName,
 ) -> str:
-    """Inject the WebSocket shim script into an HTML document."""
-    shim = generate_websocket_shim_js(changeling_name)
+    """Rewrite absolute-path URLs in HTML attributes to include the agent prefix.
+
+    Handles href, src, action, formaction attributes. Rewrites /foo to /agents/{name}/foo
+    but leaves already-prefixed paths and protocol-relative URLs (//...) unchanged.
+    """
+    prefix = _get_agent_prefix(changeling_name)
+    result_parts: list[str] = []
+    last_end = 0
+
+    for match in _ABSOLUTE_PATH_ATTR_PATTERN.finditer(html_content):
+        quote = match.group(2)
+        path_start = match.group(3)
+
+        # Check full attribute value to avoid double-prefixing
+        remaining = html_content[match.start(3) :]
+        end_quote_idx = remaining.find(quote, 1)
+        full_path = remaining[:end_quote_idx] if end_quote_idx > 0 else remaining
+        if full_path.startswith(prefix + "/") or full_path == prefix:
+            result_parts.append(html_content[last_end : match.end()])
+        else:
+            result_parts.append(html_content[last_end : match.start(3)])
+            result_parts.append(f"{prefix}{path_start}")
+        last_end = match.end(3)
+
+    result_parts.append(html_content[last_end:])
+    return "".join(result_parts)
+
+
+@pure
+def _inject_into_head(html_content: str, injection: str) -> str:
+    """Inject content after the opening <head> tag."""
     if "<head>" in html_content:
-        return html_content.replace("<head>", "<head>" + shim, 1)
+        return html_content.replace("<head>", "<head>" + injection, 1)
     elif "<head " in html_content:
         idx = html_content.index("<head ")
         close_idx = html_content.index(">", idx)
-        return html_content[: close_idx + 1] + shim + html_content[close_idx + 1 :]
+        return html_content[: close_idx + 1] + injection + html_content[close_idx + 1 :]
     else:
-        return shim + html_content
+        return injection + html_content
+
+
+@pure
+def rewrite_proxied_html(
+    html_content: str,
+    changeling_name: ChangelingName,
+) -> str:
+    """Apply all HTML transformations needed for proxied responses.
+
+    This rewrites absolute-path URLs, injects a <base> tag for relative URL resolution,
+    and injects the WebSocket shim script.
+    """
+    prefix = _get_agent_prefix(changeling_name)
+
+    # Rewrite absolute paths in HTML attributes
+    rewritten = rewrite_absolute_paths_in_html(
+        html_content=html_content,
+        changeling_name=changeling_name,
+    )
+
+    # Build the injection: base tag + WS shim
+    base_tag = f'<base href="{prefix}/">'
+    shim = generate_websocket_shim_js(changeling_name)
+    injection = base_tag + shim
+
+    return _inject_into_head(html_content=rewritten, injection=injection)

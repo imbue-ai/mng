@@ -26,8 +26,8 @@ from imbue.changelings.server.cookie_manager import get_cookie_name_for_changeli
 from imbue.changelings.server.cookie_manager import verify_signed_cookie_value
 from imbue.changelings.server.proxy import generate_bootstrap_html
 from imbue.changelings.server.proxy import generate_service_worker_js
-from imbue.changelings.server.proxy import inject_websocket_shim_into_html
 from imbue.changelings.server.proxy import rewrite_cookie_path
+from imbue.changelings.server.proxy import rewrite_proxied_html
 from imbue.changelings.server.templates import render_auth_error_page
 from imbue.changelings.server.templates import render_landing_page
 from imbue.changelings.server.templates import render_login_redirect_page
@@ -292,15 +292,15 @@ def _build_proxy_response(
 
     content: str | bytes = backend_response.content
 
-    # Inject WebSocket shim into HTML responses
+    # Rewrite HTML responses (absolute paths, base tag, WS shim)
     content_type = backend_response.headers.get("content-type", "")
     if "text/html" in content_type:
         html_text = backend_response.text
-        injected_html = inject_websocket_shim_into_html(
+        rewritten_html = rewrite_proxied_html(
             html_content=html_text,
             changeling_name=changeling_name,
         )
-        content = injected_html.encode()
+        content = rewritten_html.encode()
 
     response = Response(content=content, status_code=backend_response.status_code)
     for header_key, header_values in resp_headers.items():
