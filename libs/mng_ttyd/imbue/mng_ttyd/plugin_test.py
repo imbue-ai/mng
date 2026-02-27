@@ -4,6 +4,7 @@ from typing import Any
 
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng_ttyd.plugin import TTYD_COMMAND
+from imbue.mng_ttyd.plugin import TTYD_SERVER_NAME
 from imbue.mng_ttyd.plugin import TTYD_WINDOW_NAME
 from imbue.mng_ttyd.plugin import override_command_options
 
@@ -82,3 +83,23 @@ def test_ttyd_command_is_parseable_as_named_command() -> None:
     named_cmd = NamedCommand.from_string(params["add_command"][0])
     assert named_cmd.window_name == TTYD_WINDOW_NAME
     assert str(named_cmd.command) == TTYD_COMMAND
+
+
+def test_ttyd_command_uses_random_port() -> None:
+    """Verify that the ttyd command binds to a random port (port 0) instead of a fixed port."""
+    assert "ttyd -p" in TTYD_COMMAND
+    assert "-p 0" not in TTYD_COMMAND  # Uses $PORT variable, not literal 0
+    assert "$PORT" in TTYD_COMMAND
+
+
+def test_ttyd_command_writes_server_log() -> None:
+    """Verify that the ttyd command writes to servers.jsonl for forwarding server discovery."""
+    assert "servers.jsonl" in TTYD_COMMAND
+    assert TTYD_SERVER_NAME in TTYD_COMMAND
+    assert "MNG_AGENT_STATE_DIR" in TTYD_COMMAND
+
+
+def test_ttyd_command_skips_log_when_no_state_dir() -> None:
+    """Verify that the command gracefully handles MNG_AGENT_STATE_DIR being unset."""
+    # The command uses 'if [ -n "$MNG_AGENT_STATE_DIR" ]' to conditionally write the log
+    assert 'if [ -n "$MNG_AGENT_STATE_DIR" ]' in TTYD_COMMAND
