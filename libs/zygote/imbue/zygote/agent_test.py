@@ -1,5 +1,6 @@
 import asyncio
 
+import anthropic
 import pytest
 
 from imbue.zygote.agent import DefaultToolExecutor
@@ -7,6 +8,7 @@ from imbue.zygote.agent import ZygoteAgent
 from imbue.zygote.conftest import FakeAsyncAnthropic
 from imbue.zygote.conftest import make_default_config
 from imbue.zygote.conftest import make_text_response
+from imbue.zygote.conftest import make_tool_use_response
 from imbue.zygote.errors import ToolExecutionError
 from imbue.zygote.errors import ZygoteError
 from imbue.zygote.primitives import MemoryKey
@@ -92,6 +94,42 @@ class TestZygoteAgent:
         response = asyncio.run(agent.receive_user_message(thread_id, "Hello!"))
 
         assert response == "Hi! How can I help?"
+        thread = agent.get_thread(thread_id)
+        assert len(thread.messages) == 2
+        assert thread.messages[0].role == MessageRole.USER
+        assert thread.messages[1].role == MessageRole.ASSISTANT
+
+    def test_receive_user_message_when_inner_dialog_already_replied(self) -> None:
+        """If the inner dialog sends a message to the same thread via tool,
+        that message should be returned directly without a second chat call."""
+        client = FakeAsyncAnthropic(
+            [
+                # Inner dialog calls send_message_to_thread on the same thread
+                make_tool_use_response(
+                    "send_message_to_thread",
+                    {"thread_id": "", "content": "I already replied!"},
+                ),
+                # After tool result, inner dialog finishes
+                make_text_response("Done processing."),
+            ]
+        )
+
+        agent = ZygoteAgent(config=make_default_config(), client=client)  # type: ignore[arg-type]
+        thread_id = ThreadId()
+
+        # Patch the tool_use_response to use the actual thread_id
+        # We need to set the thread_id in the tool input after we know it
+        client.messages._responses[0].content[0] = anthropic.types.ToolUseBlock(
+            id="tool_1",
+            type="tool_use",
+            name="send_message_to_thread",
+            input={"thread_id": str(thread_id), "content": "I already replied!"},
+        )
+
+        response = asyncio.run(agent.receive_user_message(thread_id, "Hello!"))
+
+        # Should return the inner dialog's tool-sent message, not generate a new chat response
+        assert response == "I already replied!"
         thread = agent.get_thread(thread_id)
         assert len(thread.messages) == 2
         assert thread.messages[0].role == MessageRole.USER

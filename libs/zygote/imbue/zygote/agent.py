@@ -167,6 +167,10 @@ class ZygoteAgent:
         """Handle a user message: notify inner dialog, then generate chat response.
 
         Returns the assistant's chat response for the thread.
+
+        If the inner dialog already sent a message to this thread (via the
+        send_message_to_thread tool), that message is returned directly
+        instead of generating a separate chat response.
         """
         self.add_user_message(thread_id, message)
 
@@ -190,9 +194,15 @@ class ZygoteAgent:
         if len(self._inner_dialog_state.messages) > self._config.max_inner_dialog_messages:
             await self.compact_inner_dialog()
 
+        # If the inner dialog already replied to this thread (via the
+        # send_message_to_thread tool), return that reply directly instead
+        # of generating a separate chat response.
+        thread = self.get_thread(thread_id)
+        if thread.messages and thread.messages[-1].role == MessageRole.ASSISTANT:
+            return thread.messages[-1].content
+
         inner_summary = get_inner_dialog_summary(self._inner_dialog_state)
 
-        thread = self.get_thread(thread_id)
         response = await generate_chat_response(
             thread=thread,
             inner_dialog_summary=inner_summary,

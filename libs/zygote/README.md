@@ -38,7 +38,7 @@ Three prompts control all behavior:
 import anthropic
 from imbue.zygote.agent import ZygoteAgent
 from imbue.zygote.data_types import ZygoteAgentConfig
-from imbue.zygote.primitives import ModelName, ThreadId
+from imbue.zygote.primitives import ModelName, NotificationSource, ThreadId
 
 config = ZygoteAgentConfig(
     agent_name="my-agent",
@@ -66,9 +66,23 @@ To add mng-based sub-agent creation, subclass `ZygoteAgent` and override `create
 
 ```python
 from imbue.zygote.tools import ToolExecutor
+from imbue.zygote.primitives import MemoryKey, ThreadId
 
 class MyToolExecutor(ToolExecutor):
-    async def create_sub_agent(self, name, agent_type, message):
+    async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
+        # Default: delegate to agent
+        ...
+
+    async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
         # Call mng to create a sub-agent
+        ...
+
+    async def read_memory(self, key: MemoryKey) -> str:
+        ...
+
+    async def write_memory(self, key: MemoryKey, value: str) -> str:
+        ...
+
+    async def compact_history(self) -> str:
         ...
 ```
