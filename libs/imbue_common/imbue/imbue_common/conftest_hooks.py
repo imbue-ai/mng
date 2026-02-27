@@ -704,8 +704,6 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
 
     Guards are active during setup, call, and teardown. If a test uses a
     resource (directly or via fixtures), it needs the corresponding mark.
-    For example, a test that requests temp_git_repo needs @pytest.mark.git
-    because the fixture calls git init.
 
     Setting vars early also ensures fixtures that snapshot os.environ
     (like get_subprocess_test_env) capture the guard configuration.
