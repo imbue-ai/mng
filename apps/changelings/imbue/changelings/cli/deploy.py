@@ -11,6 +11,7 @@ from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
 from imbue.changelings.config.data_types import get_default_data_dir
 from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.core.zygote import load_zygote_config
+from imbue.changelings.deployment.local import DeploymentResult
 from imbue.changelings.deployment.local import clone_git_repo
 from imbue.changelings.deployment.local import deploy_local
 from imbue.changelings.errors import ChangelingError
@@ -91,13 +92,17 @@ def _prompt_self_deploy() -> SelfDeployChoice:
         return SelfDeployChoice.NOT_NOW
 
 
-def _deploy_and_serve(
+def _run_deployment(
     zygote_dir: Path,
     zygote_config: ZygoteConfig,
     agent_name: str,
     provider: DeploymentProvider,
-) -> None:
-    """Deploy the changeling and start the forwarding server."""
+) -> DeploymentResult:
+    """Deploy the changeling and return the result.
+
+    This creates the mng agent but does NOT start the forwarding server.
+    Raises ChangelingError if deployment fails.
+    """
     if provider != DeploymentProvider.LOCAL:
         raise ChangelingError(
             "Only local deployment is supported for now. Support for {} is coming soon.".format(provider.value.lower())
@@ -124,6 +129,11 @@ def _deploy_and_serve(
     if deploy_error is not None:
         raise deploy_error
 
+    return result
+
+
+def _print_result_and_start_server(result: DeploymentResult) -> None:
+    """Print the deployment result and start the forwarding server (blocks until interrupted)."""
     _write_line("")
     _write_line("=" * 60)
     _write_line("Changeling deployed successfully")
@@ -142,10 +152,11 @@ def _deploy_and_serve(
     _write_line("=" * 60)
     _write_line("")
 
+    paths = ChangelingPaths(data_dir=get_default_data_dir())
     start_forwarding_server(
         data_directory=paths.data_dir,
         host="127.0.0.1",
-        port=forwarding_port,
+        port=DEFAULT_FORWARDING_SERVER_PORT,
     )
 
 
@@ -234,7 +245,7 @@ def deploy(
             logger.debug("Self-deploy enabled (not yet implemented)")
 
         try:
-            _deploy_and_serve(
+            result = _run_deployment(
                 zygote_dir=zygote_dir,
                 zygote_config=zygote_config,
                 agent_name=agent_name,
@@ -247,3 +258,5 @@ def deploy(
     finally:
         if not deploy_succeeded:
             shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
+
+    _print_result_and_start_server(result)
