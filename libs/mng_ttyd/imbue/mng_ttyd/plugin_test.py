@@ -86,10 +86,8 @@ def test_ttyd_command_is_parseable_as_named_command() -> None:
 
 
 def test_ttyd_command_uses_random_port() -> None:
-    """Verify that the ttyd command binds to a random port (port 0) instead of a fixed port."""
-    assert "ttyd -p" in TTYD_COMMAND
-    assert "-p 0" not in TTYD_COMMAND  # Uses $PORT variable, not literal 0
-    assert "$PORT" in TTYD_COMMAND
+    """Verify that the ttyd command binds to a random port via -p 0."""
+    assert "ttyd -p 0" in TTYD_COMMAND
 
 
 def test_ttyd_command_writes_server_log() -> None:
@@ -99,7 +97,11 @@ def test_ttyd_command_writes_server_log() -> None:
     assert "MNG_AGENT_STATE_DIR" in TTYD_COMMAND
 
 
+def test_ttyd_command_watches_stderr_for_port() -> None:
+    """Verify that the command parses the port from ttyd's output."""
+    assert "Listening on port:" in TTYD_COMMAND
+
+
 def test_ttyd_command_skips_log_when_no_state_dir() -> None:
     """Verify that the command gracefully handles MNG_AGENT_STATE_DIR being unset."""
-    # The command uses 'if [ -n "$MNG_AGENT_STATE_DIR" ]' to conditionally write the log
     assert 'if [ -n "$MNG_AGENT_STATE_DIR" ]' in TTYD_COMMAND
