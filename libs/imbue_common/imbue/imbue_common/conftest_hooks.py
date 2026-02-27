@@ -74,7 +74,6 @@ _SHARED_MARKERS: Final[list[str]] = [
     "release: marks tests as being required for release (but not for merging PRs)",
     "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
     "tmux: marks tests that create real tmux sessions or mng agents (slow, requires tmux)",
-    "git: marks tests that run real git commands via subprocess (clone, commit, push, pull)",
     "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
     "rsync: marks tests that invoke rsync for file transfer",
     "unison: marks tests that start a real unison file-sync process",
