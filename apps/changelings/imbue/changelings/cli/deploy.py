@@ -102,15 +102,22 @@ def _deploy_and_serve(
     forwarding_port = DEFAULT_FORWARDING_SERVER_PORT
 
     cg = ConcurrencyGroup(name="changeling-deploy")
+    deploy_error: ChangelingError | None = None
     with cg:
-        result = deploy_local(
-            zygote_dir=zygote_dir,
-            zygote_config=zygote_config,
-            agent_name=agent_name,
-            paths=paths,
-            forwarding_server_port=forwarding_port,
-            concurrency_group=cg,
-        )
+        try:
+            result = deploy_local(
+                zygote_dir=zygote_dir,
+                zygote_config=zygote_config,
+                agent_name=agent_name,
+                paths=paths,
+                forwarding_server_port=forwarding_port,
+                concurrency_group=cg,
+            )
+        except ChangelingError as e:
+            deploy_error = e
+
+    if deploy_error is not None:
+        raise deploy_error
 
     _write_line("")
     _write_line("=" * 60)
