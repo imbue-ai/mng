@@ -1692,6 +1692,8 @@ def test_create_work_dir_copy_with_git_copies_info_exclude(
     assert target_exclude.read_text() == "my_custom_pattern\n"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
