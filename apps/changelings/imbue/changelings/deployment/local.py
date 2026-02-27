@@ -141,8 +141,17 @@ def _check_agent_not_exists(
         logger.debug("Agent existence check failed (exit code {}), proceeding", result.returncode)
         return
 
+    _raise_if_agent_exists(agent_name, result.stdout)
+
+
+def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
+    """Parse mng list JSON output and raise if an agent with the given name exists.
+
+    Silently returns if the output cannot be parsed as JSON (defensive -- the caller
+    already verified the subprocess succeeded).
+    """
     try:
-        data = json.loads(result.stdout)
+        data = json.loads(mng_list_output)
     except json.JSONDecodeError:
         logger.debug("Failed to parse mng list output for existence check, proceeding")
         return

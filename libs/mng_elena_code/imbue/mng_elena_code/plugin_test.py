@@ -1,8 +1,21 @@
 """Unit tests for the mng_elena_code plugin."""
 
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
+
+import pluggy
 
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
+from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.config.data_types import MngConfig
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import AgentTypeName
+from imbue.mng.primitives import HostId
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_COMMAND
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
@@ -13,6 +26,29 @@ from imbue.mng_elena_code.plugin import override_command_options
 
 class _DummyCommandClass:
     pass
+
+
+def _make_elena_agent(tmp_path: Path) -> ElenaCodeAgent:
+    """Create an ElenaCodeAgent with minimal dependencies for testing assemble_command."""
+    pm = pluggy.PluginManager("mng")
+    config = MngConfig(default_host_dir=tmp_path / "host")
+    mng_ctx = MngContext.model_construct(
+        config=config,
+        pm=pm,
+        profile_dir=tmp_path / "profile",
+    )
+
+    return ElenaCodeAgent.model_construct(
+        id=AgentId.generate(),
+        name=AgentName("test-elena"),
+        agent_type=AgentTypeName("elena-code"),
+        work_dir=tmp_path / "work",
+        create_time=datetime.now(timezone.utc),
+        host_id=HostId.generate(),
+        mng_ctx=mng_ctx,
+        agent_config=ClaudeAgentConfig(check_installation=False),
+        host=MagicMock(is_local=True, host_dir=tmp_path / "host"),
+    )
 
 
 def test_elena_code_agent_inherits_from_claude_zygote_agent() -> None:
@@ -74,3 +110,38 @@ def test_elena_system_prompt_is_conversational() -> None:
 def test_elena_system_prompt_forbids_code_writing() -> None:
     """Verify that the system prompt instructs Elena not to write code."""
     assert "NEVER write code" in ELENA_SYSTEM_PROMPT
+
+
+def test_elena_assemble_command_includes_system_prompt(tmp_path: Path) -> None:
+    """Verify that ElenaCodeAgent.assemble_command injects the system prompt."""
+    agent = _make_elena_agent(tmp_path)
+    host = agent.host
+
+    command = agent.assemble_command(host=host, agent_args=(), command_override=None)
+
+    assert "--append-system-prompt" in str(command)
+
+
+def test_elena_assemble_command_prompt_is_quoted(tmp_path: Path) -> None:
+    """Verify that the system prompt is shell-quoted in the assembled command."""
+    agent = _make_elena_agent(tmp_path)
+    host = agent.host
+
+    command = agent.assemble_command(host=host, agent_args=(), command_override=None)
+
+    # shlex.quote wraps multi-word strings in single quotes
+    assert "'" in str(command)
+    # The prompt text should appear (quoted) in the command
+    assert "Elena" in str(command)
+
+
+def test_elena_assemble_command_preserves_agent_args(tmp_path: Path) -> None:
+    """Verify that additional agent_args are preserved alongside the system prompt."""
+    agent = _make_elena_agent(tmp_path)
+    host = agent.host
+
+    command = agent.assemble_command(host=host, agent_args=("--model", "sonnet"), command_override=None)
+
+    assert "--append-system-prompt" in str(command)
+    assert "--model" in str(command)
+    assert "sonnet" in str(command)
