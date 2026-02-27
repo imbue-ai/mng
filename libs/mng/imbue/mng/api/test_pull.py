@@ -45,7 +45,6 @@ def pull_ctx(tmp_path: Path) -> SyncTestContext:
 
 @pytest.mark.git
 @pytest.mark.rsync
-@pytest.mark.rsync
 def test_pull_files_fail_mode_with_no_uncommitted_changes_succeeds(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
