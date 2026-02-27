@@ -12,6 +12,6 @@ This is the primary flow for how a user would deploy a changeling for the first 
 4. We run: `git clone <agent-repo-url> && mng create --in <provider> <...extra args determined by file in agent repo>`
    If the user wants the agent to be able to run its own agents and tasks, we ensure that `mng` is injected as well.
 5. We ensure a local forwarding server daemon process is running (for forwarding web requests and handling authentication). One-time auth codes are generated and stored for the new changeling.
-6. We're done: print the associated URL where the agent can be accessed (e.g. http://localhost:8420/agents/elena-turing/)
+6. We're done: print the associated URL where the agent can be accessed (e.g. http://localhost:8420/agents/<agent-id>/)
 
 The point of this whole flow is to make it as easy as possible for users to deploy a new changeling.
