@@ -3,7 +3,7 @@ from typing import Any
 
 import click
 import pluggy
-from click.shell_completion import CompletionItem
+import setproctitle
 from click_option_group import OptionGroup
 
 from imbue.imbue_common.model_update import to_update
@@ -38,40 +38,17 @@ from imbue.mng.cli.snapshot import snapshot
 from imbue.mng.cli.start import start
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
-from imbue.mng.config.loader import read_disabled_plugins
+from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
+from imbue.mng.utils.click_utils import detect_alias_to_canonical
+from imbue.mng.utils.click_utils import detect_aliases_by_command
 
 # Module-level container for the plugin manager singleton, created lazily.
 # Using a dict avoids the need for the 'global' keyword while still allowing module-level state.
 _plugin_manager_container: dict[str, pluggy.PluginManager | None] = {"pm": None}
-
-# Command aliases - maps canonical command names to their aliases
-# This is used by the help formatter to display aliases
-COMMAND_ALIASES: dict[str, list[str]] = {
-    "create": ["c"],
-    "cleanup": ["clean"],
-    "config": ["cfg"],
-    "destroy": ["rm"],
-    "exec": ["x"],
-    "message": ["msg"],
-    "list": ["ls"],
-    "connect": ["conn"],
-    "provision": ["prov"],
-    "stop": ["s"],
-    "plugin": ["plug"],
-    "limit": ["lim"],
-    "rename": ["mv"],
-    "snapshot": ["snap"],
-}
-
-# Build reverse mapping: alias -> canonical name
-_ALIAS_TO_CANONICAL: dict[str, str] = {}
-for canonical, aliases in COMMAND_ALIASES.items():
-    for alias in aliases:
-        _ALIAS_TO_CANONICAL[alias] = canonical
 
 
 def _call_on_error_hook(ctx: click.Context, error: BaseException) -> None:
@@ -130,13 +107,16 @@ class AliasAwareGroup(DefaultCommandGroup):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Write the command list with aliases shown inline."""
+        alias_to_canonical = detect_alias_to_canonical(self)
+        aliases_by_cmd = detect_aliases_by_command(self)
+
         commands: list[tuple[str, click.Command]] = []
         for subcommand in self.list_commands(ctx):
             cmd = self.get_command(ctx, subcommand)
             if cmd is None or cmd.hidden:
                 continue
             # Skip alias entries - we'll show them with the main command
-            if subcommand in _ALIAS_TO_CANONICAL:
+            if subcommand in alias_to_canonical:
                 continue
             commands.append((subcommand, cmd))
 
@@ -151,7 +131,7 @@ class AliasAwareGroup(DefaultCommandGroup):
             meta = get_help_metadata(subcommand)
             help_text = meta.one_line_description if meta is not None else cmd.get_short_help_str(limit=limit)
             # Add aliases if this command has them
-            aliases = COMMAND_ALIASES.get(subcommand, [])
+            aliases = aliases_by_cmd.get(subcommand, [])
             if aliases:
                 subcommand = ", ".join([subcommand] + aliases)
             rows.append((subcommand, help_text))
@@ -159,15 +139,6 @@ class AliasAwareGroup(DefaultCommandGroup):
         if rows:
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
-
-    def shell_complete(self, ctx: click.Context, incomplete: str) -> list[CompletionItem]:
-        completions = super().shell_complete(ctx, incomplete)
-        completed_names = {item.value for item in completions}
-        return [
-            item
-            for item in completions
-            if item.value not in _ALIAS_TO_CANONICAL or _ALIAS_TO_CANONICAL[item.value] not in completed_names
-        ]
 
 
 @click.command(cls=AliasAwareGroup)
@@ -177,6 +148,8 @@ def cli(ctx: click.Context) -> None:
     """
     Initial entry point for mng CLI commands.
     """
+    setproctitle.setproctitle("mng")
+
     # expose the plugin manager in the command context so that all commands have access to it
     # This uses the singleton that was already created during command registration
     pm = get_or_create_plugin_manager()

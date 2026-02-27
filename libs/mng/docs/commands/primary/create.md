@@ -154,6 +154,7 @@ See [Provision Options](../secondary/provision.md) for full details.
 | `--host-env-file` | path | Load env file for host [repeatable] | None |
 | `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
 | `--known-host` | text | SSH known_hosts entry to add to the host (for outbound SSH) [repeatable] | None |
+| `--authorized-key` | text | SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable] | None |
 
 ## New Host Build
 

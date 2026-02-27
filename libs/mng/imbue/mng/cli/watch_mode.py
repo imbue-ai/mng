@@ -3,7 +3,23 @@ from collections.abc import Callable
 from loguru import logger
 
 from imbue.mng.errors import MngError
-from imbue.mng.utils.polling import wait_for
+from imbue.mng.utils.polling import run_periodically
+
+
+def _run_iteration_with_logging(
+    iteration_fn: Callable[[], None],
+    on_error_continue: bool,
+    interval_seconds: int,
+) -> None:
+    """Run a single watch-mode iteration with error handling and logging."""
+    try:
+        iteration_fn()
+    except MngError as e:
+        if on_error_continue:
+            logger.error("Error in iteration (continuing): {}", e)
+        else:
+            raise
+    logger.info("\nWaiting {} seconds until next refresh...", interval_seconds)
 
 
 def run_watch_loop(
@@ -22,25 +38,7 @@ def run_watch_loop(
     logger.info("Starting watch mode: refreshing every {} seconds", interval_seconds)
     logger.info("Press Ctrl+C to stop")
 
-    # NOTE: This is essentially a `while True` loop - it runs until KeyboardInterrupt.
-    # We use `is_running` instead of `True` to pass the ratchet test that bans `while True`.
-    # this is an awful hack but gc.py does it too...
-    is_running = True
-    while is_running:
-        try:
-            iteration_fn()
-        except MngError as e:
-            if on_error_continue:
-                logger.error("Error in iteration (continuing): {}", e)
-            else:
-                raise
-
-        logger.info("\nWaiting {} seconds until next refresh...", interval_seconds)
-        try:
-            wait_for(
-                condition=lambda: False,
-                timeout=float(interval_seconds),
-                poll_interval=0.5,
-            )
-        except TimeoutError:
-            pass
+    run_periodically(
+        fn=lambda: _run_iteration_with_logging(iteration_fn, on_error_continue, interval_seconds),
+        interval=float(interval_seconds),
+    )

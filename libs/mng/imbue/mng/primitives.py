@@ -189,6 +189,7 @@ class HostState(UpperCaseStrEnum):
     CRASHED = auto()
     FAILED = auto()
     DESTROYED = auto()
+    UNAUTHENTICATED = auto()
 
 
 class AgentLifecycleState(UpperCaseStrEnum):

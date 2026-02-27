@@ -1889,6 +1889,91 @@ def test_create_work_dir_generates_new_branch(
     assert result.stdout.strip().startswith("test/")
 
 
+def test_create_work_dir_preserves_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer preserves the origin remote from the source repo."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    # Add an origin remote to the source repo
+    subprocess.run(
+        ["git", "remote", "add", "origin", "https://github.com/owner/repo.git"],
+        cwd=source_path,
+        check=True,
+        capture_output=True,
+    )
+
+    target_path = temp_dir / "target_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Check that origin remote was preserved on the target
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "https://github.com/owner/repo.git"
+
+
+def test_create_work_dir_works_without_origin_remote(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that git transfer works when the source repo has no origin remote."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_no_origin"
+    source_path.mkdir()
+    (source_path / "file.txt").write_text("content")
+
+    _init_git_repo(source_path)
+
+    target_path = temp_dir / "target_no_origin"
+
+    options = CreateAgentOptions(
+        name=AgentName("no-origin-test"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+        git=AgentGitOptions(is_new_branch=True, new_branch_prefix="test/"),
+    )
+
+    work_dir = host.create_agent_work_dir(host, source_path, options).path
+
+    assert work_dir == target_path
+    assert (work_dir / "file.txt").read_text() == "content"
+
+    # Verify no origin remote exists (since source had none)
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+
+
 # =============================================================================
 # Agent Environment Variable Tests
 # =============================================================================
