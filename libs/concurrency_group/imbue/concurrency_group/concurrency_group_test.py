@@ -311,6 +311,8 @@ def _create_two_nested_concurrency_groups_that_expect_parent_failure(
         with concurrency_group.make_concurrency_group(name="middle") as cg_middle:
             try:
                 with cg_middle.make_concurrency_group(name="inner") as cg_inner:
+                    # Thread must outlast the outer CG's TINY_SLEEP exit timeout (to trigger
+                    # the timeout error) but eventually finish (to update the closure).
                     thread = cg_inner.start_new_thread(target=lambda: closure.update({"i": _sleep_and_return_1()}))
                     setup_done_event.set()
                     thread.join()
