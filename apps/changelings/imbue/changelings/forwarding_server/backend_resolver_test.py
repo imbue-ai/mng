@@ -1,16 +1,27 @@
 import json
 from pathlib import Path
 
-from imbue.changelings.forwarding_server.backend_resolver import FileBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import SERVERS_LOG_FILENAME
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
-from imbue.changelings.forwarding_server.backend_resolver import register_backend
 from imbue.mng.primitives import AgentId
 
 _AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
 _AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
 
 
-def test_get_backend_url_returns_url_for_known_agent() -> None:
+def _write_server_log(host_dir: Path, agent_id: AgentId, server: str, url: str) -> None:
+    """Write a server log record for an agent, simulating what a zygote does on startup."""
+    logs_dir = host_dir / "agents" / str(agent_id) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    with open(logs_dir / SERVERS_LOG_FILENAME, "a") as f:
+        f.write(json.dumps({"server": server, "url": url}) + "\n")
+
+
+# -- StaticBackendResolver tests --
+
+
+def test_static_get_backend_url_returns_url_for_known_agent() -> None:
     resolver = StaticBackendResolver(
         url_by_agent_id={str(_AGENT_A): "http://localhost:3001"},
     )
@@ -18,7 +29,7 @@ def test_get_backend_url_returns_url_for_known_agent() -> None:
     assert url == "http://localhost:3001"
 
 
-def test_get_backend_url_returns_none_for_unknown_agent() -> None:
+def test_static_get_backend_url_returns_none_for_unknown_agent() -> None:
     resolver = StaticBackendResolver(
         url_by_agent_id={str(_AGENT_A): "http://localhost:3001"},
     )
@@ -26,7 +37,7 @@ def test_get_backend_url_returns_none_for_unknown_agent() -> None:
     assert url is None
 
 
-def test_list_known_agent_ids_returns_sorted_ids() -> None:
+def test_static_list_known_agent_ids_returns_sorted_ids() -> None:
     resolver = StaticBackendResolver(
         url_by_agent_id={
             str(_AGENT_B): "http://localhost:3002",
@@ -37,97 +48,100 @@ def test_list_known_agent_ids_returns_sorted_ids() -> None:
     assert ids == (_AGENT_A, _AGENT_B)
 
 
-def test_list_known_agent_ids_returns_empty_tuple_when_no_agents() -> None:
+def test_static_list_known_agent_ids_returns_empty_tuple_when_no_agents() -> None:
     resolver = StaticBackendResolver(url_by_agent_id={})
     ids = resolver.list_known_agent_ids()
     assert ids == ()
 
 
-def test_file_resolver_returns_url_from_file(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
-    backends_file.write_text(json.dumps({str(_AGENT_A): "http://localhost:9100"}))
-
-    resolver = FileBackendResolver(backends_path=backends_file)
-
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100"
-    assert resolver.get_backend_url(_AGENT_B) is None
+# -- AgentLogsBackendResolver tests --
 
 
-def test_file_resolver_returns_none_when_file_missing(tmp_path: Path) -> None:
-    resolver = FileBackendResolver(backends_path=tmp_path / "nonexistent.json")
+def test_agent_logs_resolver_returns_url_from_server_log(tmp_path: Path) -> None:
+    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100/"
+
+
+def test_agent_logs_resolver_returns_none_for_unknown_agent(tmp_path: Path) -> None:
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
     assert resolver.get_backend_url(_AGENT_A) is None
 
 
-def test_file_resolver_lists_known_agents(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
-    backends_file.write_text(
-        json.dumps(
-            {
-                str(_AGENT_B): "http://localhost:9101",
-                str(_AGENT_A): "http://localhost:9100",
-            }
-        )
-    )
+def test_agent_logs_resolver_returns_none_when_no_agents_dir(tmp_path: Path) -> None:
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    resolver = FileBackendResolver(backends_path=backends_file)
+    assert resolver.get_backend_url(_AGENT_A) is None
+
+
+def test_agent_logs_resolver_returns_most_recent_url(tmp_path: Path) -> None:
+    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200/")
+
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9200/"
+
+
+def test_agent_logs_resolver_lists_known_agents(tmp_path: Path) -> None:
+    _write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101/")
+    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
     ids = resolver.list_known_agent_ids()
 
     assert ids == (_AGENT_A, _AGENT_B)
 
 
-def test_file_resolver_returns_empty_for_missing_file(tmp_path: Path) -> None:
-    resolver = FileBackendResolver(backends_path=tmp_path / "nonexistent.json")
+def test_agent_logs_resolver_returns_empty_when_no_agents(tmp_path: Path) -> None:
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
     ids = resolver.list_known_agent_ids()
 
     assert ids == ()
 
 
-def test_file_resolver_handles_invalid_json(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
-    backends_file.write_text("not json")
+def test_agent_logs_resolver_ignores_agents_without_server_logs(tmp_path: Path) -> None:
+    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
 
-    resolver = FileBackendResolver(backends_path=backends_file)
+    # Create agent B's directory but without servers.jsonl
+    agent_b_dir = tmp_path / "agents" / str(_AGENT_B)
+    agent_b_dir.mkdir(parents=True)
+
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+    ids = resolver.list_known_agent_ids()
+
+    assert ids == (_AGENT_A,)
+
+
+def test_agent_logs_resolver_handles_invalid_jsonl(tmp_path: Path) -> None:
+    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / SERVERS_LOG_FILENAME).write_text("not valid json\n")
+
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
     assert resolver.get_backend_url(_AGENT_A) is None
-    assert resolver.list_known_agent_ids() == ()
 
 
-def test_register_backend_creates_file(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
+def test_agent_logs_resolver_skips_invalid_lines_keeps_valid(tmp_path: Path) -> None:
+    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
+    logs_dir.mkdir(parents=True)
+    content = 'bad line\n{"server": "web", "url": "http://localhost:9100/"}\n'
+    (logs_dir / SERVERS_LOG_FILENAME).write_text(content)
 
-    register_backend(backends_file, _AGENT_A, "http://localhost:9100")
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    data = json.loads(backends_file.read_text())
-    assert data[str(_AGENT_A)] == "http://localhost:9100"
-
-
-def test_register_backend_adds_to_existing_file(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
-    backends_file.write_text(json.dumps({str(_AGENT_A): "http://localhost:9100"}))
-
-    register_backend(backends_file, _AGENT_B, "http://localhost:9101")
-
-    data = json.loads(backends_file.read_text())
-    assert data[str(_AGENT_A)] == "http://localhost:9100"
-    assert data[str(_AGENT_B)] == "http://localhost:9101"
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100/"
 
 
-def test_register_backend_updates_existing_entry(tmp_path: Path) -> None:
-    backends_file = tmp_path / "backends.json"
-    backends_file.write_text(json.dumps({str(_AGENT_A): "http://localhost:9100"}))
+def test_agent_logs_resolver_handles_empty_file(tmp_path: Path) -> None:
+    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
+    logs_dir.mkdir(parents=True)
+    (logs_dir / SERVERS_LOG_FILENAME).write_text("")
 
-    register_backend(backends_file, _AGENT_A, "http://localhost:9200")
+    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    data = json.loads(backends_file.read_text())
-    assert data[str(_AGENT_A)] == "http://localhost:9200"
-
-
-def test_register_backend_creates_parent_directories(tmp_path: Path) -> None:
-    backends_file = tmp_path / "subdir" / "backends.json"
-
-    register_backend(backends_file, _AGENT_A, "http://localhost:9100")
-
-    assert backends_file.exists()
-    data = json.loads(backends_file.read_text())
-    assert data[str(_AGENT_A)] == "http://localhost:9100"
+    assert resolver.get_backend_url(_AGENT_A) is None

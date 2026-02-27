@@ -12,7 +12,6 @@ from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
-from imbue.changelings.forwarding_server.backend_resolver import register_backend
 from imbue.changelings.primitives import OneTimeCode
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -59,15 +58,18 @@ def deploy_local(
     forwarding_server_port: int,
     concurrency_group: ConcurrencyGroup,
 ) -> DeploymentResult:
-    """Deploy a changeling locally by creating an mng agent and registering it.
+    """Deploy a changeling locally by creating an mng agent.
 
     This function:
     1. Stages zygote files to a temp dir (to avoid git root detection)
     2. Creates an mng agent via `mng create --copy`
     3. Looks up the mng agent ID via `mng list`
-    4. Registers the backend URL in the backends.json file
-    5. Generates a one-time auth code for the forwarding server
-    6. Returns the deployment result with the login URL
+    4. Generates a one-time auth code for the forwarding server
+    5. Returns the deployment result with the login URL
+
+    The agent itself is responsible for writing its server info to
+    $MNG_AGENT_STATE_DIR/logs/servers.jsonl on startup, which the forwarding
+    server reads to discover backends.
     """
     with log_span("Deploying changeling '{}' locally", agent_name):
         _verify_mng_available()
@@ -85,12 +87,6 @@ def deploy_local(
         agent_id = _get_agent_id(
             agent_name=agent_name,
             concurrency_group=concurrency_group,
-        )
-
-        register_backend(
-            backends_path=paths.backends_path,
-            agent_id=agent_id,
-            backend_url=backend_url,
         )
 
         login_url = _generate_auth_code(

@@ -8,10 +8,22 @@ from typing import Final
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.primitives import AgentId
 
-BACKENDS_FILENAME: Final[str] = "backends.json"
+SERVERS_LOG_FILENAME: Final[str] = "servers.jsonl"
+
+
+class ServerLogRecord(FrozenModel):
+    """A record of a server started by an agent, as written to servers.jsonl.
+
+    Each line of servers.jsonl is a JSON object with these fields.
+    Agents write these records on startup so the forwarding server can discover them.
+    """
+
+    server: str = Field(description="Name of the server (e.g., 'web')")
+    url: str = Field(description="URL where the server is accessible (e.g., 'http://localhost:9100/')")
 
 
 class BackendResolverInterface(MutableModel, ABC):
@@ -41,50 +53,64 @@ class StaticBackendResolver(BackendResolverInterface):
         return tuple(AgentId(agent_id) for agent_id in sorted(self.url_by_agent_id.keys()))
 
 
-class FileBackendResolver(BackendResolverInterface):
-    """Resolves backend URLs by reading a JSON file from disk on each lookup.
+class AgentLogsBackendResolver(BackendResolverInterface):
+    """Resolves backend URLs by reading servers.jsonl from agent log directories.
 
-    The JSON file is a simple mapping of agent_id (string) to backend URL (string).
+    Each agent writes server information to $MNG_AGENT_STATE_DIR/logs/servers.jsonl
+    when it starts. This resolver reads those files to discover which servers are running.
+
     Re-reading on each call ensures newly deployed changelings are immediately available
     without restarting the forwarding server.
     """
 
-    backends_path: Path = Field(
+    host_dir: Path = Field(
         frozen=True,
-        description="Path to the backends.json file",
+        description="The mng host directory (e.g., ~/.mng) containing agent data",
     )
 
     def get_backend_url(self, agent_id: AgentId) -> str | None:
-        mapping = _load_backends_file(self.backends_path)
-        return mapping.get(str(agent_id))
+        servers_path = self._get_servers_log_path(agent_id)
+        records = _load_server_log_records(servers_path)
+        if not records:
+            return None
+        return records[-1].url
 
     def list_known_agent_ids(self) -> tuple[AgentId, ...]:
-        mapping = _load_backends_file(self.backends_path)
-        return tuple(AgentId(agent_id) for agent_id in sorted(mapping.keys()))
+        agents_dir = self.host_dir / "agents"
+        if not agents_dir.is_dir():
+            return ()
+        agent_ids: list[AgentId] = []
+        for entry in sorted(agents_dir.iterdir()):
+            if not entry.is_dir():
+                continue
+            servers_path = entry / "logs" / SERVERS_LOG_FILENAME
+            if servers_path.exists():
+                records = _load_server_log_records(servers_path)
+                if records:
+                    agent_ids.append(AgentId(entry.name))
+        return tuple(agent_ids)
+
+    def _get_servers_log_path(self, agent_id: AgentId) -> Path:
+        return self.host_dir / "agents" / str(agent_id) / "logs" / SERVERS_LOG_FILENAME
 
 
-def _load_backends_file(path: Path) -> dict[str, str]:
-    """Load the backends JSON file, returning an empty dict if missing or invalid."""
+def _load_server_log_records(path: Path) -> list[ServerLogRecord]:
+    """Load server log records from a JSONL file, returning an empty list if missing or invalid."""
     if not path.exists():
-        return {}
+        return []
     try:
-        raw = json.loads(path.read_text())
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("Failed to load backends from {}: {}", path, e)
-        return {}
-    if not isinstance(raw, dict):
-        logger.warning("Backends file {} does not contain a JSON object", path)
-        return {}
-    return raw
-
-
-def register_backend(backends_path: Path, agent_id: AgentId, backend_url: str) -> None:
-    """Register a backend URL for an agent by writing to the backends JSON file.
-
-    Reads the existing file (if any), adds/updates the entry, and writes back atomically.
-    """
-    backends_path.parent.mkdir(parents=True, exist_ok=True)
-
-    existing = _load_backends_file(backends_path)
-    existing[str(agent_id)] = backend_url
-    backends_path.write_text(json.dumps(existing, indent=2))
+        text = path.read_text()
+    except OSError as e:
+        logger.warning("Failed to read servers log from {}: {}", path, e)
+        return []
+    records: list[ServerLogRecord] = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+            records.append(ServerLogRecord.model_validate(raw))
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("Skipping invalid record in {}: {}", path, e)
+    return records

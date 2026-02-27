@@ -149,10 +149,29 @@ class _Handler(BaseHTTPRequestHandler):
         """Suppress default access log output."""
 
 
+def _write_server_log(port: int) -> None:
+    """Write a server log record so the forwarding server can discover this agent.
+
+    Writes to $MNG_AGENT_STATE_DIR/logs/servers.jsonl following the convention
+    that agents self-report their running servers.
+    """
+    import json
+
+    agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR")
+    if not agent_state_dir:
+        return
+    logs_dir = os.path.join(agent_state_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    record = {"server": "web", "url": "http://localhost:{}/".format(port)}
+    with open(os.path.join(logs_dir, "servers.jsonl"), "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 def main() -> None:
     import sys
 
     port = int(os.environ.get("PORT", str(_DEFAULT_PORT)))
+    _write_server_log(port)
     http_server = HTTPServer(("0.0.0.0", port), _Handler)
     sys.stderr.write("hello-world changeling serving on port {}\n".format(port))
     sys.stderr.flush()

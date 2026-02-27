@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import httpx
@@ -11,6 +12,9 @@ from starlette.websockets import WebSocketDisconnect
 
 from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
+from imbue.changelings.forwarding_server.backend_resolver import SERVERS_LOG_FILENAME
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_agent
 from imbue.changelings.primitives import OneTimeCode
@@ -55,6 +59,25 @@ def _create_test_forwarding_server(
     client = TestClient(app)
 
     return client, auth_store, backend_resolver
+
+
+def _create_test_forwarding_server_with_resolver(
+    tmp_path: Path,
+    backend_resolver: BackendResolverInterface,
+    http_client: httpx.AsyncClient | None,
+) -> tuple[TestClient, FileAuthStore]:
+    """Create a forwarding server with an arbitrary backend resolver."""
+    auth_dir = tmp_path / "auth"
+    auth_store = FileAuthStore(data_directory=auth_dir)
+
+    app = create_forwarding_server(
+        auth_store=auth_store,
+        backend_resolver=backend_resolver,
+        http_client=http_client,
+    )
+    client = TestClient(app)
+
+    return client, auth_store
 
 
 def _setup_test_server(
@@ -303,3 +326,107 @@ def test_websocket_proxy_rejects_unknown_backend(tmp_path: Path) -> None:
             pass
 
     assert exc_info.value.code == 4004
+
+
+# -- Integration test: agent writes servers.jsonl, forwarding server discovers and proxies --
+
+
+def _write_server_log(host_dir: Path, agent_id: AgentId, server: str, url: str) -> None:
+    """Write a server log record, simulating what an agent zygote does on startup."""
+    logs_dir = host_dir / "agents" / str(agent_id) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    with open(logs_dir / SERVERS_LOG_FILENAME, "a") as f:
+        f.write(json.dumps({"server": server, "url": url}) + "\n")
+
+
+def test_agent_logs_resolver_proxies_to_backend_discovered_from_servers_jsonl(tmp_path: Path) -> None:
+    """Full integration test: an agent writes servers.jsonl, the AgentLogsBackendResolver
+    discovers it, and the forwarding server successfully proxies HTTP requests through."""
+    agent_id = AgentId()
+    host_dir = tmp_path / "mng_host"
+    data_dir = tmp_path / "changelings_data"
+
+    # Simulate what the agent zygote does on startup: write to servers.jsonl
+    _write_server_log(host_dir, agent_id, "web", "http://test-backend")
+
+    # Create a test backend
+    backend_app = _create_test_backend()
+    test_http_client = httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=backend_app),
+        base_url="http://test-backend",
+    )
+
+    # Create forwarding server with AgentLogsBackendResolver
+    backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
+    client, auth_store = _create_test_forwarding_server_with_resolver(
+        tmp_path=data_dir,
+        backend_resolver=backend_resolver,
+        http_client=test_http_client,
+    )
+
+    # Verify the resolver discovered the agent
+    assert backend_resolver.get_backend_url(agent_id) == "http://test-backend"
+    assert agent_id in backend_resolver.list_known_agent_ids()
+
+    # Authenticate
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+
+    # Set SW cookie to bypass bootstrap
+    client.cookies.set(f"sw_installed_{agent_id}", "1")
+
+    # Proxy a GET request
+    response = client.get(f"/agents/{agent_id}/api/status")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    # Proxy a POST request
+    response = client.post(
+        f"/agents/{agent_id}/api/echo",
+        content=b"integration-test",
+    )
+    assert response.status_code == 200
+    assert response.json() == {"echo": "integration-test"}
+
+
+def test_agent_logs_resolver_returns_502_when_no_servers_jsonl(tmp_path: Path) -> None:
+    """When an agent has no servers.jsonl, the resolver returns None and the proxy returns 502."""
+    agent_id = AgentId()
+    host_dir = tmp_path / "mng_host"
+    data_dir = tmp_path / "changelings_data"
+
+    # No servers.jsonl written -- the agent hasn't started yet
+    backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
+    client, auth_store = _create_test_forwarding_server_with_resolver(
+        tmp_path=data_dir,
+        backend_resolver=backend_resolver,
+        http_client=None,
+    )
+
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+    client.cookies.set(f"sw_installed_{agent_id}", "1")
+
+    response = client.get(f"/agents/{agent_id}/")
+    assert response.status_code == 502
+
+
+def test_agent_logs_resolver_landing_page_shows_discovered_agents(tmp_path: Path) -> None:
+    """The landing page should list agents discovered via servers.jsonl."""
+    agent_id = AgentId()
+    host_dir = tmp_path / "mng_host"
+    data_dir = tmp_path / "changelings_data"
+
+    # Agent writes its server info
+    _write_server_log(host_dir, agent_id, "web", "http://test-backend")
+
+    backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
+    client, auth_store = _create_test_forwarding_server_with_resolver(
+        tmp_path=data_dir,
+        backend_resolver=backend_resolver,
+        http_client=None,
+    )
+
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+
+    response = client.get("/")
+    assert response.status_code == 200
+    assert str(agent_id) in response.text

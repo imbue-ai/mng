@@ -8,6 +8,7 @@ from loguru import logger
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
 from imbue.changelings.config.data_types import get_default_data_dir
+from imbue.changelings.config.data_types import get_default_mng_host_dir
 from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.core.zygote import load_zygote_config
 from imbue.changelings.deployment.local import deploy_local
@@ -133,6 +134,7 @@ def _deploy_and_serve(
         data_directory=paths.data_dir,
         host="127.0.0.1",
         port=forwarding_port,
+        host_dir=get_default_mng_host_dir(),
     )
 
 

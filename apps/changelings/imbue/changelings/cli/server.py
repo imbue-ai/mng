@@ -6,6 +6,7 @@ import click
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_HOST
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
 from imbue.changelings.config.data_types import get_default_data_dir
+from imbue.changelings.config.data_types import get_default_mng_host_dir
 from imbue.changelings.forwarding_server.runner import start_forwarding_server
 
 
@@ -34,17 +35,26 @@ def _write_line(message: str) -> None:
     default=None,
     help="Data directory for changelings state (default: ~/.changelings)",
 )
-def server(host: str, port: int, data_dir: str | None) -> None:
+@click.option(
+    "--host-dir",
+    type=click.Path(resolve_path=True),
+    default=None,
+    help="mng host directory for discovering agent backends (default: ~/.mng or $MNG_HOST_DIR)",
+)
+def server(host: str, port: int, data_dir: str | None, host_dir: str | None) -> None:
     """Start the local forwarding server.
 
     The forwarding server handles authentication and proxies web traffic
-    to individual changeling web servers.
+    to individual changeling web servers. It discovers backends by reading
+    servers.jsonl from agent log directories under the mng host directory.
     """
     data_directory = Path(data_dir) if data_dir else get_default_data_dir()
+    mng_host_dir = Path(host_dir) if host_dir else get_default_mng_host_dir()
 
     _write_line("Starting changelings forwarding server...")
     _write_line("  Listening on: http://{}:{}".format(host, port))
     _write_line("  Data directory: {}".format(data_directory))
+    _write_line("  Host directory: {}".format(mng_host_dir))
     _write_line("")
     _write_line("Press Ctrl+C to stop.")
     _write_line("")
@@ -53,4 +63,5 @@ def server(host: str, port: int, data_dir: str | None) -> None:
         data_directory=data_directory,
         host=host,
         port=port,
+        host_dir=mng_host_dir,
     )
