@@ -245,14 +245,14 @@ def test_config_set_parses_integer_values(
     assert "default_destroyed_host_persisted_seconds = 42" in content
 
 
-def test_config_set_warns_on_unknown_top_level_field(
+def test_config_set_rejects_unknown_top_level_field(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
     temp_git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
     mng_test_root_name: str,
 ) -> None:
-    """Test config set warns about unknown top-level configuration fields but still writes them."""
+    """Test config set rejects unknown top-level configuration fields."""
     monkeypatch.chdir(temp_git_repo)
 
     result = cli_runner.invoke(
@@ -260,13 +260,14 @@ def test_config_set_warns_on_unknown_top_level_field(
         ["set", "provider.default", "docker", "--scope", "project"],
         obj=plugin_manager,
     )
-    assert result.exit_code == 0
+    assert result.exit_code == 1
+    assert "Invalid configuration" in result.output
 
-    # The file should have been written despite the unknown field
+    # Verify the file was NOT created/modified
     config_path = temp_git_repo / f".{mng_test_root_name}" / "settings.toml"
-    assert config_path.exists()
-    content = config_path.read_text()
-    assert "provider" in content
+    if config_path.exists():
+        content = config_path.read_text()
+        assert "provider" not in content
 
 
 def test_config_unset_removes_value(
