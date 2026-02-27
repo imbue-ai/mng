@@ -744,29 +744,69 @@ def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
         os.environ.pop(f"_PYTEST_GUARD_{resource.upper()}", None)
 
 
+def _is_must_use_exempt(item: pytest.Item) -> bool:
+    """Check if a test is exempt from must-use enforcement.
+
+    Ratchet tests use @lru_cache on git ls-files, so only the first test in
+    the xdist group actually spawns the binary. Subsequent tests hit the cache
+    and never create a tracking file, causing false must-use failures.
+    """
+    for marker in item.iter_markers("xdist_group"):
+        if marker.kwargs.get("name") == "ratchets":
+            return True
+    return False
+
+
 @pytest.hookimpl(hookwrapper=True)
 def _pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo,  # type: ignore[type-arg]
 ) -> Generator[None, None, None]:
-    """Clean up per-test tracking directories.
+    """Enforce that tests with resource marks actually invoked the resource.
 
-    The must-use direction (failing tests that have a mark but never invoke the
-    resource) is intentionally not enforced here. It has too many false negatives:
-    - LRU-cached subprocess calls (e.g., ratchet tests cache `git ls-files`)
-    - In-process invocations via Click CliRunner (no subprocess spawned)
-    - Library code that resolves the binary path at import time
+    After the call phase completes successfully, checks each marked resource's
+    tracking file. If a test has @pytest.mark.<resource> but the resource binary
+    was never invoked during the test function, the test is failed.
 
-    The blocking direction (catching unmarked tests that invoke a resource) is
-    enforced by the wrapper scripts and does not need this hook.
+    This catches superfluous marks that would unnecessarily slow down filtered
+    test runs (e.g., `pytest -m 'not tmux'` skipping a test that doesn't use tmux).
     """
-    yield
+    outcome = yield
+    report = outcome.get_result()
 
-    # Clean up tracking dir on the final phase (teardown)
-    if call.when == "teardown":
-        tracking_dir = getattr(item, "_resource_tracking_dir", None)
-        if tracking_dir:
-            shutil.rmtree(tracking_dir, ignore_errors=True)
+    # Only check after the call phase, and only if the test passed
+    if call.when != "call" or not report.passed:
+        # Clean up tracking dir on the final phase (teardown)
+        if call.when == "teardown":
+            tracking_dir = getattr(item, "_resource_tracking_dir", None)
+            if tracking_dir:
+                shutil.rmtree(tracking_dir, ignore_errors=True)
+        return
+
+    tracking_dir = getattr(item, "_resource_tracking_dir", None)
+    if tracking_dir is None:
+        return
+
+    if _is_must_use_exempt(item):
+        return
+
+    marks: set[str] = getattr(item, "_resource_marks", set())
+    original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH", "")
+
+    for resource in _GUARDED_RESOURCES:
+        if resource not in marks:
+            continue
+        # Only enforce must-use if the resource binary is actually installed
+        if _resolve_real_binary(resource, original_path) is None:
+            continue
+        tracking_file = Path(tracking_dir) / resource
+        if not tracking_file.exists():
+            report.outcome = "failed"
+            report.longrepr = (
+                f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
+                f"Remove the mark or ensure the test exercises {resource}."
+            )
+            break
 
 
 # ---------------------------------------------------------------------------
