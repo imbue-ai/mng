@@ -459,10 +459,10 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
     This fixture is useful for tests that install/uninstall packages and
     need full isolation from the main workspace venv.
 
-    To avoid network access (and the flakiness that comes with it), we:
-    1. Freeze the current workspace venv's pinned deps
-    2. Install those pinned deps with --no-deps (uses uv cache, no resolution needed)
-    3. Install workspace packages as editable with --no-deps
+    To avoid network access (and the flakiness that comes with it), we
+    export mng's pinned deps from the lockfile via ``uv export``, then
+    install them with ``--no-deps`` (uses uv cache, no resolution or
+    network needed).
     """
     venv_dir = tmp_path / "isolated-venv"
 
@@ -474,11 +474,16 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
 
     cg = ConcurrencyGroup(name="isolated-venv-setup")
     with cg:
-        # Freeze current workspace deps (excluding editable installs)
-        freeze_result = cg.run_process_to_completion(("uv", "pip", "freeze", "--python", sys.executable))
-        reqs_file = tmp_path / "frozen-reqs.txt"
+        # Export mng's pinned transitive deps from the lockfile (no editable/comment lines)
+        export_result = cg.run_process_to_completion(
+            ("uv", "export", "--package", "mng", "--no-hashes", "--frozen"),
+            cwd=_REPO_ROOT,
+        )
+        reqs_file = tmp_path / "pinned-deps.txt"
         reqs_file.write_text(
-            "\n".join(line for line in freeze_result.stdout.splitlines() if not line.startswith("-e"))
+            "\n".join(
+                line for line in export_result.stdout.splitlines() if line and not line.startswith(("#", " ", "-e"))
+            )
         )
 
         cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
