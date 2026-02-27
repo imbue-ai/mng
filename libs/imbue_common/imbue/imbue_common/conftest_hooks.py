@@ -701,18 +701,14 @@ def _print_test_durations_for_ci(
 
 
 @pytest.hookimpl(hookwrapper=True)
-def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
-    """Set resource guard environment variables during the test call phase.
+def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
+    """Set resource guard environment variables before fixture setup.
 
-    This hook wraps the actual test function execution (not fixture setup/teardown).
-    It sets environment variables that the PATH wrapper scripts check:
-
-    - _PYTEST_GUARD_PHASE="call": Signals wrappers to enforce guards
-    - _PYTEST_GUARD_<RESOURCE>="allow"|"block": Per-resource guard state
-    - _PYTEST_GUARD_TRACKING_DIR: Directory for tracking files (one per resource invoked)
-
-    After the test function completes, the env vars are cleaned up. The tracking
-    directory is stored on the item for pytest_runtest_makereport to check.
+    The allow/block and tracking env vars are set here (before fixtures run)
+    so that fixtures which snapshot os.environ (like get_subprocess_test_env)
+    capture the guard configuration. However, _PYTEST_GUARD_PHASE is NOT set
+    here -- it is set in _pytest_runtest_call so that wrappers only enforce
+    during the actual test function, not during fixture setup/teardown.
     """
     if _guard_wrapper_dir is None:
         yield
@@ -725,7 +721,7 @@ def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
     setattr(item, "_resource_tracking_dir", tracking_dir)  # noqa: B010
     setattr(item, "_resource_marks", marks)  # noqa: B010
 
-    # Set guard env vars for each resource
+    # Set guard env vars for each resource (but NOT the phase yet)
     for resource in _GUARDED_RESOURCES:
         env_var = f"_PYTEST_GUARD_{resource.upper()}"
         if resource in marks:
@@ -734,12 +730,37 @@ def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
             os.environ[env_var] = "block"
 
     os.environ["_PYTEST_GUARD_TRACKING_DIR"] = tracking_dir
+
+    yield
+
+
+@pytest.hookimpl(hookwrapper=True)
+def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
+    """Activate resource guard enforcement during the test call phase.
+
+    Sets _PYTEST_GUARD_PHASE="call" which tells the wrapper scripts to
+    actually enforce blocking and tracking. The other env vars (allow/block,
+    tracking dir) were already set in _pytest_runtest_setup.
+    """
+    if _guard_wrapper_dir is None:
+        yield
+        return
+
     os.environ["_PYTEST_GUARD_PHASE"] = "call"
 
     yield
 
-    # Clean up env vars after the test function completes
     os.environ.pop("_PYTEST_GUARD_PHASE", None)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def _pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
+    """Clean up resource guard environment variables after teardown."""
+    yield
+
+    if _guard_wrapper_dir is None:
+        return
+
     os.environ.pop("_PYTEST_GUARD_TRACKING_DIR", None)
     for resource in _GUARDED_RESOURCES:
         os.environ.pop(f"_PYTEST_GUARD_{resource.upper()}", None)
@@ -868,7 +889,9 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    namespace["pytest_runtest_setup"] = _pytest_runtest_setup
     namespace["pytest_runtest_call"] = _pytest_runtest_call
+    namespace["pytest_runtest_teardown"] = _pytest_runtest_teardown
     namespace["pytest_runtest_makereport"] = _pytest_runtest_makereport
     # Register the JUnit test ID fixture (with public name for pytest discovery)
     namespace["set_junit_test_id"] = _set_junit_test_id
