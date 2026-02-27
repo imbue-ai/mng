@@ -19,6 +19,9 @@ from loguru import logger
 
 from imbue.mng_claude_http.primitives import HttpPort
 
+_DEFAULT_CLI_CONNECT_TIMEOUT_SECONDS: float = 5.0
+_CLI_CONNECT_POLL_INTERVAL_SECONDS: float = 0.1
+
 
 @dataclass
 class SessionState:
@@ -77,7 +80,11 @@ def _get_frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(port: HttpPort, work_dir: Path | None = None) -> FastAPI:
+def create_app(
+    port: HttpPort,
+    work_dir: Path | None = None,
+    cli_connect_timeout: float = _DEFAULT_CLI_CONNECT_TIMEOUT_SECONDS,
+) -> FastAPI:
     """Create the FastAPI app that bridges browser WebSocket and Claude CLI WebSocket.
 
     The server:
@@ -177,7 +184,7 @@ def create_app(port: HttpPort, work_dir: Path | None = None) -> FastAPI:
                     case "start_session":
                         prompt = msg.get("prompt", "")
                         model = msg.get("model")
-                        await _start_claude_session(state, port, prompt, model, work_dir)
+                        await _start_claude_session(state, port, prompt, model, work_dir, cli_connect_timeout)
 
                     case "send_message":
                         if state.cli_ws is not None:
@@ -272,6 +279,7 @@ async def _start_claude_session(
     prompt: str,
     model: str | None,
     work_dir: Path | None,
+    connect_timeout: float = _DEFAULT_CLI_CONNECT_TIMEOUT_SECONDS,
 ) -> None:
     """Start a Claude Code subprocess with --sdk-url pointing to our server."""
     sdk_url = f"ws://localhost:{port}/ws/cli"
@@ -310,13 +318,14 @@ async def _start_claude_session(
     state.cli_process = process
 
     # Wait for CLI to connect (with timeout)
-    for _ in range(50):
+    poll_count = int(connect_timeout / _CLI_CONNECT_POLL_INTERVAL_SECONDS)
+    for _ in range(poll_count):
         if state.cli_ws is not None:
             break
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(_CLI_CONNECT_POLL_INTERVAL_SECONDS)
 
     if state.cli_ws is None:
-        logger.warning("Claude CLI did not connect within 5 seconds")
+        logger.warning("Claude CLI did not connect within {} seconds", connect_timeout)
         if state.browser_ws is not None:
             await state.browser_ws.send_text(
                 json.dumps({"type": "error", "error": "Claude CLI failed to connect. Is 'claude' installed?"})

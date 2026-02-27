@@ -12,8 +12,12 @@ from imbue.mng_claude_http.server import create_app
 
 @pytest.fixture()
 def app() -> "TestClient":
-    """Create a test client for the FastAPI app."""
-    fastapi_app = create_app(HttpPort(3457))
+    """Create a test client for the FastAPI app.
+
+    Uses a short CLI connect timeout so tests that trigger session start
+    don't wait the full 5 seconds for a CLI that won't connect.
+    """
+    fastapi_app = create_app(HttpPort(3457), cli_connect_timeout=0.5)
     return TestClient(fastapi_app)
 
 
