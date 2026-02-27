@@ -43,6 +43,8 @@ def pull_ctx(tmp_path: Path) -> SyncTestContext:
 # =============================================================================
 
 
+@pytest.mark.rsync
+@pytest.mark.rsync
 def test_pull_files_fail_mode_with_no_uncommitted_changes_succeeds(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -97,6 +99,7 @@ def test_pull_files_fail_mode_with_uncommitted_changes_raises_error(
 # =============================================================================
 
 
+@pytest.mark.rsync
 def test_pull_files_clobber_mode_overwrites_host_changes(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -121,6 +124,7 @@ def test_pull_files_clobber_mode_overwrites_host_changes(
     assert result.destination_path == pull_ctx.local_dir
 
 
+@pytest.mark.rsync
 def test_pull_files_clobber_mode_when_only_host_has_changes(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -146,6 +150,8 @@ def test_pull_files_clobber_mode_when_only_host_has_changes(
     assert (pull_ctx.local_dir / "agent_only.txt").read_text() == "agent file"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_clobber_mode_with_delete_flag_removes_host_only_files(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -176,6 +182,8 @@ def test_pull_files_clobber_mode_with_delete_flag_removes_host_only_files(
 # =============================================================================
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_stash_mode_stashes_changes_and_leaves_stashed(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -205,6 +213,8 @@ def test_pull_files_stash_mode_stashes_changes_and_leaves_stashed(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_stash_mode_when_both_agent_and_host_modify_same_file(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -237,6 +247,8 @@ def test_pull_files_stash_mode_when_both_agent_and_host_modify_same_file(
     assert get_stash_count(pull_ctx.local_dir) == 1
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_stash_mode_stashes_untracked_files(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -266,6 +278,8 @@ def test_pull_files_stash_mode_stashes_untracked_files(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_merge_mode_restores_untracked_files(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -295,6 +309,7 @@ def test_pull_files_merge_mode_restores_untracked_files(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.rsync
 def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -325,6 +340,8 @@ def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
 # =============================================================================
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_merge_mode_stashes_and_restores_changes(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -353,6 +370,8 @@ def test_pull_files_merge_mode_stashes_and_restores_changes(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_merge_mode_when_only_agent_file_is_modified(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -379,6 +398,8 @@ def test_pull_files_merge_mode_when_only_agent_file_is_modified(
     assert (pull_ctx.local_dir / "shared.txt").read_text() == "agent modified content"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_merge_mode_when_only_host_has_changes(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -403,6 +424,8 @@ def test_pull_files_merge_mode_when_only_host_has_changes(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_merge_mode_when_both_modify_different_files(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -430,6 +453,7 @@ def test_pull_files_merge_mode_when_both_modify_different_files(
     assert final_stash_count == initial_stash_count
 
 
+@pytest.mark.rsync
 def test_pull_files_merge_mode_with_no_uncommitted_changes(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -460,6 +484,8 @@ def test_pull_files_merge_mode_with_no_uncommitted_changes(
 # =============================================================================
 
 
+@pytest.mark.git
+@pytest.mark.rsync
 def test_pull_files_excludes_git_directory(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -507,6 +533,7 @@ def test_pull_files_excludes_git_directory(
 # =============================================================================
 
 
+@pytest.mark.rsync
 def test_pull_files_dry_run_does_not_modify_files(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -535,6 +562,7 @@ def test_pull_files_dry_run_does_not_modify_files(
 # =============================================================================
 
 
+@pytest.mark.rsync
 def test_pull_files_with_custom_source_path(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -635,6 +663,7 @@ def test_pull_files_with_remote_host_raises_not_implemented(
         )
 
 
+@pytest.mark.git
 def test_pull_git_with_local_path_from_remote_host_works(
     remote_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -670,6 +699,7 @@ def test_pull_git_with_local_path_from_remote_host_works(
     assert result.is_dry_run is False
 
 
+@pytest.mark.git
 def test_pull_git_merge_mode_with_different_branch_restores_stash_on_original(
     remote_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -751,6 +781,7 @@ def local_git_pull_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
+@pytest.mark.git
 def test_pull_git_uses_agent_branch_as_default_source(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -781,6 +812,7 @@ def test_pull_git_uses_agent_branch_as_default_source(
     assert result.source_branch == "feature-branch"
 
 
+@pytest.mark.git
 def test_pull_git_uses_destination_branch_as_default_target(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -806,6 +838,7 @@ def test_pull_git_uses_destination_branch_as_default_target(
     assert result.target_branch == "main"
 
 
+@pytest.mark.git
 def test_pull_git_dry_run_does_not_merge(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -834,6 +867,7 @@ def test_pull_git_dry_run_does_not_merge(
     assert not (ctx.local_dir / "file0.txt").exists()
 
 
+@pytest.mark.git
 def test_pull_git_merge_mode_stashes_and_restores(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -863,6 +897,7 @@ def test_pull_git_merge_mode_stashes_and_restores(
     assert get_stash_count(ctx.local_dir) == 0
 
 
+@pytest.mark.git
 def test_pull_git_stash_mode_does_not_restore(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -891,6 +926,7 @@ def test_pull_git_stash_mode_does_not_restore(
     assert get_stash_count(ctx.local_dir) == 1
 
 
+@pytest.mark.git
 def test_pull_git_raises_on_merge_failure(
     local_git_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -924,6 +960,7 @@ def test_pull_git_raises_on_merge_failure(
 # =============================================================================
 
 
+@pytest.mark.rsync
 def test_pull_files_to_non_git_directory_succeeds(
     tmp_path: Path,
     cg: ConcurrencyGroup,

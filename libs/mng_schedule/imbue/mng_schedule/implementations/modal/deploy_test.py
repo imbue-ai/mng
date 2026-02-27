@@ -993,6 +993,7 @@ def test_resolve_commit_hash_ignores_empty_cached_file(tmp_path: Path) -> None:
 # =============================================================================
 
 
+@pytest.mark.git
 def test_try_get_repo_root_returns_path_in_git_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """try_get_repo_root returns a Path when inside a git repository."""
     repo_dir = tmp_path / "repo"
