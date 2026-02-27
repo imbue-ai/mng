@@ -19,9 +19,9 @@ from pathlib import Path
 
 import pytest
 
-from imbue.mng.utils.testing import get_short_random_string
-from imbue.mng.utils.testing import run_mng_subprocess
-from imbue.mng.utils.testing import setup_claude_trust_config_for_subprocess
+from imbue.mng.test_support.testing import get_short_random_string
+from imbue.mng.test_support.testing import run_mng_subprocess
+from imbue.mng.test_support.testing import setup_claude_trust_config_for_subprocess
 
 
 def _is_claude_installed() -> bool:

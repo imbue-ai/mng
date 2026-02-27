@@ -12,9 +12,9 @@ from click.testing import CliRunner
 from imbue.mng.cli.create import create
 from imbue.mng.cli.destroy import destroy
 from imbue.mng.cli.destroy import get_agent_name_from_session
+from imbue.mng.test_support.testing import tmux_session_cleanup
+from imbue.mng.test_support.testing import tmux_session_exists
 from imbue.mng.utils.polling import wait_for
-from imbue.mng.utils.testing import tmux_session_cleanup
-from imbue.mng.utils.testing import tmux_session_exists
 
 
 def test_destroy_single_agent(
