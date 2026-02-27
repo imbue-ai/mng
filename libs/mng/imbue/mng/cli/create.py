@@ -89,6 +89,7 @@ from imbue.mng.utils.editor import EditorSession
 from imbue.mng.utils.git_utils import derive_project_name_from_path
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.git_utils import get_current_git_branch
+from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
@@ -536,6 +537,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
+    logging_config: LoggingConfig = ctx.meta["logging_config"]
 
     # Apply --yes flag to auto-approve prompts (e.g., skill installation)
     if opts.yes:
@@ -543,7 +545,7 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    result = _handle_create(mng_ctx, output_opts, opts)
+    result = _handle_create(mng_ctx, output_opts, opts, logging_config)
     if result is None:
         return
     create_result, connection_opts, output_opts, opts, mng_ctx = result
@@ -554,6 +556,7 @@ def _handle_create(
     mng_ctx: MngContext,
     output_opts: OutputOptions,
     opts: CreateCliOptions,
+    logging_config: LoggingConfig,
 ) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
@@ -616,7 +619,7 @@ def _handle_create(
         editor_session = EditorSession.create(initial_content=initial_message_content)
         # Enable logging suppression before starting the editor so that
         # log messages don't interfere with the editor's terminal output
-        LoggingSuppressor.enable(output_opts.console_level, output_opts.log_level)
+        LoggingSuppressor.enable(logging_config.console_level, logging_config.log_level)
         # Start editor with callback that restores logging when it exits
         editor_session.start(on_exit=_on_editor_exit)
         # When using editor, don't pass message to api_create (we'll send it after editor finishes)
@@ -1597,7 +1600,7 @@ def _find_agent_in_host(host: OnlineHostInterface, agent_id: AgentId) -> AgentIn
 
 def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
     """Output the create result according to output options."""
-    if opts.console_level == LogLevel.NONE:
+    if opts.is_quiet:
         return
 
     result_data = {"agent_id": str(result.agent.id), "host_id": str(result.host.id)}

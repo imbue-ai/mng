@@ -19,7 +19,6 @@ from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplate
 from imbue.mng.config.data_types import CreateTemplateName
-from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import PluginConfig
@@ -39,6 +38,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.file_utils import atomic_write
+from imbue.mng.utils.logging import LoggingConfig
 
 # Environment variable prefix for command config overrides.
 # Format: MNG_COMMANDS_<COMMANDNAME>_<VARNAME>=<value>

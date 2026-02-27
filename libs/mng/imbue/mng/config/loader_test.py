@@ -10,7 +10,6 @@ import pytest
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplateName
-from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
@@ -35,6 +34,7 @@ from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import load_all_registries
+from imbue.mng.utils.logging import LoggingConfig
 
 hookimpl = pluggy.HookimplMarker("mng")
 

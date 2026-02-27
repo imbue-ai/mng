@@ -18,6 +18,7 @@ from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.test_support.testing import capture_tmux_pane_contents
 from imbue.mng.test_support.testing import tmux_session_cleanup
 from imbue.mng.test_support.testing import tmux_session_exists
+from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.polling import wait_for
 
 
@@ -142,7 +143,7 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     output_opts = OutputOptions()
 
     with tmux_session_cleanup(session_name):
-        result = _handle_create(temp_mng_ctx, output_opts, opts)
+        result = _handle_create(temp_mng_ctx, output_opts, opts, LoggingConfig())
 
         assert result is not None
         create_result, connection_opts, _, returned_opts, _ = result

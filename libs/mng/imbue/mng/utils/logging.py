@@ -16,6 +16,78 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.primitives import LogLevel
 
+
+class LoggingConfig(FrozenModel):
+    """Logging configuration for mng."""
+
+    file_level: LogLevel = Field(
+        default=LogLevel.DEBUG,
+        description="Log level for file logging",
+    )
+    log_dir: Path = Field(
+        default=Path("logs"),
+        description="Directory for log files (relative to data root if relative)",
+    )
+    max_log_files: int = Field(
+        default=1000,
+        description="Maximum number of log files to keep",
+    )
+    max_log_size_mb: int = Field(
+        default=10,
+        description="Maximum size of each log file in MB",
+    )
+    console_level: LogLevel = Field(
+        default=LogLevel.BUILD,
+        description="Log level for console output",
+    )
+    log_level: LogLevel = Field(
+        default=LogLevel.NONE,
+        description="Log level for diagnostic stderr output",
+    )
+    log_file_path: Path | None = Field(
+        default=None,
+        description="Custom log file path (None for default)",
+    )
+    is_logging_commands: bool = Field(
+        default=True,
+        description="Log what commands were executed",
+    )
+    is_logging_command_output: bool = Field(
+        default=False,
+        description="Log stdout/stderr from executed commands",
+    )
+    is_logging_env_vars: bool = Field(
+        default=False,
+        description="Log environment variables (security risk)",
+    )
+
+    def merge_with(self, override: "LoggingConfig") -> "LoggingConfig":
+        """Merge this config with an override config.
+
+        Important note: despite the type signatures, any of these fields may be None in the override--this means that they were NOT set in the toml (and thus should be ignored)
+
+        Scalar fields: override wins if not None
+        """
+        return LoggingConfig(
+            file_level=override.file_level if override.file_level is not None else self.file_level,
+            log_dir=override.log_dir if override.log_dir is not None else self.log_dir,
+            max_log_files=override.max_log_files if override.max_log_files is not None else self.max_log_files,
+            max_log_size_mb=override.max_log_size_mb if override.max_log_size_mb is not None else self.max_log_size_mb,
+            console_level=override.console_level if override.console_level is not None else self.console_level,
+            log_level=override.log_level if override.log_level is not None else self.log_level,
+            log_file_path=override.log_file_path if override.log_file_path is not None else self.log_file_path,
+            is_logging_commands=override.is_logging_commands
+            if override.is_logging_commands is not None
+            else self.is_logging_commands,
+            is_logging_command_output=override.is_logging_command_output
+            if override.is_logging_command_output is not None
+            else self.is_logging_command_output,
+            is_logging_env_vars=override.is_logging_env_vars
+            if override.is_logging_env_vars is not None
+            else self.is_logging_env_vars,
+        )
+
+
 # ANSI color codes that work well on both light and dark backgrounds.
 # Using 256-color palette codes with bold for better visibility.
 # Falls back gracefully in terminals that don't support 256 colors.
@@ -119,24 +191,7 @@ def suppress_warnings() -> None:
     pyinfra_logger.propagate = False
 
 
-class LoggingSetupConfig(FrozenModel):
-    """All settings needed to configure logging.
-
-    This type lives in utils/ so the logging module doesn't need to import
-    from config/. Callers construct it from OutputOptions + MngConfig.
-    """
-
-    console_level: LogLevel = Field(description="Log level for user-facing console output")
-    log_level: LogLevel = Field(description="Log level for diagnostic stderr output")
-    log_file_path: Path | None = Field(default=None, description="Custom log file path (None for default)")
-    file_level: LogLevel = Field(description="Log level for file output")
-    max_log_size_mb: int = Field(description="Max log file size before rotation")
-    max_log_files: int = Field(description="Max number of log files to keep")
-    log_dir: Path = Field(description="Directory for log files")
-    default_host_dir: Path = Field(description="Default host dir (for resolving relative log_dir)")
-
-
-def setup_logging(config: LoggingSetupConfig) -> None:
+def setup_logging(config: LoggingConfig, default_host_dir: Path) -> None:
     """Configure logging based on the provided settings.
 
     Sets up:
@@ -209,7 +264,7 @@ def setup_logging(config: LoggingSetupConfig) -> None:
         is_using_custom_log_path = True
     else:
         is_using_custom_log_path = False
-        resolved_log_dir = _resolve_log_dir(config.log_dir, config.default_host_dir)
+        resolved_log_dir = _resolve_log_dir(config.log_dir, default_host_dir)
         resolved_log_dir.mkdir(parents=True, exist_ok=True)
         # Create log file path with timestamp and PID
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
