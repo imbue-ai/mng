@@ -161,7 +161,7 @@ def _send_enter_and_wait(target: str, cg: ConcurrencyGroup) -> None:
     Raises TmuxSendError if the signal is not received within the timeout.
     """
     wait_channel = f"mng-submit-{target}"
-    if _send_enter_and_wait_for_signal(target, wait_channel, cg):
+    if _send_enter_and_wait_for_signal(target, wait_channel, cg, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS):
         logger.trace("Submitted message successfully")
         return
 
@@ -180,7 +180,9 @@ def _send_enter_and_wait(target: str, cg: ConcurrencyGroup) -> None:
     )
 
 
-def _send_enter_and_wait_for_signal(target: str, wait_channel: str, cg: ConcurrencyGroup) -> bool:
+def _send_enter_and_wait_for_signal(
+    target: str, wait_channel: str, cg: ConcurrencyGroup, timeout_seconds: float
+) -> bool:
     """Send Enter and wait for the tmux wait-for signal from the hook.
 
     This starts waiting BEFORE sending Enter to avoid a race condition where
@@ -193,7 +195,7 @@ def _send_enter_and_wait_for_signal(target: str, wait_channel: str, cg: Concurre
 
     Returns True if signal received, False if timeout.
     """
-    timeout_secs = ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
+    timeout_secs = timeout_seconds
     result = cg.run_process_to_completion(
         [
             "bash",

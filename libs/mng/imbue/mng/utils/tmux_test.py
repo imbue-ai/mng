@@ -4,6 +4,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import get_short_random_string
 from imbue.mng.utils.testing import tmux_session_cleanup
+from imbue.mng.utils.tmux import ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
 from imbue.mng.utils.tmux import TmuxSendError
 from imbue.mng.utils.tmux import _send_backspace_with_noop
 from imbue.mng.utils.tmux import _send_enter_and_wait_for_signal
@@ -95,11 +96,12 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signaled(cg: Concurren
             is_checked_after=False,
         )
 
-        result = _send_enter_and_wait_for_signal(session_name, wait_channel, cg)
+        result = _send_enter_and_wait_for_signal(
+            session_name, wait_channel, cg, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
+        )
         assert result is True
 
 
-@pytest.mark.timeout(20)
 def test_send_enter_and_wait_for_signal_returns_false_on_timeout(cg: ConcurrencyGroup) -> None:
     """Test that _send_enter_and_wait_for_signal returns False when signal times out."""
     session_name = f"mng-test-timeout-{get_short_random_string()}"
@@ -111,7 +113,8 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(cg: Concurrency
         is_checked_after=False,
     )
     with tmux_session_cleanup(session_name):
-        result = _send_enter_and_wait_for_signal(session_name, wait_channel, cg)
+        # Use a short timeout so this test doesn't take 10s
+        result = _send_enter_and_wait_for_signal(session_name, wait_channel, cg, timeout_seconds=1.0)
         assert result is False
 
 
