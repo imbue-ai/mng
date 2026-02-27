@@ -213,7 +213,10 @@ def deploy(
         raise click.ClickException(str(e)) from e
 
     clone_dir = clone_result.clone_dir
-    deploy_succeeded = False
+
+    # Pre-deployment validation and prompting. If anything fails here, the
+    # clone is cleaned up since no mng agent has been created yet.
+    ready_to_deploy = False
     try:
         zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
 
@@ -244,19 +247,21 @@ def deploy(
         if self_deploy_choice == SelfDeployChoice.YES:
             logger.debug("Self-deploy enabled (not yet implemented)")
 
-        try:
-            result = _run_deployment(
-                zygote_dir=zygote_dir,
-                zygote_config=zygote_config,
-                agent_name=agent_name,
-                provider=provider_choice,
-            )
-        except ChangelingError as e:
-            raise click.ClickException(str(e)) from e
-
-        deploy_succeeded = True
+        ready_to_deploy = True
     finally:
-        if not deploy_succeeded:
+        if not ready_to_deploy:
             shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
+
+    # Deployment. After this point, mng create may have been called, so the
+    # clone directory must NOT be cleaned up -- the agent depends on it.
+    try:
+        result = _run_deployment(
+            zygote_dir=zygote_dir,
+            zygote_config=zygote_config,
+            agent_name=agent_name,
+            provider=provider_choice,
+        )
+    except ChangelingError as e:
+        raise click.ClickException(str(e)) from e
 
     _print_result_and_start_server(result)
