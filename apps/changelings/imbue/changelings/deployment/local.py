@@ -1,3 +1,4 @@
+import json
 import secrets
 import shutil
 import tempfile
@@ -27,7 +28,7 @@ class DeploymentResult(FrozenModel):
     """Result of a successful local changeling deployment."""
 
     agent_name: str = Field(description="The name of the deployed agent")
-    changeling_id: AgentId = Field(description="The ID used for forwarding server routing")
+    agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
     backend_url: str = Field(description="The backend URL where the changeling serves")
     login_url: str = Field(description="One-time login URL for accessing the changeling")
 
@@ -44,6 +45,12 @@ class MngCreateError(ChangelingError):
     ...
 
 
+class AgentIdLookupError(ChangelingError):
+    """Raised when the mng agent ID cannot be determined after creation."""
+
+    ...
+
+
 def deploy_local(
     zygote_dir: Path,
     zygote_config: ZygoteConfig,
@@ -52,19 +59,19 @@ def deploy_local(
     forwarding_server_port: int,
     concurrency_group: ConcurrencyGroup,
 ) -> DeploymentResult:
-    """Deploy a changeling locally by creating an mng agent and registering it with the forwarding server.
+    """Deploy a changeling locally by creating an mng agent and registering it.
 
     This function:
-    1. Copies the zygote directory to a temp location (so mng doesn't detect the parent git repo)
-    2. Creates an mng agent via `mng create` with the temp copy as the source
-    3. Registers the backend URL in the backends.json file
-    4. Generates a one-time auth code for the forwarding server
-    5. Returns the deployment result with the login URL
+    1. Stages zygote files to a temp dir (to avoid git root detection)
+    2. Creates an mng agent via `mng create --copy`
+    3. Looks up the mng agent ID via `mng list`
+    4. Registers the backend URL in the backends.json file
+    5. Generates a one-time auth code for the forwarding server
+    6. Returns the deployment result with the login URL
     """
     with log_span("Deploying changeling '{}' locally", agent_name):
         _verify_mng_available()
 
-        changeling_id = AgentId()
         backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
 
         _create_mng_agent(
@@ -75,21 +82,26 @@ def deploy_local(
             concurrency_group=concurrency_group,
         )
 
+        agent_id = _get_agent_id(
+            agent_name=agent_name,
+            concurrency_group=concurrency_group,
+        )
+
         register_backend(
             backends_path=paths.backends_path,
-            agent_id=changeling_id,
+            agent_id=agent_id,
             backend_url=backend_url,
         )
 
         login_url = _generate_auth_code(
             paths=paths,
-            changeling_id=changeling_id,
+            agent_id=agent_id,
             forwarding_server_port=forwarding_server_port,
         )
 
         return DeploymentResult(
             agent_name=agent_name,
-            changeling_id=changeling_id,
+            agent_id=agent_id,
             backend_url=backend_url,
             login_url=login_url,
         )
@@ -108,10 +120,10 @@ def _create_mng_agent(
     port: int,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
-    """Create an mng agent by running `mng create` with the zygote as the source directory.
+    """Create an mng agent with a copy of the zygote directory as its work_dir.
 
     Copies the zygote to a temporary directory first so that mng does not detect
-    a parent git repository and try to use the git root as the source.
+    a parent git repository and use the git root as the source.
     """
     with log_span("Creating mng agent '{}'", agent_name):
         staging_dir = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
@@ -153,18 +165,55 @@ def _create_mng_agent(
             shutil.rmtree(str(staging_dir), ignore_errors=True)
 
 
+def _get_agent_id(
+    agent_name: str,
+    concurrency_group: ConcurrencyGroup,
+) -> AgentId:
+    """Look up the mng agent ID by name using `mng list --json`."""
+    with log_span("Looking up agent ID for '{}'", agent_name):
+        result = concurrency_group.run_process_to_completion(
+            command=[
+                _MNG_BINARY,
+                "list",
+                "--include",
+                'name == "{}"'.format(agent_name),
+                "--json",
+            ],
+            is_checked_after=False,
+        )
+
+        if result.returncode != 0:
+            raise AgentIdLookupError(
+                "Failed to look up agent ID for '{}': {}".format(
+                    agent_name,
+                    result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+                )
+            )
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as e:
+            raise AgentIdLookupError("Failed to parse mng list output: {}".format(e)) from e
+
+        agents = data.get("agents", [])
+        if not agents:
+            raise AgentIdLookupError("No agent found with name '{}'".format(agent_name))
+
+        return AgentId(agents[0]["id"])
+
+
 def _generate_auth_code(
     paths: ChangelingPaths,
-    changeling_id: AgentId,
+    agent_id: AgentId,
     forwarding_server_port: int,
 ) -> str:
     """Generate a one-time auth code and return the login URL."""
     auth_store = FileAuthStore(data_directory=paths.auth_dir)
     code = OneTimeCode(secrets.token_urlsafe(_ONE_TIME_CODE_LENGTH))
-    auth_store.add_one_time_code(agent_id=changeling_id, code=code)
+    auth_store.add_one_time_code(agent_id=agent_id, code=code)
 
     return "http://127.0.0.1:{}/login?agent_id={}&one_time_code={}".format(
         forwarding_server_port,
-        changeling_id,
+        agent_id,
         code,
     )
