@@ -918,6 +918,7 @@ class Host(BaseHost, OnlineHostInterface):
             host=self,
             mng_ctx=self.mng_ctx,
             agent_config=resolved.agent_config,
+            is_tmux_isolated=bool(data.get("is_tmux_isolated")),
         )
 
     def create_agent_work_dir(
@@ -1438,6 +1439,7 @@ class Host(BaseHost, OnlineHostInterface):
             self._mkdirs([state_dir, state_dir / "logs"])
 
             create_time = datetime.now(timezone.utc)
+            is_tmux_isolated = self.is_local and self.mng_ctx.config.is_tmux_isolated_for_local_agents
 
             agent = cast(type[BaseAgent], resolved.agent_class)(
                 id=agent_id,
@@ -1449,6 +1451,7 @@ class Host(BaseHost, OnlineHostInterface):
                 host=self,
                 mng_ctx=self.mng_ctx,
                 agent_config=resolved.agent_config,
+                is_tmux_isolated=is_tmux_isolated,
             )
 
             command = agent.assemble_command(
@@ -1457,8 +1460,6 @@ class Host(BaseHost, OnlineHostInterface):
                 command_override=options.command,
             )
             command_str = str(command)
-
-            is_tmux_isolated = self.is_local and self.mng_ctx.config.is_tmux_isolated_for_local_agents
 
             data = {
                 "id": str(agent_id),
@@ -1757,7 +1758,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
             old_session_name = f"{self.mng_ctx.config.prefix}{old_name}"
             new_session_name = f"{self.mng_ctx.config.prefix}{new_name}"
-            tmux_tmpdir = self._get_agent_tmux_tmpdir(agent.id)
+            tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
             rename_cmd = _prefix_tmux_cmd(
                 f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
                 f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true",
@@ -1818,22 +1819,9 @@ class Host(BaseHost, OnlineHostInterface):
             tmux_tmpdir.chmod(0o700)
         return tmux_tmpdir
 
-    def _get_agent_is_tmux_isolated(self, agent_id: AgentId) -> bool:
-        """Read is_tmux_isolated from agent's data.json.
-
-        Returns False if the field is missing (pre-migration agent) or data.json is unreadable.
-        """
-        data_path = self.host_dir / "agents" / str(agent_id) / "data.json"
-        try:
-            content = self.read_text_file(data_path)
-            data = json.loads(content)
-            return bool(data.get("is_tmux_isolated"))
-        except (FileNotFoundError, json.JSONDecodeError):
-            return False
-
-    def _get_agent_tmux_tmpdir(self, agent_id: AgentId) -> Path | None:
+    def _get_agent_tmux_tmpdir(self, agent: AgentInterface) -> Path | None:
         """Get the TMUX_TMPDIR for an agent, or None if it uses the global tmux server."""
-        if self._get_agent_is_tmux_isolated(agent_id):
+        if agent.is_tmux_isolated:
             return self._get_tmux_tmpdir()
         return None
 
@@ -1980,7 +1968,7 @@ class Host(BaseHost, OnlineHostInterface):
                         onboarding_text = ONBOARDING_TEXT
 
                 session_name = f"{self.mng_ctx.config.prefix}{agent.name}"
-                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent.id)
+                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
                 if tmux_tmpdir is not None:
                     self._ensure_tmux_tmpdir()
                 with log_span("Starting agent {} in tmux session {}", agent.name, session_name):
@@ -2055,7 +2043,7 @@ class Host(BaseHost, OnlineHostInterface):
                 if agent is None:
                     continue
 
-                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent_id)
+                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
                 current_agents.append((agent, tmux_tmpdir))
                 session_name = f"{self.mng_ctx.config.prefix}{agent.name}"
                 all_pids.extend(self._collect_session_pids(session_name, tmux_tmpdir))

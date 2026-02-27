@@ -79,13 +79,8 @@ class BaseAgent(AgentInterface):
         return command
 
     def _get_tmux_cmd_prefix(self) -> str:
-        """Return a TMUX_TMPDIR=... prefix for tmux commands if this agent uses isolated tmux.
-
-        Reads is_tmux_isolated from data.json. Returns empty string if not isolated
-        (including pre-migration agents where the field is absent).
-        """
-        data = self._read_data()
-        if data.get("is_tmux_isolated"):
+        """Return a TMUX_TMPDIR=... prefix for tmux commands if this agent uses isolated tmux."""
+        if self.is_tmux_isolated:
             tmux_tmpdir = self.mng_ctx.config.default_host_dir.expanduser() / "tmux"
             return f"TMUX_TMPDIR={shlex.quote(str(tmux_tmpdir))} "
         return ""
