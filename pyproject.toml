@@ -172,6 +172,19 @@ layers = [
     "imbue.mng.errors",
     "imbue.mng.primitives",
 ]
+# Config-layer tests need to import from higher layers (providers, plugins, main)
+# to set up realistic test scenarios. This is inherent to testing config loading
+# and provider registry functionality -- they must reference concrete providers
+# and plugin hookspecs to verify correct behavior.
+ignore_imports = [
+    "imbue.mng.config.loader_test -> imbue.mng.main",
+    "imbue.mng.config.loader_test -> imbue.mng.plugins.hookspecs",
+    "imbue.mng.config.loader_test -> imbue.mng.providers.registry",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.registry",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.docker.config",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.local.config",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.modal.config",
+]
 
 [[tool.importlinter.contracts]]
 name = "changelings layers contract"
