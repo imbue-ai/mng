@@ -25,12 +25,12 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import ProviderInstanceConfig
 from imbue.mng.config.data_types import split_cli_args_string
+from imbue.mng.config.host_dir import read_default_host_dir
 from imbue.mng.config.plugin_registry import get_plugin_config_class
 from imbue.mng.config.pre_readers import find_profile_dir_lightweight
 from imbue.mng.config.pre_readers import get_user_config_path
 from imbue.mng.config.pre_readers import load_local_config
 from imbue.mng.config.pre_readers import load_project_config
-from imbue.mng.config.pre_readers import read_default_host_dir
 from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.config.pre_readers import try_load_toml
 from imbue.mng.errors import ConfigParseError

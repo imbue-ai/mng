@@ -8,7 +8,7 @@ from typing import Final
 import click
 from loguru import logger
 
-from imbue.mng.config.pre_readers import read_default_host_dir
+from imbue.mng.config.host_dir import read_default_host_dir
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 

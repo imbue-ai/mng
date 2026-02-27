@@ -8,6 +8,7 @@ from loguru import logger
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
+from imbue.mng.config.host_dir import read_default_host_dir
 from imbue.mng.utils.git_utils import find_git_worktree_root
 
 # =============================================================================
@@ -81,20 +82,6 @@ def load_local_config(context_dir: Path | None, root_name: str, cg: ConcurrencyG
     if root is None:
         return None
     return try_load_toml(root / get_local_config_name(root_name))
-
-
-def read_default_host_dir() -> Path:
-    """Return the default host directory derived from environment variables.
-
-    Resolves MNG_HOST_DIR (explicit override) or falls back to ~/.{MNG_ROOT_NAME}
-    (default: ~/.mng). This is the single canonical implementation of host-dir
-    resolution from env vars; callers outside stdlib-only modules should use this
-    rather than duplicating the logic.
-    """
-    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-    env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
-    return base_dir.expanduser()
 
 
 # =============================================================================
