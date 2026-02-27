@@ -3,7 +3,10 @@ import json
 import pytest
 
 from imbue.changelings.forwarding_server.backend_resolver import MngCliInterface
+from imbue.changelings.primitives import ServerName
 from imbue.mng.primitives import AgentId
+
+DEFAULT_SERVER_NAME: ServerName = ServerName("web")
 
 
 class FakeMngCli(MngCliInterface):
