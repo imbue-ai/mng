@@ -1,6 +1,7 @@
 """Unit tests for cleanup CLI helpers."""
 
 import json
+from collections.abc import Callable
 
 import pluggy
 import pytest
@@ -215,25 +216,30 @@ def test_cleanup_snapshot_before_raises_not_implemented(
 # =============================================================================
 
 
-def _patch_find_agents(monkeypatch: pytest.MonkeyPatch, agents: list[AgentInfo]) -> None:
-    """Replace find_agents_for_cleanup with a fake that returns the given agents."""
-    monkeypatch.setattr(
-        "imbue.mng.cli.cleanup.find_agents_for_cleanup",
-        lambda **kwargs: agents,
-    )
+@pytest.fixture
+def patch_find_agents(monkeypatch: pytest.MonkeyPatch) -> Callable[[list[AgentInfo]], None]:
+    """Return a callable that patches find_agents_for_cleanup to return the given agents."""
+
+    def _patch(agents: list[AgentInfo]) -> None:
+        monkeypatch.setattr(
+            "imbue.mng.cli.cleanup.find_agents_for_cleanup",
+            lambda **kwargs: agents,
+        )
+
+    return _patch
 
 
 def test_cleanup_dry_run_human_format_with_agents(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
+    patch_find_agents: Callable[[list[AgentInfo]], None],
 ) -> None:
     """--dry-run --yes should list agents that would be destroyed in human format."""
     agents = [
         make_test_agent_info(name="cleanup-alpha", state=AgentLifecycleState.RUNNING),
         make_test_agent_info(name="cleanup-beta", state=AgentLifecycleState.STOPPED),
     ]
-    _patch_find_agents(monkeypatch, agents)
+    patch_find_agents(agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -251,13 +257,13 @@ def test_cleanup_dry_run_human_format_with_agents(
 def test_cleanup_dry_run_stop_action_human_format(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
+    patch_find_agents: Callable[[list[AgentInfo]], None],
 ) -> None:
     """--stop --dry-run --yes should say 'Would stop' in human format."""
     agents = [
         make_test_agent_info(name="stop-me", state=AgentLifecycleState.RUNNING),
     ]
-    _patch_find_agents(monkeypatch, agents)
+    patch_find_agents(agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -274,13 +280,13 @@ def test_cleanup_dry_run_stop_action_human_format(
 def test_cleanup_dry_run_json_format_with_agents(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
+    patch_find_agents: Callable[[list[AgentInfo]], None],
 ) -> None:
     """--dry-run --yes --format json should emit structured JSON."""
     agents = [
         make_test_agent_info(name="json-agent", state=AgentLifecycleState.RUNNING),
     ]
-    _patch_find_agents(monkeypatch, agents)
+    patch_find_agents(agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -300,13 +306,13 @@ def test_cleanup_dry_run_json_format_with_agents(
 def test_cleanup_dry_run_jsonl_format_with_agents(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
+    patch_find_agents: Callable[[list[AgentInfo]], None],
 ) -> None:
     """--dry-run --yes --format jsonl should emit JSONL events."""
     agents = [
         make_test_agent_info(name="jsonl-agent", state=AgentLifecycleState.RUNNING),
     ]
-    _patch_find_agents(monkeypatch, agents)
+    patch_find_agents(agents)
 
     result = cli_runner.invoke(
         cleanup,
@@ -328,13 +334,13 @@ def test_cleanup_dry_run_jsonl_format_with_agents(
 def test_cleanup_dry_run_stop_json_format(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
-    monkeypatch: pytest.MonkeyPatch,
+    patch_find_agents: Callable[[list[AgentInfo]], None],
 ) -> None:
     """--stop --dry-run --yes --format json should report action as 'stop'."""
     agents = [
         make_test_agent_info(name="stop-json", state=AgentLifecycleState.RUNNING),
     ]
-    _patch_find_agents(monkeypatch, agents)
+    patch_find_agents(agents)
 
     result = cli_runner.invoke(
         cleanup,
