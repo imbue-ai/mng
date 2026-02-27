@@ -1,21 +1,13 @@
-import json
 from pathlib import Path
 
 from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import SERVERS_LOG_FILENAME
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
+from imbue.changelings.forwarding_server.testing import write_server_log
 from imbue.mng.primitives import AgentId
 
 _AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
 _AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
-
-
-def _write_server_log(host_dir: Path, agent_id: AgentId, server: str, url: str) -> None:
-    """Write a server log record for an agent, simulating what a zygote does on startup."""
-    logs_dir = host_dir / "agents" / str(agent_id) / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    with open(logs_dir / SERVERS_LOG_FILENAME, "a") as f:
-        f.write(json.dumps({"server": server, "url": url}) + "\n")
 
 
 # -- StaticBackendResolver tests --
@@ -58,7 +50,7 @@ def test_static_list_known_agent_ids_returns_empty_tuple_when_no_agents() -> Non
 
 
 def test_agent_logs_resolver_returns_url_from_server_log(tmp_path: Path) -> None:
-    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
@@ -78,8 +70,8 @@ def test_agent_logs_resolver_returns_none_when_no_agents_dir(tmp_path: Path) -> 
 
 
 def test_agent_logs_resolver_returns_most_recent_url(tmp_path: Path) -> None:
-    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
-    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200/")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
@@ -87,8 +79,8 @@ def test_agent_logs_resolver_returns_most_recent_url(tmp_path: Path) -> None:
 
 
 def test_agent_logs_resolver_lists_known_agents(tmp_path: Path) -> None:
-    _write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101/")
-    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
     ids = resolver.list_known_agent_ids()
@@ -104,7 +96,7 @@ def test_agent_logs_resolver_returns_empty_when_no_agents(tmp_path: Path) -> Non
 
 
 def test_agent_logs_resolver_ignores_agents_without_server_logs(tmp_path: Path) -> None:
-    _write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
 
     # Create agent B's directory but without servers.jsonl
     agent_b_dir = tmp_path / "agents" / str(_AGENT_B)

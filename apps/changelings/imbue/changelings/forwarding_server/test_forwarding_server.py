@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import httpx
@@ -14,9 +13,9 @@ from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
-from imbue.changelings.forwarding_server.backend_resolver import SERVERS_LOG_FILENAME
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_agent
+from imbue.changelings.forwarding_server.testing import write_server_log
 from imbue.changelings.primitives import OneTimeCode
 from imbue.mng.primitives import AgentId
 
@@ -43,30 +42,10 @@ def _create_test_backend() -> FastAPI:
 
 def _create_test_forwarding_server(
     tmp_path: Path,
-    url_by_agent_id: dict[str, str],
-    http_client: httpx.AsyncClient | None,
-) -> tuple[TestClient, FileAuthStore, StaticBackendResolver]:
-    """Create a forwarding server with the given backend configuration."""
-    auth_dir = tmp_path / "auth"
-    auth_store = FileAuthStore(data_directory=auth_dir)
-    backend_resolver = StaticBackendResolver(url_by_agent_id=url_by_agent_id)
-
-    app = create_forwarding_server(
-        auth_store=auth_store,
-        backend_resolver=backend_resolver,
-        http_client=http_client,
-    )
-    client = TestClient(app)
-
-    return client, auth_store, backend_resolver
-
-
-def _create_test_forwarding_server_with_resolver(
-    tmp_path: Path,
     backend_resolver: BackendResolverInterface,
     http_client: httpx.AsyncClient | None,
 ) -> tuple[TestClient, FileAuthStore]:
-    """Create a forwarding server with an arbitrary backend resolver."""
+    """Create a forwarding server with the given backend resolver."""
     auth_dir = tmp_path / "auth"
     auth_store = FileAuthStore(data_directory=auth_dir)
 
@@ -82,7 +61,7 @@ def _create_test_forwarding_server_with_resolver(
 
 def _setup_test_server(
     tmp_path: Path,
-) -> tuple[TestClient, FileAuthStore, AgentId, StaticBackendResolver]:
+) -> tuple[TestClient, FileAuthStore, AgentId]:
     """Set up a forwarding server with a test backend for proxy testing."""
     agent_id = AgentId()
 
@@ -92,13 +71,14 @@ def _setup_test_server(
         base_url="http://test-backend",
     )
 
-    client, auth_store, backend_resolver = _create_test_forwarding_server(
+    backend_resolver = StaticBackendResolver(url_by_agent_id={str(agent_id): "http://test-backend"})
+    client, auth_store = _create_test_forwarding_server(
         tmp_path=tmp_path,
-        url_by_agent_id={str(agent_id): "http://test-backend"},
+        backend_resolver=backend_resolver,
         http_client=test_http_client,
     )
 
-    return client, auth_store, agent_id, backend_resolver
+    return client, auth_store, agent_id
 
 
 def _authenticate_client(
@@ -117,7 +97,7 @@ def _authenticate_client(
 
 
 def test_landing_page_shows_empty_state_without_cookies(tmp_path: Path) -> None:
-    client, _, _, _ = _setup_test_server(tmp_path)
+    client, _, _ = _setup_test_server(tmp_path)
 
     response = client.get("/")
 
@@ -126,7 +106,7 @@ def test_landing_page_shows_empty_state_without_cookies(tmp_path: Path) -> None:
 
 
 def test_login_redirects_to_authenticate_via_js(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     code = OneTimeCode(f"login-code-{AgentId()}")
     auth_store.add_one_time_code(agent_id=agent_id, code=code)
 
@@ -142,7 +122,7 @@ def test_login_redirects_to_authenticate_via_js(tmp_path: Path) -> None:
 
 
 def test_authenticate_with_valid_code_sets_cookie_and_redirects(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     code = OneTimeCode(f"auth-code-{AgentId()}")
     auth_store.add_one_time_code(agent_id=agent_id, code=code)
 
@@ -158,7 +138,7 @@ def test_authenticate_with_valid_code_sets_cookie_and_redirects(tmp_path: Path) 
 
 
 def test_authenticate_with_invalid_code_returns_403(tmp_path: Path) -> None:
-    client, _, agent_id, _ = _setup_test_server(tmp_path)
+    client, _, agent_id = _setup_test_server(tmp_path)
 
     response = client.get(
         "/authenticate",
@@ -171,7 +151,7 @@ def test_authenticate_with_invalid_code_returns_403(tmp_path: Path) -> None:
 
 
 def test_authenticate_code_cannot_be_reused(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     code = OneTimeCode(f"once-only-{AgentId()}")
     auth_store.add_one_time_code(agent_id=agent_id, code=code)
 
@@ -191,7 +171,7 @@ def test_authenticate_code_cannot_be_reused(tmp_path: Path) -> None:
 
 
 def test_landing_page_shows_agent_after_authentication(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     response = client.get("/")
@@ -200,14 +180,14 @@ def test_landing_page_shows_agent_after_authentication(tmp_path: Path) -> None:
 
 
 def test_agent_proxy_rejects_unauthenticated_requests(tmp_path: Path) -> None:
-    client, _, agent_id, _ = _setup_test_server(tmp_path)
+    client, _, agent_id = _setup_test_server(tmp_path)
 
     response = client.get(f"/agents/{agent_id}/")
     assert response.status_code == 403
 
 
 def test_agent_proxy_serves_bootstrap_on_first_navigation(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     response = client.get(
@@ -220,7 +200,7 @@ def test_agent_proxy_serves_bootstrap_on_first_navigation(tmp_path: Path) -> Non
 
 
 def test_agent_proxy_serves_service_worker_js(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     response = client.get(f"/agents/{agent_id}/__sw.js")
@@ -230,7 +210,7 @@ def test_agent_proxy_serves_service_worker_js(tmp_path: Path) -> None:
 
 
 def test_agent_proxy_forwards_get_request_to_backend(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     client.cookies.set(f"sw_installed_{agent_id}", "1")
@@ -241,7 +221,7 @@ def test_agent_proxy_forwards_get_request_to_backend(tmp_path: Path) -> None:
 
 
 def test_agent_proxy_forwards_post_request_to_backend(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     client.cookies.set(f"sw_installed_{agent_id}", "1")
@@ -255,7 +235,7 @@ def test_agent_proxy_forwards_post_request_to_backend(tmp_path: Path) -> None:
 
 
 def test_agent_proxy_injects_websocket_shim_into_html_responses(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     client.cookies.set(f"sw_installed_{agent_id}", "1")
@@ -272,9 +252,10 @@ def _setup_test_server_without_backend(
     """Set up a forwarding server with no backends for testing error paths."""
     agent_id = AgentId()
 
-    client, auth_store, _ = _create_test_forwarding_server(
+    backend_resolver = StaticBackendResolver(url_by_agent_id={})
+    client, auth_store = _create_test_forwarding_server(
         tmp_path=tmp_path,
-        url_by_agent_id={},
+        backend_resolver=backend_resolver,
         http_client=None,
     )
 
@@ -293,7 +274,7 @@ def test_agent_proxy_returns_502_for_unknown_backend(tmp_path: Path) -> None:
 
 
 def test_login_redirects_if_already_authenticated(tmp_path: Path) -> None:
-    client, auth_store, agent_id, _ = _setup_test_server(tmp_path)
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
     new_code = OneTimeCode(f"second-code-{AgentId()}")
@@ -309,7 +290,7 @@ def test_login_redirects_if_already_authenticated(tmp_path: Path) -> None:
 
 
 def test_websocket_proxy_rejects_unauthenticated_connection(tmp_path: Path) -> None:
-    client, _, agent_id, _ = _setup_test_server(tmp_path)
+    client, _, agent_id = _setup_test_server(tmp_path)
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
         with client.websocket_connect(f"/agents/{agent_id}/ws"):
@@ -331,14 +312,6 @@ def test_websocket_proxy_rejects_unknown_backend(tmp_path: Path) -> None:
 # -- Integration test: agent writes servers.jsonl, forwarding server discovers and proxies --
 
 
-def _write_server_log(host_dir: Path, agent_id: AgentId, server: str, url: str) -> None:
-    """Write a server log record, simulating what an agent zygote does on startup."""
-    logs_dir = host_dir / "agents" / str(agent_id) / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    with open(logs_dir / SERVERS_LOG_FILENAME, "a") as f:
-        f.write(json.dumps({"server": server, "url": url}) + "\n")
-
-
 def test_agent_logs_resolver_proxies_to_backend_discovered_from_servers_jsonl(tmp_path: Path) -> None:
     """Full integration test: an agent writes servers.jsonl, the AgentLogsBackendResolver
     discovers it, and the forwarding server successfully proxies HTTP requests through."""
@@ -347,7 +320,7 @@ def test_agent_logs_resolver_proxies_to_backend_discovered_from_servers_jsonl(tm
     data_dir = tmp_path / "changelings_data"
 
     # Simulate what the agent zygote does on startup: write to servers.jsonl
-    _write_server_log(host_dir, agent_id, "web", "http://test-backend")
+    write_server_log(host_dir, agent_id, "web", "http://test-backend")
 
     # Create a test backend
     backend_app = _create_test_backend()
@@ -358,7 +331,7 @@ def test_agent_logs_resolver_proxies_to_backend_discovered_from_servers_jsonl(tm
 
     # Create forwarding server with AgentLogsBackendResolver
     backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
-    client, auth_store = _create_test_forwarding_server_with_resolver(
+    client, auth_store = _create_test_forwarding_server(
         tmp_path=data_dir,
         backend_resolver=backend_resolver,
         http_client=test_http_client,
@@ -396,7 +369,7 @@ def test_agent_logs_resolver_returns_502_when_no_servers_jsonl(tmp_path: Path) -
 
     # No servers.jsonl written -- the agent hasn't started yet
     backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
-    client, auth_store = _create_test_forwarding_server_with_resolver(
+    client, auth_store = _create_test_forwarding_server(
         tmp_path=data_dir,
         backend_resolver=backend_resolver,
         http_client=None,
@@ -416,10 +389,10 @@ def test_agent_logs_resolver_landing_page_shows_discovered_agents(tmp_path: Path
     data_dir = tmp_path / "changelings_data"
 
     # Agent writes its server info
-    _write_server_log(host_dir, agent_id, "web", "http://test-backend")
+    write_server_log(host_dir, agent_id, "web", "http://test-backend")
 
     backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
-    client, auth_store = _create_test_forwarding_server_with_resolver(
+    client, auth_store = _create_test_forwarding_server(
         tmp_path=data_dir,
         backend_resolver=backend_resolver,
         http_client=None,

@@ -162,7 +162,7 @@ def _write_server_log(port: int) -> None:
         return
     logs_dir = os.path.join(agent_state_dir, "logs")
     os.makedirs(logs_dir, exist_ok=True)
-    record = {"server": "web", "url": "http://localhost:{}/".format(port)}
+    record = {"server": "web", "url": "http://127.0.0.1:{}/".format(port)}
     with open(os.path.join(logs_dir, "servers.jsonl"), "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -171,8 +171,8 @@ def main() -> None:
     import sys
 
     port = int(os.environ.get("PORT", str(_DEFAULT_PORT)))
-    _write_server_log(port)
     http_server = HTTPServer(("0.0.0.0", port), _Handler)
+    _write_server_log(port)
     sys.stderr.write("hello-world changeling serving on port {}\n".format(port))
     sys.stderr.flush()
     http_server.serve_forever()
