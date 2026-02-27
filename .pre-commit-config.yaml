@@ -14,11 +14,11 @@ repos:
         entry: bash -c 'uv run ruff check --select UP006,UP007,I,F401 --fix --force-exclude --config pyproject.toml "$@" && uv run ruff format --force-exclude --config pyproject.toml "$@"' --
         language: system
         types: [python]
-    -   id: regenerate-cli-docs
-        name: "Regenerate CLI markdown docs"
-        entry: bash -c 'uv run python scripts/make_cli_docs.py && git diff --quiet libs/mng/docs/commands/ libs/mng/README.md'
+    -   id: regenerate-derived-files
+        name: "Regenerate derived files (CLI docs, README, .dockerignore)"
+        entry: bash -c 'uv run python scripts/generate_derived_files.py && git diff --quiet libs/mng/docs/commands/ libs/mng/README.md .dockerignore'
         language: system
-        files: 'libs/mng/imbue/mng/cli/.*\.py$|libs/mng/imbue/mng/main\.py$|scripts/make_cli_docs\.py$|libs/mng/docs/commands/.*\.md$|^README\.md$|^libs/mng/README\.md$'
+        files: 'libs/mng/imbue/mng/cli/.*\.py$|libs/mng/imbue/mng/main\.py$|scripts/generate_derived_files\.py$|libs/mng/docs/commands/.*\.md$|^README\.md$|^libs/mng/README\.md$|^\.gitignore$|^\.dockerignore$'
         pass_filenames: false
     -   id: clean-stale-workspace-dirs
 #        Without this, when a workspace member is removed, its directory and contents remain, which causes uv to explode with a cryptic error message any time you run any uv command

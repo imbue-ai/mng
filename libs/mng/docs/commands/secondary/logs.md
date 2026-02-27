@@ -1,5 +1,5 @@
 <!-- This file is auto-generated. Do not edit directly. -->
-<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
+<!-- To modify, edit the command's help metadata and run: uv run python scripts/generate_derived_files.py -->
 
 # mng logs
 
