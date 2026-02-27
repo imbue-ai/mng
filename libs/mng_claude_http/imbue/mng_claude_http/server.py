@@ -309,12 +309,20 @@ async def _start_claude_session(
     state.terminate_cli_process()
 
     # Start the subprocess
-    process = subprocess.Popen(
-        cmd,
-        cwd=str(work_dir) if work_dir else None,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    try:
+        process = subprocess.Popen(
+            cmd,
+            cwd=str(work_dir) if work_dir else None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        logger.error("'claude' command not found. Is Claude Code installed?")
+        if state.browser_ws is not None:
+            await state.browser_ws.send_text(
+                json.dumps({"type": "error", "error": "'claude' command not found. Is Claude Code installed?"})
+            )
+        return
     state.cli_process = process
 
     # Wait for CLI to connect (with timeout)
