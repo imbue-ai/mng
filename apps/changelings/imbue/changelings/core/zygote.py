@@ -3,11 +3,13 @@ from pathlib import Path
 from typing import Final
 
 from pydantic import Field
+from pydantic import model_validator
 
 from imbue.changelings.errors import ChangelingError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.imbue_common.primitives import PositiveInt
+from imbue.mng.primitives import AgentTypeName
 
 ZYGOTE_CONFIG_FILENAME: Final[str] = "changeling.toml"
 
@@ -25,12 +27,36 @@ class ZygoteCommand(NonEmptyStr):
 
 
 class ZygoteConfig(FrozenModel):
-    """Configuration for a changeling zygote, read from changeling.toml."""
+    """Configuration for a changeling zygote, read from changeling.toml.
+
+    Either `agent_type` must be set (for agent-type-based changelings like elena-code),
+    or both `command` and `port` must be set (for custom-command changelings like hello-world).
+    """
 
     name: ZygoteName = Field(description="Default name for the changeling")
-    command: ZygoteCommand = Field(description="Shell command to start the changeling's server")
-    port: PositiveInt = Field(description="Port the changeling's HTTP server listens on")
+    agent_type: AgentTypeName | None = Field(
+        default=None,
+        description="mng agent type to use (e.g. 'elena-code'). When set, command and port are handled by the agent type.",
+    )
+    command: ZygoteCommand | None = Field(
+        default=None,
+        description="Shell command to start the changeling's server",
+    )
+    port: PositiveInt | None = Field(
+        default=None,
+        description="Port the changeling's HTTP server listens on",
+    )
     description: str = Field(default="", description="Human-readable description of the changeling")
+
+    @model_validator(mode="after")
+    def _validate_command_or_agent_type(self) -> "ZygoteConfig":
+        """Validate that either agent_type or both command and port are set."""
+        if self.agent_type is None:
+            if self.command is None:
+                raise ValueError("'command' is required when 'agent_type' is not set")
+            if self.port is None:
+                raise ValueError("'port' is required when 'agent_type' is not set")
+        return self
 
 
 class ZygoteNotFoundError(ChangelingError):

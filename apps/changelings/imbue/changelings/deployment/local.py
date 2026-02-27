@@ -10,6 +10,7 @@ from pydantic import Field
 
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.core.zygote import ZygoteConfig
+from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.primitives import OneTimeCode
@@ -61,11 +62,12 @@ def deploy_local(
     """Deploy a changeling locally by creating an mng agent.
 
     This function:
-    1. Stages zygote files to a temp dir (to avoid git root detection)
-    2. Creates an mng agent via `mng create --copy`
-    3. Looks up the mng agent ID via `mng list`
-    4. Generates a one-time auth code for the forwarding server
-    5. Returns the deployment result with the login URL
+    1. Verifies mng is available and no agent with this name exists
+    2. Stages zygote files to a temp dir (to avoid git root detection)
+    3. Creates an mng agent via `mng create --copy` (or `--agent-type` for typed agents)
+    4. Looks up the mng agent ID via `mng list`
+    5. Generates a one-time auth code for the forwarding server
+    6. Returns the deployment result with the login URL
 
     The agent itself is responsible for writing its server info to
     $MNG_AGENT_STATE_DIR/logs/servers.jsonl on startup, which the forwarding
@@ -74,13 +76,20 @@ def deploy_local(
     with log_span("Deploying changeling '{}' locally", agent_name):
         _verify_mng_available()
 
-        backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
+        _check_agent_not_exists(
+            agent_name=agent_name,
+            concurrency_group=concurrency_group,
+        )
+
+        if zygote_config.agent_type is not None:
+            backend_url = "(managed by agent type)"
+        else:
+            backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
 
         _create_mng_agent(
             zygote_dir=zygote_dir,
             agent_name=agent_name,
-            command=str(zygote_config.command),
-            port=zygote_config.port,
+            zygote_config=zygote_config,
             concurrency_group=concurrency_group,
         )
 
@@ -109,17 +118,57 @@ def _verify_mng_available() -> None:
         raise MngNotFoundError("The 'mng' command was not found on PATH. Install mng first: uv tool install mng")
 
 
+def _check_agent_not_exists(
+    agent_name: str,
+    concurrency_group: ConcurrencyGroup,
+) -> None:
+    """Check that no agent with this name already exists.
+
+    Raises AgentAlreadyExistsError if an agent with the given name is found.
+    """
+    result = concurrency_group.run_process_to_completion(
+        command=[
+            _MNG_BINARY,
+            "list",
+            "--include",
+            'name == "{}"'.format(agent_name),
+            "--json",
+        ],
+        is_checked_after=False,
+    )
+
+    if result.returncode != 0:
+        logger.debug("Agent existence check failed (exit code {}), proceeding", result.returncode)
+        return
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        logger.debug("Failed to parse mng list output for existence check, proceeding")
+        return
+
+    agents = data.get("agents", [])
+    if agents:
+        raise AgentAlreadyExistsError(
+            "An agent named '{}' already exists. "
+            "Use 'changeling update' to update it, or 'changeling destroy' to remove it.".format(agent_name)
+        )
+
+
 def _create_mng_agent(
     zygote_dir: Path,
     agent_name: str,
-    command: str,
-    port: int,
+    zygote_config: ZygoteConfig,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Create an mng agent with a copy of the zygote directory as its work_dir.
 
     Copies the zygote to a temporary directory first so that mng does not detect
     a parent git repository and use the git root as the source.
+
+    When the zygote config specifies an agent_type, creates the agent using that
+    type (via --agent-type). Otherwise, uses the command and port from the config
+    (via --agent-cmd and --env PORT=).
     """
     with log_span("Creating mng agent '{}'", agent_name):
         staging_dir = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
@@ -132,13 +181,15 @@ def _create_mng_agent(
                 "create",
                 "--name",
                 agent_name,
-                "--agent-cmd",
-                command,
                 "--no-connect",
                 "--copy",
-                "--env",
-                "PORT={}".format(port),
             ]
+
+            if zygote_config.agent_type is not None:
+                mng_command.extend(["--agent-type", str(zygote_config.agent_type)])
+            else:
+                mng_command.extend(["--agent-cmd", str(zygote_config.command)])
+                mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
 
             logger.debug("Running: {}", " ".join(mng_command))
 

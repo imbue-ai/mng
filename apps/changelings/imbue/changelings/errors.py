@@ -4,6 +4,12 @@ class ChangelingError(Exception):
     ...
 
 
+class AgentAlreadyExistsError(ChangelingError):
+    """Raised when attempting to deploy a changeling with a name that already exists."""
+
+    ...
+
+
 class SigningKeyError(ChangelingError):
     """Raised when the cookie signing key cannot be loaded or created."""
 

@@ -138,7 +138,23 @@ def _deploy_and_serve(
 
 @click.command()
 @click.argument("zygote_path", type=click.Path(exists=True, file_okay=False, resolve_path=True))
-def deploy(zygote_path: str) -> None:
+@click.option(
+    "--name",
+    default=None,
+    help="Name for the agent (skips the name prompt if provided)",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["local", "modal", "docker"], case_sensitive=False),
+    default=None,
+    help="Where to deploy the agent (skips the provider prompt if provided)",
+)
+@click.option(
+    "--self-deploy/--no-self-deploy",
+    default=None,
+    help="Whether to allow the agent to launch its own agents (skips the prompt if provided)",
+)
+def deploy(zygote_path: str, name: str | None, provider: str | None, self_deploy: bool | None) -> None:
     """Deploy a new changeling from a local repository.
 
     ZYGOTE_PATH is the path to a directory containing a changeling.toml file
@@ -147,6 +163,8 @@ def deploy(zygote_path: str) -> None:
     Example:
 
         changeling deploy ./examples/hello-world
+
+        changeling deploy ./examples/elena-code --name my-elena --provider local --no-self-deploy
     """
     zygote_dir = Path(zygote_path)
 
@@ -159,11 +177,19 @@ def deploy(zygote_path: str) -> None:
     if zygote_config.description:
         _write_line("  {}".format(zygote_config.description))
 
-    agent_name = _prompt_agent_name(default_name=str(zygote_config.name))
-    provider = _prompt_provider()
-    self_deploy = _prompt_self_deploy()
+    agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
 
-    if self_deploy == SelfDeployChoice.YES:
+    if provider is not None:
+        provider_choice = DeploymentProvider(provider.upper())
+    else:
+        provider_choice = _prompt_provider()
+
+    if self_deploy is not None:
+        self_deploy_choice = SelfDeployChoice.YES if self_deploy else SelfDeployChoice.NOT_NOW
+    else:
+        self_deploy_choice = _prompt_self_deploy()
+
+    if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
     try:
@@ -171,7 +197,7 @@ def deploy(zygote_path: str) -> None:
             zygote_dir=zygote_dir,
             zygote_config=zygote_config,
             agent_name=agent_name,
-            provider=provider,
+            provider=provider_choice,
         )
     except ChangelingError as e:
         raise click.ClickException(str(e)) from e
