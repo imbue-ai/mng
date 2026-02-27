@@ -175,6 +175,7 @@ def test_pair_files_raises_when_git_required_but_not_present(
 
 @pytest.mark.git
 @pytest.mark.unison
+@pytest.mark.skip_must_use_check
 def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files properly starts and stops the unison syncer."""
     with pair_files(
