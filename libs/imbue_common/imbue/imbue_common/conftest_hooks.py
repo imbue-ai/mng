@@ -833,48 +833,28 @@ def _pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo,  # type: ignore[type-arg]
 ) -> Generator[None, None, None]:
-    """Enforce that tests with resource marks actually invoked the resource.
+    """Clean up tracking directories and (when reliable) enforce must-use.
 
-    After the call phase completes successfully, checks each marked resource's
-    tracking file. If a test has @pytest.mark.<resource> but the resource binary
-    was never invoked during the test function, the test is failed.
+    The tracking files are created by wrapper scripts when subprocess.Popen
+    resolves the binary through PATH. On macOS, subprocess.Popen does not
+    always re-search PATH for modified environment variables (due to
+    posix_spawn behavior), so the must-use check would produce false
+    negatives. The must-use enforcement is therefore disabled until a
+    more reliable detection mechanism is implemented (e.g., LD_PRELOAD
+    on Linux or DYLD_INSERT_LIBRARIES on macOS).
 
-    This catches superfluous marks that would unnecessarily slow down filtered
-    test runs (e.g., `pytest -m 'not tmux'` skipping a test that doesn't use tmux).
+    The blocking direction (catching tests that invoke a resource without
+    the mark) works reliably because it causes the wrapper script to exit
+    with code 127, which propagates as a subprocess failure.
     """
     outcome = yield
     report = outcome.get_result()
 
-    # Only check after the call phase, and only if the test passed
-    if call.when != "call" or not report.passed:
-        # Clean up tracking dir on the final phase (teardown)
-        if call.when == "teardown":
-            tracking_dir = getattr(item, "_resource_tracking_dir", None)
-            if tracking_dir:
-                shutil.rmtree(tracking_dir, ignore_errors=True)
-        return
-
-    tracking_dir = getattr(item, "_resource_tracking_dir", None)
-    if tracking_dir is None:
-        return
-
-    marks: set[str] = getattr(item, "_resource_marks", set())
-    original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH", "")
-
-    for resource in _GUARDED_RESOURCES:
-        if resource not in marks:
-            continue
-        # Only enforce must-use if the resource binary is actually installed
-        if _resolve_real_binary(resource, original_path) is None:
-            continue
-        tracking_file = Path(tracking_dir) / resource
-        if not tracking_file.exists():
-            report.outcome = "failed"
-            report.longrepr = (
-                f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
-                f"Remove the mark or ensure the test exercises {resource}."
-            )
-            break
+    # Clean up tracking dir on the final phase (teardown)
+    if call.when == "teardown":
+        tracking_dir = getattr(item, "_resource_tracking_dir", None)
+        if tracking_dir:
+            shutil.rmtree(tracking_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
