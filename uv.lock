@@ -19,6 +19,7 @@ members = [
     "mng-opencode",
     "mng-pair",
     "mng-schedule",
+    "mng-ttyd",
     "mng-tutor",
     "sculptor-web",
 ]
@@ -1910,6 +1911,17 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "tabulate", specifier = ">=0.9.0" },
 ]
+
+[[package]]
+name = "mng-ttyd"
+version = "0.1.0"
+source = { editable = "libs/mng_ttyd" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "mng-tutor"

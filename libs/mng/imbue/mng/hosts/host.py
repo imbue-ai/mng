@@ -2259,11 +2259,10 @@ def _build_start_agent_shell_command(
         )
         steps.append(f"tmux set-hook -t {quoted_session} client-attached[99] {shlex.quote(hook_value)}")
 
-    # Send the agent command as literal keys, then Enter to execute
-    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} -l {shlex.quote(command)}")
-    steps.append(f"tmux send-keys -t {shlex.quote(session_name)} Enter")
-
-    # Create additional windows for each additional command
+    # Create additional windows BEFORE sending the agent command. This
+    # ensures all windows exist before the agent starts, preventing a race
+    # where a fast-exiting agent command destroys the session before
+    # additional windows can be created.
     for idx, named_cmd in enumerate(additional_commands):
         window_name = named_cmd.window_name if named_cmd.window_name else f"cmd-{idx + 1}"
         window_target = f"{session_name}:{window_name}"
@@ -2278,8 +2277,16 @@ def _build_start_agent_shell_command(
         steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
 
     # If we created additional windows, select the first window (the main agent)
+    # before sending the agent command
     if additional_commands:
         steps.append(f"tmux select-window -t {shlex.quote(session_name + ':0')}")
+
+    # Send the agent command as literal keys, then Enter to execute.
+    # Target window :0 explicitly so this works even after additional windows
+    # have been created (which changes the active window).
+    agent_window = shlex.quote(session_name + ":0")
+    steps.append(f"tmux send-keys -t {agent_window} -l {shlex.quote(command)}")
+    steps.append(f"tmux send-keys -t {agent_window} Enter")
 
     # Record START activity for idle detection by writing JSON to the activity file
     # The authoritative activity time is the file's mtime, not the JSON content

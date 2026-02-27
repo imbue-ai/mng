@@ -467,7 +467,7 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
 
     cg = ConcurrencyGroup(name="isolated-venv-setup")
     with cg:
-        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        cg.run_process_to_completion(("uv", "venv", str(venv_dir), "--python", sys.executable))
         cg.run_process_to_completion(
             ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
         )
