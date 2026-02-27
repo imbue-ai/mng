@@ -505,16 +505,14 @@ def test_push_files_with_custom_destination_path(
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.parametrize(
     "mode,modify_tracked_file",
     [
-        (UncommittedChangesMode.CLOBBER, False),
-        (UncommittedChangesMode.STASH, True),
-        (UncommittedChangesMode.MERGE, True),
+        pytest.param(UncommittedChangesMode.CLOBBER, False, id="clobber"),
+        pytest.param(UncommittedChangesMode.STASH, True, marks=pytest.mark.git, id="stash"),
+        pytest.param(UncommittedChangesMode.MERGE, True, marks=pytest.mark.git, id="merge"),
     ],
-    ids=["clobber", "stash", "merge"],
 )
 def test_push_files_does_not_modify_host_directory(
     push_ctx: SyncTestContext,

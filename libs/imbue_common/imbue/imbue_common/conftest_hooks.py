@@ -6,6 +6,7 @@ Provides common test infrastructure:
 - xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
+- Resource mark enforcement (ensures tests are correctly marked for external tool usage)
 
 Environment variables:
 - PYTEST_NUMPROCESSES: Override the number of xdist workers (default: 4, set in
@@ -29,8 +30,12 @@ by pytest. Without the guard, pytest_addoption would fail with duplicate option 
 import fcntl
 import json
 import os
+import shutil
+import stat
 import sys
+import tempfile
 import time
+from collections.abc import Generator
 from io import StringIO
 from pathlib import Path
 from typing import Final
@@ -68,6 +73,11 @@ _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
     "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
+    "tmux: marks tests that create real tmux sessions or mng agents (slow, requires tmux)",
+    "git: marks tests that run real git commands via subprocess (clone, commit, push, pull)",
+    "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
+    "rsync: marks tests that invoke rsync for file transfer",
+    "unison: marks tests that start a real unison file-sync process",
 ]
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
@@ -92,6 +102,189 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
     "@abstractmethod",
     r"^\s*\.\.\.$",  # Matches lines containing only "..."
 ]
+
+# Resources guarded by PATH wrapper scripts. Each resource name corresponds to
+# both a binary on PATH and a pytest mark name (e.g., @pytest.mark.tmux).
+# During the test call phase, wrapper scripts:
+# - Block invocation if the test lacks the corresponding mark (catches missing marks)
+# - Track invocation if the test has the mark (catches superfluous marks)
+# Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
+_GUARDED_RESOURCES: Final[list[str]] = ["tmux", "git", "rsync", "unison"]
+
+# Git subcommands that are considered "heavy" (state-mutating or network-accessing).
+# Only these trigger the guard. Lightweight read-only operations like ls-files,
+# rev-parse, config (read), status, diff, log, show, etc. pass through without
+# blocking or tracking, since they're fast and commonly used incidentally by
+# fixtures and utility code that doesn't warrant the @pytest.mark.git mark.
+_GIT_HEAVY_SUBCOMMANDS: Final[list[str]] = [
+    "init",
+    "clone",
+    "add",
+    "rm",
+    "mv",
+    "commit",
+    "merge",
+    "rebase",
+    "reset",
+    "checkout",
+    "switch",
+    "pull",
+    "push",
+    "fetch",
+    "stash",
+    "tag",
+    "cherry-pick",
+    "revert",
+    "am",
+    "apply",
+    "worktree",
+    "bisect",
+    "submodule",
+    "clean",
+]
+
+# Module-level state for resource guard wrappers. The wrapper directory is created
+# once per session (by the controller or single process) and reused by xdist workers.
+_guard_wrapper_dir: str | None = None
+
+
+def _resolve_real_binary(resource: str, original_path: str) -> str | None:
+    """Find the real binary for a resource by searching a PATH string.
+
+    Skips any directories that look like guard wrapper directories (from a
+    previous session that wasn't cleaned up, or from the controller process
+    in xdist setups).
+    """
+    for directory in original_path.split(os.pathsep):
+        if not directory:
+            continue
+        # Skip guard wrapper directories from any session
+        if "pytest_resource_guards_" in directory:
+            continue
+        candidate = Path(directory) / resource
+        if candidate.is_file() and os.access(str(candidate), os.X_OK):
+            return str(candidate)
+    return None
+
+
+def _generate_wrapper_script(resource: str, real_path: str) -> str:
+    """Generate a bash wrapper script for a guarded resource.
+
+    The wrapper checks environment variables set by the pytest_runtest_call hook:
+    - _PYTEST_GUARD_PHASE: Only enforce during the "call" phase (not setup/teardown)
+    - _PYTEST_GUARD_<RESOURCE>: "block" if the test lacks the mark, "allow" if it has it
+    - _PYTEST_GUARD_TRACKING_DIR: Directory where tracking files are created
+
+    During the call phase:
+    - If the guard is "block", the wrapper prints an error and exits 127
+    - If the guard is "allow", the wrapper touches a tracking file and delegates
+    Outside the call phase (fixture setup/teardown), the wrapper always delegates.
+
+    For git specifically, only "heavy" subcommands (state-mutating or network-accessing)
+    trigger the guard. Lightweight read-only operations like ls-files and rev-parse
+    pass through unconditionally.
+    """
+    bash_guard_var = f"$_PYTEST_GUARD_{resource.upper()}"
+
+    if resource == "git":
+        # Build a bash case pattern from the heavy subcommands list
+        subcommands = "|".join(_GIT_HEAVY_SUBCOMMANDS)
+        return f"""#!/bin/bash
+if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
+    case "$1" in
+        {subcommands})
+            if [ "{bash_guard_var}" = "block" ]; then
+                echo "RESOURCE GUARD: Test invoked 'git $1' without @pytest.mark.git mark." >&2
+                echo "Add @pytest.mark.git to the test, or remove the git usage." >&2
+                exit 127
+            fi
+            if [ "{bash_guard_var}" = "allow" ] && [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
+                touch "$_PYTEST_GUARD_TRACKING_DIR/git"
+            fi
+            ;;
+    esac
+fi
+exec "{real_path}" "$@"
+"""
+
+    return f"""#!/bin/bash
+if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
+    if [ "{bash_guard_var}" = "block" ]; then
+        echo "RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource} mark." >&2
+        echo "Add @pytest.mark.{resource} to the test, or remove the {resource} usage." >&2
+        exit 127
+    fi
+    if [ "{bash_guard_var}" = "allow" ] && [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
+        touch "$_PYTEST_GUARD_TRACKING_DIR/{resource}"
+    fi
+fi
+exec "{real_path}" "$@"
+"""
+
+
+def _create_resource_guard_wrappers() -> None:
+    """Create wrapper scripts for guarded resources and prepend to PATH.
+
+    Each wrapper intercepts calls to the corresponding binary and enforces
+    that the test has the appropriate pytest mark.
+
+    For xdist: the controller creates the wrappers and modifies PATH. Workers
+    inherit the modified PATH and wrapper directory via environment variables.
+    The _PYTEST_GUARD_WRAPPER_DIR env var signals that wrappers already exist.
+    """
+    global _guard_wrapper_dir
+
+    # If wrappers already exist (e.g., inherited from xdist controller), reuse them.
+    existing_dir = os.environ.get("_PYTEST_GUARD_WRAPPER_DIR")
+    if existing_dir and Path(existing_dir).is_dir():
+        _guard_wrapper_dir = existing_dir
+        return
+
+    # Save the original PATH before any modification, so we can find real binaries
+    # even if wrappers from a crashed session are still on PATH.
+    original_path = os.environ.get("PATH", "")
+    os.environ["_PYTEST_GUARD_ORIGINAL_PATH"] = original_path
+
+    _guard_wrapper_dir = tempfile.mkdtemp(prefix="pytest_resource_guards_")
+
+    for resource in _GUARDED_RESOURCES:
+        real_path = _resolve_real_binary(resource, original_path)
+        if real_path is None:
+            continue
+
+        wrapper_path = Path(_guard_wrapper_dir) / resource
+        wrapper_path.write_text(_generate_wrapper_script(resource, real_path))
+        wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    # Prepend wrapper directory to PATH and store for xdist workers
+    os.environ["PATH"] = f"{_guard_wrapper_dir}{os.pathsep}{original_path}"
+    os.environ["_PYTEST_GUARD_WRAPPER_DIR"] = _guard_wrapper_dir
+
+
+def _cleanup_resource_guard_wrappers() -> None:
+    """Remove wrapper scripts and restore PATH.
+
+    Only the controller (or single-process pytest) should clean up. xdist
+    workers skip cleanup since they share the controller's wrapper directory.
+    """
+    global _guard_wrapper_dir
+
+    if _is_xdist_worker():
+        _guard_wrapper_dir = None
+        return
+
+    if _guard_wrapper_dir is not None:
+        # Restore original PATH
+        original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH")
+        if original_path is not None:
+            os.environ["PATH"] = original_path
+
+        shutil.rmtree(_guard_wrapper_dir, ignore_errors=True)
+        _guard_wrapper_dir = None
+
+    # Clean up guard env vars
+    for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
+        os.environ.pop(key, None)
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +433,8 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
     if _is_xdist_worker():
         # Use setattr to avoid type errors - pytest Session doesn't declare these attributes
         setattr(session, "start_time", time.time())  # noqa: B010
+        # Workers reuse the controller's resource guard wrappers (via env var)
+        _create_resource_guard_wrappers()
         return
 
     # Acquire the lock and store the handle on the session to keep it open
@@ -249,6 +444,9 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
     # Record start time AFTER acquiring the lock so wait time isn't counted
     setattr(session, "start_time", time.time())  # noqa: B010
 
+    # Create resource guard wrappers (after the lock, before tests run)
+    _create_resource_guard_wrappers()
+
 
 @pytest.hookimpl(trylast=True)
 def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -257,6 +455,9 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     Prints per-test durations before checking the limit so that timing data
     is always visible in CI output, even when the suite exceeds the limit.
     """
+    # Clean up resource guard wrappers
+    _cleanup_resource_guard_wrappers()
+
     # Print test durations before checking the time limit, so they are
     # visible in the CI output even when pytest.exit() aborts the session.
     terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
@@ -552,6 +753,105 @@ def _print_test_durations_for_ci(
 
 
 # ---------------------------------------------------------------------------
+# Resource guard hooks
+# ---------------------------------------------------------------------------
+
+
+@pytest.hookimpl(hookwrapper=True)
+def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
+    """Set resource guard environment variables during the test call phase.
+
+    This hook wraps the actual test function execution (not fixture setup/teardown).
+    It sets environment variables that the PATH wrapper scripts check:
+
+    - _PYTEST_GUARD_PHASE="call": Signals wrappers to enforce guards
+    - _PYTEST_GUARD_<RESOURCE>="allow"|"block": Per-resource guard state
+    - _PYTEST_GUARD_TRACKING_DIR: Directory for tracking files (one per resource invoked)
+
+    After the test function completes, the env vars are cleaned up. The tracking
+    directory is stored on the item for pytest_runtest_makereport to check.
+    """
+    if _guard_wrapper_dir is None:
+        yield
+        return
+
+    marks = {m.name for m in item.iter_markers()}
+
+    # Create per-test tracking directory
+    tracking_dir = tempfile.mkdtemp(prefix="pytest_guard_track_")
+    setattr(item, "_resource_tracking_dir", tracking_dir)  # noqa: B010
+    setattr(item, "_resource_marks", marks)  # noqa: B010
+
+    # Set guard env vars for each resource
+    for resource in _GUARDED_RESOURCES:
+        env_var = f"_PYTEST_GUARD_{resource.upper()}"
+        if resource in marks:
+            os.environ[env_var] = "allow"
+        else:
+            os.environ[env_var] = "block"
+
+    os.environ["_PYTEST_GUARD_TRACKING_DIR"] = tracking_dir
+    os.environ["_PYTEST_GUARD_PHASE"] = "call"
+
+    yield
+
+    # Clean up env vars after the test function completes
+    os.environ.pop("_PYTEST_GUARD_PHASE", None)
+    os.environ.pop("_PYTEST_GUARD_TRACKING_DIR", None)
+    for resource in _GUARDED_RESOURCES:
+        os.environ.pop(f"_PYTEST_GUARD_{resource.upper()}", None)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def _pytest_runtest_makereport(
+    item: pytest.Item,
+    call: pytest.CallInfo,  # type: ignore[type-arg]
+) -> Generator[None, None, None]:
+    """Enforce that tests with resource marks actually invoked the resource.
+
+    After the call phase completes successfully, checks each marked resource's
+    tracking file. If a test has @pytest.mark.<resource> but the resource binary
+    was never invoked during the test function, the test is failed.
+
+    This catches superfluous marks that would unnecessarily slow down filtered
+    test runs (e.g., `pytest -m 'not tmux'` skipping a test that doesn't use tmux).
+    """
+    outcome = yield
+    report = outcome.get_result()
+
+    # Only check after the call phase, and only if the test passed
+    if call.when != "call" or not report.passed:
+        # Clean up tracking dir on the final phase (teardown)
+        if call.when == "teardown":
+            tracking_dir = getattr(item, "_resource_tracking_dir", None)
+            if tracking_dir:
+                shutil.rmtree(tracking_dir, ignore_errors=True)
+        return
+
+    tracking_dir = getattr(item, "_resource_tracking_dir", None)
+    if tracking_dir is None:
+        return
+
+    marks: set[str] = getattr(item, "_resource_marks", set())
+    original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH", "")
+
+    for resource in _GUARDED_RESOURCES:
+        if resource not in marks:
+            continue
+        # Only enforce must-use if the resource binary is actually installed
+        if _resolve_real_binary(resource, original_path) is None:
+            continue
+        tracking_file = Path(tracking_dir) / resource
+        if not tracking_file.exists():
+            report.outcome = "failed"
+            report.longrepr = (
+                f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
+                f"Remove the mark or ensure the test exercises {resource}."
+            )
+            break
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
@@ -604,5 +904,7 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    namespace["pytest_runtest_call"] = _pytest_runtest_call
+    namespace["pytest_runtest_makereport"] = _pytest_runtest_makereport
     # Register the JUnit test ID fixture (with public name for pytest discovery)
     namespace["set_junit_test_id"] = _set_junit_test_id
