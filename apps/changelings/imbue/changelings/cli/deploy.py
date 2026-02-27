@@ -202,43 +202,48 @@ def deploy(
         raise click.ClickException(str(e)) from e
 
     clone_dir = clone_result.clone_dir
-    zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
-
-    if not zygote_dir.is_dir():
-        shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
-        raise click.ClickException("Subdirectory '{}' not found in cloned repository".format(sub_path))
-
+    deploy_succeeded = False
     try:
-        zygote_config = load_zygote_config(zygote_dir)
-    except ChangelingError as e:
-        shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
-        raise click.ClickException(str(e)) from e
+        zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
 
-    _write_line("Deploying changeling from: {}".format(zygote_dir))
-    if zygote_config.description:
-        _write_line("  {}".format(zygote_config.description))
+        if not zygote_dir.is_dir():
+            raise click.ClickException("Subdirectory '{}' not found in cloned repository".format(sub_path))
 
-    agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
+        try:
+            zygote_config = load_zygote_config(zygote_dir)
+        except ChangelingError as e:
+            raise click.ClickException(str(e)) from e
 
-    if provider is not None:
-        provider_choice = DeploymentProvider(provider.upper())
-    else:
-        provider_choice = _prompt_provider()
+        _write_line("Deploying changeling from: {}".format(zygote_dir))
+        if zygote_config.description:
+            _write_line("  {}".format(zygote_config.description))
 
-    if self_deploy is not None:
-        self_deploy_choice = SelfDeployChoice.YES if self_deploy else SelfDeployChoice.NOT_NOW
-    else:
-        self_deploy_choice = _prompt_self_deploy()
+        agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
 
-    if self_deploy_choice == SelfDeployChoice.YES:
-        logger.debug("Self-deploy enabled (not yet implemented)")
+        if provider is not None:
+            provider_choice = DeploymentProvider(provider.upper())
+        else:
+            provider_choice = _prompt_provider()
 
-    try:
-        _deploy_and_serve(
-            zygote_dir=zygote_dir,
-            zygote_config=zygote_config,
-            agent_name=agent_name,
-            provider=provider_choice,
-        )
-    except ChangelingError as e:
-        raise click.ClickException(str(e)) from e
+        if self_deploy is not None:
+            self_deploy_choice = SelfDeployChoice.YES if self_deploy else SelfDeployChoice.NOT_NOW
+        else:
+            self_deploy_choice = _prompt_self_deploy()
+
+        if self_deploy_choice == SelfDeployChoice.YES:
+            logger.debug("Self-deploy enabled (not yet implemented)")
+
+        try:
+            _deploy_and_serve(
+                zygote_dir=zygote_dir,
+                zygote_config=zygote_config,
+                agent_name=agent_name,
+                provider=provider_choice,
+            )
+        except ChangelingError as e:
+            raise click.ClickException(str(e)) from e
+
+        deploy_succeeded = True
+    finally:
+        if not deploy_succeeded:
+            shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
