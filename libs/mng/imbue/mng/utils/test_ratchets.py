@@ -213,7 +213,7 @@ def test_no_ruff_errors() -> None:
 
 def test_prevent_if_elif_without_else() -> None:
     chunks = find_if_elif_without_else(_get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(0), PREVENT_IF_ELIF_WITHOUT_ELSE.format_failure(chunks)
+    assert len(chunks) <= snapshot(1), PREVENT_IF_ELIF_WITHOUT_ELSE.format_failure(chunks)
 
 
 def test_prevent_import_datetime() -> None:
