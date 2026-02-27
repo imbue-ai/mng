@@ -120,37 +120,22 @@ def test_git_clone_error_is_changeling_error() -> None:
 
 
 def test_clone_git_repo_clones_local_repo(tmp_path: Path) -> None:
-    """Verify that clone_git_repo clones a local git repo into the given parent_dir."""
+    """Verify that clone_git_repo clones a local git repo into the given directory."""
     repo_dir = tmp_path / "source-repo"
     repo_dir.mkdir()
     (repo_dir / "hello.txt").write_text("hello")
     init_and_commit_git_repo(repo_dir, tmp_path)
 
-    clone_parent = tmp_path / "clone-parent"
-    clone_parent.mkdir()
-    result = clone_git_repo(GitUrl(str(repo_dir)), parent_dir=clone_parent)
+    clone_dir = tmp_path / "my-clone"
+    clone_git_repo(GitUrl(str(repo_dir)), clone_dir)
 
-    assert result.clone_dir.is_dir()
-    assert (result.clone_dir / "hello.txt").read_text() == "hello"
-    assert (result.clone_dir / ".git").is_dir()
-    assert result.cleanup_dir == clone_parent
+    assert clone_dir.is_dir()
+    assert (clone_dir / "hello.txt").read_text() == "hello"
+    assert (clone_dir / ".git").is_dir()
 
 
-def test_clone_git_repo_raises_for_invalid_url() -> None:
+def test_clone_git_repo_raises_for_invalid_url(tmp_path: Path) -> None:
     """Verify that clone_git_repo raises GitCloneError for an invalid URL."""
+    clone_dir = tmp_path / "bad-clone"
     with pytest.raises(GitCloneError, match="git clone failed"):
-        clone_git_repo(GitUrl("/nonexistent/repo/path"))
-
-
-def test_clone_git_repo_does_not_clean_caller_dir_on_failure(tmp_path: Path) -> None:
-    """Verify that a caller-provided parent_dir is not removed on clone failure."""
-    parent_dir = tmp_path / "my-parent"
-    parent_dir.mkdir()
-    marker_file = parent_dir / "marker.txt"
-    marker_file.write_text("should survive")
-
-    with pytest.raises(GitCloneError):
-        clone_git_repo(GitUrl("/nonexistent/repo/path"), parent_dir=parent_dir)
-
-    assert parent_dir.exists(), "Caller-provided parent_dir should not be cleaned up"
-    assert marker_file.read_text() == "should survive"
+        clone_git_repo(GitUrl("/nonexistent/repo/path"), clone_dir)

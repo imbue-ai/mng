@@ -2,7 +2,6 @@ import json
 import secrets
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -56,32 +55,15 @@ class AgentIdLookupError(ChangelingError):
     ...
 
 
-class GitCloneResult(FrozenModel):
-    """Result of cloning a git repository."""
+def clone_git_repo(git_url: GitUrl, clone_dir: Path) -> None:
+    """Clone a git repository into the specified directory.
 
-    clone_dir: Path = Field(description="Path to the cloned repository")
-    cleanup_dir: Path = Field(description="Root directory to remove when cleaning up the clone")
+    The clone_dir must not already exist -- git clone will create it.
+    The caller is responsible for choosing a suitable location (e.g.
+    under ~/.changelings/clones/).
 
-
-def clone_git_repo(git_url: GitUrl, parent_dir: Path | None = None) -> GitCloneResult:
-    """Clone a git repository and return the clone result.
-
-    If parent_dir is provided, the clone is placed inside it (as parent_dir/repo).
-    Otherwise, a new temporary directory is created. In either case, the clone
-    persists after this function returns (it becomes the agent's working directory
-    via mng create).
-
-    Raises GitCloneError if the clone fails. On failure, any auto-created temp
-    directory is cleaned up (but a caller-provided parent_dir is left untouched).
+    Raises GitCloneError if the clone fails.
     """
-    if parent_dir is None:
-        clone_parent = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
-        owns_parent = True
-    else:
-        clone_parent = parent_dir
-        owns_parent = False
-    clone_dir = clone_parent / "repo"
-
     logger.debug("Cloning {} to {}", git_url, clone_dir)
 
     result = subprocess.run(
@@ -91,8 +73,6 @@ def clone_git_repo(git_url: GitUrl, parent_dir: Path | None = None) -> GitCloneR
     )
 
     if result.returncode != 0:
-        if owns_parent:
-            shutil.rmtree(str(clone_parent), ignore_errors=True)
         raise GitCloneError(
             "git clone failed (exit code {}):\n{}".format(
                 result.returncode,
@@ -101,7 +81,6 @@ def clone_git_repo(git_url: GitUrl, parent_dir: Path | None = None) -> GitCloneR
         )
 
     logger.debug("Cloned repository to {}", clone_dir)
-    return GitCloneResult(clone_dir=clone_dir, cleanup_dir=clone_parent)
 
 
 def deploy_local(

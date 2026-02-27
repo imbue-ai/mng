@@ -1,4 +1,4 @@
-import shutil
+import secrets
 import sys
 from enum import auto
 from pathlib import Path
@@ -21,6 +21,8 @@ from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import RepoSubPath
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
+
+_CLONE_ID_BYTES: int = 8
 
 
 class DeploymentProvider(UpperCaseStrEnum):
@@ -97,6 +99,7 @@ def _run_deployment(
     zygote_config: ZygoteConfig,
     agent_name: str,
     provider: DeploymentProvider,
+    paths: ChangelingPaths,
 ) -> DeploymentResult:
     """Deploy the changeling and return the result.
 
@@ -108,7 +111,6 @@ def _run_deployment(
             "Only local deployment is supported for now. Support for {} is coming soon.".format(provider.value.lower())
         )
 
-    paths = ChangelingPaths(data_dir=get_default_data_dir())
     forwarding_port = DEFAULT_FORWARDING_SERVER_PORT
 
     cg = ConcurrencyGroup(name="changeling-deploy")
@@ -132,7 +134,7 @@ def _run_deployment(
     return result
 
 
-def _print_result_and_start_server(result: DeploymentResult) -> None:
+def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPaths) -> None:
     """Print the deployment result and start the forwarding server (blocks until interrupted)."""
     _write_line("")
     _write_line("=" * 60)
@@ -152,7 +154,6 @@ def _print_result_and_start_server(result: DeploymentResult) -> None:
     _write_line("=" * 60)
     _write_line("")
 
-    paths = ChangelingPaths(data_dir=get_default_data_dir())
     start_forwarding_server(
         data_directory=paths.data_dir,
         host="127.0.0.1",
@@ -204,64 +205,59 @@ def deploy(
     """
     url = GitUrl(git_url)
     sub_path = RepoSubPath(repo_sub_path) if repo_sub_path is not None else None
+    paths = ChangelingPaths(data_dir=get_default_data_dir())
+
+    # Clone into a persistent directory under ~/.changelings/clones/
+    clone_dir = paths.clones_dir / secrets.token_hex(_CLONE_ID_BYTES)
+    clone_dir.parent.mkdir(parents=True, exist_ok=True)
 
     _write_line("Cloning repository: {}".format(url))
 
     try:
-        clone_result = clone_git_repo(url)
+        clone_git_repo(url, clone_dir)
     except GitCloneError as e:
         raise click.ClickException(str(e)) from e
 
-    clone_dir = clone_result.clone_dir
+    zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
 
-    # Pre-deployment validation and prompting. If anything fails here, the
-    # clone is cleaned up since no mng agent has been created yet.
-    ready_to_deploy = False
+    if not zygote_dir.is_dir():
+        raise click.ClickException(
+            "Subdirectory '{}' not found in cloned repository at {}".format(sub_path, clone_dir)
+        )
+
     try:
-        zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
+        zygote_config = load_zygote_config(zygote_dir)
+    except ChangelingError as e:
+        raise click.ClickException(str(e)) from e
 
-        if not zygote_dir.is_dir():
-            raise click.ClickException("Subdirectory '{}' not found in cloned repository".format(sub_path))
+    _write_line("Deploying changeling from: {}".format(zygote_dir))
+    if zygote_config.description:
+        _write_line("  {}".format(zygote_config.description))
 
-        try:
-            zygote_config = load_zygote_config(zygote_dir)
-        except ChangelingError as e:
-            raise click.ClickException(str(e)) from e
+    agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
 
-        _write_line("Deploying changeling from: {}".format(zygote_dir))
-        if zygote_config.description:
-            _write_line("  {}".format(zygote_config.description))
+    if provider is not None:
+        provider_choice = DeploymentProvider(provider.upper())
+    else:
+        provider_choice = _prompt_provider()
 
-        agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
+    if self_deploy is not None:
+        self_deploy_choice = SelfDeployChoice.YES if self_deploy else SelfDeployChoice.NOT_NOW
+    else:
+        self_deploy_choice = _prompt_self_deploy()
 
-        if provider is not None:
-            provider_choice = DeploymentProvider(provider.upper())
-        else:
-            provider_choice = _prompt_provider()
+    if self_deploy_choice == SelfDeployChoice.YES:
+        logger.debug("Self-deploy enabled (not yet implemented)")
 
-        if self_deploy is not None:
-            self_deploy_choice = SelfDeployChoice.YES if self_deploy else SelfDeployChoice.NOT_NOW
-        else:
-            self_deploy_choice = _prompt_self_deploy()
-
-        if self_deploy_choice == SelfDeployChoice.YES:
-            logger.debug("Self-deploy enabled (not yet implemented)")
-
-        ready_to_deploy = True
-    finally:
-        if not ready_to_deploy:
-            shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
-
-    # Deployment. After this point, mng create may have been called, so the
-    # clone directory must NOT be cleaned up -- the agent depends on it.
     try:
         result = _run_deployment(
             zygote_dir=zygote_dir,
             zygote_config=zygote_config,
             agent_name=agent_name,
             provider=provider_choice,
+            paths=paths,
         )
     except ChangelingError as e:
         raise click.ClickException(str(e)) from e
 
-    _print_result_and_start_server(result)
+    _print_result_and_start_server(result, paths)

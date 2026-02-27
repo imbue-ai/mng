@@ -22,6 +22,11 @@ class ChangelingPaths(FrozenModel):
         """Directory for authentication data (signing key, one-time codes)."""
         return self.data_dir / "auth"
 
+    @property
+    def clones_dir(self) -> Path:
+        """Directory for git clones of changeling repositories."""
+        return self.data_dir / "clones"
+
 
 def get_default_data_dir() -> Path:
     """Return the default data directory for changelings (~/.changelings)."""
