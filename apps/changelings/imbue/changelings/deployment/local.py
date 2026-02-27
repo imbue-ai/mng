@@ -14,6 +14,7 @@ from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import OneTimeCode
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -55,19 +56,26 @@ class AgentIdLookupError(ChangelingError):
     ...
 
 
-def clone_git_repo(git_url: GitUrl, clone_dir: Path) -> None:
+def clone_git_repo(git_url: GitUrl, clone_dir: Path, branch: GitBranch | None = None) -> None:
     """Clone a git repository into the specified directory.
 
     The clone_dir must not already exist -- git clone will create it.
     The caller is responsible for choosing a suitable location (e.g.
     under ~/.changelings/clones/).
 
+    If branch is specified, only that branch is cloned (via git clone -b).
+
     Raises GitCloneError if the clone fails.
     """
     logger.debug("Cloning {} to {}", git_url, clone_dir)
 
+    command = ["git", "clone"]
+    if branch is not None:
+        command.extend(["-b", str(branch)])
+    command.extend([str(git_url), str(clone_dir)])
+
     result = subprocess.run(
-        ["git", "clone", str(git_url), str(clone_dir)],
+        command,
         capture_output=True,
         text=True,
     )

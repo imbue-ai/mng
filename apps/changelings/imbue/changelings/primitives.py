@@ -31,3 +31,9 @@ class RepoSubPath(NonEmptyStr):
     """A relative path to a subdirectory within a cloned git repository."""
 
     ...
+
+
+class GitBranch(NonEmptyStr):
+    """A git branch name to clone."""
+
+    ...

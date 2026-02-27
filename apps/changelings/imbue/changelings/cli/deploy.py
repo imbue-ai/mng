@@ -17,6 +17,7 @@ from imbue.changelings.deployment.local import deploy_local
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.forwarding_server.runner import start_forwarding_server
+from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import RepoSubPath
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -164,6 +165,11 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
 @click.command()
 @click.argument("git_url")
 @click.option(
+    "--branch",
+    default=None,
+    help="Git branch to clone (defaults to the repository's default branch)",
+)
+@click.option(
     "--repo-sub-path",
     default=None,
     help="Subdirectory within the cloned repo containing the changeling.toml",
@@ -186,6 +192,7 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
 )
 def deploy(
     git_url: str,
+    branch: str | None,
     repo_sub_path: str | None,
     name: str | None,
     provider: str | None,
@@ -199,11 +206,12 @@ def deploy(
 
         changeling deploy ./my-repo --repo-sub-path examples/hello-world
 
-        changeling deploy git@github.com:user/agents.git --repo-sub-path elena-code
+        changeling deploy git@github.com:user/agents.git --branch main --repo-sub-path elena-code
 
         changeling deploy https://github.com/user/my-agent.git --name my-agent --provider local
     """
     url = GitUrl(git_url)
+    git_branch = GitBranch(branch) if branch is not None else None
     sub_path = RepoSubPath(repo_sub_path) if repo_sub_path is not None else None
     paths = ChangelingPaths(data_dir=get_default_data_dir())
 
@@ -214,7 +222,7 @@ def deploy(
     _write_line("Cloning repository: {}".format(url))
 
     try:
-        clone_git_repo(url, clone_dir)
+        clone_git_repo(url, clone_dir, branch=git_branch)
     except GitCloneError as e:
         raise click.ClickException(str(e)) from e
 
