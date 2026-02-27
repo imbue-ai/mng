@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng_ttyd.plugin import TTYD_COMMAND
 from imbue.mng_ttyd.plugin import TTYD_WINDOW_NAME
 from imbue.mng_ttyd.plugin import override_command_options
@@ -70,8 +71,6 @@ def test_handles_missing_add_command_param() -> None:
 
 def test_ttyd_command_is_parseable_as_named_command() -> None:
     """Verify that the injected command string can be parsed by NamedCommand.from_string."""
-    from imbue.mng.interfaces.host import NamedCommand
-
     params: dict[str, Any] = {}
 
     override_command_options(
