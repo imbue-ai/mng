@@ -1,118 +1,91 @@
 # Overview
 
-Each changeling is deployed as a Modal App with a cron-scheduled function. When triggered, the function uses `mngr create` to spin up a specific `mngr` "agent type" that does its work (creating commits, PRs, reports, etc.) and then shuts down.
+Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be any process running in a tmux session, changelings additionally *must* serve a web interface and be conversational (able to receive messages and generate responses).
+
+# Terminology
+
+- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`
+- **zygote**: the minimal core of a changeling's code, typically cloned from a git repo. This is the starting point before configuration and deployment.
+- **template**: an HTML/web template for serving a particular interface (e.g. a chat UI, a dashboard, etc.)
+- **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
 
 # Design principles
 
-1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling corresponds to one Modal App and one scheduled function, with minimal moving parts. Each invocation results in one new `mngr` agent that runs to completion and then exits, making it easy to connect and debug.
-2. **Modularity**: Each changeling is independent and self-contained. This allows users to mix and match different agent types, settings, and schedules without them interfering with each other. It also makes it easier to reason about and debug individual changelings.
-3. **Native**: The agents operate directly in GitHub and the user's codebase, creating real commits, PRs, and issues. This ensures that the work they do is visible, actionable, and integrated into the user's existing workflows.
-4. **Personal**: Changelings are designed to serve an *individual* user. There are no team features or shared data. Each user's changelings are private, and are intended to act as extensions of themselves. A user should be able to use `changelings` without their boss even knowing, and just look super-productive!
+1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling is simply a web server with some persistent storage (ideally just a file system) that, by convention, ends up calling an AI agent to respond to messages from the user. The only required routes are for the index and for handling incoming messages.
+2. **Personal**: Changelings are designed to serve an *individual* user. They may respond to requests from other humans (or agents), but only to the extent that they are configured to do so by their primary human user.
+3. **Open**: Changelings are both transparent (the user should always be able to see exactly what is going on and dive into any detail they want) and extensible (the user should be able to easily add new capabilities, and to modify or remove existing ones).
+4. **Trustworthy**: Changelings should take security and safety seriously. They should have minimal access to data that they do not need, and for the minimal amount of time that they need it.
 
-# Deployment model
+# Architecture for changeling agents
 
-## What gets deployed
+Each changeling has its own code repo (its zygote), cloned from a git remote. The agent should make commits there if it's ever changing anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
 
-Each changeling is a Modal App containing:
+Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
-- The full repository contents in question (via a selected cloning strategy, see [Building Images](#building-images) below for options)
-- For now, the full imbue monorepo codebase (so `mngr` and all its dependencies are available). Eventually this will be packaged more sensibly.
-- A single function decorated with `@modal.Cron(schedule)` that:
-  1. Contains the base data for the repo
-  2. Calls `mngr create` with the appropriate arguments
-  3. Exits immediately (so that you're only charged for the agent runtime)
+Changelings *must* serve web requests on some port (configurable, but will almost always be the default one, unless you're running a bunch locally). They can append an event with the current port into `<agent_data_dir>/logs/agent_server.jsonl` to expose the data to `mng`.
 
-By default, each changeling is a **separate Modal App** because this makes it easier to deploy them all independently. In the future we may relax this constraint to enable deploying groups of changelings together, but for now one changeling = one Modal App.
+# Architecture for the local forwarding server
 
-## The execution flow
+The local forwarding server is a FastAPI app that handles authentication and traffic forwarding. It is the gateway through which users access all their changelings.
 
-```
-Modal Cron trigger
-  --> Modal function starts in a fresh container
-  --> Puts the secrets into the .env file
-  --> Creates a sandbox for this "run" of this changeling by calling:
-        mngr create <agent-name> <agent-type> --in modal --no-connect --tag CREATOR=changeling --base-branch main --new-branch changelings/<name>-<date> --env-file .env
-  --> Modal function exits, sandbox torn down
+This is a separate component from any individual changeling's web server -- it does not define what changelings do or how they respond to messages. It only handles routing and authentication.
 
-Modal agent sandbox:
-  --> Sandbox starts, runs the agent code
-  --> Agent (Claude) runs, makes commits, creates PR
-  --> Agent finishes, mngr returns
-  --> Sandbox is torn down / snapshotted
-```
+## Authentication
 
-By creating a new sandbox for each run, we ensure that each execution of the changeling is isolated and has a clean environment. This also makes it easy to connect to the agent while it's running (and after) for debugging, since it's a standard `mngr` agent running in a Modal sandbox.
+The forwarding server uses `itsdangerous` for cookie signing. Auth works as follows:
 
-## Building images
+- **Signing key**: generated once on first server start, stored at `{data_directory}/signing_key`. Used to sign all auth cookies.
+- **One-time codes**: generated during `changeling deploy` and stored in `{data_directory}/one_time_codes.json`. Each code is associated with an agent ID and can only be used once. When a code is consumed, it is marked as "USED" in the JSON file.
+- **Cookies**: after successful authentication, the server sets a signed cookie for the specific changeling. The cookie value contains the agent ID, signed with the signing key.
 
-There are a few different ways that `changelings` can get the codebase into the Modal App for the scheduled function to use when it calls `mngr create`, each with their own trade-offs.
+## Local forwarding server routes
 
-The main options are:
+`/login` route (takes agent_id and one_time_code params):
+    if you have a valid cookie for this changeling, it redirects you to the main page ("/")
+    if you don't have a cookie, it uses JS to redirect you and your secret to "/authenticate?agent_id={agent_id}&one_time_code={one_time_code}"
+        this is done to prevent preloading servers from accidentally consuming your one-time use codes
 
-1. **fresh clone from GitHub** (default): the Modal Sandbox (where the agent runs) will use the GH_TOKEN to clone the repo directly from GitHub when the agent starts up. This is simple and ensures that the agent always has the latest code, but it can be slow (especially for large repos) and may run into rate limits or other issues with GitHub. It also does not do anything to install dependencies, so each agent may need to figure that process out for itself, which can be slow and expensive.
-2. **snapshot during deploy**: during deployment of the Modal App, we can create a snapshot of an agent container by creating a placeholder agent that simply immediately exits, then saving off that snapshot id. Then, when the agent starts up as a result of the Function invocation, the agent can start from that point and simply pull the latest code from GitHub. This can be much faster, though the agent can end up with an outdated version of the environment over time if there are changes to the dependencies or setup process. It also adds some complexity and latency to the deployment process.
-3. **commit-pinned Dockerfile**: this is the strategy used in the `mngr` repo: we create a .tar.gz file of a specific commit hash in the repo (via `make_tar_of_repo.sh`), then include that when we deploy our Modal Function. Then when the Function invokes `mngr create`, it can *also* point at that uploaded .tar.gz of the repo, which is referenced by the Dockerfile for building the image. This is the most complex to set up, but it is very fast, and always stays fully up-to-date. See [this blogpost](TK-link) for more details on this strategy.
-4. **custom**: users can also specify their own custom image building strategy if they want by setting the appropriate `mngr` config arguments.
+`/authenticate` route (takes agent_id and one_time_code params):
+    validates the one-time code against stored codes
+    if this is a valid code (not used and not revoked), marks it as used and replies with a signed cookie
+    if this is not a valid code, explains to the user that they need to generate a new login URL for this device (each URL can only be used once)
 
-# Configuration
+`/` route is special:
+    looks at the cookies you have -- for each valid changeling cookie, that changeling is listed
+    if you have 0 valid cookies, it shows a placeholder telling you to log in
+    if you have 1 or more valid cookies, those changelings are shown as links to their individual pages
 
-Changeling definitions are stored in `~/.changelings/config.toml`. This is a single file containing all registered changelings for the current user.
+`/agents/{agent_id}/` route serves individual changeling UIs:
+    requires a valid auth cookie for that changeling
+    proxies any request from the user to the changeling's backend web server
+    uses Service Workers for transparent path rewriting so the changeling's app works correctly under the `/agents/{agent_id}/` prefix
 
-This file should **not** be checked into source control!  (since it is user-dependent).  In the future we may also want to mirror this file into a Modal volume (to make it easier for the user to share this config across machines), but for now it only lives locally.
+All pages except "/", "/login" and "/authenticate" require the auth cookie to be set for the relevant changeling.
 
-```toml
-# which mngr profile to use. Doesn't need to be set, defaults to the default mngr profile.
-mngr_profile = "changelings"
+## Proxying design
 
-# the name of the entry is the unique identifier for this changeling. Runs will use this name.
-[changelings.fixme-fairy]
-# defaults to the name of the changeling if not specified. This will be passed through to mngr
-agent_type = "fixme-fairy"
-# defaults to "0 0 * * *" (every night at 3AM in the user's local time) if not specified
-schedule = "0 3 * * *"
-# defaults to "main" if not specified
-branch = "main"
-# defaults to true
-enabled = true
-# if you want to specify extra secrets, use this to forward the value of those env vars to the agent
-# (these are forwarded by default, and if you change this setting, you'll probably want to continue including them) 
-secrets = ["GH_TOKEN", "ANTHROPIC_API_KEY"]
-# the message sent to the agent when it starts. Defaults to "Please use your primary skill",
-# which triggers the agent's configured primary skill (set via the mngr agent type).
-# Override this to give the agent custom instructions instead.
-initial_message = "Please use your primary skill"
+Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{agent_id}/`). This requires a combination of Service Workers, script injection, and rewriting:
 
-# other mngr arguments can optionally be specified as well, like:
-build_args = ["--no-cache"]
-# etc.
-```
+- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{agent_id}/`
+- The SW intercepts all same-origin requests and rewrites paths to include the prefix
+- HTML responses have a WebSocket shim injected to rewrite WS URLs
+- Cookie paths in Set-Cookie headers are rewritten to scope under the agent prefix
+- WebSocket connections are proxied bidirectionally
 
-Because all config variables have defaults, you *should* be able to *just* specify the name, and as long as that is a valid "agent type" in `mngr`, everything should "Just Work".
+# Command line interface
 
-# Auth and secrets
+For now, just:
 
-Any configured secrets are forwarded to the sandbox as environment variables by way of Modal Secrets, and can be used by the agent.
+- `changeling deploy <changeling-name>` (deploys a new changeling from a git repo)
 
-Below are some specific details about generally required secrets for most agents.
+[future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
 
-## GitHub access
+# Deferred items
 
-Most changelings need access to GitHub. This is generally done by requiring a `GH_TOKEN` with permissions to do whatever the agent needs to do, eg:
-- Clone private repos
-- Create branches and push commits
-- Create pull requests
-- Read and comment on issues (for issue-fixer)
+The following are planned but not in the initial implementation:
 
-## API keys
-
-The agent (eg, Claude) generally needs an API key. By default, we forward `ANTHROPIC_API_KEY`, though if you need additional keys for other services, you can specify those in the `secrets` config variable and they will be forwarded as well.
-
-## SSH keys
-
-Your local `mngr` SSH public key(s) will be forwarded to the sandbox as well (so that you can access it).
-
-## `mngr` data
-
-By default, all relevant `mngr` data (ex: user id, environment names, etc) will be injected into the deployed App so that the created agents are directly accessible via you.
-
-If you want, you can specify a separate `mngr` profile for use by `changelings` (so that it doesn't clutter up your normal namespace--they will be tagged anyway, but sometimes it's nice not to have to see them).
+- [future] Remote forwarding server deployment (e.g. to Modal) for access from anywhere
+- [future] Mobile notifications from changelings
+- [future] Desktop client / system tray icon
+- [future] Multi-agent interaction between changelings
+- [future] Offline agent handling (serving cached pages when agent is not running)
