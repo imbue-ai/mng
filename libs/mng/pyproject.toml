@@ -70,7 +70,7 @@ timeout_func_only = true
 junit_family = "xunit1"
 testpaths = ["."]
 addopts = [
-  "-nauto",
+  "-n 4",
   "--dist=worksteal",
   "--cov=imbue.mng",
   "--cov-report=term-missing",
