@@ -1,0 +1,90 @@
+---
+name: autofix
+description: >
+  Automatically find and fix code issues in the current branch. Iteratively
+  verifies, plans fixes, and implements them with separate commits. Defers
+  all review to the caller.
+---
+
+# Autofix
+
+Iteratively verify the current branch for code issues, plan and implement fixes
+(each in a separate commit), and repeat until clean. This skill only performs
+setup and fixing -- the caller handles review of the resulting commits.
+
+## Instructions
+
+### Phase 1: Setup
+
+Record the initial state:
+
+```bash
+mkdir -p .autofix/plans
+git rev-parse HEAD        # this is initial_head
+echo "$GIT_BASE_BRANCH"  # this is base_branch (use "main" if empty)
+```
+
+Determine which commits are unique to this branch (not on the base branch).
+The base branch may have been merged in, so use `git log` with `--first-parent`
+on the current branch to find commits since the merge-base:
+
+```bash
+git log --oneline --first-parent $(git merge-base HEAD base_branch)..HEAD
+```
+
+If the output is empty, there are no unique commits on this branch -- stop
+immediately with a `clean` result. If it is not obvious which commits are
+unique to this branch (e.g. the branch history is complex), use
+`AskUserQuestion` to clarify before proceeding.
+
+### Phase 2: Fix Loop
+
+Repeat up to 10 times:
+
+1. Record the current HEAD as `pre_iteration_head`.
+2. Read the supporting file [verify-and-fix.md](verify-and-fix.md) from this
+   skill's directory. Spawn a single Task subagent
+   (`subagent_type: "general-purpose"`) with its contents as the prompt.
+   Prepend the line `Base branch for this project: {base_branch}` to the prompt.
+3. After the subagent finishes, check if HEAD moved: compare
+   `git rev-parse HEAD` to `pre_iteration_head`.
+4. If HEAD did not move, no fixes were made. The branch is clean (or remaining
+   issues are unfixable). Stop looping.
+5. If HEAD moved, continue to the next iteration.
+
+Important:
+- Do NOT explore code, plan, or fix anything yourself. The subagent does all
+  the work.
+- Each iteration MUST get a fresh-context subagent with no information from
+  previous iterations.
+
+### Phase 3: Signal Completion
+
+After the loop ends:
+
+1. Determine the result and write it as JSON to `.autofix/result`:
+
+   - If `git rev-parse HEAD` equals `initial_head`, check what the last
+     subagent reported (it may have found issues it was unable to fix or
+     unable to commit). If it encountered problems, the status is `failed`.
+     Otherwise the status is `clean`.
+   - If HEAD moved past `initial_head`, the status is `fixed`.
+   - If an error occurred during the fix loop, the status is `failed`.
+
+   The JSON format is:
+
+   ```json
+   {
+     "status": "<clean|fixed|failed>",
+     "note": "<see below>"
+   }
+   ```
+
+   The `note` field:
+   - If `clean`: what the reviewer's final conclusion was (e.g. "no issues found").
+   - If `failed`: what the error or problem was.
+   - If `fixed`: by default empty string, but include any important context
+     if needed.
+
+   The caller polls for `.autofix/result` to detect completion, so writing
+   this file is the only signal needed.
