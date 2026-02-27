@@ -849,8 +849,8 @@ def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
     assert warning2_pos > warning1_pos
 
 
-def test_streaming_renderer_long_wrapping_warning_stays_pinned() -> None:
-    """A warning longer than terminal width should still be pinned at the bottom.
+def test_streaming_renderer_long_wrapping_warning_uses_correct_cursor_up() -> None:
+    """A warning longer than terminal width must cursor-up by the visual line count.
 
     This is a regression test for a bug where _warning_line_count only counted
     explicit newlines, not terminal line wrapping. Long warnings would leave ghost
@@ -860,19 +860,21 @@ def test_streaming_renderer_long_wrapping_warning_stays_pinned() -> None:
     renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
     renderer.start()
 
-    # Emit a warning that exceeds the default 120-column terminal width
+    # "WARNING: " (9 chars) + 200 "x" + "\n" = 209 visible chars.
+    # At the default 120-column terminal width, this wraps to 2 visual lines.
+    # The old code counted only the "\n" (1 line) and would emit cursor-up(1).
+    # The fix should emit cursor-up(2).
     long_warning = "WARNING: " + "x" * 200 + "\n"
     renderer(make_test_agent_info(name="agent-1"))
     renderer.emit_warning(long_warning)
     renderer(make_test_agent_info(name="agent-2"))
-    renderer(make_test_agent_info(name="agent-3"))
     renderer.finish()
 
     output = captured.getvalue()
-    # The warning should appear after agent-3 in the final output
-    agent3_pos = output.rfind("agent-3")
-    warning_pos = output.rfind("WARNING: " + "x" * 200)
-    assert warning_pos > agent3_pos
+    # cursor-up(2) = "\x1b[2A" -- must appear for the wrapping warning
+    assert "\x1b[2A" in output, "Expected cursor-up(2) for a 209-char warning at 120-column width"
+    # cursor-up(1) = "\x1b[1A" should NOT appear (that would be the buggy behavior)
+    assert "\x1b[1A" not in output
 
 
 # =============================================================================
