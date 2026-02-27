@@ -8,6 +8,7 @@ from typing import Final
 import click
 from loguru import logger
 
+from imbue.mng.config.pre_readers import read_default_host_dir
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 
@@ -25,9 +26,7 @@ def get_completion_cache_dir() -> Path:
     if env_dir:
         cache_dir = Path(env_dir)
     else:
-        root_name = os.environ.get("MNG_ROOT_NAME", "mng")
-        env_host_dir = os.environ.get("MNG_HOST_DIR")
-        cache_dir = Path(env_host_dir) if env_host_dir else Path.home() / f".{root_name}"
+        cache_dir = read_default_host_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 

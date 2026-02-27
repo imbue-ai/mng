@@ -24,14 +24,16 @@ def _get_completion_cache_dir() -> Path:
     """Return the directory used for completion cache files.
 
     Mirrors get_completion_cache_dir() in completion_writer.py but uses only stdlib.
+    The host-dir resolution below duplicates read_default_host_dir() in
+    config/pre_readers.py; keep them in sync.
     """
     env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
     if env_dir:
         return Path(env_dir)
     root_name = os.environ.get("MNG_ROOT_NAME", "mng")
     env_host_dir = os.environ.get("MNG_HOST_DIR")
-    base_dir = Path(env_host_dir) if env_host_dir else Path.home() / f".{root_name}"
-    return base_dir
+    base_dir = Path(env_host_dir) if env_host_dir else Path(f"~/.{root_name}")
+    return base_dir.expanduser()
 
 
 def _read_cache() -> dict:
