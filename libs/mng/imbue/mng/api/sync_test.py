@@ -190,6 +190,7 @@ def test_git_sync_error_provides_user_help_text() -> None:
 # =============================================================================
 
 
+@pytest.mark.git
 def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -201,6 +202,7 @@ def test_local_git_context_has_uncommitted_changes_returns_true_when_changes_exi
     assert ctx.has_uncommitted_changes(tmp_path) is True
 
 
+@pytest.mark.git
 def test_local_git_context_has_uncommitted_changes_returns_false_when_clean(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -220,6 +222,7 @@ def test_local_git_context_has_uncommitted_changes_raises_on_non_git_dir(
         ctx.has_uncommitted_changes(tmp_path)
 
 
+@pytest.mark.git
 def test_local_git_context_git_stash_returns_true_on_success(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -232,6 +235,7 @@ def test_local_git_context_git_stash_returns_true_on_success(
     assert result is True
 
 
+@pytest.mark.git
 def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -243,6 +247,7 @@ def test_local_git_context_git_stash_returns_false_when_no_changes_to_save(
     assert result is False
 
 
+@pytest.mark.git
 def test_local_git_context_git_stash_pop_succeeds(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -257,6 +262,7 @@ def test_local_git_context_git_stash_pop_succeeds(
     assert (tmp_path / "README.md").read_text() == "modified"
 
 
+@pytest.mark.git
 def test_local_git_context_git_stash_pop_raises_when_no_stash(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -268,6 +274,7 @@ def test_local_git_context_git_stash_pop_raises_when_no_stash(
         ctx.git_stash_pop(tmp_path)
 
 
+@pytest.mark.git
 def test_local_git_context_git_reset_hard_succeeds(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -283,6 +290,7 @@ def test_local_git_context_git_reset_hard_succeeds(
     assert not (tmp_path / "untracked.txt").exists()
 
 
+@pytest.mark.git
 def test_local_git_context_get_current_branch_returns_branch_name(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -293,6 +301,7 @@ def test_local_git_context_get_current_branch_returns_branch_name(
     assert ctx.get_current_branch(tmp_path) == "main"
 
 
+@pytest.mark.git
 def test_local_git_context_is_git_repository_returns_true_for_git_repo(
     tmp_path: Path,
     cg: ConcurrencyGroup,
@@ -316,6 +325,7 @@ def test_local_git_context_is_git_repository_returns_false_for_non_git_dir(
 # =============================================================================
 
 
+@pytest.mark.git
 def test_remote_git_context_has_uncommitted_changes_returns_true_when_changes_exist(
     tmp_path: Path,
 ) -> None:
@@ -327,6 +337,7 @@ def test_remote_git_context_has_uncommitted_changes_returns_true_when_changes_ex
     assert ctx.has_uncommitted_changes(tmp_path) is True
 
 
+@pytest.mark.git
 def test_remote_git_context_has_uncommitted_changes_returns_false_when_clean(
     tmp_path: Path,
 ) -> None:
@@ -346,6 +357,7 @@ def test_remote_git_context_has_uncommitted_changes_raises_on_non_git_dir(
         ctx.has_uncommitted_changes(tmp_path)
 
 
+@pytest.mark.git
 def test_remote_git_context_git_stash_returns_true_on_success(
     tmp_path: Path,
 ) -> None:
@@ -358,6 +370,7 @@ def test_remote_git_context_git_stash_returns_true_on_success(
     assert result is True
 
 
+@pytest.mark.git
 def test_remote_git_context_git_stash_returns_false_when_no_changes_to_save(
     tmp_path: Path,
 ) -> None:
@@ -369,6 +382,7 @@ def test_remote_git_context_git_stash_returns_false_when_no_changes_to_save(
     assert result is False
 
 
+@pytest.mark.git
 def test_remote_git_context_git_stash_pop_succeeds(
     tmp_path: Path,
 ) -> None:
@@ -383,6 +397,7 @@ def test_remote_git_context_git_stash_pop_succeeds(
     assert (tmp_path / "README.md").read_text() == "modified"
 
 
+@pytest.mark.git
 def test_remote_git_context_git_stash_pop_raises_when_no_stash(
     tmp_path: Path,
 ) -> None:
@@ -394,6 +409,7 @@ def test_remote_git_context_git_stash_pop_raises_when_no_stash(
         ctx.git_stash_pop(tmp_path)
 
 
+@pytest.mark.git
 def test_remote_git_context_git_reset_hard_succeeds(
     tmp_path: Path,
 ) -> None:
@@ -409,6 +425,7 @@ def test_remote_git_context_git_reset_hard_succeeds(
     assert not (tmp_path / "untracked.txt").exists()
 
 
+@pytest.mark.git
 def test_remote_git_context_get_current_branch_returns_branch_name(
     tmp_path: Path,
 ) -> None:
@@ -419,6 +436,7 @@ def test_remote_git_context_get_current_branch_returns_branch_name(
     assert ctx.get_current_branch(tmp_path) == "main"
 
 
+@pytest.mark.git
 def test_remote_git_context_get_current_branch_returns_feature_branch(
     tmp_path: Path,
 ) -> None:
@@ -430,6 +448,7 @@ def test_remote_git_context_get_current_branch_returns_feature_branch(
     assert ctx.get_current_branch(tmp_path) == "feature-branch"
 
 
+@pytest.mark.git
 def test_remote_git_context_is_git_repository_returns_true_for_git_repo(
     tmp_path: Path,
 ) -> None:

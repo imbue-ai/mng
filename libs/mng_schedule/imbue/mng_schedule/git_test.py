@@ -47,6 +47,7 @@ def _init_repo_with_remote(tmp_path: Path) -> tuple[Path, Path]:
     return repo_path, remote_path
 
 
+@pytest.mark.git
 def test_resolve_git_ref_resolves_head(tmp_path: Path) -> None:
     """resolve_git_ref should resolve HEAD to a full SHA."""
     _init_git_repo(tmp_path)
@@ -55,6 +56,7 @@ def test_resolve_git_ref_resolves_head(tmp_path: Path) -> None:
     assert all(c in "0123456789abcdef" for c in result)
 
 
+@pytest.mark.git
 def test_resolve_git_ref_raises_for_invalid_ref(tmp_path: Path) -> None:
     """resolve_git_ref should raise ScheduleDeployError for invalid refs."""
     _init_git_repo(tmp_path)
@@ -62,12 +64,14 @@ def test_resolve_git_ref_raises_for_invalid_ref(tmp_path: Path) -> None:
         resolve_git_ref("nonexistent-ref-xyz", cwd=tmp_path)
 
 
+@pytest.mark.git
 def test_ensure_branch_is_pushed_succeeds_when_pushed(tmp_path: Path) -> None:
     """ensure_current_branch_is_pushed should succeed when the branch is up to date."""
     repo_path, _ = _init_repo_with_remote(tmp_path)
     ensure_current_branch_is_pushed(cwd=repo_path)
 
 
+@pytest.mark.git
 def test_ensure_branch_is_pushed_fails_when_ahead(tmp_path: Path) -> None:
     """ensure_current_branch_is_pushed should raise when there are unpushed commits."""
     repo_path, _ = _init_repo_with_remote(tmp_path)
@@ -81,6 +85,7 @@ def test_ensure_branch_is_pushed_fails_when_ahead(tmp_path: Path) -> None:
         ensure_current_branch_is_pushed(cwd=repo_path)
 
 
+@pytest.mark.git
 def test_ensure_branch_is_pushed_fails_without_upstream(tmp_path: Path) -> None:
     """ensure_current_branch_is_pushed should raise when there is no upstream tracking branch."""
     repo_path = tmp_path / "repo"
@@ -90,6 +95,7 @@ def test_ensure_branch_is_pushed_fails_without_upstream(tmp_path: Path) -> None:
         ensure_current_branch_is_pushed(cwd=repo_path)
 
 
+@pytest.mark.git
 def test_ensure_branch_is_pushed_fails_on_detached_head(tmp_path: Path) -> None:
     """ensure_current_branch_is_pushed should raise on a detached HEAD."""
     repo_path = tmp_path / "repo"
