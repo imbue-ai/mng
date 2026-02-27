@@ -9,6 +9,7 @@ Reads the PORT environment variable (default: 9100).
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
 from urllib.parse import unquote
@@ -167,8 +168,6 @@ def _write_server_log(port: int) -> None:
 
 
 def main() -> None:
-    import sys
-
     port = int(os.environ.get("PORT", str(_DEFAULT_PORT)))
     http_server = HTTPServer(("0.0.0.0", port), _Handler)
     _write_server_log(port)

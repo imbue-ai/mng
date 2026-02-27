@@ -77,7 +77,7 @@ def teardown_module() -> None:
 
 
 def _get_changelings_source_dir() -> Path:
-    return Path(__file__).parent
+    return Path(__file__).parent.parent.parent
 
 
 # --- Code safety ---
