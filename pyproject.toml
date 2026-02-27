@@ -55,7 +55,7 @@ testpaths = [
   "scripts",
 ]
 addopts = [
-  "-nauto",
+  "-n4",
   "--dist=worksteal",
   "--cov=imbue.mng",
   "--cov=imbue.imbue_common",
