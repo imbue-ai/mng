@@ -177,7 +177,6 @@ layers = [
 # and provider registry functionality -- they must reference concrete providers
 # and plugin hookspecs to verify correct behavior.
 ignore_imports = [
-    "imbue.mng.config.loader_test -> imbue.mng.main",
     "imbue.mng.config.loader_test -> imbue.mng.plugins.hookspecs",
     "imbue.mng.config.loader_test -> imbue.mng.providers.registry",
     "imbue.mng.config.provider_registry_test -> imbue.mng.providers.registry",
