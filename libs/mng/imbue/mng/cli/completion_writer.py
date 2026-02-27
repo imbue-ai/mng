@@ -1,6 +1,5 @@
 import json
 import os
-import tempfile
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -19,15 +18,16 @@ COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
 def get_completion_cache_dir() -> Path:
     """Return the directory used for completion cache files.
 
-    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
-    system temp directory namespaced by uid to avoid collisions between users.
-    The directory is created if it does not exist.
+    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise the mng host directory
+    (MNG_HOST_DIR or ~/.mng). The directory is created if it does not exist.
     """
     env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
     if env_dir:
         cache_dir = Path(env_dir)
     else:
-        cache_dir = Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
+        root_name = os.environ.get("MNG_ROOT_NAME", "mng")
+        env_host_dir = os.environ.get("MNG_HOST_DIR")
+        cache_dir = Path(env_host_dir) if env_host_dir else Path.home() / f".{root_name}"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir
 

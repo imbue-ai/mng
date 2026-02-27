@@ -12,7 +12,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -29,7 +28,10 @@ def _get_completion_cache_dir() -> Path:
     env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
     if env_dir:
         return Path(env_dir)
-    return Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
+    root_name = os.environ.get("MNG_ROOT_NAME", "mng")
+    env_host_dir = os.environ.get("MNG_HOST_DIR")
+    base_dir = Path(env_host_dir) if env_host_dir else Path.home() / f".{root_name}"
+    return base_dir
 
 
 def _read_cache() -> dict:
