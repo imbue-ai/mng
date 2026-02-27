@@ -593,14 +593,20 @@ class _StreamingHumanRenderer(MutableModel):
     _count: int = PrivateAttr(default=0)
     _is_header_written: bool = PrivateAttr(default=False)
     _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
-    _terminal_width: int = PrivateAttr(default=120)
     _warning_texts: list[str] = PrivateAttr(default_factory=list)
-    _warning_line_count: int = PrivateAttr(default=0)
+
+    def _get_warning_visual_line_count(self) -> int:
+        """Compute the total visual line count of all warnings at the current terminal width.
+
+        Uses the current terminal width so that cursor-up is correct even after
+        a terminal resize causes warnings to re-wrap.
+        """
+        terminal_width = shutil.get_terminal_size((120, 24)).columns
+        return sum(count_visual_lines(text, terminal_width) for text in self._warning_texts)
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
         terminal_width = shutil.get_terminal_size((120, 24)).columns
-        self._terminal_width = terminal_width
         self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
@@ -616,7 +622,6 @@ class _StreamingHumanRenderer(MutableModel):
 
             self.output.write(text)
             self._warning_texts.append(text)
-            self._warning_line_count += count_visual_lines(text, self._terminal_width)
 
             if self.is_tty:
                 # Re-write the status line below the warning
@@ -637,8 +642,11 @@ class _StreamingHumanRenderer(MutableModel):
                 # If there are warnings below the agent rows, move cursor up
                 # past them and erase to end of screen. The warnings will be
                 # re-written after the new agent row so they stay at the bottom.
-                if self._warning_line_count > 0:
-                    self.output.write(ansi_cursor_up(self._warning_line_count))
+                # The visual line count is recomputed from the current terminal
+                # width so that cursor-up is correct after a terminal resize.
+                warning_visual_lines = self._get_warning_visual_line_count()
+                if warning_visual_lines > 0:
+                    self.output.write(ansi_cursor_up(warning_visual_lines))
                     self.output.write(ANSI_ERASE_TO_END)
 
             # Write header on first agent

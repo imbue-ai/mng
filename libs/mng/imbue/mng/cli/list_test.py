@@ -6,6 +6,7 @@ from datetime import timezone
 from io import StringIO
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.conftest import make_test_agent_info
@@ -875,6 +876,38 @@ def test_streaming_renderer_long_wrapping_warning_uses_correct_cursor_up() -> No
     assert "\x1b[2A" in output, "Expected cursor-up(2) for a 209-char warning at 120-column width"
     # cursor-up(1) = "\x1b[1A" should NOT appear (that would be the buggy behavior)
     assert "\x1b[1A" not in output
+
+
+def test_streaming_renderer_warning_cursor_up_adapts_to_terminal_resize(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cursor-up should use the current terminal width, not the width at warning emission time.
+
+    If the terminal is resized after a warning is emitted, the warning text
+    re-wraps at the new width. The cursor-up count must reflect the new
+    visual line count to avoid leaving ghost copies.
+    """
+    # Start with a wide terminal where the warning fits in 1 line
+    monkeypatch.setenv("COLUMNS", "200")
+    monkeypatch.setenv("LINES", "24")
+
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+
+    # "WARNING: " (9 chars) + 150 "x" + "\n" = 159 visible chars
+    # At width 200: 1 visual line. At width 80: ceil(159/80) = 2 visual lines.
+    warning_text = "WARNING: " + "x" * 150 + "\n"
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning(warning_text)
+
+    # Simulate terminal resize to a narrower width
+    monkeypatch.setenv("COLUMNS", "80")
+
+    # The next agent callback should cursor-up by 2 (new width), not 1 (old width)
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "\x1b[2A" in output, "Expected cursor-up(2) after resize to 80 columns"
 
 
 # =============================================================================
