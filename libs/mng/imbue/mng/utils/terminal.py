@@ -73,13 +73,13 @@ def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
         char = text[idx]
 
         if char == "\n":
+            idx += 1
             result.append("\n")
             visible_col = 0
-            idx += 1
         elif char == "\r":
+            idx += 1
             result.append("\r")
             visible_col = 0
-            idx += 1
         elif char == "\x1b":
             # ANSI escape sequence -- pass through without advancing the column
             match = _ANSI_ESCAPE_PATTERN.match(text, idx)
@@ -90,12 +90,12 @@ def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
                 result.append(char)
                 idx += 1
         else:
+            idx += 1
             if visible_col >= terminal_width:
                 result.append("\n")
                 visible_col = 0
             result.append(char)
             visible_col += 1
-            idx += 1
 
     return "".join(result)
 
