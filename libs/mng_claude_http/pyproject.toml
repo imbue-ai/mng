@@ -1,0 +1,36 @@
+[project]
+name = "mng-claude-http"
+version = "0.1.0"
+description = "Claude Code web interface plugin for mng using the --sdk-url WebSocket protocol"
+requires-python = ">=3.11"
+dependencies = [
+    "mng==0.1.4",
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
+    "websockets>=12.0",
+]
+
+[project.entry-points.mng]
+claude_http = "imbue.mng_claude_http.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["imbue"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"frontend-dist" = "share/mng_claude_http/frontend-dist"
+
+[tool.uv.sources]
+mng = { workspace = true }
+
+[tool.pyright]
+venvPath = "../.."
+venv = ".venv"
+pythonVersion = "3.11"
+strict = ["**/*.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["imbue"]

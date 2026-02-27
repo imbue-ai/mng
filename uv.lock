@@ -15,6 +15,7 @@ members = [
     "imbue",
     "imbue-common",
     "mng",
+    "mng-claude-http",
     "mng-opencode",
     "mng-pair",
     "mng-schedule",
@@ -1840,6 +1841,25 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
     { name = "urwid", specifier = ">=2.2.0" },
+]
+
+[[package]]
+name = "mng-claude-http"
+version = "0.1.0"
+source = { editable = "libs/mng_claude_http" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "mng" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.104.0" },
+    { name = "mng", editable = "libs/mng" },
+    { name = "uvicorn", specifier = ">=0.24.0" },
+    { name = "websockets", specifier = ">=12.0" },
 ]
 
 [[package]]

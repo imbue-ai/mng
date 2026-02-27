@@ -58,6 +58,7 @@ addopts = [
   "-n 4",
   "--cov=imbue.mng",
   "--cov=imbue.imbue_common",
+  "--cov=imbue.mng_claude_http",
   "--cov=imbue.mng_opencode",
   "--cov=imbue.mng_pair",
   "--cov=imbue.mng_schedule",
