@@ -17,6 +17,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi import Request
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -39,22 +40,27 @@ def _create_file_browser_backend(browse_dir: str) -> FastAPI:
         return _render_directory_listing(browse_dir, "/")
 
     @app.get("/{path:path}", response_model=None)
-    def browse(path: str) -> Response:
+    def browse(path: str, request: Request) -> Response:
         full_path = os.path.join(browse_dir, path)
         if not os.path.realpath(full_path).startswith(os.path.realpath(browse_dir)):
             return PlainTextResponse("Access denied", status_code=403)
         if os.path.isdir(full_path):
+            # Redirect to trailing slash so relative links resolve correctly
+            if not str(request.url).endswith("/"):
+                return Response(status_code=307, headers={"Location": f"{path}/"})
             return _render_directory_listing(full_path, f"/{path}")
         elif os.path.isfile(full_path):
             try:
                 content = open(full_path).read()
             except (OSError, UnicodeDecodeError):
                 return PlainTextResponse("Cannot read file", status_code=500)
+            # Compute relative back link: go up one level from the file
+            parent_url = "./"
             return HTMLResponse(f"""<!DOCTYPE html>
 <html>
 <head><title>{path}</title></head>
 <body style="font-family: monospace; padding: 20px;">
-  <p><a href="javascript:history.back()">Back</a></p>
+  <p><a href="{parent_url}">Back</a></p>
   <h2>{path}</h2>
   <pre style="background: rgb(245, 245, 245); padding: 16px; overflow: auto;">{_escape_html(content)}</pre>
 </body>
@@ -73,12 +79,17 @@ def _render_directory_listing(dir_path: str, url_path: str) -> HTMLResponse:
     except OSError:
         items = []
 
+    # Use relative links so they work through the proxy prefix
+    if url_path != "/":
+        entries.append('<li><a href="../">../</a></li>')
+
     for item in items:
         if item.startswith("."):
             continue
         full = os.path.join(dir_path, item)
         display = f"{item}/" if os.path.isdir(full) else item
-        href = f"{url_path.rstrip('/')}/{item}"
+        # Relative href: just the item name (browser resolves relative to current URL)
+        href = f"{item}/" if os.path.isdir(full) else item
         entries.append(f'<li><a href="{href}">{_escape_html(display)}</a></li>')
 
     entries_html = "\n    ".join(entries) if entries else "<li>(empty)</li>"
