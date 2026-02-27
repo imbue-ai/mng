@@ -14,3 +14,9 @@ class SigningKeyError(ChangelingError):
     """Raised when the cookie signing key cannot be loaded or created."""
 
     ...
+
+
+class GitCloneError(ChangelingError):
+    """Raised when git clone fails."""
+
+    ...

@@ -1,6 +1,7 @@
 import json
 import secrets
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Final
@@ -12,7 +13,9 @@ from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
+from imbue.changelings.errors import GitCloneError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import OneTimeCode
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -53,6 +56,38 @@ class AgentIdLookupError(ChangelingError):
     ...
 
 
+def clone_git_repo(git_url: GitUrl) -> Path:
+    """Clone a git repository and return the path to the clone directory.
+
+    The clone is placed in a temporary directory that persists after this function
+    returns (it becomes the agent's working directory via mng create).
+
+    Raises GitCloneError if the clone fails.
+    """
+    clone_parent = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
+    clone_dir = clone_parent / "repo"
+
+    logger.debug("Cloning {} to {}", git_url, clone_dir)
+
+    result = subprocess.run(
+        ["git", "clone", str(git_url), str(clone_dir)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        shutil.rmtree(str(clone_parent), ignore_errors=True)
+        raise GitCloneError(
+            "git clone failed (exit code {}):\n{}".format(
+                result.returncode,
+                result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+            )
+        )
+
+    logger.debug("Cloned repository to {}", clone_dir)
+    return clone_dir
+
+
 def deploy_local(
     zygote_dir: Path,
     zygote_config: ZygoteConfig,
@@ -63,13 +98,16 @@ def deploy_local(
 ) -> DeploymentResult:
     """Deploy a changeling locally by creating an mng agent.
 
+    The zygote_dir should be a directory within a git clone (created via
+    clone_git_repo). The agent is created by running mng create from this
+    directory, so mng uses the clone as the agent's working directory.
+
     This function:
     1. Verifies mng is available and no agent with this name exists
-    2. Stages zygote files to a temp dir (to avoid git root detection)
-    3. Creates an mng agent via `mng create --copy` (or `--agent-type` for typed agents)
-    4. Looks up the mng agent ID via `mng list`
-    5. Generates a one-time auth code for the forwarding server
-    6. Returns the deployment result with the login URL
+    2. Creates an mng agent via `mng create` from the cloned zygote directory
+    3. Looks up the mng agent ID via `mng list`
+    4. Generates a one-time auth code for the forwarding server
+    5. Returns the deployment result with the login URL
 
     The agent itself is responsible for writing its server info to
     $MNG_AGENT_STATE_DIR/logs/servers.jsonl on startup, which the forwarding
@@ -172,55 +210,48 @@ def _create_mng_agent(
     zygote_config: ZygoteConfig,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
-    """Create an mng agent with a copy of the zygote directory as its work_dir.
+    """Create an mng agent from a cloned git repository.
 
-    Copies the zygote to a temporary directory first so that mng does not detect
-    a parent git repository and use the git root as the source.
+    Runs mng create from the zygote directory (which should be within a git clone).
+    Since the directory is already a standalone clone, there is no risk of mng
+    detecting a parent git repository or modifying the user's worktree.
 
     When the zygote config specifies an agent_type, creates the agent using that
     type (via --agent-type). Otherwise, uses the command and port from the config
     (via --agent-cmd and --env PORT=).
     """
     with log_span("Creating mng agent '{}'", agent_name):
-        staging_dir = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
-        try:
-            staged_zygote = staging_dir / "zygote"
-            shutil.copytree(str(zygote_dir), str(staged_zygote))
+        mng_command = [
+            _MNG_BINARY,
+            "create",
+            "--name",
+            agent_name,
+            "--no-connect",
+        ]
 
-            mng_command = [
-                _MNG_BINARY,
-                "create",
-                "--name",
-                agent_name,
-                "--no-connect",
-                "--copy",
-            ]
+        if zygote_config.agent_type is not None:
+            mng_command.extend(["--agent-type", str(zygote_config.agent_type)])
+        else:
+            mng_command.extend(["--agent-cmd", str(zygote_config.command)])
+            mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
 
-            if zygote_config.agent_type is not None:
-                mng_command.extend(["--agent-type", str(zygote_config.agent_type)])
-            else:
-                mng_command.extend(["--agent-cmd", str(zygote_config.command)])
-                mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
+        logger.debug("Running: {}", " ".join(mng_command))
 
-            logger.debug("Running: {}", " ".join(mng_command))
+        result = concurrency_group.run_process_to_completion(
+            command=mng_command,
+            cwd=zygote_dir,
+            is_checked_after=False,
+        )
 
-            result = concurrency_group.run_process_to_completion(
-                command=mng_command,
-                cwd=staged_zygote,
-                is_checked_after=False,
+        if result.returncode != 0:
+            raise MngCreateError(
+                "mng create failed (exit code {}):\n{}".format(
+                    result.returncode,
+                    result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+                )
             )
 
-            if result.returncode != 0:
-                raise MngCreateError(
-                    "mng create failed (exit code {}):\n{}".format(
-                        result.returncode,
-                        result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
-                    )
-                )
-
-            logger.debug("mng create output: {}", result.stdout.strip())
-        finally:
-            shutil.rmtree(str(staging_dir), ignore_errors=True)
+        logger.debug("mng create output: {}", result.stdout.strip())
 
 
 def _get_agent_id(

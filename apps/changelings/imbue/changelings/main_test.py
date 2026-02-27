@@ -17,7 +17,7 @@ def test_cli_deploy_help() -> None:
     result = runner.invoke(cli, ["deploy", "--help"])
 
     assert result.exit_code == 0
-    assert "ZYGOTE_PATH" in result.output
+    assert "GIT_URL" in result.output
 
 
 def test_cli_server_help() -> None:

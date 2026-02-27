@@ -19,3 +19,15 @@ class ServerName(NonEmptyStr):
     """Name of a server run by a changeling agent (e.g. 'web', 'api')."""
 
     ...
+
+
+class GitUrl(NonEmptyStr):
+    """A git URL to clone (local path, file://, https://, or ssh)."""
+
+    ...
+
+
+class RepoSubPath(NonEmptyStr):
+    """A relative path to a subdirectory within a cloned git repository."""
+
+    ...
