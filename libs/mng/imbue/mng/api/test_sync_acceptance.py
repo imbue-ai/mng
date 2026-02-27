@@ -106,7 +106,6 @@ def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -138,7 +137,6 @@ def test_push_files_transfers_files_to_agent(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -174,7 +172,6 @@ def test_push_files_dry_run_does_not_transfer(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -221,7 +218,6 @@ def test_push_git_transfers_commits_to_agent(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -256,7 +252,6 @@ def test_push_git_uncommitted_changes_fail_mode_rejects(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -305,7 +300,6 @@ def test_push_git_uncommitted_changes_stash_mode_preserves_changes(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -342,7 +336,6 @@ def test_push_git_uncommitted_changes_clobber_mode_discards_changes(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -389,7 +382,6 @@ def test_push_git_mirror_mode_overwrites_all_refs(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -430,7 +422,6 @@ def test_pull_files_transfers_files_from_agent(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
@@ -471,7 +462,6 @@ def test_pull_git_merges_agent_commits(
 
 
 @pytest.mark.acceptance
-@pytest.mark.tmux
 @pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.timeout(120)
