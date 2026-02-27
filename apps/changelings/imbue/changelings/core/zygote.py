@@ -50,12 +50,19 @@ class ZygoteConfig(FrozenModel):
 
     @model_validator(mode="after")
     def _validate_command_or_agent_type(self) -> "ZygoteConfig":
-        """Validate that either agent_type or both command and port are set."""
-        if self.agent_type is None:
-            if self.command is None:
-                raise ValueError("'command' is required when 'agent_type' is not set")
-            if self.port is None:
-                raise ValueError("'port' is required when 'agent_type' is not set")
+        """Validate that either agent_type or both command and port are set, but not both."""
+        has_agent_type = self.agent_type is not None
+        has_command = self.command is not None
+        has_port = self.port is not None
+
+        if has_agent_type and has_command:
+            raise ValueError("'command' must not be set when 'agent_type' is set")
+        if has_agent_type and has_port:
+            raise ValueError("'port' must not be set when 'agent_type' is set")
+        if not has_agent_type and not has_command:
+            raise ValueError("'command' is required when 'agent_type' is not set")
+        if not has_agent_type and not has_port:
+            raise ValueError("'port' is required when 'agent_type' is not set")
         return self
 
 

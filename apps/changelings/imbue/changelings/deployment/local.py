@@ -29,7 +29,9 @@ class DeploymentResult(FrozenModel):
 
     agent_name: str = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
-    backend_url: str = Field(description="The backend URL where the changeling serves")
+    backend_url: str | None = Field(
+        description="The backend URL where the changeling serves, or None for agent-type-managed servers"
+    )
     login_url: str = Field(description="One-time login URL for accessing the changeling")
 
 
@@ -82,7 +84,7 @@ def deploy_local(
         )
 
         if zygote_config.agent_type is not None:
-            backend_url = "(managed by agent type)"
+            backend_url = None
         else:
             backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
 
@@ -138,7 +140,7 @@ def _check_agent_not_exists(
     )
 
     if result.returncode != 0:
-        logger.debug("Agent existence check failed (exit code {}), proceeding", result.returncode)
+        logger.warning("Agent existence check failed (exit code {}), proceeding without check", result.returncode)
         return
 
     _raise_if_agent_exists(agent_name, result.stdout)
@@ -153,7 +155,7 @@ def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
     try:
         data = json.loads(mng_list_output)
     except json.JSONDecodeError:
-        logger.debug("Failed to parse mng list output for existence check, proceeding")
+        logger.warning("Failed to parse mng list output for existence check, proceeding without check")
         return
 
     agents = data.get("agents", [])

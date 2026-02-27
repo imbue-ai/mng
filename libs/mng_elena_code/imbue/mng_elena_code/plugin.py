@@ -10,6 +10,7 @@ from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
+from imbue.mng_claude_zygote.plugin import get_agent_type_from_params
 from imbue.mng_claude_zygote.plugin import inject_agent_ttyd
 
 ELENA_SYSTEM_PROMPT = (
@@ -60,7 +61,7 @@ def override_command_options(
     if command_name != "create":
         return
 
-    agent_type = params.get("agent_type") or params.get("positional_agent_type")
+    agent_type = get_agent_type_from_params(params)
     if agent_type != "elena-code":
         return
 

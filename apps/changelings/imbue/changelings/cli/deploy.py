@@ -119,7 +119,8 @@ def _deploy_and_serve(
     _write_line("")
     _write_line("  Agent name: {}".format(result.agent_name))
     _write_line("  Agent ID:   {}".format(result.agent_id))
-    _write_line("  Backend:    {}".format(result.backend_url))
+    if result.backend_url is not None:
+        _write_line("  Backend:    {}".format(result.backend_url))
     _write_line("")
     _write_line("  Login URL (one-time use):")
     _write_line("  {}".format(result.login_url))

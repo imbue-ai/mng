@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from imbue.mng import hookimpl
@@ -56,7 +58,7 @@ def inject_agent_ttyd(params: dict[str, Any]) -> None:
     params["add_command"] = (*existing, f'{AGENT_TTYD_WINDOW_NAME}="{AGENT_TTYD_COMMAND}"')
 
 
-def _get_agent_type_from_params(params: dict[str, Any]) -> str | None:
+def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
     """Extract the agent type from create command parameters."""
     return params.get("agent_type") or params.get("positional_agent_type")
 
@@ -77,7 +79,7 @@ def override_command_options(
     if command_name != "create":
         return
 
-    agent_type = _get_agent_type_from_params(params)
+    agent_type = get_agent_type_from_params(params)
     if agent_type != "claude-zygote":
         return
 

@@ -133,3 +133,21 @@ def test_zygote_config_with_agent_type_is_frozen() -> None:
     )
 
     assert config.model_config.get("frozen") is True
+
+
+def test_zygote_config_rejects_agent_type_with_command(tmp_path: Path) -> None:
+    """agent_type and command are mutually exclusive."""
+    config_file = tmp_path / ZYGOTE_CONFIG_FILENAME
+    config_file.write_text('[changeling]\nname = "test"\nagent_type = "elena-code"\ncommand = "python s.py"\n')
+
+    with pytest.raises(ZygoteConfigError, match="Invalid changeling config"):
+        load_zygote_config(tmp_path)
+
+
+def test_zygote_config_rejects_agent_type_with_port(tmp_path: Path) -> None:
+    """agent_type and port are mutually exclusive."""
+    config_file = tmp_path / ZYGOTE_CONFIG_FILENAME
+    config_file.write_text('[changeling]\nname = "test"\nagent_type = "elena-code"\nport = 8080\n')
+
+    with pytest.raises(ZygoteConfigError, match="Invalid changeling config"):
+        load_zygote_config(tmp_path)
