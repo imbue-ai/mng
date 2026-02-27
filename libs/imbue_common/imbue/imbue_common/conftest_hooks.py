@@ -749,22 +749,18 @@ def _pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo,  # type: ignore[type-arg]
 ) -> Generator[None, None, None]:
-    """Clean up tracking directories and (when reliable) enforce must-use.
+    """Clean up per-test tracking directories.
 
-    The tracking files are created by wrapper scripts when subprocess.Popen
-    resolves the binary through PATH. On macOS, subprocess.Popen does not
-    always re-search PATH for modified environment variables (due to
-    posix_spawn behavior), so the must-use check would produce false
-    negatives. The must-use enforcement is therefore disabled until a
-    more reliable detection mechanism is implemented (e.g., LD_PRELOAD
-    on Linux or DYLD_INSERT_LIBRARIES on macOS).
+    The must-use direction (failing tests that have a mark but never invoke the
+    resource) is intentionally not enforced here. It has too many false negatives:
+    - LRU-cached subprocess calls (e.g., ratchet tests cache `git ls-files`)
+    - In-process invocations via Click CliRunner (no subprocess spawned)
+    - Library code that resolves the binary path at import time
 
-    The blocking direction (catching tests that invoke a resource without
-    the mark) works reliably because it causes the wrapper script to exit
-    with code 127, which propagates as a subprocess failure.
+    The blocking direction (catching unmarked tests that invoke a resource) is
+    enforced by the wrapper scripts and does not need this hook.
     """
-    outcome = yield
-    report = outcome.get_result()
+    yield
 
     # Clean up tracking dir on the final phase (teardown)
     if call.when == "teardown":
