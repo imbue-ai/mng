@@ -1092,7 +1092,29 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngError(f"Failed to configure git repo on target: {result.stderr}")
 
+            # Copy .git/info/exclude from source to target. This file is not
+            # transferred by git push --mirror since it lives outside the git
+            # object store.
+            self._transfer_git_info_exclude(source_host, source_path, target_path)
+
         return new_branch_name
+
+    def _transfer_git_info_exclude(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> None:
+        """Copy .git/info/exclude from source to target if it exists."""
+        exclude_path = Path(".git") / "info" / "exclude"
+        try:
+            content = source_host.read_file(source_path / exclude_path)
+        except FileNotFoundError:
+            logger.trace("No .git/info/exclude in source, skipping")
+            return
+
+        with log_span("Copying .git/info/exclude to target"):
+            self.write_file(target_path / exclude_path, content)
 
     def _git_push_to_target(
         self,
