@@ -16,12 +16,6 @@ _ABSOLUTE_PATH_ATTR_PATTERN: Final[re.Pattern[str]] = re.compile(
 
 
 @pure
-def _get_agent_prefix(agent_id: AgentId) -> str:
-    """Return the URL prefix for an agent's top-level page (server listing)."""
-    return f"/agents/{agent_id}"
-
-
-@pure
 def _get_server_prefix(agent_id: AgentId, server_name: ServerName) -> str:
     """Return the URL prefix for a specific server of an agent."""
     return f"/agents/{agent_id}/{server_name}"

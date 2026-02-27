@@ -219,22 +219,23 @@ def test_mng_cli_resolver_returns_empty_when_mng_list_fails() -> None:
     assert resolver.list_known_agent_ids() == ()
 
 
+class _CountingMngCli(MngCliInterface):
+    """MngCliInterface that counts how many times read_agent_log is called."""
+
+    server_logs: dict[str, str]
+    agents_json: str | None = None
+    read_count: int = 0
+
+    def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
+        self.read_count += 1
+        return self.server_logs.get(str(agent_id))
+
+    def list_agents_json(self) -> str | None:
+        return self.agents_json
+
+
 def test_mng_cli_resolver_caches_server_resolution() -> None:
-    call_count = 0
-
-    class CountingMngCli(MngCliInterface):
-        server_logs: dict[str, str]
-        agents_json: str | None = None
-
-        def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
-            nonlocal call_count
-            call_count += 1
-            return self.server_logs.get(str(agent_id))
-
-        def list_agents_json(self) -> str | None:
-            return self.agents_json
-
-    fake_cli = CountingMngCli(
+    fake_cli = _CountingMngCli(
         server_logs={str(_AGENT_A): make_server_log("web", "http://127.0.0.1:9100")},
     )
     resolver = MngCliBackendResolver(mng_cli=fake_cli)
@@ -244,27 +245,13 @@ def test_mng_cli_resolver_caches_server_resolution() -> None:
 
     assert url1 == "http://127.0.0.1:9100"
     assert url2 == "http://127.0.0.1:9100"
-    assert call_count == 1
+    assert fake_cli.read_count == 1
 
 
 def test_mng_cli_resolver_cache_serves_multiple_servers_from_single_fetch() -> None:
     """After resolving servers for an agent, all server lookups for that agent use the cache."""
-    call_count = 0
-
-    class CountingMngCli(MngCliInterface):
-        server_logs: dict[str, str]
-        agents_json: str | None = None
-
-        def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
-            nonlocal call_count
-            call_count += 1
-            return self.server_logs.get(str(agent_id))
-
-        def list_agents_json(self) -> str | None:
-            return self.agents_json
-
     log_content = make_server_log("web", "http://127.0.0.1:9100") + make_server_log("api", "http://127.0.0.1:9200")
-    fake_cli = CountingMngCli(server_logs={str(_AGENT_A): log_content})
+    fake_cli = _CountingMngCli(server_logs={str(_AGENT_A): log_content})
     resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
     web_url = resolver.get_backend_url(_AGENT_A, _SERVER_WEB)
@@ -272,4 +259,4 @@ def test_mng_cli_resolver_cache_serves_multiple_servers_from_single_fetch() -> N
 
     assert web_url == "http://127.0.0.1:9100"
     assert api_url == "http://127.0.0.1:9200"
-    assert call_count == 1
+    assert fake_cli.read_count == 1

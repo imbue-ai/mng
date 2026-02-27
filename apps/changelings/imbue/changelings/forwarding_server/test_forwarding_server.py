@@ -24,6 +24,30 @@ from imbue.changelings.primitives import ServerName
 from imbue.mng.primitives import AgentId
 
 
+def _create_multi_backend_http_client(
+    web_app: FastAPI,
+    api_app: FastAPI,
+) -> httpx.AsyncClient:
+    """Create an httpx client that routes to different ASGI apps based on URL prefix.
+
+    Requests to http://web-backend/... go to web_app, and
+    requests to http://api-backend/... go to api_app.
+    """
+    web_transport = httpx.ASGITransport(app=web_app)
+    api_transport = httpx.ASGITransport(app=api_app)
+
+    class _RoutingTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            if str(request.url).startswith("http://web-backend"):
+                return await web_transport.handle_async_request(request)
+            elif str(request.url).startswith("http://api-backend"):
+                return await api_transport.handle_async_request(request)
+            else:
+                raise httpx.ConnectError(f"Unknown backend: {request.url}")
+
+    return httpx.AsyncClient(transport=_RoutingTransport())
+
+
 def _create_test_backend() -> FastAPI:
     """Create a simple backend app for proxy testing."""
     backend = FastAPI()
@@ -409,23 +433,7 @@ def test_proxy_routes_to_correct_server_for_multi_server_agent(tmp_path: Path) -
     def api_root() -> JSONResponse:
         return JSONResponse({"server": "api"})
 
-    # Use a transport that routes based on URL
-    class MultiBackendTransport(httpx.AsyncBaseTransport):
-        """Routes requests to different ASGI apps based on the base URL."""
-
-        def __init__(self) -> None:
-            self._web_transport = httpx.ASGITransport(app=web_backend)
-            self._api_transport = httpx.ASGITransport(app=api_backend)
-
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-            if str(request.url).startswith("http://web-backend"):
-                return await self._web_transport.handle_async_request(request)
-            elif str(request.url).startswith("http://api-backend"):
-                return await self._api_transport.handle_async_request(request)
-            else:
-                raise httpx.ConnectError(f"Unknown backend: {request.url}")
-
-    test_http_client = httpx.AsyncClient(transport=MultiBackendTransport())
+    test_http_client = _create_multi_backend_http_client(web_app=web_backend, api_app=api_backend)
 
     backend_resolver = StaticBackendResolver(
         url_by_agent_and_server={
@@ -567,20 +575,7 @@ def test_mng_cli_resolver_multi_server_integration(tmp_path: Path) -> None:
     def api_health() -> JSONResponse:
         return JSONResponse({"source": "api"})
 
-    class MultiBackendTransport(httpx.AsyncBaseTransport):
-        def __init__(self) -> None:
-            self._web = httpx.ASGITransport(app=web_backend)
-            self._api = httpx.ASGITransport(app=api_backend)
-
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-            if str(request.url).startswith("http://web-backend"):
-                return await self._web.handle_async_request(request)
-            elif str(request.url).startswith("http://api-backend"):
-                return await self._api.handle_async_request(request)
-            else:
-                raise httpx.ConnectError(f"Unknown backend: {request.url}")
-
-    test_http_client = httpx.AsyncClient(transport=MultiBackendTransport())
+    test_http_client = _create_multi_backend_http_client(web_app=web_backend, api_app=api_backend)
 
     backend_resolver = MngCliBackendResolver(mng_cli=fake_cli)
     client, auth_store = _create_test_forwarding_server(
