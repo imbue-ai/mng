@@ -10,6 +10,7 @@ from typing import Any
 
 import anthropic
 
+from imbue.imbue_common.pure import pure
 from imbue.zygote.data_types import Thread
 from imbue.zygote.errors import ChatResponseError
 from imbue.zygote.primitives import MessageRole
@@ -17,6 +18,7 @@ from imbue.zygote.primitives import ModelName
 from imbue.zygote.prompts import build_chat_full_prompt
 
 
+@pure
 def _thread_to_api_messages(thread: Thread) -> list[dict[str, Any]]:
     """Convert a Thread's messages into Claude API message format."""
     return [

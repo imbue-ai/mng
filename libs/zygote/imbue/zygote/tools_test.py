@@ -1,43 +1,15 @@
 import asyncio
 
-from imbue.zygote.errors import ToolExecutionError
-from imbue.zygote.primitives import MemoryKey
+from imbue.zygote.conftest import FailingSendExecutor
+from imbue.zygote.conftest import MockToolExecutor
 from imbue.zygote.primitives import ThreadId
 from imbue.zygote.tools import ALL_TOOLS
 from imbue.zygote.tools import COMPACT_HISTORY_TOOL
 from imbue.zygote.tools import CREATE_SUB_AGENT_TOOL
 from imbue.zygote.tools import READ_MEMORY_TOOL
 from imbue.zygote.tools import SEND_MESSAGE_TOOL
-from imbue.zygote.tools import ToolExecutor
 from imbue.zygote.tools import WRITE_MEMORY_TOOL
 from imbue.zygote.tools import execute_tool
-
-
-class MockToolExecutor(ToolExecutor):
-    """Mock executor that records calls and returns canned responses."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, str]]] = []
-
-    async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
-        self.calls.append(("send_message", {"thread_id": str(thread_id), "content": content}))
-        return "message sent"
-
-    async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
-        self.calls.append(("create_sub_agent", {"name": name, "agent_type": agent_type, "message": message}))
-        return "agent created"
-
-    async def read_memory(self, key: MemoryKey) -> str:
-        self.calls.append(("read_memory", {"key": str(key)}))
-        return "stored_value"
-
-    async def write_memory(self, key: MemoryKey, value: str) -> str:
-        self.calls.append(("write_memory", {"key": str(key), "value": value}))
-        return "written"
-
-    async def compact_history(self) -> str:
-        self.calls.append(("compact_history", {}))
-        return "compacted"
 
 
 class TestToolDefinitions:
@@ -159,28 +131,12 @@ class TestExecuteTool:
         assert "Unknown tool" in result.content
 
     def test_tool_execution_error(self) -> None:
-        class FailingExecutor(ToolExecutor):
-            async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
-                raise ToolExecutionError("connection failed")
-
-            async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
-                return ""
-
-            async def read_memory(self, key: MemoryKey) -> str:
-                return ""
-
-            async def write_memory(self, key: MemoryKey, value: str) -> str:
-                return ""
-
-            async def compact_history(self) -> str:
-                return ""
-
         result = asyncio.run(
             execute_tool(
                 tool_name="send_message_to_thread",
                 tool_input={"thread_id": str(ThreadId()), "content": "hello"},
                 tool_use_id="test_id",
-                executor=FailingExecutor(),
+                executor=FailingSendExecutor(),
             )
         )
         assert result.is_error

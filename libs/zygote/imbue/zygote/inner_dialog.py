@@ -12,19 +12,26 @@ instructs.
 
 import json
 from typing import Any
+from typing import Final
 
 import anthropic
 
+from imbue.imbue_common.pure import pure
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
 from imbue.zygote.data_types import ToolResult
+from imbue.zygote.errors import CompactionError
 from imbue.zygote.errors import InnerDialogError
 from imbue.zygote.primitives import ModelName
+from imbue.zygote.prompts import build_compaction_prompt
 from imbue.zygote.tools import ALL_TOOLS
 from imbue.zygote.tools import ToolExecutor
 from imbue.zygote.tools import execute_tool
 
+DEFAULT_MAX_TOOL_ITERATIONS: Final[int] = 50
 
+
+@pure
 def _build_notification_user_message(notification: Notification) -> dict[str, Any]:
     """Convert a notification into a user message for the inner dialog."""
     thread_context = ""
@@ -36,6 +43,7 @@ def _build_notification_user_message(notification: Notification) -> dict[str, An
     }
 
 
+@pure
 def _build_system_with_summary(system_prompt: str, compacted_summary: str | None) -> str:
     """Build the system prompt, prepending any compacted history summary."""
     if compacted_summary is None:
@@ -48,11 +56,13 @@ def _build_system_with_summary(system_prompt: str, compacted_summary: str | None
     )
 
 
+@pure
 def _extract_tool_use_blocks(response: anthropic.types.Message) -> list[anthropic.types.ToolUseBlock]:
     """Extract all tool_use blocks from a response."""
     return [block for block in response.content if isinstance(block, anthropic.types.ToolUseBlock)]
 
 
+@pure
 def _build_tool_result_messages(results: list[ToolResult]) -> list[dict[str, Any]]:
     """Build tool_result content blocks from tool execution results."""
     return [
@@ -66,6 +76,7 @@ def _build_tool_result_messages(results: list[ToolResult]) -> list[dict[str, Any
     ]
 
 
+@pure
 def _response_content_to_serializable(content: list[Any]) -> list[dict[str, Any]]:
     """Convert response content blocks to serializable dicts."""
     result: list[dict[str, Any]] = []
@@ -87,6 +98,7 @@ async def process_notification(
     client: anthropic.AsyncAnthropic,
     model: ModelName,
     max_tokens: int = 4096,
+    max_tool_iterations: int = DEFAULT_MAX_TOOL_ITERATIONS,
 ) -> InnerDialogState:
     """Process a notification through the inner dialog loop.
 
@@ -112,6 +124,7 @@ async def process_notification(
             client=client,
             model=model,
             max_tokens=max_tokens,
+            max_iterations=max_tool_iterations,
         )
     except anthropic.APIError as e:
         raise InnerDialogError(f"API error during inner dialog: {e}") from e
@@ -129,9 +142,13 @@ async def _run_tool_loop(
     client: anthropic.AsyncAnthropic,
     model: ModelName,
     max_tokens: int,
+    max_iterations: int,
 ) -> list[dict[str, Any]]:
-    """Run the tool execution loop until the model stops calling tools."""
-    while True:
+    """Run the tool execution loop until the model stops calling tools.
+
+    Raises InnerDialogError if max_iterations is exceeded.
+    """
+    for _ in range(max_iterations):
         response = await client.messages.create(
             model=str(model),
             max_tokens=max_tokens,
@@ -146,7 +163,7 @@ async def _run_tool_loop(
         tool_use_blocks = _extract_tool_use_blocks(response)
 
         if not tool_use_blocks:
-            break
+            return messages
 
         results = []
         for tool_use in tool_use_blocks:
@@ -162,7 +179,7 @@ async def _run_tool_loop(
         tool_result_blocks = _build_tool_result_messages(results)
         messages.append({"role": "user", "content": tool_result_blocks})
 
-    return messages
+    raise InnerDialogError(f"Tool loop exceeded maximum iterations ({max_iterations})")
 
 
 async def compact_inner_dialog(
@@ -188,8 +205,6 @@ async def compact_inner_dialog(
 
     messages_text = json.dumps(older_messages, indent=2)
 
-    from imbue.zygote.prompts import build_compaction_prompt
-
     compaction_prompt = build_compaction_prompt(messages_text)
 
     existing_summary = state.compacted_summary or ""
@@ -198,16 +213,22 @@ async def compact_inner_dialog(
             f"Previous summary:\n{existing_summary}\n\nAdditional conversation to incorporate:\n{compaction_prompt}"
         )
 
-    response = await client.messages.create(
-        model=str(model),
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": compaction_prompt}],
-    )
+    try:
+        response = await client.messages.create(
+            model=str(model),
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": compaction_prompt}],
+        )
+    except anthropic.APIError as e:
+        raise CompactionError(f"API error during compaction: {e}") from e
 
     summary_text = ""
     for block in response.content:
         if hasattr(block, "text"):
             summary_text += block.text
+
+    if not summary_text:
+        raise CompactionError("Compaction produced no summary text")
 
     return InnerDialogState(
         messages=tuple(preserved_messages),
@@ -215,6 +236,7 @@ async def compact_inner_dialog(
     )
 
 
+@pure
 def get_inner_dialog_summary(state: InnerDialogState) -> str:
     """Generate a brief summary of the inner dialog's current state.
 

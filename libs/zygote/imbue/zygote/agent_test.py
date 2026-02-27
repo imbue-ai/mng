@@ -1,51 +1,25 @@
 import asyncio
-from unittest.mock import AsyncMock
-from unittest.mock import MagicMock
 
 import pytest
 
 from imbue.zygote.agent import DefaultToolExecutor
 from imbue.zygote.agent import ZygoteAgent
-from imbue.zygote.data_types import ZygoteAgentConfig
+from imbue.zygote.conftest import FakeAsyncAnthropic
+from imbue.zygote.conftest import make_default_config
+from imbue.zygote.conftest import make_text_response
 from imbue.zygote.errors import ToolExecutionError
 from imbue.zygote.errors import ZygoteError
 from imbue.zygote.primitives import MemoryKey
 from imbue.zygote.primitives import MessageRole
-from imbue.zygote.primitives import ModelName
 from imbue.zygote.primitives import NotificationSource
 from imbue.zygote.primitives import ThreadId
 
 
-def _make_config() -> ZygoteAgentConfig:
-    return ZygoteAgentConfig(
-        agent_name="test-agent",
-        agent_description="A test agent",
-        base_system_prompt="You are a test agent.",
-        inner_dialog_system_prompt="Process notifications carefully.",
-        chat_system_prompt="Reply concisely.",
-        model=ModelName("claude-sonnet-4-5-20250514"),
-    )
-
-
-def _make_text_block(text: str) -> MagicMock:
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    block.model_dump.return_value = {"type": "text", "text": text}
-    return block
-
-
-def _make_text_response(text: str) -> MagicMock:
-    response = MagicMock()
-    response.content = [_make_text_block(text)]
-    return response
-
-
 class TestZygoteAgent:
     def test_initialization(self) -> None:
-        config = _make_config()
-        client = AsyncMock()
-        agent = ZygoteAgent(config=config, client=client)
+        config = make_default_config()
+        client = FakeAsyncAnthropic()
+        agent = ZygoteAgent(config=config, client=client)  # type: ignore[arg-type]
 
         assert agent.config == config
         assert agent.inner_dialog_state.messages == ()
@@ -53,7 +27,7 @@ class TestZygoteAgent:
         assert agent.memory.entries == {}
 
     def test_get_thread_creates_new(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         thread_id = ThreadId()
         thread = agent.get_thread(thread_id)
 
@@ -61,7 +35,7 @@ class TestZygoteAgent:
         assert thread.messages == ()
 
     def test_get_thread_returns_existing(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         thread_id = ThreadId()
         thread1 = agent.get_thread(thread_id)
         thread2 = agent.get_thread(thread_id)
@@ -69,7 +43,7 @@ class TestZygoteAgent:
         assert thread1.id == thread2.id
 
     def test_add_user_message(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         thread_id = ThreadId()
         msg = agent.add_user_message(thread_id, "hello")
 
@@ -81,7 +55,7 @@ class TestZygoteAgent:
         assert thread.messages[0].content == "hello"
 
     def test_add_assistant_message(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         thread_id = ThreadId()
         msg = agent.add_assistant_message(thread_id, "hi there")
 
@@ -89,14 +63,14 @@ class TestZygoteAgent:
         assert msg.content == "hi there"
 
     def test_set_memory(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         key = MemoryKey("test_key")
         agent.set_memory(key, "test_value")
 
         assert agent.memory.entries[key] == "test_value"
 
     def test_set_memory_overwrites(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         key = MemoryKey("test_key")
         agent.set_memory(key, "value1")
         agent.set_memory(key, "value2")
@@ -104,31 +78,29 @@ class TestZygoteAgent:
         assert agent.memory.entries[key] == "value2"
 
     def test_receive_user_message(self) -> None:
-        client = AsyncMock()
-        # Inner dialog response (no tools)
-        inner_response = _make_text_response("Noted, user said hello.")
-        # Chat response
-        chat_response = _make_text_response("Hi! How can I help?")
-        client.messages.create = AsyncMock(side_effect=[inner_response, chat_response])
+        # Inner dialog response (no tools), then chat response
+        client = FakeAsyncAnthropic(
+            [
+                make_text_response("Noted, user said hello."),
+                make_text_response("Hi! How can I help?"),
+            ]
+        )
 
-        agent = ZygoteAgent(config=_make_config(), client=client)
+        agent = ZygoteAgent(config=make_default_config(), client=client)  # type: ignore[arg-type]
         thread_id = ThreadId()
 
         response = asyncio.run(agent.receive_user_message(thread_id, "Hello!"))
 
         assert response == "Hi! How can I help?"
-        # Thread should have user message + assistant response
         thread = agent.get_thread(thread_id)
         assert len(thread.messages) == 2
         assert thread.messages[0].role == MessageRole.USER
         assert thread.messages[1].role == MessageRole.ASSISTANT
 
     def test_receive_event(self) -> None:
-        client = AsyncMock()
-        inner_response = _make_text_response("Processing system event.")
-        client.messages.create = AsyncMock(return_value=inner_response)
+        client = FakeAsyncAnthropic([make_text_response("Processing system event.")])
 
-        agent = ZygoteAgent(config=_make_config(), client=client)
+        agent = ZygoteAgent(config=make_default_config(), client=client)  # type: ignore[arg-type]
 
         asyncio.run(
             agent.receive_event(
@@ -137,11 +109,10 @@ class TestZygoteAgent:
             )
         )
 
-        # Inner dialog should have processed the notification
         assert len(agent.inner_dialog_state.messages) == 2
 
     def test_create_sub_agent_default_raises(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
 
         with pytest.raises(ZygoteError, match="not configured"):
             asyncio.run(agent.create_sub_agent("helper", "claude", "do stuff"))
@@ -149,12 +120,12 @@ class TestZygoteAgent:
 
 class TestDefaultToolExecutor:
     def test_construction(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         executor = DefaultToolExecutor(agent)
         assert executor._agent is agent
 
     def test_send_message(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         executor = DefaultToolExecutor(agent)
         thread_id = ThreadId()
 
@@ -166,7 +137,7 @@ class TestDefaultToolExecutor:
         assert thread.messages[0].role == MessageRole.ASSISTANT
 
     def test_write_and_read_memory(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         executor = DefaultToolExecutor(agent)
 
         asyncio.run(executor.write_memory(MemoryKey("key1"), "value1"))
@@ -175,27 +146,23 @@ class TestDefaultToolExecutor:
         assert result == "value1"
 
     def test_read_missing_key_raises(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         executor = DefaultToolExecutor(agent)
 
         with pytest.raises(ToolExecutionError, match="not found"):
             asyncio.run(executor.read_memory(MemoryKey("nonexistent")))
 
     def test_create_sub_agent_delegates_to_agent(self) -> None:
-        agent = ZygoteAgent(config=_make_config(), client=AsyncMock())
+        agent = ZygoteAgent(config=make_default_config(), client=FakeAsyncAnthropic())  # type: ignore[arg-type]
         executor = DefaultToolExecutor(agent)
 
         with pytest.raises(ZygoteError, match="not configured"):
             asyncio.run(executor.create_sub_agent("helper", "claude", "task"))
 
     def test_compact_history(self) -> None:
-        client = AsyncMock()
-        summary_block = MagicMock()
-        summary_block.text = "Summary"
-        client.messages.create = AsyncMock(return_value=MagicMock(content=[summary_block]))
+        client = FakeAsyncAnthropic([make_text_response("Summary")])
 
-        agent = ZygoteAgent(config=_make_config(), client=client)
-        # Add enough messages to trigger compaction
+        agent = ZygoteAgent(config=make_default_config(), client=client)  # type: ignore[arg-type]
         messages = tuple({"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"} for i in range(20))
         agent._inner_dialog_state = agent._inner_dialog_state.model_copy(update={"messages": messages})
 

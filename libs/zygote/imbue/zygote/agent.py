@@ -14,6 +14,7 @@ from datetime import timezone
 
 import anthropic
 
+from imbue.imbue_common.model_update import to_update
 from imbue.zygote.chat import generate_chat_response
 from imbue.zygote.data_types import AgentMemory
 from imbue.zygote.data_types import InnerDialogState
@@ -137,7 +138,9 @@ class ZygoteAgent:
             content=content,
             timestamp=datetime.now(timezone.utc),
         )
-        self._threads[thread_id] = thread.model_copy(update={"messages": thread.messages + (message,)})
+        self._threads[thread_id] = thread.model_copy_update(
+            to_update(thread.field_ref().messages, thread.messages + (message,))
+        )
         return message
 
     def add_assistant_message(self, thread_id: ThreadId, content: str) -> ThreadMessage:
@@ -149,7 +152,9 @@ class ZygoteAgent:
             content=content,
             timestamp=datetime.now(timezone.utc),
         )
-        self._threads[thread_id] = thread.model_copy(update={"messages": thread.messages + (message,)})
+        self._threads[thread_id] = thread.model_copy_update(
+            to_update(thread.field_ref().messages, thread.messages + (message,))
+        )
         return message
 
     def set_memory(self, key: MemoryKey, value: str) -> None:

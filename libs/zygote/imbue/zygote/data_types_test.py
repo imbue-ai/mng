@@ -1,6 +1,9 @@
 from datetime import datetime
 from datetime import timezone
 
+import pydantic
+import pytest
+
 from imbue.zygote.data_types import AgentMemory
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
@@ -37,12 +40,8 @@ class TestThreadMessage:
             content="hello",
             timestamp=datetime.now(timezone.utc),
         )
-        # FrozenModel should not allow mutation
-        try:
+        with pytest.raises(pydantic.ValidationError):
             msg.content = "changed"  # type: ignore[misc]
-            assert False, "Should have raised"
-        except Exception:
-            pass
 
 
 class TestThread:

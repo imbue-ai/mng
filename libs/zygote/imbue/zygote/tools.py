@@ -8,6 +8,7 @@ world -- sending messages to users, creating sub-agents, and managing memory.
 from abc import ABC
 from abc import abstractmethod
 from typing import Any
+from typing import Final
 
 from imbue.zygote.data_types import ToolResult
 from imbue.zygote.errors import ToolExecutionError
@@ -18,7 +19,7 @@ from imbue.zygote.primitives import ThreadId
 # Tool Definitions (Claude API format)
 # =============================================================================
 
-SEND_MESSAGE_TOOL: dict[str, Any] = {
+SEND_MESSAGE_TOOL: Final[dict[str, Any]] = {
     "name": "send_message_to_thread",
     "description": (
         "Send a message to a user chat thread. Use this to reply to users or send follow-up messages on a thread."
@@ -39,7 +40,7 @@ SEND_MESSAGE_TOOL: dict[str, Any] = {
     },
 }
 
-CREATE_SUB_AGENT_TOOL: dict[str, Any] = {
+CREATE_SUB_AGENT_TOOL: Final[dict[str, Any]] = {
     "name": "create_sub_agent",
     "description": (
         "Create a new sub-agent to handle a task. The sub-agent will be "
@@ -66,7 +67,7 @@ CREATE_SUB_AGENT_TOOL: dict[str, Any] = {
     },
 }
 
-READ_MEMORY_TOOL: dict[str, Any] = {
+READ_MEMORY_TOOL: Final[dict[str, Any]] = {
     "name": "read_memory",
     "description": (
         "Read a value from persistent memory. Returns the stored value "
@@ -84,7 +85,7 @@ READ_MEMORY_TOOL: dict[str, Any] = {
     },
 }
 
-WRITE_MEMORY_TOOL: dict[str, Any] = {
+WRITE_MEMORY_TOOL: Final[dict[str, Any]] = {
     "name": "write_memory",
     "description": (
         "Write a value to persistent memory. This stores a key-value pair "
@@ -107,7 +108,7 @@ WRITE_MEMORY_TOOL: dict[str, Any] = {
     },
 }
 
-COMPACT_HISTORY_TOOL: dict[str, Any] = {
+COMPACT_HISTORY_TOOL: Final[dict[str, Any]] = {
     "name": "compact_history",
     "description": (
         "Request compaction of the inner dialog history. When the conversation "
@@ -120,7 +121,7 @@ COMPACT_HISTORY_TOOL: dict[str, Any] = {
     },
 }
 
-ALL_TOOLS: tuple[dict[str, Any], ...] = (
+ALL_TOOLS: Final[tuple[dict[str, Any], ...]] = (
     SEND_MESSAGE_TOOL,
     CREATE_SUB_AGENT_TOOL,
     READ_MEMORY_TOOL,
@@ -177,19 +178,13 @@ async def execute_tool(
     """Execute a tool call and return the result.
 
     Routes the tool call to the appropriate method on the executor,
-    catching errors and returning them as error results.
+    catching ToolExecutionError and returning it as an error result.
     """
     try:
         result_content = await _dispatch_tool(tool_name, tool_input, executor)
         return ToolResult(tool_use_id=tool_use_id, content=result_content)
     except ToolExecutionError as e:
         return ToolResult(tool_use_id=tool_use_id, content=str(e), is_error=True)
-    except Exception as e:
-        return ToolResult(
-            tool_use_id=tool_use_id,
-            content=f"Unexpected error executing {tool_name}: {e}",
-            is_error=True,
-        )
 
 
 async def _dispatch_tool(
@@ -198,25 +193,26 @@ async def _dispatch_tool(
     executor: ToolExecutor,
 ) -> str:
     """Dispatch a tool call to the appropriate executor method."""
-    if tool_name == "send_message_to_thread":
-        return await executor.send_message_to_thread(
-            thread_id=ThreadId(tool_input["thread_id"]),
-            content=tool_input["content"],
-        )
-    elif tool_name == "create_sub_agent":
-        return await executor.create_sub_agent(
-            name=tool_input["name"],
-            agent_type=tool_input["agent_type"],
-            message=tool_input["message"],
-        )
-    elif tool_name == "read_memory":
-        return await executor.read_memory(key=MemoryKey(tool_input["key"]))
-    elif tool_name == "write_memory":
-        return await executor.write_memory(
-            key=MemoryKey(tool_input["key"]),
-            value=tool_input["value"],
-        )
-    elif tool_name == "compact_history":
-        return await executor.compact_history()
-    else:
-        raise ToolExecutionError(f"Unknown tool: {tool_name}")
+    match tool_name:
+        case "send_message_to_thread":
+            return await executor.send_message_to_thread(
+                thread_id=ThreadId(tool_input["thread_id"]),
+                content=tool_input["content"],
+            )
+        case "create_sub_agent":
+            return await executor.create_sub_agent(
+                name=tool_input["name"],
+                agent_type=tool_input["agent_type"],
+                message=tool_input["message"],
+            )
+        case "read_memory":
+            return await executor.read_memory(key=MemoryKey(tool_input["key"]))
+        case "write_memory":
+            return await executor.write_memory(
+                key=MemoryKey(tool_input["key"]),
+                value=tool_input["value"],
+            )
+        case "compact_history":
+            return await executor.compact_history()
+        case _:
+            raise ToolExecutionError(f"Unknown tool: {tool_name}")
