@@ -1,6 +1,5 @@
 import os
 import tomllib
-import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -9,6 +8,7 @@ from typing import Sequence
 from uuid import uuid4
 
 import pluggy
+from loguru import logger
 from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -262,10 +262,7 @@ def _check_unknown_fields(
     known_fields = set(model_class.model_fields.keys())
     unknown = set(raw_config.keys()) - known_fields
     if unknown:
-        warnings.warn(
-            f"Unknown fields in {context}: {sorted(unknown)}. Valid fields: {sorted(known_fields)}",
-            stacklevel=2,
-        )
+        logger.warning("Unknown fields in {}: {}. Valid fields: {}", context, sorted(unknown), sorted(known_fields))
         for key in unknown:
             del raw_config[key]
 
@@ -500,7 +497,7 @@ def parse_config(
     kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:
-        warnings.warn(f"Unknown configuration fields: {list(raw.keys())}", stacklevel=2)
+        logger.warning("Unknown configuration fields: {}", list(raw.keys()))
 
     # Use model_construct to bypass field defaults
     return MngConfig.model_construct(**kwargs)

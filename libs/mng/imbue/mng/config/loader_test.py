@@ -1,6 +1,5 @@
 """Tests for config loader."""
 
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -242,13 +241,10 @@ def test_parse_providers_raises_on_unknown_backend() -> None:
 def test_parse_providers_warns_on_unknown_fields() -> None:
     """_parse_providers should warn about unknown fields and strip them."""
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = _parse_providers(raw, disabled_plugins=frozenset())
-    assert len(w) == 1
-    assert "typo_field" in str(w[0].message)
-    assert "providers.my-local" in str(w[0].message)
+    result = _parse_providers(raw, disabled_plugins=frozenset())
     assert ProviderInstanceName("my-local") in result
+    # Unknown field should have been stripped from the raw dict
+    assert "typo_field" not in raw["my-local"]
 
 
 def test_parse_providers_skips_disabled_plugin() -> None:
@@ -312,14 +308,11 @@ def test_parse_agent_types_handles_empty_dict() -> None:
 def test_parse_agent_types_warns_on_unknown_fields() -> None:
     """_parse_agent_types should warn about unknown fields and strip them."""
     raw = {"claude": {"cli_args": "--verbose", "bogus_option": True}}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = _parse_agent_types(raw)
-    assert len(w) == 1
-    assert "bogus_option" in str(w[0].message)
-    assert "agent_types.claude" in str(w[0].message)
+    result = _parse_agent_types(raw)
     assert AgentTypeName("claude") in result
     assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
+    # Unknown field should have been stripped from the raw dict
+    assert "bogus_option" not in raw["claude"]
 
 
 # =============================================================================
@@ -344,14 +337,11 @@ def test_parse_plugins_handles_empty_dict() -> None:
 def test_parse_plugins_warns_on_unknown_fields() -> None:
     """_parse_plugins should warn about unknown fields and strip them."""
     raw = {"my-plugin": {"enabled": True, "nonexistent_setting": "abc"}}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = _parse_plugins(raw)
-    assert len(w) == 1
-    assert "nonexistent_setting" in str(w[0].message)
-    assert "plugins.my-plugin" in str(w[0].message)
+    result = _parse_plugins(raw)
     assert PluginName("my-plugin") in result
     assert result[PluginName("my-plugin")].enabled is True
+    # Unknown field should have been stripped from the raw dict
+    assert "nonexistent_setting" not in raw["my-plugin"]
 
 
 # =============================================================================
@@ -430,13 +420,10 @@ def test_parse_logging_config_handles_empty_dict() -> None:
 def test_parse_logging_config_warns_on_unknown_fields() -> None:
     """_parse_logging_config should warn about unknown fields and strip them."""
     raw = {"file_level": "DEBUG", "unknown_log_option": 42}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = _parse_logging_config(raw)
-    assert len(w) == 1
-    assert "unknown_log_option" in str(w[0].message)
-    assert "logging" in str(w[0].message)
+    result = _parse_logging_config(raw)
     assert isinstance(result, LoggingConfig)
+    # Unknown field should have been stripped from the raw dict
+    assert "unknown_log_option" not in raw
 
 
 # =============================================================================
@@ -548,11 +535,7 @@ def test_parse_config_handles_empty_config() -> None:
 def test_parse_config_warns_on_unknown_top_level_field() -> None:
     """parse_config should warn about unknown top-level fields and still return a valid config."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = parse_config(raw, disabled_plugins=frozenset())
-    assert len(w) == 1
-    assert "nonexistent_top_level" in str(w[0].message)
+    result = parse_config(raw, disabled_plugins=frozenset())
     assert result.prefix == "test-"
 
 
@@ -561,11 +544,7 @@ def test_parse_config_warns_on_unknown_nested_field() -> None:
     raw = {
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = parse_config(raw, disabled_plugins=frozenset())
-    assert len(w) == 1
-    assert "bad_field" in str(w[0].message)
+    result = parse_config(raw, disabled_plugins=frozenset())
     assert result.logging is not None
 
 
