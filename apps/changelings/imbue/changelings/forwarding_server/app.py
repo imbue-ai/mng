@@ -20,7 +20,7 @@ from websockets import ClientConnection
 from imbue.changelings.forwarding_server.auth import AuthStoreInterface
 from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
 from imbue.changelings.forwarding_server.cookie_manager import create_signed_cookie_value
-from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_changeling
+from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_agent
 from imbue.changelings.forwarding_server.cookie_manager import verify_signed_cookie_value
 from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
 from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
@@ -29,8 +29,8 @@ from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
 from imbue.changelings.forwarding_server.templates import render_auth_error_page
 from imbue.changelings.forwarding_server.templates import render_landing_page
 from imbue.changelings.forwarding_server.templates import render_login_redirect_page
-from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
+from imbue.mng.primitives import AgentId
 
 _PROXY_TIMEOUT_SECONDS: Final[float] = 30.0
 
@@ -63,12 +63,12 @@ BackendResolverDep = Annotated[BackendResolverInterface, Depends(_get_backend_re
 
 def _check_auth_cookie(
     cookies: Mapping[str, str],
-    changeling_name: ChangelingName,
+    agent_id: AgentId,
     auth_store: AuthStoreInterface,
 ) -> bool:
-    """Check whether the given cookies contain a valid auth cookie for the changeling."""
+    """Check whether the given cookies contain a valid auth cookie for the agent."""
     signing_key = auth_store.get_signing_key()
-    cookie_name = get_cookie_name_for_changeling(changeling_name)
+    cookie_name = get_cookie_name_for_agent(agent_id)
     cookie_value = cookies.get(cookie_name)
     if cookie_value is None:
         return False
@@ -76,37 +76,37 @@ def _check_auth_cookie(
         cookie_value=cookie_value,
         signing_key=signing_key,
     )
-    return verified == changeling_name
+    return verified == agent_id
 
 
-def _get_authenticated_changeling_names(
+def _get_authenticated_agent_ids(
     cookies: Mapping[str, str],
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
-) -> list[ChangelingName]:
-    """Extract changeling names from valid auth cookies."""
+) -> list[AgentId]:
+    """Extract agent IDs from valid auth cookies."""
     signing_key = auth_store.get_signing_key()
-    known_names = auth_store.list_changeling_names_with_valid_codes()
-    resolver_names = backend_resolver.list_known_changeling_names()
+    known_ids = auth_store.list_agent_ids_with_valid_codes()
+    resolver_ids = backend_resolver.list_known_agent_ids()
 
-    all_candidate_names: set[str] = set()
-    for name in known_names:
-        all_candidate_names.add(str(name))
-    for name in resolver_names:
-        all_candidate_names.add(str(name))
+    all_candidate_ids: set[str] = set()
+    for agent_id in known_ids:
+        all_candidate_ids.add(str(agent_id))
+    for agent_id in resolver_ids:
+        all_candidate_ids.add(str(agent_id))
 
-    authenticated: list[ChangelingName] = []
-    for candidate_name_str in sorted(all_candidate_names):
-        candidate_name = ChangelingName(candidate_name_str)
-        cookie_name = get_cookie_name_for_changeling(candidate_name)
+    authenticated: list[AgentId] = []
+    for candidate_id_str in sorted(all_candidate_ids):
+        candidate_id = AgentId(candidate_id_str)
+        cookie_name = get_cookie_name_for_agent(candidate_id)
         cookie_value = cookies.get(cookie_name)
         if cookie_value is not None:
             verified = verify_signed_cookie_value(
                 cookie_value=cookie_value,
                 signing_key=signing_key,
             )
-            if verified == candidate_name:
-                authenticated.append(candidate_name)
+            if verified == candidate_id:
+                authenticated.append(candidate_id)
 
     return authenticated
 
@@ -141,7 +141,7 @@ async def _forward_client_to_backend(
 async def _forward_backend_to_client(
     client_websocket: WebSocket,
     backend_ws: ClientConnection,
-    changeling_name: ChangelingName,
+    agent_id: AgentId,
 ) -> None:
     """Forward messages from the backend WebSocket to the client."""
     try:
@@ -151,7 +151,7 @@ async def _forward_backend_to_client(
             else:
                 await client_websocket.send_bytes(msg)
     except websockets.exceptions.ConnectionClosed:
-        logger.debug("Backend WebSocket closed for {}", changeling_name)
+        logger.debug("Backend WebSocket closed for {}", agent_id)
 
 
 # -- Lifespan --
@@ -179,43 +179,40 @@ async def _managed_lifespan(
 
 
 def _handle_login(
-    changeling_name: str,
+    agent_id: str,
     one_time_code: str,
     request: Request,
     auth_store: AuthStoreDep,
 ) -> Response:
-    name = ChangelingName(changeling_name)
+    parsed_id = AgentId(agent_id)
     code = OneTimeCode(one_time_code)
 
-    # If user already has a valid cookie, redirect to landing page
-    if _check_auth_cookie(cookies=request.cookies, changeling_name=name, auth_store=auth_store):
+    if _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
         return Response(status_code=307, headers={"Location": "/"})
 
-    # Render JS redirect to /authenticate (prevents prefetch consumption)
-    html = render_login_redirect_page(changeling_name=name, one_time_code=code)
+    html = render_login_redirect_page(agent_id=parsed_id, one_time_code=code)
     return HTMLResponse(content=html)
 
 
 def _handle_authenticate(
-    changeling_name: str,
+    agent_id: str,
     one_time_code: str,
     auth_store: AuthStoreDep,
 ) -> Response:
-    name = ChangelingName(changeling_name)
+    parsed_id = AgentId(agent_id)
     code = OneTimeCode(one_time_code)
 
-    is_valid = auth_store.validate_and_consume_code(changeling_name=name, code=code)
+    is_valid = auth_store.validate_and_consume_code(agent_id=parsed_id, code=code)
 
     if not is_valid:
         html = render_auth_error_page(message="This login code is invalid or has already been used.")
         return HTMLResponse(content=html, status_code=403)
 
-    # Set signed cookie
     signing_key = auth_store.get_signing_key()
-    cookie_value = create_signed_cookie_value(changeling_name=name, signing_key=signing_key)
-    cookie_name = get_cookie_name_for_changeling(name)
+    cookie_value = create_signed_cookie_value(agent_id=parsed_id, signing_key=signing_key)
+    cookie_name = get_cookie_name_for_agent(parsed_id)
 
-    response = Response(status_code=307, headers={"Location": f"/agents/{name}/"})
+    response = Response(status_code=307, headers={"Location": f"/agents/{parsed_id}/"})
     response.set_cookie(
         key=cookie_name,
         value=cookie_value,
@@ -231,12 +228,12 @@ def _handle_landing_page(
     auth_store: AuthStoreDep,
     backend_resolver: BackendResolverDep,
 ) -> Response:
-    authenticated_names = _get_authenticated_changeling_names(
+    authenticated_ids = _get_authenticated_agent_ids(
         cookies=request.cookies,
         auth_store=auth_store,
         backend_resolver=backend_resolver,
     )
-    html = render_landing_page(accessible_changeling_names=authenticated_names)
+    html = render_landing_page(accessible_agent_ids=authenticated_ids)
     return HTMLResponse(content=html)
 
 
@@ -244,7 +241,7 @@ async def _forward_http_request(
     request: Request,
     backend_url: str,
     path: str,
-    changeling_name: str,
+    agent_id: str,
 ) -> httpx.Response | Response:
     """Forward an HTTP request to the backend, returning the backend response or an error Response."""
     proxy_url = f"{backend_url}/{path}"
@@ -265,19 +262,18 @@ async def _forward_http_request(
             content=body,
         )
     except httpx.ConnectError:
-        logger.debug("Backend connection refused for {}", changeling_name)
+        logger.debug("Backend connection refused for {}", agent_id)
         return Response(status_code=502, content="Backend connection refused")
     except httpx.TimeoutException:
-        logger.debug("Backend request timed out for {}", changeling_name)
+        logger.debug("Backend request timed out for {}", agent_id)
         return Response(status_code=504, content="Backend request timed out")
 
 
 def _build_proxy_response(
     backend_response: httpx.Response,
-    changeling_name: ChangelingName,
+    agent_id: AgentId,
 ) -> Response:
     """Transform a backend httpx response into a FastAPI Response with header/content rewriting."""
-    # Build response headers, dropping hop-by-hop headers
     resp_headers: dict[str, list[str]] = {}
     for header_key, header_value in backend_response.headers.multi_items():
         if header_key.lower() in _EXCLUDED_RESPONSE_HEADERS:
@@ -285,20 +281,19 @@ def _build_proxy_response(
         if header_key.lower() == "set-cookie":
             header_value = rewrite_cookie_path(
                 set_cookie_header=header_value,
-                changeling_name=changeling_name,
+                agent_id=agent_id,
             )
         resp_headers.setdefault(header_key, [])
         resp_headers[header_key].append(header_value)
 
     content: str | bytes = backend_response.content
 
-    # Rewrite HTML responses (absolute paths, base tag, WS shim)
     content_type = backend_response.headers.get("content-type", "")
     if "text/html" in content_type:
         html_text = backend_response.text
         rewritten_html = rewrite_proxied_html(
             html_content=html_text,
-            changeling_name=changeling_name,
+            agent_id=agent_id,
         )
         content = rewritten_html.encode()
 
@@ -310,69 +305,62 @@ def _build_proxy_response(
 
 
 async def _handle_proxy_http(
-    changeling_name: str,
+    agent_id: str,
     path: str,
     request: Request,
     auth_store: AuthStoreDep,
     backend_resolver: BackendResolverDep,
 ) -> Response:
-    name = ChangelingName(changeling_name)
+    parsed_id = AgentId(agent_id)
 
-    # Check auth
-    if not _check_auth_cookie(cookies=request.cookies, changeling_name=name, auth_store=auth_store):
+    if not _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
         return Response(status_code=403, content="Not authenticated for this changeling")
 
-    # Serve the service worker script
     if path == "__sw.js":
         return Response(
-            content=generate_service_worker_js(name),
+            content=generate_service_worker_js(parsed_id),
             media_type="application/javascript",
         )
 
-    backend_url = backend_resolver.get_backend_url(name)
+    backend_url = backend_resolver.get_backend_url(parsed_id)
     if backend_url is None:
-        return Response(status_code=502, content=f"Backend unavailable for changeling: {changeling_name}")
+        return Response(status_code=502, content=f"Backend unavailable for agent: {agent_id}")
 
-    # Check if SW is installed via cookie
-    sw_cookie = request.cookies.get(f"sw_installed_{changeling_name}")
+    sw_cookie = request.cookies.get(f"sw_installed_{agent_id}")
     is_navigation = request.headers.get("sec-fetch-mode") == "navigate"
 
-    # First HTML navigation without SW -> serve bootstrap
     if is_navigation and not sw_cookie:
-        return HTMLResponse(generate_bootstrap_html(name))
+        return HTMLResponse(generate_bootstrap_html(parsed_id))
 
-    # Forward request to backend
     result = await _forward_http_request(
         request=request,
         backend_url=backend_url,
         path=path,
-        changeling_name=changeling_name,
+        agent_id=agent_id,
     )
 
-    # If forwarding returned an error Response directly, return it
     if isinstance(result, Response):
         return result
 
-    return _build_proxy_response(backend_response=result, changeling_name=name)
+    return _build_proxy_response(backend_response=result, agent_id=parsed_id)
 
 
 async def _handle_proxy_websocket(
     websocket: WebSocket,
-    changeling_name: str,
+    agent_id: str,
     path: str,
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
 ) -> None:
-    name = ChangelingName(changeling_name)
+    parsed_id = AgentId(agent_id)
 
-    # Check auth
-    if not _check_auth_cookie(cookies=websocket.cookies, changeling_name=name, auth_store=auth_store):
+    if not _check_auth_cookie(cookies=websocket.cookies, agent_id=parsed_id, auth_store=auth_store):
         await websocket.close(code=4003, reason="Not authenticated")
         return
 
-    backend_url = backend_resolver.get_backend_url(name)
+    backend_url = backend_resolver.get_backend_url(parsed_id)
     if backend_url is None:
-        await websocket.close(code=4004, reason=f"Unknown changeling: {changeling_name}")
+        await websocket.close(code=4004, reason=f"Unknown agent: {agent_id}")
         return
 
     ws_backend = backend_url.replace("http://", "ws://").replace("https://", "wss://")
@@ -392,16 +380,16 @@ async def _handle_proxy_websocket(
                 _forward_backend_to_client(
                     client_websocket=websocket,
                     backend_ws=backend_ws,
-                    changeling_name=name,
+                    agent_id=parsed_id,
                 ),
             )
 
     except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
-        logger.debug("Backend WebSocket connection failed for {}: {}", changeling_name, connection_error)
+        logger.debug("Backend WebSocket connection failed for {}: {}", agent_id, connection_error)
         try:
             await websocket.close(code=1011, reason="Backend connection failed")
         except RuntimeError:
-            logger.trace("WebSocket already closed when trying to send error for {}", changeling_name)
+            logger.trace("WebSocket already closed when trying to send error for {}", agent_id)
 
 
 # -- App factory --
@@ -427,21 +415,19 @@ def create_forwarding_server(
     if http_client is not None:
         app.state.http_client = http_client
 
-    # Register routes
     app.get("/login")(_handle_login)
     app.get("/authenticate")(_handle_authenticate)
     app.get("/")(_handle_landing_page)
     app.api_route(
-        "/agents/{changeling_name}/{path:path}",
+        "/agents/{agent_id}/{path:path}",
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
     )(_handle_proxy_http)
 
-    # WebSocket route needs manual dependency wiring since Depends doesn't work on WS
-    @app.websocket("/agents/{changeling_name}/{path:path}")
-    async def proxy_websocket(websocket: WebSocket, changeling_name: str, path: str) -> None:
+    @app.websocket("/agents/{agent_id}/{path:path}")
+    async def proxy_websocket(websocket: WebSocket, agent_id: str, path: str) -> None:
         await _handle_proxy_websocket(
             websocket=websocket,
-            changeling_name=changeling_name,
+            agent_id=agent_id,
             path=path,
             auth_store=auth_store,
             backend_resolver=backend_resolver,

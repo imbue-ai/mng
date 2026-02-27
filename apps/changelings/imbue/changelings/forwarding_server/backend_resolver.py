@@ -4,32 +4,32 @@ from collections.abc import Mapping
 
 from pydantic import Field
 
-from imbue.changelings.primitives import ChangelingName
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mng.primitives import AgentId
 
 
 class BackendResolverInterface(MutableModel, ABC):
-    """Resolves changeling names to their backend server URLs."""
+    """Resolves agent IDs to their backend server URLs."""
 
     @abstractmethod
-    def get_backend_url(self, changeling_name: ChangelingName) -> str | None:
-        """Return the backend URL for a changeling, or None if unknown/offline."""
+    def get_backend_url(self, agent_id: AgentId) -> str | None:
+        """Return the backend URL for an agent, or None if unknown/offline."""
 
     @abstractmethod
-    def list_known_changeling_names(self) -> tuple[ChangelingName, ...]:
-        """Return all known changeling names."""
+    def list_known_agent_ids(self) -> tuple[AgentId, ...]:
+        """Return all known agent IDs."""
 
 
 class StaticBackendResolver(BackendResolverInterface):
     """Resolves backend URLs from a static mapping provided at construction time."""
 
-    url_by_changeling_name: Mapping[str, str] = Field(
+    url_by_agent_id: Mapping[str, str] = Field(
         frozen=True,
-        description="Mapping of changeling name to backend URL",
+        description="Mapping of agent ID to backend URL",
     )
 
-    def get_backend_url(self, changeling_name: ChangelingName) -> str | None:
-        return self.url_by_changeling_name.get(str(changeling_name))
+    def get_backend_url(self, agent_id: AgentId) -> str | None:
+        return self.url_by_agent_id.get(str(agent_id))
 
-    def list_known_changeling_names(self) -> tuple[ChangelingName, ...]:
-        return tuple(ChangelingName(name) for name in sorted(self.url_by_changeling_name.keys()))
+    def list_known_agent_ids(self) -> tuple[AgentId, ...]:
+        return tuple(AgentId(agent_id) for agent_id in sorted(self.url_by_agent_id.keys()))
