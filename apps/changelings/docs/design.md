@@ -9,6 +9,10 @@ Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be
 - **template**: an HTML/web template for serving a particular interface (e.g. a chat UI, a dashboard, etc.)
 - **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
 
+# Relationship to mng
+
+Changelings are built on top of `mng` and should interact with it exclusively through the `mng` CLI interface. Changelings should never directly access mng's internal data directories (e.g., `~/.mng/agents/`). Instead, use `mng` commands like `mng list`, `mng logs`, `mng exec`, etc. This ensures changelings remain compatible as mng's internals evolve and work correctly across all provider backends (local, modal, docker).
+
 # Design principles
 
 1. **Simplicity**: The system should be as simple as possible, both in terms of user experience and internal architecture. Each changeling is simply a web server with some persistent storage (ideally just a file system) that, by convention, ends up calling an AI agent to respond to messages from the user. The only required routes are for the index and for handling incoming messages.

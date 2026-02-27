@@ -1,13 +1,35 @@
-from pathlib import Path
+import json
 
-from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
-from imbue.changelings.forwarding_server.backend_resolver import SERVERS_LOG_FILENAME
+from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import MngCliInterface
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
-from imbue.changelings.forwarding_server.testing import write_server_log
+from imbue.changelings.forwarding_server.backend_resolver import _parse_agent_ids_from_json
+from imbue.changelings.forwarding_server.backend_resolver import _parse_server_log_records
 from imbue.mng.primitives import AgentId
 
 _AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
 _AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
+
+
+class FakeMngCli(MngCliInterface):
+    """Fake mng CLI for testing that returns canned responses."""
+
+    server_logs: dict[str, str]
+    agents_json: str | None
+
+    def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
+        return self.server_logs.get(str(agent_id))
+
+    def list_agents_json(self) -> str | None:
+        return self.agents_json
+
+
+def _make_agents_json(*agent_ids: AgentId) -> str:
+    return json.dumps({"agents": [{"id": str(aid)} for aid in agent_ids]})
+
+
+def _make_server_log(server: str, url: str) -> str:
+    return json.dumps({"server": server, "url": url}) + "\n"
 
 
 # -- StaticBackendResolver tests --
@@ -46,94 +68,140 @@ def test_static_list_known_agent_ids_returns_empty_tuple_when_no_agents() -> Non
     assert ids == ()
 
 
-# -- AgentLogsBackendResolver tests --
+# -- _parse_server_log_records tests --
 
 
-def test_agent_logs_resolver_returns_url_from_server_log(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
+def test_parse_server_log_records_parses_valid_jsonl() -> None:
+    text = '{"server": "web", "url": "http://127.0.0.1:9100"}\n'
+    records = _parse_server_log_records(text)
 
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+    assert len(records) == 1
+    assert records[0].server == "web"
+    assert records[0].url == "http://127.0.0.1:9100"
 
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100"
+
+def test_parse_server_log_records_returns_empty_for_empty_input() -> None:
+    assert _parse_server_log_records("") == []
+    assert _parse_server_log_records("\n") == []
 
 
-def test_agent_logs_resolver_returns_none_for_unknown_agent(tmp_path: Path) -> None:
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+def test_parse_server_log_records_skips_invalid_lines() -> None:
+    text = 'bad line\n{"server": "web", "url": "http://127.0.0.1:9100"}\n'
+    records = _parse_server_log_records(text)
+
+    assert len(records) == 1
+    assert records[0].url == "http://127.0.0.1:9100"
+
+
+def test_parse_server_log_records_returns_multiple_records() -> None:
+    text = '{"server": "web", "url": "http://127.0.0.1:9100"}\n{"server": "web", "url": "http://127.0.0.1:9200"}\n'
+    records = _parse_server_log_records(text)
+
+    assert len(records) == 2
+    assert records[-1].url == "http://127.0.0.1:9200"
+
+
+# -- _parse_agent_ids_from_json tests --
+
+
+def test_parse_agent_ids_from_json_parses_valid_output() -> None:
+    json_output = _make_agents_json(_AGENT_A, _AGENT_B)
+    ids = _parse_agent_ids_from_json(json_output)
+
+    assert _AGENT_A in ids
+    assert _AGENT_B in ids
+
+
+def test_parse_agent_ids_from_json_returns_empty_for_none() -> None:
+    assert _parse_agent_ids_from_json(None) == ()
+
+
+def test_parse_agent_ids_from_json_returns_empty_for_invalid_json() -> None:
+    assert _parse_agent_ids_from_json("not json") == ()
+
+
+# -- MngCliBackendResolver tests (using FakeMngCli) --
+
+
+def test_mng_cli_resolver_returns_url_from_server_log() -> None:
+    fake_cli = FakeMngCli(
+        server_logs={str(_AGENT_A): _make_server_log("web", "http://127.0.0.1:9100")},
+        agents_json=_make_agents_json(_AGENT_A),
+    )
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
+
+    assert resolver.get_backend_url(_AGENT_A) == "http://127.0.0.1:9100"
+
+
+def test_mng_cli_resolver_returns_none_for_unknown_agent() -> None:
+    fake_cli = FakeMngCli(server_logs={}, agents_json=_make_agents_json())
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
     assert resolver.get_backend_url(_AGENT_A) is None
 
 
-def test_agent_logs_resolver_returns_none_when_no_agents_dir(tmp_path: Path) -> None:
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+def test_mng_cli_resolver_returns_most_recent_url() -> None:
+    log_content = (
+        '{"server": "web", "url": "http://127.0.0.1:9100"}\n{"server": "web", "url": "http://127.0.0.1:9200"}\n'
+    )
+    fake_cli = FakeMngCli(
+        server_logs={str(_AGENT_A): log_content},
+        agents_json=_make_agents_json(_AGENT_A),
+    )
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
-    assert resolver.get_backend_url(_AGENT_A) is None
-
-
-def test_agent_logs_resolver_returns_most_recent_url(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200")
-
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
-
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9200"
+    assert resolver.get_backend_url(_AGENT_A) == "http://127.0.0.1:9200"
 
 
-def test_agent_logs_resolver_lists_known_agents(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101")
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
-
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+def test_mng_cli_resolver_lists_known_agents() -> None:
+    fake_cli = FakeMngCli(
+        server_logs={},
+        agents_json=_make_agents_json(_AGENT_A, _AGENT_B),
+    )
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
     ids = resolver.list_known_agent_ids()
 
-    assert ids == (_AGENT_A, _AGENT_B)
+    assert _AGENT_A in ids
+    assert _AGENT_B in ids
 
 
-def test_agent_logs_resolver_returns_empty_when_no_agents(tmp_path: Path) -> None:
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
-    ids = resolver.list_known_agent_ids()
+def test_mng_cli_resolver_returns_empty_when_no_agents() -> None:
+    fake_cli = FakeMngCli(server_logs={}, agents_json=_make_agents_json())
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
-    assert ids == ()
-
-
-def test_agent_logs_resolver_ignores_agents_without_server_logs(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
-
-    # Create agent B's directory but without servers.jsonl
-    agent_b_dir = tmp_path / "agents" / str(_AGENT_B)
-    agent_b_dir.mkdir(parents=True)
-
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
-    ids = resolver.list_known_agent_ids()
-
-    assert ids == (_AGENT_A,)
+    assert resolver.list_known_agent_ids() == ()
 
 
-def test_agent_logs_resolver_handles_invalid_jsonl(tmp_path: Path) -> None:
-    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
-    logs_dir.mkdir(parents=True)
-    (logs_dir / SERVERS_LOG_FILENAME).write_text("not valid json\n")
+def test_mng_cli_resolver_returns_empty_when_mng_list_fails() -> None:
+    fake_cli = FakeMngCli(server_logs={}, agents_json=None)
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
-
-    assert resolver.get_backend_url(_AGENT_A) is None
+    assert resolver.list_known_agent_ids() == ()
 
 
-def test_agent_logs_resolver_skips_invalid_lines_keeps_valid(tmp_path: Path) -> None:
-    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
-    logs_dir.mkdir(parents=True)
-    content = 'bad line\n{"server": "web", "url": "http://localhost:9100"}\n'
-    (logs_dir / SERVERS_LOG_FILENAME).write_text(content)
+def test_mng_cli_resolver_caches_backend_url() -> None:
+    call_count = 0
 
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+    class CountingMngCli(MngCliInterface):
+        server_logs: dict[str, str]
+        agents_json: str | None = None
 
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100"
+        def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
+            nonlocal call_count
+            call_count += 1
+            return self.server_logs.get(str(agent_id))
 
+        def list_agents_json(self) -> str | None:
+            return self.agents_json
 
-def test_agent_logs_resolver_handles_empty_file(tmp_path: Path) -> None:
-    logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
-    logs_dir.mkdir(parents=True)
-    (logs_dir / SERVERS_LOG_FILENAME).write_text("")
+    fake_cli = CountingMngCli(
+        server_logs={str(_AGENT_A): _make_server_log("web", "http://127.0.0.1:9100")},
+    )
+    resolver = MngCliBackendResolver(mng_cli=fake_cli)
 
-    resolver = AgentLogsBackendResolver(host_dir=tmp_path)
+    url1 = resolver.get_backend_url(_AGENT_A)
+    url2 = resolver.get_backend_url(_AGENT_A)
 
-    assert resolver.get_backend_url(_AGENT_A) is None
+    assert url1 == "http://127.0.0.1:9100"
+    assert url2 == "http://127.0.0.1:9100"
+    assert call_count == 1

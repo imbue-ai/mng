@@ -5,7 +5,8 @@ import uvicorn
 
 from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
-from imbue.changelings.forwarding_server.backend_resolver import AgentLogsBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import SubprocessMngCli
 
 _DEFAULT_HOST: Final[str] = "127.0.0.1"
 
@@ -16,16 +17,15 @@ def start_forwarding_server(
     data_directory: Path,
     host: str,
     port: int,
-    host_dir: Path,
 ) -> None:
     """Start the local forwarding server using uvicorn.
 
-    The server discovers backend URLs by reading servers.jsonl from agent log directories
-    under the mng host_dir, which allows newly deployed changelings to be discovered
-    without restarting the forwarding server.
+    The server discovers backend URLs by calling `mng logs <agent-id> servers.jsonl`
+    and discovers agents via `mng list`. This ensures newly deployed changelings are
+    immediately available without restarting the forwarding server.
     """
     auth_store = FileAuthStore(data_directory=data_directory / "auth")
-    backend_resolver = AgentLogsBackendResolver(host_dir=host_dir)
+    backend_resolver = MngCliBackendResolver(mng_cli=SubprocessMngCli())
 
     app = create_forwarding_server(
         auth_store=auth_store,
