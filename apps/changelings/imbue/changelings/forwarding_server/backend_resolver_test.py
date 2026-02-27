@@ -50,11 +50,11 @@ def test_static_list_known_agent_ids_returns_empty_tuple_when_no_agents() -> Non
 
 
 def test_agent_logs_resolver_returns_url_from_server_log(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100/"
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100"
 
 
 def test_agent_logs_resolver_returns_none_for_unknown_agent(tmp_path: Path) -> None:
@@ -70,17 +70,17 @@ def test_agent_logs_resolver_returns_none_when_no_agents_dir(tmp_path: Path) -> 
 
 
 def test_agent_logs_resolver_returns_most_recent_url(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9200")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9200/"
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9200"
 
 
 def test_agent_logs_resolver_lists_known_agents(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101/")
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_B, "web", "http://localhost:9101")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
     ids = resolver.list_known_agent_ids()
@@ -96,7 +96,7 @@ def test_agent_logs_resolver_returns_empty_when_no_agents(tmp_path: Path) -> Non
 
 
 def test_agent_logs_resolver_ignores_agents_without_server_logs(tmp_path: Path) -> None:
-    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100/")
+    write_server_log(tmp_path, _AGENT_A, "web", "http://localhost:9100")
 
     # Create agent B's directory but without servers.jsonl
     agent_b_dir = tmp_path / "agents" / str(_AGENT_B)
@@ -121,12 +121,12 @@ def test_agent_logs_resolver_handles_invalid_jsonl(tmp_path: Path) -> None:
 def test_agent_logs_resolver_skips_invalid_lines_keeps_valid(tmp_path: Path) -> None:
     logs_dir = tmp_path / "agents" / str(_AGENT_A) / "logs"
     logs_dir.mkdir(parents=True)
-    content = 'bad line\n{"server": "web", "url": "http://localhost:9100/"}\n'
+    content = 'bad line\n{"server": "web", "url": "http://localhost:9100"}\n'
     (logs_dir / SERVERS_LOG_FILENAME).write_text(content)
 
     resolver = AgentLogsBackendResolver(host_dir=tmp_path)
 
-    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100/"
+    assert resolver.get_backend_url(_AGENT_A) == "http://localhost:9100"
 
 
 def test_agent_logs_resolver_handles_empty_file(tmp_path: Path) -> None:
