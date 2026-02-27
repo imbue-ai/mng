@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import httpx
@@ -14,8 +13,10 @@ from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
 from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
-from imbue.changelings.forwarding_server.backend_resolver import MngCliInterface
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
+from imbue.changelings.forwarding_server.conftest import FakeMngCli
+from imbue.changelings.forwarding_server.conftest import make_agents_json
+from imbue.changelings.forwarding_server.conftest import make_server_log
 from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_agent
 from imbue.changelings.primitives import OneTimeCode
 from imbue.mng.primitives import AgentId
@@ -313,28 +314,15 @@ def test_websocket_proxy_rejects_unknown_backend(tmp_path: Path) -> None:
 # -- Integration test: MngCliBackendResolver with forwarding server --
 
 
-class _FakeMngCli(MngCliInterface):
-    """Fake mng CLI for integration tests."""
-
-    server_logs: dict[str, str]
-    agents_json: str | None
-
-    def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
-        return self.server_logs.get(str(agent_id))
-
-    def list_agents_json(self) -> str | None:
-        return self.agents_json
-
-
 def test_mng_cli_resolver_proxies_to_backend_discovered_via_mng_cli(tmp_path: Path) -> None:
     """Full integration test: the MngCliBackendResolver calls mng CLI to discover
     the agent's server URL, and the forwarding server proxies HTTP requests through."""
     agent_id = AgentId()
     data_dir = tmp_path / "changelings_data"
 
-    fake_cli = _FakeMngCli(
-        server_logs={str(agent_id): json.dumps({"server": "web", "url": "http://test-backend"}) + "\n"},
-        agents_json=json.dumps({"agents": [{"id": str(agent_id)}]}),
+    fake_cli = FakeMngCli(
+        server_logs={str(agent_id): make_server_log("web", "http://test-backend")},
+        agents_json=make_agents_json(agent_id),
     )
 
     backend_app = _create_test_backend()
@@ -373,7 +361,7 @@ def test_mng_cli_resolver_returns_502_when_mng_logs_fails(tmp_path: Path) -> Non
     agent_id = AgentId()
     data_dir = tmp_path / "changelings_data"
 
-    fake_cli = _FakeMngCli(server_logs={}, agents_json=None)
+    fake_cli = FakeMngCli(server_logs={}, agents_json=None)
     backend_resolver = MngCliBackendResolver(mng_cli=fake_cli)
     client, auth_store = _create_test_forwarding_server(
         tmp_path=data_dir,
@@ -393,9 +381,9 @@ def test_mng_cli_resolver_landing_page_shows_discovered_agents(tmp_path: Path) -
     agent_id = AgentId()
     data_dir = tmp_path / "changelings_data"
 
-    fake_cli = _FakeMngCli(
-        server_logs={str(agent_id): json.dumps({"server": "web", "url": "http://test-backend"}) + "\n"},
-        agents_json=json.dumps({"agents": [{"id": str(agent_id)}]}),
+    fake_cli = FakeMngCli(
+        server_logs={str(agent_id): make_server_log("web", "http://test-backend")},
+        agents_json=make_agents_json(agent_id),
     )
 
     backend_resolver = MngCliBackendResolver(mng_cli=fake_cli)

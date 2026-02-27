@@ -26,7 +26,7 @@ Each changeling has its own code repo (its zygote), cloned from a git remote. Th
 
 Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
-Changelings *must* serve web requests on some port (configurable, but will almost always be the default one, unless you're running a bunch locally). They can append an event with the current port into `<agent_data_dir>/logs/agent_server.jsonl` to expose the data to `mng`.
+Changelings *must* serve web requests on some port (configurable, but will almost always be the default one, unless you're running a bunch locally). On startup, they write a JSON record to `$MNG_AGENT_STATE_DIR/logs/servers.jsonl` containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. The forwarding server reads this via `mng logs <agent-id> servers.jsonl` to discover backends.
 
 # Architecture for the local forwarding server
 
