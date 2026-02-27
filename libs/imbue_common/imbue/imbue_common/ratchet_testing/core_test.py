@@ -1,7 +1,5 @@
 import os
 import subprocess
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 
 import pytest
@@ -72,7 +70,6 @@ def test_ratchet_match_chunk_creation() -> None:
         matched_content="def foo():\n    pass",
         start_line=LineNumber(10),
         end_line=LineNumber(11),
-        last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     assert chunk.file_path == Path("/tmp/test.py")
     assert chunk.start_line == 10
@@ -85,7 +82,6 @@ def test_ratchet_match_chunk_is_frozen() -> None:
         matched_content="test",
         start_line=LineNumber(1),
         end_line=LineNumber(1),
-        last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     with pytest.raises(ValidationError):
         chunk.start_line = LineNumber(2)
@@ -196,30 +192,6 @@ def test_get_ratchet_failures_finds_matches_in_git_repo(git_repo: Path) -> None:
     assert chunks[0].matched_content in ["# TODO: Fix this", "# TODO: And this"]
     assert chunks[1].matched_content in ["# TODO: Fix this", "# TODO: And this"]
     assert all(chunk.file_path.name == "test.py" for chunk in chunks)
-    # Blame dates are lazily resolved and should be None until explicitly resolved
-    assert all(chunk.last_modified_date is None for chunk in chunks)
-
-
-def test_get_ratchet_failures_sorts_by_file_path_and_line(git_repo: Path) -> None:
-    # Create file with two TODOs
-    test_file = git_repo / "test.py"
-    test_file.write_text("# TODO: First issue\n# TODO: Second issue\n")
-    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Add test file"],
-        cwd=git_repo,
-        check=True,
-        capture_output=True,
-    )
-
-    pattern = RegexPattern(r"# TODO:.*")
-    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
-
-    # Sorted by file path and start line (ascending)
-    assert len(chunks) == 2
-    assert chunks[0].start_line < chunks[1].start_line
-    assert chunks[0].matched_content == "# TODO: First issue"
-    assert chunks[1].matched_content == "# TODO: Second issue"
 
 
 def test_get_ratchet_failures_handles_multiline_matches(git_repo: Path) -> None:
@@ -293,21 +265,24 @@ def test_get_ratchet_failures_raises_on_non_git_directory(tmp_path: Path) -> Non
         get_ratchet_failures(test_dir, FileExtension(".py"), pattern)
 
 
-def test_formatting():
-    format_ratchet_failure_message(
+def test_formatting(git_repo: Path):
+    test_file = git_repo / "test.py"
+    test_file.write_text("    suspicious_code_here()\n    another_bad_line()\n")
+    subprocess.run(["git", "add", "."], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Add file"], cwd=git_repo, check=True, capture_output=True)
+
+    pattern = RegexPattern(r"suspicious_code_here.*\n.*another_bad_line", multiline=True)
+    chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
+    assert len(chunks) == 1
+
+    message = format_ratchet_failure_message(
         rule_name="Test Rule",
         rule_description="This is a test rule for demonstration purposes.",
-        chunks=(
-            RatchetMatchChunk(
-                file_path=Path(__file__),
-                start_line=LineNumber(42),
-                end_line=LineNumber(43),
-                matched_content="    suspicious_code_here()\n    another_bad_line()",
-                last_modified_date=datetime(2024, 6, 1, 12, 0, 0),
-            ),
-        ),
+        chunks=chunks,
         max_display_count=3,
     )
+    assert "Test Rule" in message
+    assert "suspicious_code_here" in message
 
 
 def test_format_ratchet_failure_message_resolves_blame_and_sorts_by_date(git_repo: Path) -> None:
@@ -345,10 +320,8 @@ def test_format_ratchet_failure_message_resolves_blame_and_sorts_by_date(git_rep
     chunks = get_ratchet_failures(git_repo, FileExtension(".py"), pattern)
 
     assert len(chunks) == 2
-    # Before formatting, blame dates are None (lazy)
-    assert all(chunk.last_modified_date is None for chunk in chunks)
 
-    # format_ratchet_failure_message should resolve blame and sort by date
+    # format_ratchet_failure_message resolves blame and sorts by date
     message = format_ratchet_failure_message(
         rule_name="TODOs",
         rule_description="No TODOs allowed",

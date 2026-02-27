@@ -17,13 +17,13 @@ def main() -> None:
     chunks = get_ratchet_failures(folder_path, extension, pattern)
 
     # Resolve blame dates (needed to display last-modified info)
-    resolved_chunks = _resolve_blame_dates(chunks)
+    dated_chunks = _resolve_blame_dates(chunks)
 
     # Print results
-    for chunk in resolved_chunks:
-        print(f"\n{chunk.file_path}:{chunk.start_line}")
-        print(f"  Last modified: {chunk.last_modified_date}")
-        print(f"  Content: {chunk.matched_content}")
+    for dated in dated_chunks:
+        print(f"\n{dated.chunk.file_path}:{dated.chunk.start_line}")
+        print(f"  Last modified: {dated.last_modified_date}")
+        print(f"  Content: {dated.chunk.matched_content}")
 
 
 if __name__ == "__main__":

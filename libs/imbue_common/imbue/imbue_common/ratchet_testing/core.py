@@ -73,16 +73,19 @@ class RatchetMatchChunk(FrozenModel):
     matched_content: str = Field(description="The content that matched the regex")
     start_line: LineNumber = Field(description="The starting line number (1-indexed)")
     end_line: LineNumber = Field(description="The ending line number (1-indexed)")
-    last_modified_date: datetime | None = Field(
-        default=None,
-        description="The date this chunk was last modified in git, or None if not yet resolved.",
-    )
 
     @property
     def matched_lines(self) -> str:
         contents = _read_file_contents(self.file_path)
         lines = contents.splitlines()
         return "\n".join(lines[self.start_line - 1 : self.end_line])
+
+
+class DatedRatchetMatchChunk(FrozenModel):
+    """A ratchet match chunk with its git blame date resolved."""
+
+    chunk: RatchetMatchChunk = Field(description="The matched chunk")
+    last_modified_date: datetime = Field(description="The date this chunk was last modified in git")
 
 
 class RatchetsError(Exception):
@@ -321,27 +324,12 @@ def clear_ratchet_caches() -> None:
 
 def _resolve_blame_dates(
     chunks: tuple[RatchetMatchChunk, ...],
-) -> tuple[RatchetMatchChunk, ...]:
-    """Resolve blame dates for chunks that don't have them yet.
-
-    Returns new chunks with last_modified_date populated via git blame.
-    Chunks that already have a date are returned as-is.
-    """
-    resolved: list[RatchetMatchChunk] = []
+) -> tuple[DatedRatchetMatchChunk, ...]:
+    """Resolve blame dates for chunks via git blame."""
+    resolved: list[DatedRatchetMatchChunk] = []
     for chunk in chunks:
-        if chunk.last_modified_date is not None:
-            resolved.append(chunk)
-        else:
-            commit_date = _get_chunk_commit_date(chunk.file_path, chunk.start_line, chunk.end_line)
-            resolved.append(
-                RatchetMatchChunk(
-                    file_path=chunk.file_path,
-                    matched_content=chunk.matched_content,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    last_modified_date=commit_date,
-                )
-            )
+        commit_date = _get_chunk_commit_date(chunk.file_path, chunk.start_line, chunk.end_line)
+        resolved.append(DatedRatchetMatchChunk(chunk=chunk, last_modified_date=commit_date))
     return tuple(resolved)
 
 
@@ -356,12 +344,12 @@ def format_ratchet_failure_message(
         return f"No {rule_name} found (this is good!)"
 
     # Resolve blame dates for display
-    resolved_chunks = _resolve_blame_dates(chunks)
+    dated_chunks = _resolve_blame_dates(chunks)
 
     # Sort by most recently changed first for display
     sorted_by_date = sorted(
-        resolved_chunks,
-        key=lambda c: c.last_modified_date or datetime.min.replace(tzinfo=timezone.utc),
+        dated_chunks,
+        key=lambda c: c.last_modified_date,
         reverse=True,
     )
 
@@ -381,7 +369,8 @@ def format_ratchet_failure_message(
         "",
     ]
 
-    for idx, chunk in enumerate(recent_violations, 1):
+    for idx, dated in enumerate(recent_violations, 1):
+        chunk = dated.chunk
         # Make path relative to a reasonable base for readability
         try:
             # Try to make path relative to project root (4 levels up from typical location)
@@ -390,16 +379,10 @@ def format_ratchet_failure_message(
             # Fall back to absolute path if relative doesn't work
             relative_path = chunk.file_path
 
-        date_str = (
-            chunk.last_modified_date.strftime("%Y-%m-%d %H:%M:%S UTC")
-            if chunk.last_modified_date is not None
-            else "unknown"
-        )
-
         lines.extend(
             [
                 f"{idx}. {relative_path}:{chunk.start_line}",
-                f"   Last modified: {date_str}",
+                f"   Last modified: {dated.last_modified_date.strftime('%Y-%m-%d %H:%M:%S UTC')}",
                 f"   Content lines:\n{chunk.matched_lines}",
                 "",
             ]
