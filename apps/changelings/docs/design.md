@@ -85,7 +85,7 @@ Since we can't control DNS or use subdomains, we multiplex changelings under URL
 
 For now, just:
 
-- `changeling deploy <changeling-name>` (deploys a new changeling from a git repo)
+- `changeling deploy <git-url> [--repo-sub-path <path>]` (clones a git repo and deploys a changeling from it)
 
 [future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
 

@@ -1,6 +1,7 @@
 import json
 import secrets
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Final
@@ -10,8 +11,11 @@ from pydantic import Field
 
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.core.zygote import ZygoteConfig
+from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
+from imbue.changelings.errors import GitCloneError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import OneTimeCode
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
@@ -28,7 +32,9 @@ class DeploymentResult(FrozenModel):
 
     agent_name: str = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
-    backend_url: str = Field(description="The backend URL where the changeling serves")
+    backend_url: str | None = Field(
+        description="The backend URL where the changeling serves, or None for agent-type-managed servers"
+    )
     login_url: str = Field(description="One-time login URL for accessing the changeling")
 
 
@@ -50,6 +56,54 @@ class AgentIdLookupError(ChangelingError):
     ...
 
 
+class GitCloneResult(FrozenModel):
+    """Result of cloning a git repository."""
+
+    clone_dir: Path = Field(description="Path to the cloned repository")
+    cleanup_dir: Path = Field(description="Root directory to remove when cleaning up the clone")
+
+
+def clone_git_repo(git_url: GitUrl, parent_dir: Path | None = None) -> GitCloneResult:
+    """Clone a git repository and return the clone result.
+
+    If parent_dir is provided, the clone is placed inside it (as parent_dir/repo).
+    Otherwise, a new temporary directory is created. In either case, the clone
+    persists after this function returns (it becomes the agent's working directory
+    via mng create).
+
+    Raises GitCloneError if the clone fails. On failure, any auto-created temp
+    directory is cleaned up (but a caller-provided parent_dir is left untouched).
+    """
+    if parent_dir is None:
+        clone_parent = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
+        owns_parent = True
+    else:
+        clone_parent = parent_dir
+        owns_parent = False
+    clone_dir = clone_parent / "repo"
+
+    logger.debug("Cloning {} to {}", git_url, clone_dir)
+
+    result = subprocess.run(
+        ["git", "clone", str(git_url), str(clone_dir)],
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        if owns_parent:
+            shutil.rmtree(str(clone_parent), ignore_errors=True)
+        raise GitCloneError(
+            "git clone failed (exit code {}):\n{}".format(
+                result.returncode,
+                result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+            )
+        )
+
+    logger.debug("Cloned repository to {}", clone_dir)
+    return GitCloneResult(clone_dir=clone_dir, cleanup_dir=clone_parent)
+
+
 def deploy_local(
     zygote_dir: Path,
     zygote_config: ZygoteConfig,
@@ -60,9 +114,13 @@ def deploy_local(
 ) -> DeploymentResult:
     """Deploy a changeling locally by creating an mng agent.
 
+    The zygote_dir should be a directory within a git clone (created via
+    clone_git_repo). The agent is created by running mng create from this
+    directory, so mng uses the clone as the agent's working directory.
+
     This function:
-    1. Stages zygote files to a temp dir (to avoid git root detection)
-    2. Creates an mng agent via `mng create --copy`
+    1. Verifies mng is available and no agent with this name exists
+    2. Creates an mng agent via `mng create` from the cloned zygote directory
     3. Looks up the mng agent ID via `mng list`
     4. Generates a one-time auth code for the forwarding server
     5. Returns the deployment result with the login URL
@@ -74,13 +132,20 @@ def deploy_local(
     with log_span("Deploying changeling '{}' locally", agent_name):
         _verify_mng_available()
 
-        backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
+        _check_agent_not_exists(
+            agent_name=agent_name,
+            concurrency_group=concurrency_group,
+        )
+
+        if zygote_config.agent_type is not None:
+            backend_url = None
+        else:
+            backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
 
         _create_mng_agent(
             zygote_dir=zygote_dir,
             agent_name=agent_name,
-            command=str(zygote_config.command),
-            port=zygote_config.port,
+            zygote_config=zygote_config,
             concurrency_group=concurrency_group,
         )
 
@@ -109,56 +174,100 @@ def _verify_mng_available() -> None:
         raise MngNotFoundError("The 'mng' command was not found on PATH. Install mng first: uv tool install mng")
 
 
+def _check_agent_not_exists(
+    agent_name: str,
+    concurrency_group: ConcurrencyGroup,
+) -> None:
+    """Check that no agent with this name already exists.
+
+    Raises AgentAlreadyExistsError if an agent with the given name is found.
+    """
+    result = concurrency_group.run_process_to_completion(
+        command=[
+            _MNG_BINARY,
+            "list",
+            "--include",
+            'name == "{}"'.format(agent_name),
+            "--json",
+        ],
+        is_checked_after=False,
+    )
+
+    if result.returncode != 0:
+        logger.warning("Agent existence check failed (exit code {}), proceeding without check", result.returncode)
+        return
+
+    _raise_if_agent_exists(agent_name, result.stdout)
+
+
+def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
+    """Parse mng list JSON output and raise if an agent with the given name exists.
+
+    Silently returns if the output cannot be parsed as JSON (defensive -- the caller
+    already verified the subprocess succeeded).
+    """
+    try:
+        data = json.loads(mng_list_output)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse mng list output for existence check, proceeding without check")
+        return
+
+    agents = data.get("agents", [])
+    if agents:
+        raise AgentAlreadyExistsError(
+            "An agent named '{}' already exists. "
+            "Use 'changeling update' to update it, or 'changeling destroy' to remove it.".format(agent_name)
+        )
+
+
 def _create_mng_agent(
     zygote_dir: Path,
     agent_name: str,
-    command: str,
-    port: int,
+    zygote_config: ZygoteConfig,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
-    """Create an mng agent with a copy of the zygote directory as its work_dir.
+    """Create an mng agent from a cloned git repository.
 
-    Copies the zygote to a temporary directory first so that mng does not detect
-    a parent git repository and use the git root as the source.
+    Runs mng create from the zygote directory (which should be within a git clone).
+    Since the directory is already a standalone clone, there is no risk of mng
+    detecting a parent git repository or modifying the user's worktree.
+
+    When the zygote config specifies an agent_type, creates the agent using that
+    type (via --agent-type). Otherwise, uses the command and port from the config
+    (via --agent-cmd and --env PORT=).
     """
     with log_span("Creating mng agent '{}'", agent_name):
-        staging_dir = Path(tempfile.mkdtemp(prefix="changeling-deploy-"))
-        try:
-            staged_zygote = staging_dir / "zygote"
-            shutil.copytree(str(zygote_dir), str(staged_zygote))
+        mng_command = [
+            _MNG_BINARY,
+            "create",
+            "--name",
+            agent_name,
+            "--no-connect",
+        ]
 
-            mng_command = [
-                _MNG_BINARY,
-                "create",
-                "--name",
-                agent_name,
-                "--agent-cmd",
-                command,
-                "--no-connect",
-                "--copy",
-                "--env",
-                "PORT={}".format(port),
-            ]
+        if zygote_config.agent_type is not None:
+            mng_command.extend(["--agent-type", str(zygote_config.agent_type)])
+        else:
+            mng_command.extend(["--agent-cmd", str(zygote_config.command)])
+            mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
 
-            logger.debug("Running: {}", " ".join(mng_command))
+        logger.debug("Running: {}", " ".join(mng_command))
 
-            result = concurrency_group.run_process_to_completion(
-                command=mng_command,
-                cwd=staged_zygote,
-                is_checked_after=False,
+        result = concurrency_group.run_process_to_completion(
+            command=mng_command,
+            cwd=zygote_dir,
+            is_checked_after=False,
+        )
+
+        if result.returncode != 0:
+            raise MngCreateError(
+                "mng create failed (exit code {}):\n{}".format(
+                    result.returncode,
+                    result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+                )
             )
 
-            if result.returncode != 0:
-                raise MngCreateError(
-                    "mng create failed (exit code {}):\n{}".format(
-                        result.returncode,
-                        result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
-                    )
-                )
-
-            logger.debug("mng create output: {}", result.stdout.strip())
-        finally:
-            shutil.rmtree(str(staging_dir), ignore_errors=True)
+        logger.debug("mng create output: {}", result.stdout.strip())
 
 
 def _get_agent_id(

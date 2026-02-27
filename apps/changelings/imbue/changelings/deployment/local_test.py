@@ -1,12 +1,21 @@
+import json
 from pathlib import Path
+
+import pytest
 
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.deployment.local import AgentIdLookupError
 from imbue.changelings.deployment.local import MngCreateError
 from imbue.changelings.deployment.local import MngNotFoundError
 from imbue.changelings.deployment.local import _generate_auth_code
+from imbue.changelings.deployment.local import _raise_if_agent_exists
 from imbue.changelings.deployment.local import _verify_mng_available
+from imbue.changelings.deployment.local import clone_git_repo
+from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
+from imbue.changelings.errors import GitCloneError
+from imbue.changelings.primitives import GitUrl
+from imbue.changelings.testing import init_and_commit_git_repo
 from imbue.mng.primitives import AgentId
 
 
@@ -58,3 +67,90 @@ def test_mng_create_error_is_changeling_error() -> None:
 def test_agent_id_lookup_error_is_changeling_error() -> None:
     err = AgentIdLookupError("test")
     assert isinstance(err, ChangelingError)
+
+
+def test_agent_already_exists_error_is_changeling_error() -> None:
+    err = AgentAlreadyExistsError("test")
+    assert isinstance(err, ChangelingError)
+
+
+def test_agent_already_exists_error_message() -> None:
+    err = AgentAlreadyExistsError(
+        "An agent named 'my-agent' already exists. "
+        "Use 'changeling update' to update it, or 'changeling destroy' to remove it."
+    )
+    assert "changeling update" in str(err)
+    assert "changeling destroy" in str(err)
+
+
+def test_raise_if_agent_exists_raises_when_agent_found() -> None:
+    """Verify that _raise_if_agent_exists raises when the JSON output contains agents."""
+    mng_output = json.dumps({"agents": [{"id": "agent-abc123", "name": "my-agent"}]})
+
+    with pytest.raises(AgentAlreadyExistsError, match="already exists"):
+        _raise_if_agent_exists("my-agent", mng_output)
+
+
+def test_raise_if_agent_exists_does_not_raise_when_no_agents() -> None:
+    """Verify that _raise_if_agent_exists does not raise when agents list is empty."""
+    mng_output = json.dumps({"agents": []})
+
+    _raise_if_agent_exists("my-agent", mng_output)
+
+
+def test_raise_if_agent_exists_does_not_raise_for_invalid_json() -> None:
+    """Verify that _raise_if_agent_exists silently proceeds on malformed JSON."""
+    _raise_if_agent_exists("my-agent", "not valid json {{{")
+
+
+def test_raise_if_agent_exists_error_mentions_update_and_destroy() -> None:
+    """Verify the error message mentions changeling update and changeling destroy."""
+    mng_output = json.dumps({"agents": [{"id": "agent-abc123"}]})
+
+    with pytest.raises(AgentAlreadyExistsError) as exc_info:
+        _raise_if_agent_exists("my-agent", mng_output)
+
+    assert "changeling update" in str(exc_info.value)
+    assert "changeling destroy" in str(exc_info.value)
+
+
+def test_git_clone_error_is_changeling_error() -> None:
+    err = GitCloneError("test")
+    assert isinstance(err, ChangelingError)
+
+
+def test_clone_git_repo_clones_local_repo(tmp_path: Path) -> None:
+    """Verify that clone_git_repo clones a local git repo into the given parent_dir."""
+    repo_dir = tmp_path / "source-repo"
+    repo_dir.mkdir()
+    (repo_dir / "hello.txt").write_text("hello")
+    init_and_commit_git_repo(repo_dir, tmp_path)
+
+    clone_parent = tmp_path / "clone-parent"
+    clone_parent.mkdir()
+    result = clone_git_repo(GitUrl(str(repo_dir)), parent_dir=clone_parent)
+
+    assert result.clone_dir.is_dir()
+    assert (result.clone_dir / "hello.txt").read_text() == "hello"
+    assert (result.clone_dir / ".git").is_dir()
+    assert result.cleanup_dir == clone_parent
+
+
+def test_clone_git_repo_raises_for_invalid_url() -> None:
+    """Verify that clone_git_repo raises GitCloneError for an invalid URL."""
+    with pytest.raises(GitCloneError, match="git clone failed"):
+        clone_git_repo(GitUrl("/nonexistent/repo/path"))
+
+
+def test_clone_git_repo_does_not_clean_caller_dir_on_failure(tmp_path: Path) -> None:
+    """Verify that a caller-provided parent_dir is not removed on clone failure."""
+    parent_dir = tmp_path / "my-parent"
+    parent_dir.mkdir()
+    marker_file = parent_dir / "marker.txt"
+    marker_file.write_text("should survive")
+
+    with pytest.raises(GitCloneError):
+        clone_git_repo(GitUrl("/nonexistent/repo/path"), parent_dir=parent_dir)
+
+    assert parent_dir.exists(), "Caller-provided parent_dir should not be cleaned up"
+    assert marker_file.read_text() == "should survive"

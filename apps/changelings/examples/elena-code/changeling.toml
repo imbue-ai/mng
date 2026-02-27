@@ -1,0 +1,4 @@
+[changeling]
+name = "elena-code"
+agent_type = "elena-code"
+description = "Elena - a conversational AI assistant powered by Claude Code"
