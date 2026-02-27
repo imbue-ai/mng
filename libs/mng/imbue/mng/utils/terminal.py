@@ -54,6 +54,54 @@ def count_visual_lines(text: str, terminal_width: int) -> int:
     return max(count, 0)
 
 
+@pure
+def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
+    """Insert explicit newlines so no visual line exceeds terminal_width.
+
+    ANSI escape sequences are passed through without affecting the column
+    count. Because every wrap point is an explicit newline, the physical
+    line count (text.count('\\n')) is immune to terminal re-wrapping when
+    the terminal gets wider -- lines with explicit newlines never merge.
+    """
+    if terminal_width <= 0:
+        return text
+
+    result: list[str] = []
+    visible_col = 0
+    idx = 0
+    while idx < len(text):
+        char = text[idx]
+
+        if char == "\n":
+            result.append("\n")
+            visible_col = 0
+            idx += 1
+        elif char == "\r":
+            result.append("\r")
+            visible_col = 0
+            idx += 1
+        elif char == "\x1b":
+            # ANSI escape sequence -- pass through without advancing the column
+            match = _ANSI_ESCAPE_PATTERN.match(text, idx)
+            if match:
+                result.append(match.group())
+                idx = match.end()
+            else:
+                result.append(char)
+                idx += 1
+        else:
+            if visible_col >= terminal_width:
+                result.append("\n")
+                visible_col = 0
+            else:
+                pass
+            result.append(char)
+            visible_col += 1
+            idx += 1
+
+    return "".join(result)
+
+
 class StderrInterceptor(MutableModel):
     """Routes stderr writes through a callback function.
 

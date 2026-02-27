@@ -43,7 +43,7 @@ from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
 from imbue.mng.utils.terminal import ANSI_RESET
 from imbue.mng.utils.terminal import StderrInterceptor
 from imbue.mng.utils.terminal import ansi_cursor_up
-from imbue.mng.utils.terminal import count_visual_lines
+from imbue.mng.utils.terminal import hard_wrap_for_terminal
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -594,15 +594,13 @@ class _StreamingHumanRenderer(MutableModel):
     _is_header_written: bool = PrivateAttr(default=False)
     _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
     _warning_texts: list[str] = PrivateAttr(default_factory=list)
-
-    def _get_warning_visual_line_count(self) -> int:
-        """Compute the total visual line count of all warnings at the current terminal width.
-
-        Uses the current terminal width so that cursor-up is correct even after
-        a terminal resize causes warnings to re-wrap.
-        """
-        terminal_width = shutil.get_terminal_size((120, 24)).columns
-        return sum(count_visual_lines(text, terminal_width) for text in self._warning_texts)
+    # Number of explicit newlines in the hard-wrapped warning output currently
+    # on screen. Because warnings are hard-wrapped before writing, this count
+    # is immune to terminal re-wrapping when the terminal gets wider (lines
+    # with explicit newlines never merge). If the terminal gets narrower, some
+    # lines may re-wrap further, but cursor-up will only undershoot (ghost
+    # lines), never overshoot (eaten agent lines).
+    _on_screen_warning_newlines: int = PrivateAttr(default=0)
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
@@ -613,6 +611,20 @@ class _StreamingHumanRenderer(MutableModel):
             self.output.write(_format_status_line(0))
             self.output.flush()
 
+    def _write_warnings_hard_wrapped(self) -> None:
+        """Hard-wrap and write all warnings at the current terminal width.
+
+        Updates _on_screen_warning_newlines to match the physical newline
+        count of the text just written.
+        """
+        terminal_width = shutil.get_terminal_size((120, 24)).columns
+        newline_count = 0
+        for warning_text in self._warning_texts:
+            wrapped = hard_wrap_for_terminal(warning_text, terminal_width)
+            self.output.write(wrapped)
+            newline_count += wrapped.count("\n")
+        self._on_screen_warning_newlines = newline_count
+
     def emit_warning(self, text: str) -> None:
         """Write a warning, keeping it pinned below agent rows and above the status line."""
         with self._lock:
@@ -620,12 +632,18 @@ class _StreamingHumanRenderer(MutableModel):
                 # Erase the status line so the warning appears cleanly
                 self.output.write(ANSI_ERASE_LINE)
 
-            self.output.write(text)
             self._warning_texts.append(text)
 
             if self.is_tty:
+                # Hard-wrap and write just the new warning
+                terminal_width = shutil.get_terminal_size((120, 24)).columns
+                wrapped = hard_wrap_for_terminal(text, terminal_width)
+                self.output.write(wrapped)
+                self._on_screen_warning_newlines += wrapped.count("\n")
                 # Re-write the status line below the warning
                 self.output.write(_format_status_line(self._count))
+            else:
+                self.output.write(text)
 
             self.output.flush()
 
@@ -641,12 +659,10 @@ class _StreamingHumanRenderer(MutableModel):
 
                 # If there are warnings below the agent rows, move cursor up
                 # past them and erase to end of screen. The warnings will be
-                # re-written after the new agent row so they stay at the bottom.
-                # The visual line count is recomputed from the current terminal
-                # width so that cursor-up is correct after a terminal resize.
-                warning_visual_lines = self._get_warning_visual_line_count()
-                if warning_visual_lines > 0:
-                    self.output.write(ansi_cursor_up(warning_visual_lines))
+                # re-written (hard-wrapped at the current width) after the new
+                # agent row so they stay at the bottom.
+                if self._on_screen_warning_newlines > 0:
+                    self.output.write(ansi_cursor_up(self._on_screen_warning_newlines))
                     self.output.write(ANSI_ERASE_TO_END)
 
             # Write header on first agent
@@ -661,10 +677,8 @@ class _StreamingHumanRenderer(MutableModel):
             self._count += 1
 
             if self.is_tty:
-                # Re-write warnings below the new agent row (only in TTY mode
-                # where they were erased by cursor-up + erase-to-end above)
-                for warning_text in self._warning_texts:
-                    self.output.write(warning_text)
+                # Re-write warnings hard-wrapped at the current terminal width
+                self._write_warnings_hard_wrapped()
 
                 # Write updated status line
                 self.output.write(_format_status_line(self._count))

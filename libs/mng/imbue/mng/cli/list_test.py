@@ -878,15 +878,17 @@ def test_streaming_renderer_long_wrapping_warning_uses_correct_cursor_up() -> No
     assert "\x1b[1A" not in output
 
 
-def test_streaming_renderer_warning_cursor_up_adapts_to_terminal_resize(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cursor-up should use the current terminal width, not the width at warning emission time.
+def test_streaming_renderer_wider_resize_never_eats_agent_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the terminal gets wider, cursor-up must not overshoot into agent data.
 
-    If the terminal is resized after a warning is emitted, the warning text
-    re-wraps at the new width. The cursor-up count must reflect the new
-    visual line count to avoid leaving ghost copies.
+    Warnings are hard-wrapped with explicit newlines at the terminal width
+    when written. Explicit newlines never merge when the terminal gets wider,
+    so the tracked newline count is always safe. This test verifies cursor-up
+    uses the hard-wrapped count (2) even after resize to a wider terminal
+    where the raw text would only need 1 visual line.
     """
-    # Start with a wide terminal where the warning fits in 1 line
-    monkeypatch.setenv("COLUMNS", "200")
+    # Start with a narrow terminal where the warning hard-wraps to 2 lines
+    monkeypatch.setenv("COLUMNS", "80")
     monkeypatch.setenv("LINES", "24")
 
     captured = StringIO()
@@ -894,20 +896,24 @@ def test_streaming_renderer_warning_cursor_up_adapts_to_terminal_resize(monkeypa
     renderer.start()
 
     # "WARNING: " (9 chars) + 150 "x" + "\n" = 159 visible chars
-    # At width 200: 1 visual line. At width 80: ceil(159/80) = 2 visual lines.
+    # At width 80: hard-wrapped to 2 lines. At width 200: still 2 lines
+    # (explicit \n characters don't merge).
     warning_text = "WARNING: " + "x" * 150 + "\n"
     renderer(make_test_agent_info(name="agent-1"))
     renderer.emit_warning(warning_text)
 
-    # Simulate terminal resize to a narrower width
-    monkeypatch.setenv("COLUMNS", "80")
+    # Simulate terminal resize to a wider width
+    monkeypatch.setenv("COLUMNS", "200")
 
-    # The next agent callback should cursor-up by 2 (new width), not 1 (old width)
+    # cursor-up should be 2 (hard-wrapped newline count), not 1 (visual
+    # count at width 200 without hard-wrapping). This ensures we never
+    # overshoot into agent data.
     renderer(make_test_agent_info(name="agent-2"))
     renderer.finish()
 
     output = captured.getvalue()
-    assert "\x1b[2A" in output, "Expected cursor-up(2) after resize to 80 columns"
+    assert "\x1b[2A" in output, "Expected cursor-up(2) based on hard-wrapped newline count"
+    assert "\x1b[1A" not in output, "cursor-up(1) would overshoot on re-wrapped text"
 
 
 # =============================================================================
