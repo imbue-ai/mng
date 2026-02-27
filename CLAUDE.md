@@ -48,7 +48,7 @@ Only after doing all of the above should you begin writing code.
 - Avoid using the `TYPE_CHECKING` guard. Do not add it to files that do not already contain it, and never put imports inside of it yourself--you MUST ask for explicit permission to do this (it's generally a sign of bad architecture that should be fixed some other way).
 - Do NOT write code in `__init__.py`--leave them completely blank (the only exception is for a line like "hookimpl = pluggy.HookimplMarker("mng")", which should go at the very root __init__.py of a library).
 - Do NOT make constructs like module-level usage of `__all__`
-- Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests!
+- Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests! However, while iterating (e.g. fixing a failing test, developing a feature), run only the relevant tests for rapid feedback -- save the full suite for the final check.
 - To run all tests in the monorepo: "uv run pytest -nauto --no-cov" from the root of the git checkout.
 - To run tests for a single project: "cd libs/mng && uv run pytest" or "cd apps/changelings && uv run pytest". Each project has its own pytest and coverage configuration in its pyproject.toml.
 - For faster iteration, add "-m 'not tmux and not modal and not docker'" to skip slow infrastructure tests (~30s instead of ~95s).
