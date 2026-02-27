@@ -36,7 +36,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mng.config.data_types import MngConfig
+from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
@@ -51,8 +51,6 @@ from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
 from imbue.mng.hosts.offline_host import BaseHost
 from imbue.mng.interfaces.agent import AgentInterface
-from imbue.mng.interfaces.agent import AgentTypeResolver
-from imbue.mng.interfaces.agent import ResolvedAgentType
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.data_types import FileTransferSpec
@@ -77,26 +75,6 @@ from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
 from imbue.mng.utils.git_utils import get_git_remote_url
 from imbue.mng.utils.polling import wait_for
-
-# Module-level agent type resolver, set at startup via set_agent_type_resolver().
-_agent_type_resolver: AgentTypeResolver | None = None
-
-
-def set_agent_type_resolver(resolver: AgentTypeResolver) -> None:
-    """Set the module-level agent type resolver.
-
-    Must be called during application startup (from main.py) before any
-    Host methods that load or create agents are invoked.
-    """
-    global _agent_type_resolver
-    _agent_type_resolver = resolver
-
-
-def _resolve_agent_type(agent_type: AgentTypeName, config: MngConfig) -> ResolvedAgentType:
-    """Resolve an agent type using the module-level resolver."""
-    if _agent_type_resolver is None:
-        raise MngError("Agent type resolver not set. Call set_agent_type_resolver() during startup.")
-    return _agent_type_resolver(agent_type, config)
 
 
 def _try_acquire_flock(lock_file: io.TextIOWrapper) -> bool:
@@ -926,7 +904,7 @@ class Host(BaseHost, OnlineHostInterface):
         logger.trace("Loaded agent {} from {}", data.get("name"), agent_dir)
 
         agent_type = AgentTypeName(data["type"])
-        resolved = _resolve_agent_type(agent_type, self.mng_ctx.config)
+        resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
         return resolved.agent_class(
             id=AgentId(data["id"]),
@@ -1452,7 +1430,7 @@ class Host(BaseHost, OnlineHostInterface):
             agent_name=str(agent_name),
             agent_type=str(agent_type),
         ):
-            resolved = _resolve_agent_type(agent_type, self.mng_ctx.config)
+            resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
             self._mkdirs([state_dir, state_dir / "logs"])

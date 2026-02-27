@@ -7,7 +7,6 @@ from click_option_group import OptionGroup
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
-from imbue.mng.agents.agent_registry import resolve_agent_type
 from imbue.mng.cli.ask import ask
 from imbue.mng.cli.cleanup import cleanup
 from imbue.mng.cli.clone import clone
@@ -41,7 +40,6 @@ from imbue.mng.cli.stop import stop
 from imbue.mng.config.loader import block_disabled_plugins
 from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.errors import BaseMngError
-from imbue.mng.hosts.host import set_agent_type_resolver
 from imbue.mng.plugins import hookspecs
 from imbue.mng.providers.registry import get_all_provider_args_help_sections
 from imbue.mng.providers.registry import load_all_registries
@@ -264,7 +262,6 @@ def create_plugin_manager() -> pluggy.PluginManager:
 
     # Wire up the agent type resolver so hosts can resolve agent types
     # without directly importing from the agents layer
-    set_agent_type_resolver(resolve_agent_type)
 
     return pm
 

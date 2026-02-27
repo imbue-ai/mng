@@ -12,10 +12,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import Field
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.config.data_types import AgentTypeConfig
-from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.primitives import ActivitySource
@@ -381,16 +379,3 @@ class AgentInterface(MutableModel, ABC):
         removing external configuration entries or releasing resources.
         """
         ...
-
-
-class ResolvedAgentType(FrozenModel):
-    """Result of resolving an agent type, including parent type resolution for custom types."""
-
-    model_config = {"arbitrary_types_allowed": True}
-
-    agent_class: type = Field(description="The concrete AgentInterface subclass to use")
-    agent_config: AgentTypeConfig = Field(description="The merged agent type config")
-
-
-# Callable that resolves an agent type name to its class and config.
-AgentTypeResolver = Callable[[AgentTypeName, MngConfig], ResolvedAgentType]
