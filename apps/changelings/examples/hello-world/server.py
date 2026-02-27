@@ -7,6 +7,7 @@ that the forwarding server is working correctly.
 Reads the PORT environment variable (default: 9100).
 """
 
+import json
 import os
 from http.server import BaseHTTPRequestHandler
 from http.server import HTTPServer
@@ -155,8 +156,6 @@ def _write_server_log(port: int) -> None:
     Writes to $MNG_AGENT_STATE_DIR/logs/servers.jsonl following the convention
     that agents self-report their running servers.
     """
-    import json
-
     agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR")
     if not agent_state_dir:
         return
