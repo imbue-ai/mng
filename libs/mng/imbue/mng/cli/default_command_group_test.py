@@ -164,7 +164,6 @@ def _make_config_key_group(
     return group
 
 
-@pytest.mark.git
 def test_config_key_custom_default(
     monkeypatch: pytest.MonkeyPatch,
     project_config_dir: Path,
@@ -182,7 +181,6 @@ def test_config_key_custom_default(
     assert record["command"] == "list"
 
 
-@pytest.mark.git
 def test_config_key_disabled_shows_help(
     monkeypatch: pytest.MonkeyPatch,
     project_config_dir: Path,
@@ -200,7 +198,6 @@ def test_config_key_disabled_shows_help(
     assert "command" not in record
 
 
-@pytest.mark.git
 def test_config_key_disabled_unrecognized_errors(
     monkeypatch: pytest.MonkeyPatch,
     project_config_dir: Path,

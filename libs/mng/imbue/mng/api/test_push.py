@@ -45,7 +45,6 @@ def push_ctx(tmp_path: Path) -> SyncTestContext:
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
     push_ctx: SyncTestContext,
@@ -72,7 +71,6 @@ def test_push_files_fail_mode_with_no_uncommitted_changes_succeeds(
     assert result.source_path == push_ctx.local_dir
 
 
-@pytest.mark.git
 def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
     push_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -102,7 +100,6 @@ def test_push_files_fail_mode_with_uncommitted_changes_raises_error(
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_clobber_mode_overwrites_agent_changes(
     push_ctx: SyncTestContext,
@@ -128,7 +125,6 @@ def test_push_files_clobber_mode_overwrites_agent_changes(
     assert result.destination_path == push_ctx.agent_dir
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_clobber_mode_when_only_agent_has_changes(
     push_ctx: SyncTestContext,
@@ -155,7 +151,6 @@ def test_push_files_clobber_mode_when_only_agent_has_changes(
     assert (push_ctx.agent_dir / "host_only.txt").read_text() == "host file"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
     push_ctx: SyncTestContext,
@@ -187,7 +182,6 @@ def test_push_files_clobber_mode_with_delete_flag_removes_agent_only_files(
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
     push_ctx: SyncTestContext,
@@ -218,7 +212,6 @@ def test_push_files_stash_mode_stashes_changes_and_leaves_stashed(
     assert (push_ctx.agent_dir / "host_file.txt").read_text() == "host content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_stash_mode_stashes_untracked_files(
     push_ctx: SyncTestContext,
@@ -249,7 +242,6 @@ def test_push_files_stash_mode_stashes_untracked_files(
     assert (push_ctx.agent_dir / "host_file.txt").read_text() == "host content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
     push_ctx: SyncTestContext,
@@ -281,7 +273,6 @@ def test_push_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_merge_mode_stashes_and_restores_changes(
     push_ctx: SyncTestContext,
@@ -311,7 +302,6 @@ def test_push_files_merge_mode_stashes_and_restores_changes(
     assert (push_ctx.agent_dir / "host_file.txt").read_text() == "host content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_merge_mode_restores_untracked_files(
     push_ctx: SyncTestContext,
@@ -342,7 +332,6 @@ def test_push_files_merge_mode_restores_untracked_files(
     assert (push_ctx.agent_dir / "host_file.txt").read_text() == "host content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_merge_mode_when_both_modify_different_files(
     push_ctx: SyncTestContext,
@@ -371,7 +360,6 @@ def test_push_files_merge_mode_when_both_modify_different_files(
     assert final_stash_count == initial_stash_count
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_merge_mode_with_no_uncommitted_changes(
     push_ctx: SyncTestContext,
@@ -403,7 +391,6 @@ def test_push_files_merge_mode_with_no_uncommitted_changes(
 # =============================================================================
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_push_files_excludes_git_directory(
     push_ctx: SyncTestContext,
@@ -516,8 +503,8 @@ def test_push_files_with_custom_destination_path(
     "mode,modify_tracked_file",
     [
         pytest.param(UncommittedChangesMode.CLOBBER, False, id="clobber"),
-        pytest.param(UncommittedChangesMode.STASH, True, marks=pytest.mark.git, id="stash"),
-        pytest.param(UncommittedChangesMode.MERGE, True, marks=pytest.mark.git, id="merge"),
+        pytest.param(UncommittedChangesMode.STASH, True, id="stash"),
+        pytest.param(UncommittedChangesMode.MERGE, True, id="merge"),
     ],
 )
 def test_push_files_does_not_modify_host_directory(
@@ -601,7 +588,6 @@ def git_push_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
-@pytest.mark.git
 def test_push_git_basic_push(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test basic git push from host to agent."""
     # Create a new commit on the host
@@ -629,7 +615,6 @@ def test_push_git_basic_push(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup
     assert result.is_dry_run is False
 
 
-@pytest.mark.git
 def test_push_git_dry_run(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that dry_run=True does not actually push commits."""
     # Create a new commit on the host
@@ -654,7 +639,6 @@ def test_push_git_dry_run(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -
     assert result.is_dry_run is True
 
 
-@pytest.mark.git
 def test_push_git_with_stash_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test push_git with STASH mode for uncommitted changes on agent."""
     # Create a new commit on the host
@@ -684,7 +668,6 @@ def test_push_git_with_stash_mode(git_push_ctx: SyncTestContext, cg: Concurrency
     assert (git_push_ctx.agent_dir / "new_file.txt").exists()
 
 
-@pytest.mark.git
 def test_push_git_with_merge_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test push_git with MERGE mode restores uncommitted changes after push."""
     # Create a new commit on the host
@@ -716,7 +699,6 @@ def test_push_git_with_merge_mode(git_push_ctx: SyncTestContext, cg: Concurrency
     assert (git_push_ctx.agent_dir / "agent_local_file.txt").read_text() == "agent local content"
 
 
-@pytest.mark.git
 def test_push_git_does_not_modify_host_directory(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that push_git NEVER modifies the host (source) directory."""
     # Create a commit on the host
@@ -766,7 +748,6 @@ def test_push_git_does_not_modify_host_directory(git_push_ctx: SyncTestContext, 
 # =============================================================================
 
 
-@pytest.mark.git
 def test_push_git_mirror_mode_dry_run(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that mirror mode with dry_run=True shows what would be pushed."""
     # Create a new commit on the host
@@ -793,7 +774,6 @@ def test_push_git_mirror_mode_dry_run(git_push_ctx: SyncTestContext, cg: Concurr
     assert result.commits_transferred >= 0
 
 
-@pytest.mark.git
 def test_push_git_mirror_mode(git_push_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that mirror mode pushes all refs to the agent repository."""
     # Create a new commit on the host
@@ -903,7 +883,6 @@ def test_push_files_with_remote_host_raises_not_implemented(
         )
 
 
-@pytest.mark.git
 def test_push_git_with_remote_host_raises_not_implemented(
     remote_git_push_ctx: SyncTestContext,
     cg: ConcurrencyGroup,

@@ -3,8 +3,6 @@
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.utils.git_utils import _parse_project_name_from_url
 from imbue.mng.utils.git_utils import derive_project_name_from_path
@@ -77,7 +75,6 @@ def test_derive_from_folder_name_when_no_git(tmp_path: Path, cg: ConcurrencyGrou
     assert derive_project_name_from_path(project_dir, cg) == "my-project"
 
 
-@pytest.mark.git
 def test_derive_from_folder_name_when_git_has_no_remote(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from folder name when git has no remote."""
     project_dir = tmp_path / "my-project"
@@ -89,7 +86,6 @@ def test_derive_from_folder_name_when_git_has_no_remote(tmp_path: Path, cg: Conc
     assert derive_project_name_from_path(project_dir, cg) == "my-project"
 
 
-@pytest.mark.git
 def test_derive_from_git_remote_github(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from GitHub git remote."""
     project_dir = tmp_path / "local-folder"
@@ -108,7 +104,6 @@ def test_derive_from_git_remote_github(tmp_path: Path, cg: ConcurrencyGroup) -> 
     assert derive_project_name_from_path(project_dir, cg) == "remote-project"
 
 
-@pytest.mark.git
 def test_derive_from_git_remote_ssh(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test deriving project name from SSH git remote."""
     project_dir = tmp_path / "local-folder"
@@ -140,7 +135,6 @@ def test_is_git_repository_returns_false_for_non_git_dir(tmp_path: Path, cg: Con
     assert is_git_repository(plain_dir, cg) is False
 
 
-@pytest.mark.git
 def test_is_git_repository_returns_true_for_git_dir(
     cg: ConcurrencyGroup, tmp_path: Path, setup_git_config: None
 ) -> None:
@@ -160,7 +154,6 @@ def test_find_git_worktree_root_returns_none_when_not_in_git(tmp_path: Path, cg:
     assert result is None
 
 
-@pytest.mark.git
 def test_find_git_worktree_root_returns_root_when_in_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_worktree_root returns the root when in a git repo."""
     git_dir = tmp_path / "my-repo"
@@ -183,7 +176,6 @@ def test_find_git_common_dir_returns_none_when_not_in_git(tmp_path: Path, cg: Co
     assert result is None
 
 
-@pytest.mark.git
 def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_common_dir returns .git for a regular repository."""
     git_dir = tmp_path / "my-repo"
@@ -195,7 +187,6 @@ def test_find_git_common_dir_returns_git_dir_for_regular_repo(tmp_path: Path, cg
     assert result == git_dir / ".git"
 
 
-@pytest.mark.git
 def test_find_git_common_dir_returns_main_git_from_worktree(
     cg: ConcurrencyGroup, tmp_path: Path, temp_git_repo: Path
 ) -> None:
@@ -213,7 +204,6 @@ def test_find_git_common_dir_returns_main_git_from_worktree(
     assert result == temp_git_repo / ".git"
 
 
-@pytest.mark.git
 def test_find_git_common_dir_from_subdirectory(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that find_git_common_dir works from a subdirectory."""
     git_dir = tmp_path / "my-repo"
@@ -228,7 +218,6 @@ def test_find_git_common_dir_from_subdirectory(tmp_path: Path, cg: ConcurrencyGr
     assert result == git_dir / ".git"
 
 
-@pytest.mark.git
 def test_get_git_author_info_returns_configured_values(temp_git_repo: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns name and email from a configured repo."""
     name, email = get_git_author_info(temp_git_repo, cg)
@@ -236,7 +225,6 @@ def test_get_git_author_info_returns_configured_values(temp_git_repo: Path, cg: 
     assert email == "test@test.com"
 
 
-@pytest.mark.git
 def test_get_git_author_info_returns_none_when_not_configured(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns (None, None) for a repo without author config."""
     repo_dir = tmp_path / "repo"
@@ -257,7 +245,6 @@ def test_get_git_author_info_returns_none_for_non_git_dir(tmp_path: Path, cg: Co
     assert email is None
 
 
-@pytest.mark.git
 def test_get_git_remote_url_returns_url_when_remote_exists(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_remote_url returns the URL when the remote exists."""
     repo = tmp_path / "repo"
@@ -272,7 +259,6 @@ def test_get_git_remote_url_returns_url_when_remote_exists(tmp_path: Path, cg: C
     assert get_git_remote_url(repo, "origin", cg) == "https://github.com/owner/repo.git"
 
 
-@pytest.mark.git
 def test_get_git_remote_url_returns_none_when_remote_missing(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_remote_url returns None when the remote does not exist."""
     repo = tmp_path / "repo"

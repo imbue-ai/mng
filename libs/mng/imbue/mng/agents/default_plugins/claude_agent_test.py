@@ -589,7 +589,6 @@ def test_uses_marker_based_send_message_returns_true(
     assert agent.uses_marker_based_send_message() is True
 
 
-@pytest.mark.git
 def test_configure_readiness_hooks_raises_when_not_gitignored(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -649,7 +648,6 @@ def test_configure_readiness_hooks_skips_gitignore_check_when_not_a_git_repo(
     assert "SessionStart" in settings["hooks"]
 
 
-@pytest.mark.git
 def test_configure_readiness_hooks_creates_settings_file(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -685,7 +683,6 @@ def test_configure_readiness_hooks_creates_settings_file(
     assert "Notification" in settings["hooks"]
 
 
-@pytest.mark.git
 def test_configure_readiness_hooks_merges_with_existing_settings(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -729,7 +726,6 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     assert "Notification" in settings["hooks"]
 
 
-@pytest.mark.git
 def test_provision_configures_readiness_hooks(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -798,7 +794,6 @@ def test_provision_raises_when_remote_installation_disabled(
 # =============================================================================
 
 
-@pytest.mark.git
 def test_provision_extends_trust_for_worktree(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -824,7 +819,6 @@ def test_provision_extends_trust_for_worktree(
     assert worktree_entry["_mngCreated"] is True
 
 
-@pytest.mark.git
 def test_provision_does_not_extend_trust_for_non_worktree(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -844,7 +838,6 @@ def test_provision_does_not_extend_trust_for_non_worktree(
     assert not config_path.exists()
 
 
-@pytest.mark.git
 def test_provision_does_not_extend_trust_when_no_git_options(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
@@ -896,7 +889,6 @@ def test_on_before_provisioning_raises_for_worktree_on_remote_host(
         agent.on_before_provisioning(host=non_local_host, options=options, mng_ctx=temp_mng_ctx)
 
 
-@pytest.mark.git
 def test_on_before_provisioning_validates_trust_for_worktree(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -915,7 +907,6 @@ def test_on_before_provisioning_validates_trust_for_worktree(
     agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
 
 
-@pytest.mark.git
 def test_on_before_provisioning_skips_dialog_check_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -965,7 +956,6 @@ def test_on_destroy_removes_trust(
     assert str(agent.work_dir.resolve()) not in config_after.get("projects", {})
 
 
-@pytest.mark.git
 def test_provision_prompts_for_all_dialogs_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1006,7 +996,6 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
     assert config["effortCalloutDismissed"] is True
 
 
-@pytest.mark.git
 def test_provision_raises_when_non_interactive_and_untrusted(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1024,7 +1013,6 @@ def test_provision_raises_when_non_interactive_and_untrusted(
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
 
 
-@pytest.mark.git
 def test_provision_raises_when_user_declines_trust(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1357,7 +1345,6 @@ def _write_claude_trust_without_dialog_dismissed(source_path: Path) -> None:
     config_path.write_text(json.dumps(config))
 
 
-@pytest.mark.git
 def test_on_before_provisioning_raises_when_dialogs_not_dismissed(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1378,7 +1365,6 @@ def test_on_before_provisioning_raises_when_dialogs_not_dismissed(
         agent.on_before_provisioning(host=host, options=_WORKTREE_OPTIONS, mng_ctx=temp_mng_ctx)
 
 
-@pytest.mark.git
 def test_provision_dismisses_dialogs_when_auto_approve(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1409,7 +1395,6 @@ def test_provision_dismisses_dialogs_when_auto_approve(
         assert config["effortCalloutDismissed"] is True
 
 
-@pytest.mark.git
 def test_provision_prompts_for_dialog_dismissal_when_interactive(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1441,7 +1426,6 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
     assert config["effortCalloutDismissed"] is True
 
 
-@pytest.mark.git
 def test_provision_raises_when_user_declines_dialog_dismissal(
     local_provider: LocalProviderInstance,
     tmp_path: Path,
@@ -1466,7 +1450,6 @@ def test_provision_raises_when_user_declines_dialog_dismissal(
             agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
 
-@pytest.mark.git
 def test_provision_raises_when_non_interactive_and_dialogs_not_dismissed(
     local_provider: LocalProviderInstance,
     tmp_path: Path,

@@ -53,7 +53,6 @@ def pair_ctx(tmp_path: Path) -> SyncTestContext:
 # =============================================================================
 
 
-@pytest.mark.git
 def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that sync_git_state pushes commits from local to agent when local is ahead."""
     # Add a commit to target (local) that needs to be pushed to source (agent)
@@ -80,7 +79,6 @@ def test_sync_git_state_performs_push_when_local_is_ahead(pair_ctx: SyncTestCont
     assert (pair_ctx.agent_dir / "new_file.txt").exists()
 
 
-@pytest.mark.git
 def test_sync_git_state_performs_pull_when_agent_is_ahead(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that sync_git_state pulls commits from agent to local when agent is ahead."""
     # Add a commit to source (agent) that needs to be pulled to target (local)
@@ -173,7 +171,6 @@ def test_pair_files_raises_when_git_required_but_not_present(
     assert "Git repositories required" in str(exc_info.value)
 
 
-@pytest.mark.git
 @pytest.mark.unison
 def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files properly starts and stops the unison syncer."""
@@ -213,7 +210,6 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: Concu
 
 
 @pytest.mark.unison
-@pytest.mark.git
 def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files syncs git state before starting continuous sync."""
     # Add a commit to source (agent) that should be pulled to target

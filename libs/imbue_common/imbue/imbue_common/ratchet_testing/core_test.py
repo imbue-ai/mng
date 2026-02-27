@@ -91,7 +91,6 @@ def test_ratchet_match_chunk_is_frozen() -> None:
         chunk.start_line = LineNumber(2)
 
 
-@pytest.mark.git
 def test_get_non_ignored_files_returns_matching_files(git_repo: Path) -> None:
     # Create test files
     (git_repo / "file1.py").write_text("print('hello')")
@@ -114,7 +113,6 @@ def test_get_non_ignored_files_returns_matching_files(git_repo: Path) -> None:
     assert all(path.suffix == ".py" for path in result)
 
 
-@pytest.mark.git
 def test_get_non_ignored_files_excludes_by_pattern(git_repo: Path) -> None:
     # Create test files
     file1 = git_repo / "file1.py"
@@ -141,7 +139,6 @@ def test_get_non_ignored_files_excludes_by_pattern(git_repo: Path) -> None:
     assert result_with_exclusion[0].resolve() == file2.resolve()
 
 
-@pytest.mark.git
 def test_get_non_ignored_files_excludes_by_glob_pattern(git_repo: Path) -> None:
     # Create test files and a non-test file
     (git_repo / "foo_test.py").write_text("test code")
@@ -177,7 +174,6 @@ def test_read_file_contents_caches_results(tmp_path: Path) -> None:
     assert content1 is content2
 
 
-@pytest.mark.git
 def test_get_ratchet_failures_finds_matches_in_git_repo(git_repo: Path) -> None:
     # Create test file with pattern matches
     test_file = git_repo / "test.py"
@@ -204,7 +200,6 @@ def test_get_ratchet_failures_finds_matches_in_git_repo(git_repo: Path) -> None:
     assert all(chunk.last_modified_date.tzinfo == timezone.utc for chunk in chunks)
 
 
-@pytest.mark.git
 def test_get_ratchet_failures_sorts_by_most_recent_first(git_repo: Path) -> None:
     # Create file with first TODO using a fixed old timestamp
     test_file = git_repo / "test.py"
@@ -241,7 +236,6 @@ def test_get_ratchet_failures_sorts_by_most_recent_first(git_repo: Path) -> None
     assert chunks[0].matched_content == "# TODO: New issue"
 
 
-@pytest.mark.git
 def test_get_ratchet_failures_handles_multiline_matches(git_repo: Path) -> None:
     test_file = git_repo / "test.py"
     test_file.write_text("def foo():\n    pass\n\ndef bar():\n    pass\n")
@@ -264,7 +258,6 @@ def test_get_ratchet_failures_handles_multiline_matches(git_repo: Path) -> None:
     assert chunks[1].end_line - chunks[1].start_line == 1
 
 
-@pytest.mark.git
 def test_get_ratchet_failures_returns_empty_for_no_matches(git_repo: Path) -> None:
     test_file = git_repo / "test.py"
     test_file.write_text("print('hello world')\n")
@@ -283,7 +276,6 @@ def test_get_ratchet_failures_returns_empty_for_no_matches(git_repo: Path) -> No
     assert len(chunks) == 0
 
 
-@pytest.mark.git
 def test_get_ratchet_failures_only_processes_specified_extension(git_repo: Path) -> None:
     (git_repo / "file.py").write_text("# TODO: Python file\n")
     (git_repo / "file.txt").write_text("# TODO: Text file\n")

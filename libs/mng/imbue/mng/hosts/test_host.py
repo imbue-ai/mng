@@ -1617,7 +1617,6 @@ def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path])
     assert (work_dir / "subdir" / "file2.txt").read_text() == "content2"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_with_git(
     host_with_temp_dir: tuple[Host, Path],
@@ -1658,7 +1657,6 @@ def test_create_work_dir_copy_with_git(
     assert "Initial commit" in result.stdout
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_with_git_copies_info_exclude(
     host_with_temp_dir: tuple[Host, Path],
@@ -1692,7 +1690,6 @@ def test_create_work_dir_copy_with_git_copies_info_exclude(
     assert target_exclude.read_text() == "my_custom_pattern\n"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that .git is excluded when not syncing git data."""
@@ -1722,7 +1719,6 @@ def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tup
     assert not (work_dir / ".git").exists()
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_with_untracked_files(
     host_with_temp_dir: tuple[Host, Path],
@@ -1765,7 +1761,6 @@ def test_create_work_dir_copy_with_untracked_files(
     assert (work_dir / "untracked.txt").read_text() == "untracked"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_with_gitignored_files(
     host_with_temp_dir: tuple[Host, Path],
@@ -1801,7 +1796,6 @@ def test_create_work_dir_copy_with_gitignored_files(
     assert (work_dir / "debug.log").read_text() == "log content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_copy_with_renamed_file(
     host_with_temp_dir: tuple[Host, Path],
@@ -1836,7 +1830,6 @@ def test_create_work_dir_copy_with_renamed_file(
     assert (work_dir / "new_name.txt").read_text() == "content"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_generates_new_branch(
     host_with_temp_dir: tuple[Host, Path],
@@ -1877,7 +1870,6 @@ def test_create_work_dir_generates_new_branch(
     assert result.stdout.strip().startswith("test/")
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_preserves_origin_remote(
     host_with_temp_dir: tuple[Host, Path],
@@ -1926,7 +1918,6 @@ def test_create_work_dir_preserves_origin_remote(
     assert result.stdout.strip() == "https://github.com/owner/repo.git"
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_create_work_dir_works_without_origin_remote(
     host_with_temp_dir: tuple[Host, Path],
@@ -2344,7 +2335,6 @@ def test_rsync_extra_args_with_spaces(host_with_temp_dir: tuple[Host, Path]) -> 
     assert not (work_dir / "file with spaces.txt").exists()
 
 
-@pytest.mark.git
 @pytest.mark.rsync
 def test_transfer_extra_files_with_many_files(
     host_with_temp_dir: tuple[Host, Path],

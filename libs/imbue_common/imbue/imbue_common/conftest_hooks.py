@@ -78,7 +78,6 @@ _SHARED_MARKERS: Final[list[str]] = [
     "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
     "rsync: marks tests that invoke rsync for file transfer",
     "unison: marks tests that start a real unison file-sync process",
-    "skip_must_use_check: exempts a test from must-use enforcement (use when the wrapper cannot track invocations)",
 ]
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
@@ -110,7 +109,7 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
 # - Block invocation if the test lacks the corresponding mark (catches missing marks)
 # - Track invocation if the test has the mark (catches superfluous marks)
 # Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
-_GUARDED_RESOURCES: Final[list[str]] = ["tmux", "git", "rsync", "unison"]
+_GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
 
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
@@ -702,13 +701,15 @@ def _print_test_durations_for_ci(
 
 @pytest.hookimpl(hookwrapper=True)
 def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
-    """Set resource guard environment variables before fixture setup.
+    """Activate resource guards for the entire test lifecycle.
 
-    The allow/block and tracking env vars are set here (before fixtures run)
-    so that fixtures which snapshot os.environ (like get_subprocess_test_env)
-    capture the guard configuration. However, _PYTEST_GUARD_PHASE is NOT set
-    here -- it is set in _pytest_runtest_call so that wrappers only enforce
-    during the actual test function, not during fixture setup/teardown.
+    Guards are active during setup, call, and teardown. If a test uses a
+    resource (directly or via fixtures), it needs the corresponding mark.
+    For example, a test that requests temp_git_repo needs @pytest.mark.git
+    because the fixture calls git init.
+
+    Setting vars early also ensures fixtures that snapshot os.environ
+    (like get_subprocess_test_env) capture the guard configuration.
     """
     if _guard_wrapper_dir is None:
         yield
@@ -721,7 +722,6 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
     setattr(item, "_resource_tracking_dir", tracking_dir)  # noqa: B010
     setattr(item, "_resource_marks", marks)  # noqa: B010
 
-    # Set guard env vars for each resource (but NOT the phase yet)
     for resource in _GUARDED_RESOURCES:
         env_var = f"_PYTEST_GUARD_{resource.upper()}"
         if resource in marks:
@@ -730,27 +730,9 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
             os.environ[env_var] = "block"
 
     os.environ["_PYTEST_GUARD_TRACKING_DIR"] = tracking_dir
-
-    yield
-
-
-@pytest.hookimpl(hookwrapper=True)
-def _pytest_runtest_call(item: pytest.Item) -> Generator[None, None, None]:
-    """Activate resource guard enforcement during the test call phase.
-
-    Sets _PYTEST_GUARD_PHASE="call" which tells the wrapper scripts to
-    actually enforce blocking and tracking. The other env vars (allow/block,
-    tracking dir) were already set in _pytest_runtest_setup.
-    """
-    if _guard_wrapper_dir is None:
-        yield
-        return
-
     os.environ["_PYTEST_GUARD_PHASE"] = "call"
 
     yield
-
-    os.environ.pop("_PYTEST_GUARD_PHASE", None)
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -761,27 +743,10 @@ def _pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
     if _guard_wrapper_dir is None:
         return
 
+    os.environ.pop("_PYTEST_GUARD_PHASE", None)
     os.environ.pop("_PYTEST_GUARD_TRACKING_DIR", None)
     for resource in _GUARDED_RESOURCES:
         os.environ.pop(f"_PYTEST_GUARD_{resource.upper()}", None)
-
-
-def _is_must_use_exempt(item: pytest.Item) -> bool:
-    """Check if a test is exempt from must-use enforcement.
-
-    Two known cases produce false must-use failures:
-    - Ratchet tests use @lru_cache on subprocess calls (e.g., git ls-files),
-      so only the first test in the xdist group spawns the binary.
-    - Some tests launch processes via ConcurrencyGroup.run_process_in_background
-      where subprocess.Popen bypasses the PATH wrapper on certain platforms.
-      These tests can opt out with @pytest.mark.skip_must_use_check.
-    """
-    for marker in item.iter_markers("xdist_group"):
-        if marker.kwargs.get("name") == "ratchets":
-            return True
-    for _ in item.iter_markers("skip_must_use_check"):
-        return True
-    return False
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -812,9 +777,6 @@ def _pytest_runtest_makereport(
 
     tracking_dir = getattr(item, "_resource_tracking_dir", None)
     if tracking_dir is None:
-        return
-
-    if _is_must_use_exempt(item):
         return
 
     marks: set[str] = getattr(item, "_resource_marks", set())
@@ -890,7 +852,6 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
     namespace["pytest_runtest_setup"] = _pytest_runtest_setup
-    namespace["pytest_runtest_call"] = _pytest_runtest_call
     namespace["pytest_runtest_teardown"] = _pytest_runtest_teardown
     namespace["pytest_runtest_makereport"] = _pytest_runtest_makereport
     # Register the JUnit test ID fixture (with public name for pytest discovery)

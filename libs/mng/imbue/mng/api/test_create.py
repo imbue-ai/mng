@@ -273,7 +273,6 @@ def test_create_agent_with_unknown_type_uses_type_as_command(
 
 
 @pytest.mark.tmux
-@pytest.mark.git
 def test_create_agent_with_worktree(
     temp_mng_ctx: MngContext,
     temp_git_repo: Path,
@@ -331,7 +330,6 @@ def test_create_agent_with_worktree(
 
 
 @pytest.mark.tmux
-@pytest.mark.git
 def test_worktree_with_custom_branch_name(
     tmp_home_dir: Path,
     temp_mng_ctx: MngContext,
@@ -447,7 +445,6 @@ def test_in_place_mode_sets_is_generated_work_dir_false(
 
 
 @pytest.mark.tmux
-@pytest.mark.git
 def test_worktree_mode_sets_is_generated_work_dir_true(
     tmp_home_dir: Path,
     temp_mng_ctx: MngContext,

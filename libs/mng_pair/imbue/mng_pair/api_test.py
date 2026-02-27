@@ -1,8 +1,6 @@
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.primitives import ConflictMode
 from imbue.mng.primitives import SyncDirection
@@ -167,7 +165,6 @@ def test_determine_git_sync_returns_none_for_non_git_directories(tmp_path: Path,
     assert result is None
 
 
-@pytest.mark.git
 def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns None when only source is a git repo."""
     source = tmp_path / "source"
@@ -180,7 +177,6 @@ def test_determine_git_sync_returns_none_when_only_source_is_git(tmp_path: Path,
     assert result is None
 
 
-@pytest.mark.git
 def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns None when only target is a git repo."""
     source = tmp_path / "source"
@@ -193,7 +189,6 @@ def test_determine_git_sync_returns_none_when_only_target_is_git(tmp_path: Path,
     assert result is None
 
 
-@pytest.mark.git
 def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that returns no action needed when repos have same commit."""
     source = tmp_path / "source"
@@ -216,7 +211,6 @@ def test_determine_git_sync_returns_no_action_when_both_in_sync(tmp_path: Path, 
     assert result.local_is_ahead is False
 
 
-@pytest.mark.git
 def test_determine_git_sync_detects_source_ahead(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when source has commits not in target."""
     source = tmp_path / "source"
@@ -244,7 +238,6 @@ def test_determine_git_sync_detects_source_ahead(tmp_path: Path, cg: Concurrency
     assert result.local_is_ahead is False
 
 
-@pytest.mark.git
 def test_determine_git_sync_detects_target_ahead(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when target has commits not in source."""
     source = tmp_path / "source"
@@ -274,7 +267,6 @@ def test_determine_git_sync_detects_target_ahead(tmp_path: Path, cg: Concurrency
     assert result.local_is_ahead is True
 
 
-@pytest.mark.git
 def test_determine_git_sync_detects_both_diverged(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that detects when both repos have diverged."""
     source = tmp_path / "source"
