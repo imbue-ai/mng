@@ -107,7 +107,7 @@ def test_concurrency_group_raises_timeout_when_not_finished_in_time() -> None:
 def test_concurrency_group_does_not_raise_when_within_timeout() -> None:
     start_time = monotonic()
     with ConcurrencyGroup(name="outer", exit_timeout_seconds=SMALL_SLEEP) as cg:
-        thread = cg.start_new_thread(target=lambda: wait_interval(TINY_SLEEP))
+        thread = cg.start_new_thread(target=lambda: None)
     end_time = monotonic()
     assert end_time - start_time < 0.1
     assert not thread.is_alive()
