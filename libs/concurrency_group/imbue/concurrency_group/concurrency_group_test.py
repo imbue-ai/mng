@@ -23,9 +23,9 @@ from imbue.concurrency_group.thread_utils import ObservableThread
 TINY_SLEEP = 0.001
 SMALL_SLEEP = 0.05
 
-# Process commands for tests: one that exits immediately, one that blocks forever.
+# Process commands for tests: one that exits immediately, one that runs for a long time.
 INSTANT_SUCCESS_COMMAND: Final[tuple[str, ...]] = ("true",)
-LONG_RUNNING_COMMAND: Final[tuple[str, ...]] = ("tail", "-f", "/dev/null")
+LONG_RUNNING_COMMAND: Final[tuple[str, ...]] = ("sleep", "30")
 
 
 def _sleep_and_return_1() -> int:
