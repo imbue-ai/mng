@@ -10,6 +10,7 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 
+from imbue.changelings.primitives import ServerName
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.primitives import AgentId
@@ -30,35 +31,55 @@ class ServerLogRecord(FrozenModel):
     Agents write these records on startup so the forwarding server can discover them.
     """
 
-    server: str = Field(description="Name of the server (e.g., 'web')")
+    server: ServerName = Field(description="Name of the server (e.g., 'web')")
     url: str = Field(description="URL where the server is accessible (e.g., 'http://127.0.0.1:9100')")
 
 
 class BackendResolverInterface(MutableModel, ABC):
-    """Resolves agent IDs to their backend server URLs."""
+    """Resolves agent IDs and server names to their backend server URLs.
+
+    Each agent may run multiple servers (e.g. 'web', 'api'), each accessible
+    at a different URL. The resolver maps (agent_id, server_name) pairs to URLs.
+    """
 
     @abstractmethod
-    def get_backend_url(self, agent_id: AgentId) -> str | None:
-        """Return the backend URL for an agent, or None if unknown/offline."""
+    def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
+        """Return the backend URL for a specific server of an agent, or None if unknown/offline."""
 
     @abstractmethod
     def list_known_agent_ids(self) -> tuple[AgentId, ...]:
         """Return all known agent IDs."""
 
+    @abstractmethod
+    def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
+        """Return all known server names for an agent, sorted alphabetically."""
+
 
 class StaticBackendResolver(BackendResolverInterface):
-    """Resolves backend URLs from a static mapping provided at construction time."""
+    """Resolves backend URLs from a static mapping provided at construction time.
 
-    url_by_agent_id: Mapping[str, str] = Field(
+    The mapping is structured as {agent_id: {server_name: url}}.
+    """
+
+    url_by_agent_and_server: Mapping[str, Mapping[str, str]] = Field(
         frozen=True,
-        description="Mapping of agent ID to backend URL",
+        description="Mapping of agent ID to mapping of server name to backend URL",
     )
 
-    def get_backend_url(self, agent_id: AgentId) -> str | None:
-        return self.url_by_agent_id.get(str(agent_id))
+    def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
+        servers = self.url_by_agent_and_server.get(str(agent_id))
+        if servers is None:
+            return None
+        return servers.get(str(server_name))
 
     def list_known_agent_ids(self) -> tuple[AgentId, ...]:
-        return tuple(AgentId(agent_id) for agent_id in sorted(self.url_by_agent_id.keys()))
+        return tuple(AgentId(agent_id) for agent_id in sorted(self.url_by_agent_and_server.keys()))
+
+    def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
+        servers = self.url_by_agent_and_server.get(str(agent_id))
+        if servers is None:
+            return ()
+        return tuple(ServerName(name) for name in sorted(servers.keys()))
 
 
 class MngCliInterface(MutableModel, ABC):
@@ -123,6 +144,9 @@ class MngCliBackendResolver(BackendResolverInterface):
     Uses `mng logs <agent-id> servers.jsonl` to read server info and
     `mng list --json` to discover agents. Results are cached with a short
     TTL to avoid excessive subprocess calls on every request.
+
+    Each agent may have multiple servers listed in servers.jsonl (one per line).
+    Later entries for the same server name override earlier ones.
     """
 
     mng_cli: MngCliInterface = Field(
@@ -130,26 +154,35 @@ class MngCliBackendResolver(BackendResolverInterface):
         description="Interface for calling mng CLI commands",
     )
 
-    _url_cache: dict[str, tuple[float, str | None]] = PrivateAttr(default_factory=dict)
+    _server_cache: dict[str, tuple[float, dict[str, str]]] = PrivateAttr(default_factory=dict)
     _ids_cache: tuple[float, tuple[AgentId, ...]] | None = PrivateAttr(default=None)
 
-    def get_backend_url(self, agent_id: AgentId) -> str | None:
+    def _resolve_servers(self, agent_id: AgentId) -> dict[str, str]:
+        """Get a mapping of server_name -> URL for an agent, using cache."""
         now = time.monotonic()
-        cached = self._url_cache.get(str(agent_id))
+        cached = self._server_cache.get(str(agent_id))
         if cached is not None:
-            cache_time, cached_url = cached
+            cache_time, cached_servers = cached
             if (now - cache_time) < _CACHE_TTL_SECONDS:
-                return cached_url
+                return cached_servers
 
         log_content = self.mng_cli.read_agent_log(agent_id, SERVERS_LOG_FILENAME)
-        url: str | None = None
+        servers: dict[str, str] = {}
         if log_content is not None:
             records = _parse_server_log_records(log_content)
-            if records:
-                url = records[-1].url
+            for record in records:
+                servers[str(record.server)] = record.url
 
-        self._url_cache[str(agent_id)] = (now, url)
-        return url
+        self._server_cache[str(agent_id)] = (now, servers)
+        return servers
+
+    def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
+        servers = self._resolve_servers(agent_id)
+        return servers.get(str(server_name))
+
+    def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
+        servers = self._resolve_servers(agent_id)
+        return tuple(ServerName(name) for name in sorted(servers.keys()))
 
     def list_known_agent_ids(self) -> tuple[AgentId, ...]:
         now = time.monotonic()

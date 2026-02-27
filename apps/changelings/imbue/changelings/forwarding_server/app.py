@@ -26,10 +26,12 @@ from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
 from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
 from imbue.changelings.forwarding_server.proxy import rewrite_cookie_path
 from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
+from imbue.changelings.forwarding_server.templates import render_agent_servers_page
 from imbue.changelings.forwarding_server.templates import render_auth_error_page
 from imbue.changelings.forwarding_server.templates import render_landing_page
 from imbue.changelings.forwarding_server.templates import render_login_redirect_page
 from imbue.changelings.primitives import OneTimeCode
+from imbue.changelings.primitives import ServerName
 from imbue.mng.primitives import AgentId
 
 _PROXY_TIMEOUT_SECONDS: Final[float] = 30.0
@@ -240,11 +242,29 @@ def _handle_landing_page(
     return HTMLResponse(content=html)
 
 
+def _handle_agent_servers_page(
+    agent_id: str,
+    request: Request,
+    auth_store: AuthStoreDep,
+    backend_resolver: BackendResolverDep,
+) -> Response:
+    """Show a listing of all available servers for a given agent."""
+    parsed_id = AgentId(agent_id)
+
+    if not _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
+        return Response(status_code=403, content="Not authenticated for this changeling")
+
+    server_names = backend_resolver.list_servers_for_agent(parsed_id)
+    html = render_agent_servers_page(agent_id=parsed_id, server_names=server_names)
+    return HTMLResponse(content=html)
+
+
 async def _forward_http_request(
     request: Request,
     backend_url: str,
     path: str,
     agent_id: str,
+    server_name: str,
 ) -> httpx.Response | Response:
     """Forward an HTTP request to the backend, returning the backend response or an error Response."""
     proxy_url = f"{backend_url}/{path}"
@@ -265,16 +285,17 @@ async def _forward_http_request(
             content=body,
         )
     except httpx.ConnectError:
-        logger.debug("Backend connection refused for {}", agent_id)
+        logger.debug("Backend connection refused for {} server {}", agent_id, server_name)
         return Response(status_code=502, content="Backend connection refused")
     except httpx.TimeoutException:
-        logger.debug("Backend request timed out for {}", agent_id)
+        logger.debug("Backend request timed out for {} server {}", agent_id, server_name)
         return Response(status_code=504, content="Backend request timed out")
 
 
 def _build_proxy_response(
     backend_response: httpx.Response,
     agent_id: AgentId,
+    server_name: ServerName,
 ) -> Response:
     """Transform a backend httpx response into a FastAPI Response with header/content rewriting."""
     # Build response headers, dropping hop-by-hop headers
@@ -286,6 +307,7 @@ def _build_proxy_response(
             header_value = rewrite_cookie_path(
                 set_cookie_header=header_value,
                 agent_id=agent_id,
+                server_name=server_name,
             )
         resp_headers.setdefault(header_key, [])
         resp_headers[header_key].append(header_value)
@@ -299,6 +321,7 @@ def _build_proxy_response(
         rewritten_html = rewrite_proxied_html(
             html_content=html_text,
             agent_id=agent_id,
+            server_name=server_name,
         )
         content = rewritten_html.encode()
 
@@ -311,35 +334,40 @@ def _build_proxy_response(
 
 async def _handle_proxy_http(
     agent_id: str,
+    server_name: str,
     path: str,
     request: Request,
     auth_store: AuthStoreDep,
     backend_resolver: BackendResolverDep,
 ) -> Response:
     parsed_id = AgentId(agent_id)
+    parsed_server = ServerName(server_name)
 
-    # Check auth
+    # Check auth (per-agent, not per-server)
     if not _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
         return Response(status_code=403, content="Not authenticated for this changeling")
 
     # Serve the service worker script
     if path == "__sw.js":
         return Response(
-            content=generate_service_worker_js(parsed_id),
+            content=generate_service_worker_js(parsed_id, parsed_server),
             media_type="application/javascript",
         )
 
-    backend_url = backend_resolver.get_backend_url(parsed_id)
+    backend_url = backend_resolver.get_backend_url(parsed_id, parsed_server)
     if backend_url is None:
-        return Response(status_code=502, content=f"Backend unavailable for agent: {agent_id}")
+        return Response(
+            status_code=502,
+            content=f"Backend unavailable for agent {agent_id}, server {server_name}",
+        )
 
-    # Check if SW is installed via cookie
-    sw_cookie = request.cookies.get(f"sw_installed_{agent_id}")
+    # Check if SW is installed via cookie (scoped per server)
+    sw_cookie = request.cookies.get(f"sw_installed_{agent_id}_{server_name}")
     is_navigation = request.headers.get("sec-fetch-mode") == "navigate"
 
     # First HTML navigation without SW -> serve bootstrap
     if is_navigation and not sw_cookie:
-        return HTMLResponse(generate_bootstrap_html(parsed_id))
+        return HTMLResponse(generate_bootstrap_html(parsed_id, parsed_server))
 
     # Forward request to backend
     result = await _forward_http_request(
@@ -347,32 +375,39 @@ async def _handle_proxy_http(
         backend_url=backend_url,
         path=path,
         agent_id=agent_id,
+        server_name=server_name,
     )
 
     # If forwarding returned an error Response directly, return it
     if isinstance(result, Response):
         return result
 
-    return _build_proxy_response(backend_response=result, agent_id=parsed_id)
+    return _build_proxy_response(
+        backend_response=result,
+        agent_id=parsed_id,
+        server_name=parsed_server,
+    )
 
 
 async def _handle_proxy_websocket(
     websocket: WebSocket,
     agent_id: str,
+    server_name: str,
     path: str,
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
 ) -> None:
     parsed_id = AgentId(agent_id)
+    parsed_server = ServerName(server_name)
 
-    # Check auth
+    # Check auth (per-agent)
     if not _check_auth_cookie(cookies=websocket.cookies, agent_id=parsed_id, auth_store=auth_store):
         await websocket.close(code=4003, reason="Not authenticated")
         return
 
-    backend_url = backend_resolver.get_backend_url(parsed_id)
+    backend_url = backend_resolver.get_backend_url(parsed_id, parsed_server)
     if backend_url is None:
-        await websocket.close(code=4004, reason=f"Unknown agent: {agent_id}")
+        await websocket.close(code=4004, reason=f"Unknown server: {agent_id}/{server_name}")
         return
 
     ws_backend = backend_url.replace("http://", "ws://").replace("https://", "wss://")
@@ -397,7 +432,12 @@ async def _handle_proxy_websocket(
             )
 
     except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
-        logger.debug("Backend WebSocket connection failed for {}: {}", agent_id, connection_error)
+        logger.debug(
+            "Backend WebSocket connection failed for {}/{}: {}",
+            agent_id,
+            server_name,
+            connection_error,
+        )
         try:
             await websocket.close(code=1011, reason="Backend connection failed")
         except RuntimeError:
@@ -431,17 +471,23 @@ def create_forwarding_server(
     app.get("/login")(_handle_login)
     app.get("/authenticate")(_handle_authenticate)
     app.get("/")(_handle_landing_page)
+
+    # Agent server listing page: /agents/{agent_id}/
+    app.get("/agents/{agent_id}/")(_handle_agent_servers_page)
+
+    # Proxy routes: /agents/{agent_id}/{server_name}/{path:path}
     app.api_route(
-        "/agents/{agent_id}/{path:path}",
+        "/agents/{agent_id}/{server_name}/{path:path}",
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
     )(_handle_proxy_http)
 
     # WebSocket route needs manual dependency wiring since Depends doesn't work on WS
-    @app.websocket("/agents/{agent_id}/{path:path}")
-    async def proxy_websocket(websocket: WebSocket, agent_id: str, path: str) -> None:
+    @app.websocket("/agents/{agent_id}/{server_name}/{path:path}")
+    async def proxy_websocket(websocket: WebSocket, agent_id: str, server_name: str, path: str) -> None:
         await _handle_proxy_websocket(
             websocket=websocket,
             agent_id=agent_id,
+            server_name=server_name,
             path=path,
             auth_store=auth_store,
             backend_resolver=backend_resolver,

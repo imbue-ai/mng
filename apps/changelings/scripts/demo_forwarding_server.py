@@ -224,17 +224,17 @@ def main() -> None:
     ]
 
     # Start backend servers
-    url_by_agent_id: dict[str, str] = {}
-    for _, agent_id, port, backend_app in backend_configs:
+    url_by_agent_and_server: dict[str, dict[str, str]] = {}
+    for label, agent_id, port, backend_app in backend_configs:
         thread = threading.Thread(
             target=_run_backend,
             args=(backend_app, port),
             daemon=True,
         )
         thread.start()
-        url_by_agent_id[str(agent_id)] = f"http://127.0.0.1:{port}"
+        url_by_agent_and_server[str(agent_id)] = {label: f"http://127.0.0.1:{port}"}
 
-    backend_resolver = StaticBackendResolver(url_by_agent_id=url_by_agent_id)
+    backend_resolver = StaticBackendResolver(url_by_agent_and_server=url_by_agent_and_server)
 
     print()
     print("=" * 60)
