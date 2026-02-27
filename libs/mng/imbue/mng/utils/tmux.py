@@ -1,11 +1,19 @@
+import shlex
+from collections.abc import Callable
+from collections.abc import Sequence
 from typing import Final
 from uuid import uuid4
 
 from loguru import logger
+from pydantic import ConfigDict
+from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.errors import BaseMngError
+from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.utils.polling import poll_until
 
 # Constants for send_message marker-based synchronization
@@ -17,6 +25,20 @@ CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
 
 
+class TmuxCommandResult(FrozenModel):
+    """Result of running a shell command for tmux operations."""
+
+    is_success: bool = Field(description="Whether the command exited successfully")
+    stdout: str = Field(description="Standard output")
+    stderr: str = Field(description="Standard error")
+
+
+# A callable that runs a shell command (as a list of args) with an optional timeout
+# and returns the result. This abstraction allows the same tmux protocol to work
+# over both local subprocesses (via ConcurrencyGroup) and remote hosts (via SSH).
+TmuxCommandRunner = Callable[[Sequence[str], float | None], TmuxCommandResult]
+
+
 class TmuxSendError(BaseMngError):
     """Failed to send a message to a tmux pane."""
 
@@ -26,7 +48,56 @@ class TmuxSendError(BaseMngError):
         super().__init__(f"Failed to send message to tmux pane {target}: {reason}")
 
 
-def send_message_to_tmux_pane(target: str, message: str, cg: ConcurrencyGroup) -> None:
+class CgCommandRunner(MutableModel):
+    """TmuxCommandRunner that runs commands via a ConcurrencyGroup (local subprocess)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    cg: ConcurrencyGroup = Field(frozen=True, description="ConcurrencyGroup for running processes")
+
+    def __call__(self, args: Sequence[str], timeout: float | None) -> TmuxCommandResult:
+        result = self.cg.run_process_to_completion(
+            list(args),
+            timeout=timeout,
+            is_checked_after=False,
+        )
+        return TmuxCommandResult(
+            is_success=result.returncode == 0,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+
+
+class HostCommandRunner(MutableModel):
+    """TmuxCommandRunner that runs commands via a host (supports SSH)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    host: OnlineHostInterface = Field(frozen=True, description="Host for executing commands")
+
+    def __call__(self, args: Sequence[str], timeout: float | None) -> TmuxCommandResult:
+        cmd_str = shlex.join(args)
+        result = (
+            self.host.execute_command(cmd_str, timeout_seconds=timeout)
+            if timeout is not None
+            else self.host.execute_command(cmd_str)
+        )
+        return TmuxCommandResult(
+            is_success=result.success,
+            stdout=result.stdout,
+            stderr=result.stderr,
+        )
+
+
+def make_cg_command_runner(cg: ConcurrencyGroup) -> TmuxCommandRunner:
+    """Create a TmuxCommandRunner that runs commands via a ConcurrencyGroup."""
+    return CgCommandRunner(cg=cg)
+
+
+def make_host_command_runner(host: OnlineHostInterface) -> TmuxCommandRunner:
+    """Create a TmuxCommandRunner that runs commands via a host (supports SSH)."""
+    return HostCommandRunner(host=host)
+
+
+def send_message_to_tmux_pane(target: str, message: str, run_command: TmuxCommandRunner) -> None:
     """Send a message to a tmux pane using marker-based synchronization.
 
     This approach appends a unique marker to the message, waits for it to appear
@@ -43,43 +114,36 @@ def send_message_to_tmux_pane(target: str, message: str, cg: ConcurrencyGroup) -
     message_with_marker = message + marker
 
     # Send the message with marker
-    result = cg.run_process_to_completion(
-        ["tmux", "send-keys", "-t", target, "-l", message_with_marker],
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
+    result = run_command(["tmux", "send-keys", "-t", target, "-l", message_with_marker], None)
+    if not result.is_success:
         raise TmuxSendError(target, f"tmux send-keys failed: {result.stderr or result.stdout}")
 
     # Wait for the marker to appear in the pane (confirms message was fully received)
-    _wait_for_marker_visible(target, marker, cg)
+    _wait_for_marker_visible(target, marker, run_command)
 
     # Remove the marker by sending backspaces (32 hex chars for UUID)
-    _send_backspace_with_noop(target, count=len(marker), cg=cg)
+    _send_backspace_with_noop(target, count=len(marker), run_command=run_command)
 
     # Verify the marker is gone and the message ends correctly
     # Use the tail of the last line of the message as the expected ending, since
     # only that portion is visible on the current input line in the tmux pane.
     last_line = message.rsplit("\n", 1)[-1]
     expected_ending = last_line[-32:] if len(last_line) > 32 else last_line
-    _wait_for_message_ending(target, marker, expected_ending, cg)
+    _wait_for_message_ending(target, marker, expected_ending, run_command)
 
     # Send Enter and wait for submission signal
-    _send_enter_and_wait(target, cg)
+    _send_enter_and_wait(target, run_command)
 
 
-def capture_tmux_pane(target: str, cg: ConcurrencyGroup) -> str | None:
+def capture_tmux_pane(target: str, run_command: TmuxCommandRunner) -> str | None:
     """Capture the current pane content, returning None on failure."""
-    result = cg.run_process_to_completion(
-        ["tmux", "capture-pane", "-t", target, "-p"],
-        timeout=CAPTURE_PANE_TIMEOUT_SECONDS,
-        is_checked_after=False,
-    )
-    if result.returncode == 0:
+    result = run_command(["tmux", "capture-pane", "-t", target, "-p"], CAPTURE_PANE_TIMEOUT_SECONDS)
+    if result.is_success:
         return result.stdout.rstrip()
     return None
 
 
-def _send_backspace_with_noop(target: str, count: int, cg: ConcurrencyGroup) -> None:
+def _send_backspace_with_noop(target: str, count: int, run_command: TmuxCommandRunner) -> None:
     """Send backspace(s) followed by noop keys to reset input handler state.
 
     The noop keys are necessary because Claude Code's input handler can get into
@@ -88,29 +152,23 @@ def _send_backspace_with_noop(target: str, count: int, cg: ConcurrencyGroup) -> 
     """
     if count > 0:
         backspace_keys = ["BSpace"] * count
-        result = cg.run_process_to_completion(
-            ["tmux", "send-keys", "-t", target, *backspace_keys],
-            is_checked_after=False,
-        )
-        if result.returncode != 0:
+        result = run_command(["tmux", "send-keys", "-t", target, *backspace_keys], None)
+        if not result.is_success:
             raise TmuxSendError(target, f"tmux send-keys BSpace failed: {result.stderr or result.stdout}")
 
     # Send a no-op key sequence (Left then Right) to reset input handler state
-    result = cg.run_process_to_completion(
-        ["tmux", "send-keys", "-t", target, "Left", "Right"],
-        is_checked_after=False,
-    )
-    if result.returncode != 0:
+    result = run_command(["tmux", "send-keys", "-t", target, "Left", "Right"], None)
+    if not result.is_success:
         logger.warning("Failed to send noop keys: {}", result.stderr or result.stdout)
 
 
-def _check_pane_contains(target: str, text: str, cg: ConcurrencyGroup) -> bool:
+def _check_pane_contains(target: str, text: str, run_command: TmuxCommandRunner) -> bool:
     """Check if the pane content contains the given text."""
-    content = capture_tmux_pane(target, cg)
+    content = capture_tmux_pane(target, run_command)
     return content is not None and text in content
 
 
-def _wait_for_marker_visible(target: str, marker: str, cg: ConcurrencyGroup) -> None:
+def _wait_for_marker_visible(target: str, marker: str, run_command: TmuxCommandRunner) -> None:
     """Wait until the marker is visible in the tmux pane.
 
     Note: We check if marker is IN the pane, not at the end, because
@@ -118,7 +176,7 @@ def _wait_for_marker_visible(target: str, marker: str, cg: ConcurrencyGroup) -> 
     """
     with log_span("Waiting for marker: {}", marker):
         if not poll_until(
-            lambda: _check_pane_contains(target, marker, cg),
+            lambda: _check_pane_contains(target, marker, run_command),
             timeout=SEND_MESSAGE_TIMEOUT_SECONDS,
         ):
             raise TmuxSendError(
@@ -127,14 +185,14 @@ def _wait_for_marker_visible(target: str, marker: str, cg: ConcurrencyGroup) -> 
             )
 
 
-def _wait_for_message_ending(target: str, marker: str, expected_ending: str, cg: ConcurrencyGroup) -> None:
+def _wait_for_message_ending(target: str, marker: str, expected_ending: str, run_command: TmuxCommandRunner) -> None:
     """Wait until the marker is removed and the expected message ending is visible.
 
     Note: We check if expected_ending is IN the pane, not at the end, because
     Claude Code has a status line at the bottom that appears after the input area.
     """
     if not poll_until(
-        lambda: _check_marker_removed_and_contains(target, marker, expected_ending, cg),
+        lambda: _check_marker_removed_and_contains(target, marker, expected_ending, run_command),
         timeout=SEND_MESSAGE_TIMEOUT_SECONDS,
     ):
         raise TmuxSendError(
@@ -144,9 +202,11 @@ def _wait_for_message_ending(target: str, marker: str, expected_ending: str, cg:
     logger.trace("Verified marker removed and expected content visible in pane")
 
 
-def _check_marker_removed_and_contains(target: str, marker: str, expected_ending: str, cg: ConcurrencyGroup) -> bool:
+def _check_marker_removed_and_contains(
+    target: str, marker: str, expected_ending: str, run_command: TmuxCommandRunner
+) -> bool:
     """Check if the marker is gone and pane contains expected content."""
-    content = capture_tmux_pane(target, cg)
+    content = capture_tmux_pane(target, run_command)
     if content is None:
         return False
     is_marker_gone = marker not in content
@@ -154,18 +214,18 @@ def _check_marker_removed_and_contains(target: str, marker: str, expected_ending
     return is_marker_gone and is_contains_expected
 
 
-def _send_enter_and_wait(target: str, cg: ConcurrencyGroup) -> None:
+def _send_enter_and_wait(target: str, run_command: TmuxCommandRunner) -> None:
     """Send Enter to submit the message and wait for the submission signal.
 
     Uses tmux wait-for to detect when the UserPromptSubmit hook fires.
     Raises TmuxSendError if the signal is not received within the timeout.
     """
     wait_channel = f"mng-submit-{target}"
-    if _send_enter_and_wait_for_signal(target, wait_channel, cg, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS):
+    if _send_enter_and_wait_for_signal(target, wait_channel, run_command, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS):
         logger.trace("Submitted message successfully")
         return
 
-    pane_content = capture_tmux_pane(target, cg)
+    pane_content = capture_tmux_pane(target, run_command)
     if pane_content is not None:
         logger.error(
             "TUI send enter and wait timeout -- pane content:\n{}",
@@ -181,7 +241,7 @@ def _send_enter_and_wait(target: str, cg: ConcurrencyGroup) -> None:
 
 
 def _send_enter_and_wait_for_signal(
-    target: str, wait_channel: str, cg: ConcurrencyGroup, timeout_seconds: float
+    target: str, wait_channel: str, run_command: TmuxCommandRunner, timeout_seconds: float
 ) -> bool:
     """Send Enter and wait for the tmux wait-for signal from the hook.
 
@@ -195,20 +255,18 @@ def _send_enter_and_wait_for_signal(
 
     Returns True if signal received, False if timeout.
     """
-    timeout_secs = timeout_seconds
-    result = cg.run_process_to_completion(
+    result = run_command(
         [
             "bash",
             "-c",
             'timeout $0 tmux wait-for "$1" & W=$!; tmux send-keys -t "$2" Enter; wait $W',
-            str(timeout_secs),
+            str(timeout_seconds),
             wait_channel,
             target,
         ],
-        timeout=timeout_secs + 1,
-        is_checked_after=False,
+        timeout_seconds + 1,
     )
-    if result.returncode == 0:
+    if result.is_success:
         logger.trace("Received submission signal")
         return True
     logger.debug("Timeout waiting for submission signal on channel {}", wait_channel)

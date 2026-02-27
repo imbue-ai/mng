@@ -29,10 +29,11 @@ from imbue.mng.primitives import Permission
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.polling import poll_until
 from imbue.mng.utils.tmux import TmuxSendError
+from imbue.mng.utils.tmux import capture_tmux_pane
+from imbue.mng.utils.tmux import make_host_command_runner
 from imbue.mng.utils.tmux import send_message_to_tmux_pane
 
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
-_CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 
 class BaseAgent(AgentInterface):
@@ -301,23 +302,18 @@ class BaseAgent(AgentInterface):
     def _send_message_with_marker(self, session_name: str, message: str) -> None:
         """Send a message using marker-based synchronization.
 
-        Delegates to the standalone tmux utility, translating TmuxSendError
-        to SendMessageError for backwards compatibility.
+        Delegates to the shared tmux utility with a host-based command runner,
+        so the same protocol works for both local and remote (SSH) hosts.
         """
+        runner = make_host_command_runner(self.host)
         try:
-            send_message_to_tmux_pane(session_name, message, self.mng_ctx.concurrency_group)
+            send_message_to_tmux_pane(session_name, message, runner)
         except TmuxSendError as e:
             raise SendMessageError(str(self.name), e.reason) from e
 
     def _capture_pane_content(self, session_name: str) -> str | None:
         """Capture the current pane content, returning None on failure."""
-        result = self.host.execute_command(
-            f"tmux capture-pane -t '{session_name}' -p",
-            timeout_seconds=_CAPTURE_PANE_TIMEOUT_SECONDS,
-        )
-        if result.success:
-            return result.stdout.rstrip()
-        return None
+        return capture_tmux_pane(session_name, make_host_command_runner(self.host))
 
     def _wait_for_tui_ready(self, session_name: str, indicator: str) -> None:
         """Wait until the TUI is ready by looking for the indicator string in the pane.

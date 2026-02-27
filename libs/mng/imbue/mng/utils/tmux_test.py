@@ -9,37 +9,40 @@ from imbue.mng.utils.tmux import TmuxSendError
 from imbue.mng.utils.tmux import _send_backspace_with_noop
 from imbue.mng.utils.tmux import _send_enter_and_wait_for_signal
 from imbue.mng.utils.tmux import capture_tmux_pane
+from imbue.mng.utils.tmux import make_cg_command_runner
 from imbue.mng.utils.tmux import send_message_to_tmux_pane
 
 
 def test_capture_tmux_pane_returns_content(cg: ConcurrencyGroup) -> None:
     """Test that capture_tmux_pane returns pane content for an active session."""
     session_name = f"mng-test-capture-{get_short_random_string()}"
+    runner = make_cg_command_runner(cg)
     cg.run_process_to_completion(
         ["tmux", "new-session", "-d", "-s", session_name, "cat"],
         is_checked_after=False,
     )
     with tmux_session_cleanup(session_name):
-        # Wait for cat to start
         wait_for(
-            lambda: capture_tmux_pane(session_name, cg) is not None,
+            lambda: capture_tmux_pane(session_name, runner) is not None,
             timeout=5.0,
             error_message="pane not available",
         )
 
-        content = capture_tmux_pane(session_name, cg)
+        content = capture_tmux_pane(session_name, runner)
         assert content is not None
 
 
 def test_capture_tmux_pane_returns_none_for_nonexistent_session(cg: ConcurrencyGroup) -> None:
     """Test that capture_tmux_pane returns None for a session that doesn't exist."""
-    result = capture_tmux_pane(f"mng-nonexistent-{get_short_random_string()}", cg)
+    runner = make_cg_command_runner(cg)
+    result = capture_tmux_pane(f"mng-nonexistent-{get_short_random_string()}", runner)
     assert result is None
 
 
 def test_send_backspace_with_noop_removes_characters(cg: ConcurrencyGroup) -> None:
     """Test that _send_backspace_with_noop sends backspaces and noop keys to tmux session."""
     session_name = f"mng-test-bspace-{get_short_random_string()}"
+    runner = make_cg_command_runner(cg)
     cg.run_process_to_completion(
         ["tmux", "new-session", "-d", "-s", session_name, "cat"],
         is_checked_after=False,
@@ -60,21 +63,21 @@ def test_send_backspace_with_noop_removes_characters(cg: ConcurrencyGroup) -> No
 
         # Wait for text to appear
         wait_for(
-            lambda: "hello" in (capture_tmux_pane(session_name, cg) or ""),
+            lambda: "hello" in (capture_tmux_pane(session_name, runner) or ""),
             timeout=5.0,
             error_message="text not visible in pane",
         )
 
         # Send backspaces with noop - should remove last 2 characters
-        _send_backspace_with_noop(session_name, count=2, cg=cg)
+        _send_backspace_with_noop(session_name, count=2, run_command=runner)
 
         # Verify backspaces were processed ("hello" -> "hel")
         wait_for(
-            lambda: "hel" in (capture_tmux_pane(session_name, cg) or ""),
+            lambda: "hel" in (capture_tmux_pane(session_name, runner) or ""),
             timeout=5.0,
             error_message="backspaces not processed",
         )
-        content = capture_tmux_pane(session_name, cg)
+        content = capture_tmux_pane(session_name, runner)
         assert content is not None
         assert "hel" in content
 
@@ -83,6 +86,7 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signaled(cg: Concurren
     """Test that _send_enter_and_wait_for_signal returns True when tmux wait-for signal is received."""
     session_name = f"mng-test-signal-{get_short_random_string()}"
     wait_channel = f"mng-submit-{session_name}"
+    runner = make_cg_command_runner(cg)
 
     cg.run_process_to_completion(
         ["tmux", "new-session", "-d", "-s", session_name, "bash"],
@@ -97,7 +101,7 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signaled(cg: Concurren
         )
 
         result = _send_enter_and_wait_for_signal(
-            session_name, wait_channel, cg, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
+            session_name, wait_channel, runner, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS
         )
         assert result is True
 
@@ -107,6 +111,7 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(cg: Concurrency
     session_name = f"mng-test-timeout-{get_short_random_string()}"
     # Use a unique channel that won't be signaled
     wait_channel = f"mng-submit-never-signaled-{session_name}"
+    runner = make_cg_command_runner(cg)
 
     cg.run_process_to_completion(
         ["tmux", "new-session", "-d", "-s", session_name, "bash"],
@@ -114,15 +119,16 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(cg: Concurrency
     )
     with tmux_session_cleanup(session_name):
         # Use a short timeout so this test doesn't take 10s
-        result = _send_enter_and_wait_for_signal(session_name, wait_channel, cg, timeout_seconds=1.0)
+        result = _send_enter_and_wait_for_signal(session_name, wait_channel, runner, timeout_seconds=1.0)
         assert result is False
 
 
 def test_send_message_to_tmux_pane_raises_on_bad_target(cg: ConcurrencyGroup) -> None:
     """Test that send_message_to_tmux_pane raises TmuxSendError for a nonexistent target."""
+    runner = make_cg_command_runner(cg)
     bad_target = f"mng-nonexistent-{get_short_random_string()}"
     with pytest.raises(TmuxSendError) as exc_info:
-        send_message_to_tmux_pane(bad_target, "hello", cg)
+        send_message_to_tmux_pane(bad_target, "hello", runner)
     assert exc_info.value.target == bad_target
     assert "tmux send-keys failed" in exc_info.value.reason
 
