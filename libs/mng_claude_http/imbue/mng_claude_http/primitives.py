@@ -1,10 +1,3 @@
-from imbue.imbue_common.primitives import NonEmptyStr
-
-
-class WebSocketUrl(NonEmptyStr):
-    """A WebSocket URL (ws:// or wss://)."""
-
-
 class HttpPort(int):
     """An HTTP port number."""
 

@@ -3,9 +3,14 @@ import json
 import mimetypes
 import subprocess
 import uuid
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import Any
+from typing import AsyncGenerator
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
@@ -13,6 +18,49 @@ from fastapi.responses import Response
 from loguru import logger
 
 from imbue.mng_claude_http.primitives import HttpPort
+
+
+@dataclass
+class SessionState:
+    """Typed mutable state for the active Claude session."""
+
+    cli_ws: WebSocket | None = None
+    browser_ws: WebSocket | None = None
+    cli_process: subprocess.Popen[bytes] | None = None
+    session_id: str | None = None
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] | None = None
+    is_initialized: bool = False
+
+    def reset(self) -> None:
+        """Reset session state for a new session."""
+        self.messages = []
+        self.metadata = None
+        self.is_initialized = False
+        self.session_id = None
+
+    def terminate_cli_process(self) -> None:
+        """Terminate the CLI subprocess if it is running."""
+        if self.cli_process is not None and self.cli_process.poll() is None:
+            self.cli_process.terminate()
+            try:
+                self.cli_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.cli_process.kill()
+            self.cli_process = None
+
+
+def _build_user_message(content: str, session_id: str) -> dict[str, Any]:
+    """Build a user message dict for the SDK protocol."""
+    return {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content,
+        },
+        "session_id": session_id,
+        "uuid": str(uuid.uuid4()),
+    }
 
 
 def _get_frontend_dist_dir() -> Path | None:
@@ -29,7 +77,7 @@ def _get_frontend_dist_dir() -> Path | None:
     return None
 
 
-def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
+def create_app(port: HttpPort, work_dir: Path | None = None) -> FastAPI:
     """Create the FastAPI app that bridges browser WebSocket and Claude CLI WebSocket.
 
     The server:
@@ -38,24 +86,20 @@ def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
     3. Accepts Claude CLI WebSocket connections at /ws/cli (via --sdk-url)
     4. Bridges messages between browser and CLI
     """
-    # Shared state for the active session
-    state: dict[str, Any] = {
-        "cli_ws": None,
-        "browser_ws": None,
-        "cli_process": None,
-        "session_id": None,
-        "messages": [],
-        "metadata": None,
-        "is_initialized": False,
-    }
+    state = SessionState()
 
-    app = FastAPI()
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+        yield
+        state.terminate_cli_process()
+
+    app = FastAPI(lifespan=lifespan)
 
     @app.websocket("/ws/cli")
     async def cli_websocket(websocket: WebSocket) -> None:
         """WebSocket endpoint that Claude CLI connects to via --sdk-url."""
         await websocket.accept()
-        state["cli_ws"] = websocket
+        state.cli_ws = websocket
         logger.info("Claude CLI connected via WebSocket")
 
         try:
@@ -76,48 +120,45 @@ def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
 
                     # Store session metadata from init
                     if msg_type == "system" and msg.get("subtype") == "init":
-                        state["metadata"] = {
+                        state.metadata = {
                             "session_id": msg.get("session_id", ""),
                             "model": msg.get("model", ""),
                             "tools": msg.get("tools", []),
                         }
-                        state["session_id"] = msg.get("session_id", "")
-                        state["is_initialized"] = True
+                        state.session_id = msg.get("session_id", "")
+                        state.is_initialized = True
 
                     # Store assistant messages for history
                     if msg_type == "assistant":
-                        state["messages"].append(msg)
+                        state.messages.append(msg)
 
                     # Forward to browser if connected
-                    browser_ws = state.get("browser_ws")
-                    if browser_ws is not None:
+                    if state.browser_ws is not None:
                         try:
-                            await browser_ws.send_text(json.dumps(msg))
-                        except Exception:
-                            logger.debug("Failed to forward message to browser")
-                            state["browser_ws"] = None
+                            await state.browser_ws.send_text(json.dumps(msg))
+                        except WebSocketDisconnect:
+                            logger.debug("Browser disconnected while forwarding")
+                            state.browser_ws = None
 
         except WebSocketDisconnect:
             logger.info("Claude CLI disconnected")
-        except Exception as e:
-            logger.error("CLI WebSocket error: {}", e)
         finally:
-            state["cli_ws"] = None
+            state.cli_ws = None
 
     @app.websocket("/ws/browser")
     async def browser_websocket(websocket: WebSocket) -> None:
         """WebSocket endpoint for browser connections."""
         await websocket.accept()
-        state["browser_ws"] = websocket
+        state.browser_ws = websocket
         logger.info("Browser connected via WebSocket")
 
         try:
             # Send current state to newly connected browser
             init_msg = {
                 "type": "connection_state",
-                "cli_connected": state["cli_ws"] is not None,
-                "metadata": state["metadata"],
-                "messages": state["messages"],
+                "cli_connected": state.cli_ws is not None,
+                "metadata": state.metadata,
+                "messages": state.messages,
             }
             await websocket.send_text(json.dumps(init_msg))
 
@@ -132,69 +173,56 @@ def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
                 msg_type = msg.get("type", "")
                 logger.debug("Browser -> Server: type={}", msg_type)
 
-                if msg_type == "start_session":
-                    # Browser requests to start a new Claude session
-                    prompt = msg.get("prompt", "")
-                    model = msg.get("model")
-                    await _start_claude_session(state, port, prompt, model, work_dir)
+                match msg_type:
+                    case "start_session":
+                        prompt = msg.get("prompt", "")
+                        model = msg.get("model")
+                        await _start_claude_session(state, port, prompt, model, work_dir)
 
-                elif msg_type == "send_message":
-                    # Browser sends a follow-up message to active session
-                    cli_ws = state.get("cli_ws")
-                    if cli_ws is not None:
-                        user_msg = {
-                            "type": "user",
-                            "message": {
-                                "role": "user",
-                                "content": msg.get("content", ""),
-                            },
-                            "session_id": state.get("session_id", ""),
-                            "uuid": str(uuid.uuid4()),
-                        }
-                        try:
-                            await cli_ws.send_text(json.dumps(user_msg))
-                        except Exception:
-                            logger.error("Failed to send message to CLI")
+                    case "send_message":
+                        if state.cli_ws is not None:
+                            user_msg = _build_user_message(
+                                msg.get("content", ""),
+                                state.session_id or "",
+                            )
+                            try:
+                                await state.cli_ws.send_text(json.dumps(user_msg))
+                            except WebSocketDisconnect:
+                                logger.error("CLI disconnected while sending message")
 
-                elif msg_type == "tool_response":
-                    # Browser sends a tool approval/denial
-                    cli_ws = state.get("cli_ws")
-                    if cli_ws is not None:
-                        try:
-                            await cli_ws.send_text(json.dumps(msg.get("response", {})))
-                        except Exception:
-                            logger.error("Failed to send tool response to CLI")
+                    case "tool_response":
+                        if state.cli_ws is not None:
+                            try:
+                                await state.cli_ws.send_text(json.dumps(msg.get("response", {})))
+                            except WebSocketDisconnect:
+                                logger.error("CLI disconnected while sending tool response")
 
-                elif msg_type == "interrupt":
-                    # Browser requests to interrupt the current session
-                    cli_ws = state.get("cli_ws")
-                    if cli_ws is not None:
-                        interrupt_msg = {
-                            "type": "control_request",
-                            "request_id": str(uuid.uuid4()),
-                            "request": {"subtype": "interrupt"},
-                        }
-                        try:
-                            await cli_ws.send_text(json.dumps(interrupt_msg))
-                        except Exception:
-                            logger.error("Failed to send interrupt to CLI")
+                    case "interrupt":
+                        if state.cli_ws is not None:
+                            interrupt_msg = {
+                                "type": "control_request",
+                                "request_id": str(uuid.uuid4()),
+                                "request": {"subtype": "interrupt"},
+                            }
+                            try:
+                                await state.cli_ws.send_text(json.dumps(interrupt_msg))
+                            except WebSocketDisconnect:
+                                logger.error("CLI disconnected while sending interrupt")
 
         except WebSocketDisconnect:
             logger.info("Browser disconnected")
-        except Exception as e:
-            logger.error("Browser WebSocket error: {}", e)
         finally:
-            state["browser_ws"] = None
+            state.browser_ws = None
 
     @app.get("/api/status")
     async def get_status() -> dict[str, Any]:
         """Return the current session status."""
         return {
-            "cli_connected": state["cli_ws"] is not None,
-            "browser_connected": state["browser_ws"] is not None,
-            "session_id": state.get("session_id"),
-            "is_initialized": state["is_initialized"],
-            "message_count": len(state["messages"]),
+            "cli_connected": state.cli_ws is not None,
+            "browser_connected": state.browser_ws is not None,
+            "session_id": state.session_id,
+            "is_initialized": state.is_initialized,
+            "message_count": len(state.messages),
         }
 
     @app.get("/{path:path}")
@@ -210,7 +238,12 @@ def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
                 content="Frontend not found. Run 'npm run build' in frontend/",
             )
 
-        file_path = frontend_dir / path
+        file_path = (frontend_dir / path).resolve()
+
+        # Validate resolved path stays within frontend directory
+        if not file_path.is_relative_to(frontend_dir.resolve()):
+            return Response(status_code=403, content="Forbidden")
+
         if not file_path.exists() or not file_path.is_file():
             # SPA fallback
             file_path = frontend_dir / "index.html"
@@ -234,11 +267,11 @@ def create_app(port: HttpPort, work_dir: str | None = None) -> FastAPI:
 
 
 async def _start_claude_session(
-    state: dict[str, Any],
+    state: SessionState,
     port: HttpPort,
     prompt: str,
     model: str | None,
-    work_dir: str | None,
+    work_dir: Path | None,
 ) -> None:
     """Start a Claude Code subprocess with --sdk-url pointing to our server."""
     sdk_url = f"ws://localhost:{port}/ws/cli"
@@ -253,7 +286,6 @@ async def _start_claude_session(
         "--input-format",
         "stream-json",
         "--verbose",
-        "--dangerously-skip-permissions",
     ]
 
     if model:
@@ -264,70 +296,47 @@ async def _start_claude_session(
 
     logger.info("Starting Claude Code: {}", " ".join(cmd))
 
-    # Reset session state
-    state["messages"] = []
-    state["metadata"] = None
-    state["is_initialized"] = False
-    state["session_id"] = None
-
-    # Kill existing process if any
-    existing = state.get("cli_process")
-    if existing is not None and existing.poll() is None:
-        existing.terminate()
-        try:
-            existing.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            existing.kill()
+    # Reset session state and terminate any existing process
+    state.reset()
+    state.terminate_cli_process()
 
     # Start the subprocess
     process = subprocess.Popen(
         cmd,
-        cwd=work_dir,
+        cwd=str(work_dir) if work_dir else None,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    state["cli_process"] = process
+    state.cli_process = process
 
     # Wait for CLI to connect (with timeout)
     for _ in range(50):
-        if state.get("cli_ws") is not None:
+        if state.cli_ws is not None:
             break
         await asyncio.sleep(0.1)
 
-    if state.get("cli_ws") is None:
+    if state.cli_ws is None:
         logger.warning("Claude CLI did not connect within 5 seconds")
-        browser_ws = state.get("browser_ws")
-        if browser_ws is not None:
-            await browser_ws.send_text(
+        if state.browser_ws is not None:
+            await state.browser_ws.send_text(
                 json.dumps({"type": "error", "error": "Claude CLI failed to connect. Is 'claude' installed?"})
             )
         return
 
     # Wait for initialization
     for _ in range(50):
-        if state.get("is_initialized"):
+        if state.is_initialized:
             break
         await asyncio.sleep(0.1)
 
     # Send the actual user message
-    cli_ws = state.get("cli_ws")
-    if cli_ws is not None and prompt:
-        user_msg = {
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": prompt,
-            },
-            "session_id": state.get("session_id", ""),
-            "uuid": str(uuid.uuid4()),
-        }
-        await cli_ws.send_text(json.dumps(user_msg))
+    if state.cli_ws is not None and prompt:
+        user_msg = _build_user_message(prompt, state.session_id or "")
+        await state.cli_ws.send_text(json.dumps(user_msg))
         logger.info("Sent initial prompt to Claude CLI")
 
 
-def run_server(port: HttpPort, work_dir: str | None = None) -> None:
+def run_server(port: HttpPort, work_dir: Path | None = None) -> None:
     """Run the server (blocking)."""
-    import uvicorn
-
     app = create_app(port, work_dir)
     uvicorn.run(app, host="127.0.0.1", port=int(port))

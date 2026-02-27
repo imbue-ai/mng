@@ -1,4 +1,7 @@
+import pytest
+
 from imbue.mng.config.data_types import AgentTypeConfig
+from imbue.mng.errors import ConfigParseError
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_http.plugin import ClaudeHttpAgentConfig
 from imbue.mng_claude_http.plugin import register_agent_type
@@ -33,11 +36,8 @@ class TestClaudeHttpAgentConfig:
     def test_merge_with_wrong_type_raises(self) -> None:
         base = ClaudeHttpAgentConfig()
         override = AgentTypeConfig()
-        try:
+        with pytest.raises(ConfigParseError, match="Cannot merge"):
             base.merge_with(override)
-            assert False, "Should have raised ConfigParseError"
-        except Exception as e:
-            assert "Cannot merge" in str(e)
 
 
 class TestRegisterAgentType:

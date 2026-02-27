@@ -1,7 +1,6 @@
 import pytest
 
 from imbue.mng_claude_http.primitives import HttpPort
-from imbue.mng_claude_http.primitives import WebSocketUrl
 
 
 class TestHttpPort:
@@ -28,13 +27,3 @@ class TestHttpPort:
     def test_too_large_port_raises(self) -> None:
         with pytest.raises(ValueError, match="Port must be between"):
             HttpPort(65536)
-
-
-class TestWebSocketUrl:
-    def test_valid_url(self) -> None:
-        url = WebSocketUrl("ws://localhost:8080")
-        assert url == "ws://localhost:8080"
-
-    def test_empty_raises(self) -> None:
-        with pytest.raises(ValueError):
-            WebSocketUrl("")

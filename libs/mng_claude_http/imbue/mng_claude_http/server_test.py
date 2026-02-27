@@ -4,6 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imbue.mng_claude_http.primitives import HttpPort
+from imbue.mng_claude_http.server import SessionState
+from imbue.mng_claude_http.server import _build_user_message
 from imbue.mng_claude_http.server import _get_frontend_dist_dir
 from imbue.mng_claude_http.server import create_app
 
@@ -13,6 +15,50 @@ def app() -> "TestClient":
     """Create a test client for the FastAPI app."""
     fastapi_app = create_app(HttpPort(3457))
     return TestClient(fastapi_app)
+
+
+class TestSessionState:
+    def test_initial_state(self) -> None:
+        state = SessionState()
+        assert state.cli_ws is None
+        assert state.browser_ws is None
+        assert state.cli_process is None
+        assert state.session_id is None
+        assert state.messages == []
+        assert state.metadata is None
+        assert state.is_initialized is False
+
+    def test_reset(self) -> None:
+        state = SessionState()
+        state.session_id = "test-123"
+        state.messages = [{"type": "assistant"}]
+        state.metadata = {"model": "test"}
+        state.is_initialized = True
+        state.reset()
+        assert state.session_id is None
+        assert state.messages == []
+        assert state.metadata is None
+        assert state.is_initialized is False
+
+    def test_terminate_cli_process_when_none(self) -> None:
+        state = SessionState()
+        # Should not raise when no process exists
+        state.terminate_cli_process()
+
+
+class TestBuildUserMessage:
+    def test_builds_correct_structure(self) -> None:
+        msg = _build_user_message("Hello world", "session-123")
+        assert msg["type"] == "user"
+        assert msg["message"]["role"] == "user"
+        assert msg["message"]["content"] == "Hello world"
+        assert msg["session_id"] == "session-123"
+        assert "uuid" in msg
+
+    def test_unique_uuids(self) -> None:
+        msg1 = _build_user_message("Hello", "s1")
+        msg2 = _build_user_message("Hello", "s1")
+        assert msg1["uuid"] != msg2["uuid"]
 
 
 class TestStatusEndpoint:
@@ -50,14 +96,12 @@ class TestStaticFileServing:
             pytest.skip("Frontend not built")
         response = app.get("/")
         assert response.status_code == 200
-        # The WS URL should be injected (replacing __WS_URL__)
         assert b"ws://localhost:3457/ws/browser" in response.content
 
 
 class TestBrowserWebSocket:
     def test_browser_websocket_connects(self, app: TestClient) -> None:
         with app.websocket_connect("/ws/browser") as ws:
-            # Should receive initial connection state
             raw = ws.receive_text()
             data = json.loads(raw)
             assert data["type"] == "connection_state"
@@ -67,10 +111,7 @@ class TestBrowserWebSocket:
 
     def test_browser_sends_start_session_without_cli(self, app: TestClient) -> None:
         with app.websocket_connect("/ws/browser") as ws:
-            # Receive initial state
             ws.receive_text()
-            # Send start session -- CLI isn't connected so it will try to spawn
-            # and eventually fail, but the message should be accepted
             ws.send_text(
                 json.dumps(
                     {
@@ -86,9 +127,7 @@ class TestBrowserWebSocket:
 
     def test_browser_sends_message_without_session(self, app: TestClient) -> None:
         with app.websocket_connect("/ws/browser") as ws:
-            # Receive initial state
             ws.receive_text()
-            # Send a message without active CLI -- should be silently ignored
             ws.send_text(
                 json.dumps(
                     {
@@ -97,13 +136,12 @@ class TestBrowserWebSocket:
                     }
                 )
             )
-            # No response expected for this case
+            # No response expected -- message is silently ignored without CLI
 
 
 class TestCliWebSocket:
     def test_cli_websocket_connects(self, app: TestClient) -> None:
         with app.websocket_connect("/ws/cli") as ws:
-            # Send an init message like Claude CLI would
             init_msg = {
                 "type": "system",
                 "subtype": "init",
@@ -112,11 +150,9 @@ class TestCliWebSocket:
                 "tools": ["Bash", "Read", "Write"],
             }
             ws.send_text(json.dumps(init_msg))
-            # The server should process the message without error
 
     def test_cli_sends_assistant_message(self, app: TestClient) -> None:
         with app.websocket_connect("/ws/cli") as ws:
-            # Send init
             ws.send_text(
                 json.dumps(
                     {
@@ -128,8 +164,6 @@ class TestCliWebSocket:
                     }
                 )
             )
-
-            # Send assistant message
             ws.send_text(
                 json.dumps(
                     {
@@ -146,23 +180,18 @@ class TestCliWebSocket:
                     }
                 )
             )
-            # The server should store this message
 
 
 class TestCliBrowserBridge:
     def test_cli_messages_forwarded_to_browser(self, app: TestClient) -> None:
         """When both CLI and browser are connected, CLI messages should be forwarded."""
-        # Connect CLI first
         with app.websocket_connect("/ws/cli") as cli_ws:
-            # Connect browser
             with app.websocket_connect("/ws/browser") as browser_ws:
-                # Browser receives initial state
                 raw = browser_ws.receive_text()
                 data = json.loads(raw)
                 assert data["type"] == "connection_state"
-                assert data["cli_connected"] is True  # CLI is already connected
+                assert data["cli_connected"] is True
 
-                # CLI sends an init message
                 init_msg = {
                     "type": "system",
                     "subtype": "init",
@@ -172,19 +201,16 @@ class TestCliBrowserBridge:
                 }
                 cli_ws.send_text(json.dumps(init_msg))
 
-                # Browser should receive the forwarded message
                 raw = browser_ws.receive_text()
                 forwarded = json.loads(raw)
                 assert forwarded["type"] == "system"
                 assert forwarded["subtype"] == "init"
 
     def test_api_status_reflects_connections(self, app: TestClient) -> None:
-        # Initially no connections
         response = app.get("/api/status")
         assert response.json()["cli_connected"] is False
 
-        # Connect CLI
-        with app.websocket_connect("/ws/cli") as _cli_ws:
+        with app.websocket_connect("/ws/cli"):
             response = app.get("/api/status")
             assert response.json()["cli_connected"] is True
 
@@ -192,7 +218,6 @@ class TestCliBrowserBridge:
 class TestGetFrontendDistDir:
     def test_returns_path_or_none(self) -> None:
         result = _get_frontend_dist_dir()
-        # Should return the frontend-dist path since we built it
         if result is not None:
             assert result.is_dir()
             assert (result / "index.html").exists()
