@@ -10,6 +10,9 @@ dependencies = [
     "click>=8.0.0",
 ]
 
+[tool.uv.sources]
+imbue-common = { workspace = true }
+
 [tool.uv.workspace]
 members = ["libs/*", "apps/*"]
 
@@ -25,7 +28,9 @@ dev = [
     "pytest-profiling",
     "line-profiler",
     "import-linter>=2.0",
-    "mkdocs-click>=0.9.0",
+    "semver>=3.0",
+    "tomlkit>=0.12.0",
+    "imbue-common[dev]",
 ]
 
 # Shared pytest settings (markers, filterwarnings, coverage report config)
@@ -38,6 +43,8 @@ dev = [
 # --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
 # if it fires during fixture setup/teardown (especially the session-scoped cleanup).
 timeout_func_only = true
+# Use xunit1 format to enable record_xml_attribute fixture for consistent classnames
+junit_family = "xunit1"
 pythonpath = [
   "apps/*",
   "libs/*",
@@ -49,9 +56,13 @@ testpaths = [
 ]
 addopts = [
   "-n 4",
-  "--cov=imbue.mngr",
+  "--cov=imbue.mng",
   "--cov=imbue.imbue_common",
-  "--cov=imbue.mngr_opencode",
+  "--cov=imbue.mng_opencode",
+  "--cov=imbue.mng_pair",
+  "--cov=imbue.mng_schedule",
+  "--cov=imbue.mng_ttyd",
+  "--cov=imbue.mng_tutor",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -95,7 +106,7 @@ order-by-type = false
 known-first-party = [
     "imbue",
     "imbue_common",
-    "mngr",
+    "mng",
     "sculptor_desktop",
 ]
 
@@ -108,10 +119,13 @@ format-command="uv run ruff format --force-exclude --config pyproject.toml --std
 [tool.ty.src]
 exclude = ["scripts/style_guide.py", "contrib/"]
 
+[tool.ty.environment]
+extra-paths = ["scripts"]
+
 [tool.coverage.run]
 source = ["imbue"]
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["multiprocessing", "thread"]
 omit = [
     "*_test.py",
     "test_*.py",
@@ -121,11 +135,20 @@ omit = [
     "*/utils/testing.py",
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
-    "libs/mngr/imbue/mngr/providers/modal/*",
+    "libs/mng/imbue/mng/providers/modal/*",
+    # Docker provider requires a Docker daemon for testing
+    "libs/mng/imbue/mng/providers/docker/instance.py",
+    "libs/mng/imbue/mng/providers/docker/volume.py",
     # Changeling deploy modules run on Modal and require infrastructure to test
     "apps/changelings/imbue/changelings/deploy/cron_runner.py",
     "apps/changelings/imbue/changelings/deploy/remote_runner.py",
     "apps/changelings/imbue/changelings/deploy/verification.py",
+    # Schedule plugin cron runner and verification run on Modal and require infrastructure to test
+    "libs/mng_schedule/imbue/mng_schedule/implementations/modal/cron_runner.py",
+    "libs/mng_schedule/imbue/mng_schedule/implementations/modal/verification.py",
+    # Tutor TUI is interactive and should not have automated tests
+    "libs/mng_tutor/imbue/mng_tutor/tui.py",
+    "libs/mng_tutor/imbue/mng_tutor/cli.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
@@ -134,39 +157,42 @@ omit = [
 root_package = "imbue"
 
 [[tool.importlinter.contracts]]
-name = "mngr layers contract"
+name = "mng layers contract"
 type = "layers"
 layers = [
-    "imbue.mngr.main",
-    "imbue.mngr.cli",
-    "imbue.mngr.api",
-    "imbue.mngr.agents",
-    "imbue.mngr.providers",
-    "imbue.mngr.hosts",
-    "imbue.mngr.interfaces",
-    "imbue.mngr.config",
-    "imbue.mngr.utils",
-    "imbue.mngr.errors",
-    "imbue.mngr.primitives",
+    "imbue.mng.main",
+    "imbue.mng.cli",
+    "imbue.mng.api",
+    "imbue.mng.agents",
+    "imbue.mng.providers",
+    "imbue.mng.hosts",
+    "imbue.mng.interfaces",
+    "imbue.mng.config",
+    "imbue.mng.utils",
+    "imbue.mng.errors",
+    "imbue.mng.primitives",
 ]
 ignore_imports = [
-    "imbue.mngr.hosts.test_host -> imbue.mngr.providers.local.instance",
-    "imbue.mngr.cli.test_create -> imbue.mngr.main",
-    "imbue.mngr.utils.logging_test -> imbue.mngr.config.data_types",
-    "imbue.mngr.utils.testing -> imbue.mngr.providers.local.instance",
-    "imbue.mngr.utils.testing -> imbue.mngr.config.data_types",
+    "imbue.mng.hosts.test_host -> imbue.mng.providers.local.instance",
+    "imbue.mng.cli.test_create -> imbue.mng.main",
+    "imbue.mng.utils.logging_test -> imbue.mng.config.data_types",
+    "imbue.mng.utils.testing -> imbue.mng.providers.local.instance",
+    "imbue.mng.utils.testing -> imbue.mng.config.data_types",
 ]
 
 [[tool.importlinter.contracts]]
 name = "changelings layers contract"
 type = "layers"
 layers = [
-    "imbue.changelings.main",
+    "imbue.changelings.desktop_client",
     "imbue.changelings.cli",
-    "imbue.changelings.deploy",
+    "imbue.changelings.deployment",
+    "imbue.changelings.forwarding_server",
+    "imbue.changelings.core",
+    "imbue.changelings.interfaces",
     "imbue.changelings.config",
-    "imbue.changelings.mngr_commands",
-    "imbue.changelings.data_types",
     "imbue.changelings.errors",
+    "imbue.changelings.data_types",
+    "imbue.changelings.utils",
     "imbue.changelings.primitives",
 ]

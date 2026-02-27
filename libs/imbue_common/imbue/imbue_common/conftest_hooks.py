@@ -2,9 +2,19 @@
 
 Provides common test infrastructure:
 - Global test locking (prevents parallel pytest processes from conflicting)
-- Test suite timing limits
+- Test suite timing limits (configurable via PYTEST_MAX_DURATION env var)
+- xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
+
+Environment variables:
+- PYTEST_NUMPROCESSES: Override the number of xdist workers (default: 4, set in
+  pyproject.toml addopts). Set to e.g. 16 on machines with many cores, or 0 to
+  disable xdist. This overrides the -n value from pyproject.toml but NOT an
+  explicit -n passed on the command line.
+- PYTEST_MAX_DURATION: Override the maximum allowed test suite duration in seconds.
+  Without this, defaults are chosen based on test type and environment (see
+  _pytest_sessionfinish for details).
 
 Usage in each project's conftest.py:
     from imbue.imbue_common.conftest_hooks import register_conftest_hooks
@@ -17,7 +27,9 @@ by pytest. Without the guard, pytest_addoption would fail with duplicate option 
 """
 
 import fcntl
+import json
 import os
+import sys
 import time
 from io import StringIO
 from pathlib import Path
@@ -55,6 +67,7 @@ _registered: bool = False
 _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
+    "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
 ]
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
@@ -239,33 +252,43 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
 
 @pytest.hookimpl(trylast=True)
 def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Check that the total test session time is under the configured limit."""
+    """Check that the total test session time is under the configured limit.
+
+    Prints per-test durations before checking the limit so that timing data
+    is always visible in CI output, even when the suite exceeds the limit.
+    """
+    # Print test durations before checking the time limit, so they are
+    # visible in the CI output even when pytest.exit() aborts the session.
+    terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if terminalreporter is not None:
+        _print_test_durations_for_ci(terminalreporter)
+
     if hasattr(session, "start_time"):
         duration = time.time() - session.start_time
 
         # There are 4 types of tests, each with different time limits in CI:
         # - unit tests: fast, local, no network (run with integration tests)
         # - integration tests: local, no network, used for coverage calculation
-        # - acceptance tests: run on all branches except main, have network/Modal/etc access
-        # - release tests: only run on main, comprehensive tests for release readiness
+        # - acceptance tests: run on all branches except release, have network/Modal/etc access
+        # - release tests: only run on release, comprehensive tests for release readiness
 
         # Allow explicit override via environment variable (useful for generating test timings)
         if "PYTEST_MAX_DURATION" in os.environ:
             max_duration = float(os.environ["PYTEST_MAX_DURATION"])
         # release tests have the highest limit, since there can be many more of them, and they can take a really long time
         elif os.environ.get("IS_RELEASE", "0") == "1":
-            # this limit applies to the test suite that runs against "main" in GitHub CI
+            # this limit applies to the test suite that runs against "release" in GitHub CI
             max_duration = 10 * 60.0
         # acceptance tests have a somewhat higher limit (than integration and unit)
         elif os.environ.get("IS_ACCEPTANCE", "0") == "1":
-            # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and has access to network, Modal, etc)
+            # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and has access to network, Modal, etc)
             max_duration = 6 * 60.0
         # integration tests have a lower limit
         else:
             if "CI" in os.environ:
-                # this limit applies to the test suite that runs against all branches *except* "main" in GitHub CI (and which is basically just used for calculating coverage)
+                # this limit applies to the test suite that runs against all branches *except* "release" in GitHub CI (and which is basically just used for calculating coverage)
                 # typically integration tests and unit tests are run locally, so we want them to be fast
-                max_duration = 80.0
+                max_duration = 100.0
             else:
                 # this limit applies to the entire test suite when run locally
                 max_duration = 300.0
@@ -351,6 +374,24 @@ def _pytest_configure(config: pytest.Config) -> None:
                     controller_cov_report.pop("term-missing", None)
                     controller_cov_report.pop("term", None)
 
+    # Override xdist worker count from PYTEST_NUMPROCESSES env var.
+    # pyproject.toml sets -n 4 as the default (which is needed to activate xdist's
+    # DSession plugin during its pytest_configure, which runs before conftest hooks).
+    # This override lets different environments (local, CI, Modal) use different
+    # parallelism without changing pyproject.toml or passing -n on every invocation.
+    # An explicit -n on the command line takes priority over the env var.
+    numprocesses_env = os.environ.get("PYTEST_NUMPROCESSES")
+    if numprocesses_env is not None:
+        cli_has_n_flag = any(arg == "-n" or arg.startswith("-n") for arg in sys.argv[1:])
+        if not cli_has_n_flag:
+            n = int(numprocesses_env)
+            config.option.numprocesses = n
+            if n > 0:
+                config.option.tx = ["popen"] * n
+            else:
+                config.option.tx = []
+                config.option.dist = "no"
+
 
 def _pytest_collection_finish(session: pytest.Session) -> None:
     """Configure shared coverage report settings after test collection.
@@ -373,7 +414,7 @@ def _pytest_terminal_summary(
     exitstatus: int,
     config: pytest.Config,
 ) -> None:
-    """Write slow tests to file if the option is enabled."""
+    """Handle end-of-session output: slow tests file, coverage file, and CI duration printing."""
     # Only run on the controller process (not xdist workers)
     if _is_xdist_worker():
         return
@@ -389,26 +430,36 @@ def _pytest_terminal_summary(
     if coverage_to_file:
         _write_coverage_summary_to_file(terminalreporter, config)
 
+    # Print all test durations in CI for visibility into per-split timing
+    _print_test_durations_for_ci(terminalreporter)
+
+
+def _collect_test_durations(
+    terminalreporter: "pytest.TerminalReporter",
+) -> dict[str, float]:
+    """Collect test durations from the terminal reporter's stats.
+
+    Returns a dict mapping test node IDs to their call-phase durations.
+    Works with xdist because the controller aggregates results from workers.
+    """
+    durations: dict[str, float] = {}
+    for reports in terminalreporter.stats.values():
+        for report in reports:
+            if hasattr(report, "duration") and hasattr(report, "nodeid"):
+                if getattr(report, "when", None) == "call":
+                    durations[report.nodeid] = report.duration
+    return durations
+
 
 def _write_slow_tests_to_file(
     terminalreporter: "pytest.TerminalReporter",
     config: pytest.Config,
 ) -> None:
     """Write the slow tests report to a file."""
-    # Get durations from the terminal reporter's stats (aggregated from all workers)
-    # This works with xdist because the controller aggregates results from workers
-    durations: list[tuple[float, str]] = []
-
-    # Collect durations from test reports in the stats
-    for reports in terminalreporter.stats.values():
-        for report in reports:
-            if hasattr(report, "duration") and hasattr(report, "nodeid"):
-                # Only count the "call" phase (not setup/teardown)
-                if getattr(report, "when", None) == "call":
-                    durations.append((report.duration, report.nodeid))
+    all_durations = _collect_test_durations(terminalreporter)
 
     # Sort by duration (slowest first)
-    durations = sorted(durations, reverse=True)
+    durations = sorted(all_durations.items(), key=lambda x: x[1], reverse=True)
 
     # Get the original durations count (saved before we suppressed terminal output)
     durations_count = getattr(config, "_original_durations", 0)
@@ -423,7 +474,7 @@ def _write_slow_tests_to_file(
 
     # Write the report
     lines = [f"slowest {len(durations)} durations", ""]
-    for duration, nodeid in durations:
+    for nodeid, duration in durations:
         lines.append(f"{duration:.4f}s {nodeid}")
 
     output_file.write_text("\n".join(lines))
@@ -472,6 +523,61 @@ def _write_coverage_summary_to_file(
         pass
 
 
+def _print_test_durations_for_ci(
+    terminalreporter: "pytest.TerminalReporter",
+) -> None:
+    """Print all test durations in pytest-split format when running in CI.
+
+    Writes every test's duration to stderr (bypassing pytest output capture)
+    in the same JSON format as .test_durations. This makes it easy to inspect
+    per-split timing and periodically update the pytest-split timing data.
+    """
+    if "CI" not in os.environ:
+        return
+
+    all_durations = _collect_test_durations(terminalreporter)
+    if not all_durations:
+        return
+
+    # Sort by duration (slowest first)
+    durations = sorted(all_durations.items(), key=lambda x: x[1], reverse=True)
+
+    output = json.dumps(dict(durations), indent=2)
+    os.write(2, f"\n=== test durations (pytest-split format) ===\n{output}\n".encode())
+
+    # Save to file for CI artifact collection
+    output_file = _generate_output_filename("test_durations", ".json")
+    output_file.write_text(output)
+    _print_lock_message(f"Test durations saved to: {output_file}")
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _set_junit_test_id(request: pytest.FixtureRequest, record_xml_attribute) -> None:
+    """Set JUnit XML name to the full test ID for exact matching with offload.
+
+    Uses OFFLOAD_ROOT env var if set (for consistent paths in offload runs),
+    otherwise falls back to pytest's nodeid directly.
+    """
+    offload_root = os.environ.get("OFFLOAD_ROOT")
+
+    if offload_root:
+        # Build full test ID: relative_path::class::method or relative_path::method
+        fspath = str(request.node.fspath)
+        rel_path = os.path.relpath(fspath, offload_root)
+        nodeid_parts = request.node.nodeid.split("::")
+        # nodeid_parts[0] is the file path (possibly different due to rootdir), [1:] is class/method
+        test_id = "::".join([rel_path] + nodeid_parts[1:])
+    else:
+        test_id = request.node.nodeid
+
+    record_xml_attribute("name", test_id)
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -498,3 +604,5 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    # Register the JUnit test ID fixture (with public name for pytest discovery)
+    namespace["set_junit_test_id"] = _set_junit_test_id

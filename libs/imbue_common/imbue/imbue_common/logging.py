@@ -2,10 +2,11 @@ import functools
 import inspect
 import sys
 import time
+from collections.abc import Callable
+from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
-from typing import Callable
-from typing import Iterator
+from typing import Final
 from typing import ParamSpec
 from typing import TypeVar
 
@@ -28,13 +29,15 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+_MAX_LOG_VALUE_REPR_LENGTH: Final[int] = 200
+
+
 @pure
 def _format_arg_value(value: Any) -> str:
     """Format an argument value for logging, truncating if too long."""
     str_value = repr(value)
-    max_len = 200
-    if len(str_value) > max_len:
-        return str_value[: max_len - 3] + "..."
+    if len(str_value) > _MAX_LOG_VALUE_REPR_LENGTH:
+        return str_value[: _MAX_LOG_VALUE_REPR_LENGTH - 3] + "..."
     return str_value
 
 
@@ -95,3 +98,32 @@ def log_span(message: str, *args: Any, **context: Any) -> Iterator[None]:
             elapsed = time.monotonic() - start_time
             done_message = message + " [done in {:.5f} sec]"
             logger.trace(done_message, *args, elapsed)
+
+
+@contextmanager
+def trace_span(message: str, *args: Any, _is_trace_span_enabled: bool = True, **context: Any) -> Iterator[None]:
+    """Context manager that logs a trace message on entry and a trace message with timing on exit.
+
+    On entry, emits logger.trace(message, *args).
+    On exit, emits logger.trace(message + " [done in X.XXXXX sec]", *args, elapsed).
+
+    Keyword arguments are passed to logger.contextualize so that all log messages
+    within the span include the extra context fields.
+    """
+    if not _is_trace_span_enabled:
+        yield
+    else:
+        with logger.contextualize(**context):
+            logger.trace(message, *args)
+            start_time = time.monotonic()
+            try:
+                yield
+            except BaseException:
+                elapsed = time.monotonic() - start_time
+                failed_message = message + " [failed after {:.5f} sec]"
+                logger.trace(failed_message, *args, elapsed)
+                raise
+            else:
+                elapsed = time.monotonic() - start_time
+                done_message = message + " [done in {:.5f} sec]"
+                logger.trace(done_message, *args, elapsed)

@@ -284,6 +284,11 @@ def test_error_from_nested_group_in_another_thread_gets_properly_propagated() ->
     assert isinstance(exception_info.value.exceptions[0].exceptions[0], ZeroDivisionError)
 
 
+def _large_sleep_and_return_1() -> int:
+    wait_interval(LARGE_SLEEP)
+    return 1
+
+
 def _create_two_nested_concurrency_groups_that_expect_parent_failure(
     concurrency_group: ConcurrencyGroup, closure: dict, setup_done_event: Event
 ) -> None:
@@ -291,8 +296,12 @@ def _create_two_nested_concurrency_groups_that_expect_parent_failure(
         with concurrency_group.make_concurrency_group(name="middle") as cg_middle:
             try:
                 with cg_middle.make_concurrency_group(name="inner") as cg_inner:
+                    # Use a longer sleep to guarantee the inner thread is still running
+                    # when the outer CG times out (exit_timeout_seconds=TINY_SLEEP).
+                    # Previously used _small_sleep_and_return_1 (0.05s) which was
+                    # close enough to the timeout to cause a race condition in CI.
                     thread = cg_inner.start_new_thread(
-                        target=lambda: closure.update({"i": _small_sleep_and_return_1()})
+                        target=lambda: closure.update({"i": _large_sleep_and_return_1()})
                     )
                     setup_done_event.set()
                     thread.join()
@@ -319,7 +328,7 @@ def test_parent_failures_propagate_recursively() -> None:
                 target=_create_two_nested_concurrency_groups_that_expect_parent_failure,
                 args=(cg_outer, closure, setup_done_event),
             )
-            setup_done_event.wait(timeout=SMALL_SLEEP)
+            setup_done_event.wait(timeout=LARGE_SLEEP)
     assert outer_thread is not None
     outer_thread.join()
     assert closure["i"] == 2
