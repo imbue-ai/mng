@@ -287,6 +287,12 @@ export function useClaudeSession() {
           return;
         }
 
+        if (data.type === "cli_disconnected") {
+          setStatus("connected");
+          setIsProcessing(false);
+          return;
+        }
+
         if (data.type === "error") {
           setError(data.error);
           return;

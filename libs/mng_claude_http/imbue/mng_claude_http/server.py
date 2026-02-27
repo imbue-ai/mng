@@ -4,8 +4,6 @@ import mimetypes
 import subprocess
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
-from dataclasses import field
 from pathlib import Path
 from typing import Any
 from typing import AsyncGenerator
@@ -23,17 +21,17 @@ _DEFAULT_CLI_CONNECT_TIMEOUT_SECONDS: float = 5.0
 _CLI_CONNECT_POLL_INTERVAL_SECONDS: float = 0.1
 
 
-@dataclass
 class SessionState:
     """Typed mutable state for the active Claude session."""
 
-    cli_ws: WebSocket | None = None
-    browser_ws: WebSocket | None = None
-    cli_process: subprocess.Popen[bytes] | None = None
-    session_id: str | None = None
-    messages: list[dict[str, Any]] = field(default_factory=list)
-    metadata: dict[str, Any] | None = None
-    is_initialized: bool = False
+    def __init__(self) -> None:
+        self.cli_ws: WebSocket | None = None
+        self.browser_ws: WebSocket | None = None
+        self.cli_process: subprocess.Popen[bytes] | None = None
+        self.session_id: str | None = None
+        self.messages: list[dict[str, Any]] = []
+        self.metadata: dict[str, Any] | None = None
+        self.is_initialized: bool = False
 
     def reset(self) -> None:
         """Reset session state for a new session."""
@@ -151,6 +149,12 @@ def create_app(
             logger.info("Claude CLI disconnected")
         finally:
             state.cli_ws = None
+            # Notify browser that CLI has disconnected
+            if state.browser_ws is not None:
+                try:
+                    await state.browser_ws.send_text(json.dumps({"type": "cli_disconnected"}))
+                except WebSocketDisconnect:
+                    pass
 
     @app.websocket("/ws/browser")
     async def browser_websocket(websocket: WebSocket) -> None:
