@@ -61,10 +61,19 @@ def _read_agent_names() -> list[str]:
         return []
 
 
-def _trigger_background_refresh() -> None:
+_DEFAULT_REFRESH_COMMAND: list[str] = [
+    sys.executable,
+    "-c",
+    "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])",
+]
+
+
+def _trigger_background_refresh(command: list[str] | None = None) -> None:
     """Fire-and-forget a background process to refresh the completion cache.
 
     Checks the agent cache age and spawns a detached subprocess if stale.
+    The command parameter allows tests to provide a fast alternative to the
+    default mng list command.
     """
     try:
         cache_path = _get_completion_cache_dir() / _AGENT_COMPLETIONS_CACHE_FILENAME
@@ -75,7 +84,7 @@ def _trigger_background_refresh() -> None:
 
         devnull = subprocess.DEVNULL
         subprocess.Popen(
-            [sys.executable, "-c", "from imbue.mng.main import cli; cli(['list', '--format', 'json', '-q'])"],
+            command if command is not None else _DEFAULT_REFRESH_COMMAND,
             stdout=devnull,
             stderr=devnull,
             start_new_session=True,
