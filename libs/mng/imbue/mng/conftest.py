@@ -177,6 +177,19 @@ def _isolate_tmux_server(
     # find the current server, overriding TMUX_TMPDIR.
     monkeypatch.delenv("TMUX", raising=False)
 
+    # Pre-start the tmux server by creating a dummy session. This avoids a
+    # race condition where the first `tmux new-session` in a test can fail
+    # with "no server running" or "server exited unexpectedly" if the server
+    # hasn't fully initialized before subsequent tmux commands are issued.
+    warmup_env = os.environ.copy()
+    warmup_env.pop("TMUX", None)
+    warmup_env["TMUX_TMPDIR"] = str(tmux_tmpdir)
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "_warmup"],
+        capture_output=True,
+        env=warmup_env,
+    )
+
     yield
 
     # Kill the test's isolated tmux server to clean up any leaked sessions
@@ -467,7 +480,7 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
 
     cg = ConcurrencyGroup(name="isolated-venv-setup")
     with cg:
-        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        cg.run_process_to_completion(("uv", "venv", str(venv_dir), "--python", sys.executable))
         cg.run_process_to_completion(
             ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
         )

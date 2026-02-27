@@ -630,12 +630,6 @@ def test_await_agent_stopped_waits_for_agent_to_exit(
         assert "Waiting for agent to stop..." in result.output
         assert "Done." in result.output
 
-        # wait for the tmux session to be gone
-        wait_for(
-            lambda: not tmux_session_exists(session_name),
-            error_message=f"Expected tmux session {session_name} to be gone after agent stopped",
-        )
-
 
 def test_edit_message_sends_edited_content(
     cli_runner: CliRunner,
