@@ -10,11 +10,11 @@ from imbue.mng.cli.create import create
 from imbue.mng.cli.provision import provision
 from imbue.mng.cli.stop import stop
 from imbue.mng.conftest import ModalSubprocessTestEnv
-from imbue.mng.test_support.testing import create_test_agent_via_cli
-from imbue.mng.test_support.testing import get_short_random_string
-from imbue.mng.test_support.testing import run_mng_subprocess
-from imbue.mng.test_support.testing import tmux_session_cleanup
-from imbue.mng.test_support.testing import tmux_session_exists
+from imbue.mng.testing.testing import create_test_agent_via_cli
+from imbue.mng.testing.testing import get_short_random_string
+from imbue.mng.testing.testing import run_mng_subprocess
+from imbue.mng.testing.testing import tmux_session_cleanup
+from imbue.mng.testing.testing import tmux_session_exists
 
 
 def test_provision_existing_agent(

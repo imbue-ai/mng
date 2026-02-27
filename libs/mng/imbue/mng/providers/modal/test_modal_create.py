@@ -19,7 +19,7 @@ import pytest
 
 from imbue.mng import resources
 from imbue.mng.conftest import ModalSubprocessTestEnv
-from imbue.mng.test_support.testing import get_short_random_string
+from imbue.mng.testing.testing import get_short_random_string
 
 
 @pytest.fixture

@@ -32,8 +32,8 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.test_support.testing import create_test_agent_via_cli
-from imbue.mng.test_support.testing import tmux_session_cleanup
+from imbue.mng.testing.testing import create_test_agent_via_cli
+from imbue.mng.testing.testing import tmux_session_cleanup
 from imbue.mng.utils.cel_utils import compile_cel_filters
 
 # =============================================================================

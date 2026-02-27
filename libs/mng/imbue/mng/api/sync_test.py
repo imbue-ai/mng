@@ -17,8 +17,8 @@ from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import SyncMode
-from imbue.mng.test_support.testing import init_git_repo_with_config
-from imbue.mng.test_support.testing import run_git_command
+from imbue.mng.testing.testing import init_git_repo_with_config
+from imbue.mng.testing.testing import run_git_command
 
 # =============================================================================
 # SyncMode enum tests

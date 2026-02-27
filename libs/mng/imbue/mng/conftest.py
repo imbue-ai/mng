@@ -31,15 +31,15 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.backend import ModalProviderBackend
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
-from imbue.mng.test_support.testing import assert_home_is_temp_directory
-from imbue.mng.test_support.testing import cleanup_tmux_session
-from imbue.mng.test_support.testing import delete_modal_apps_in_environment
-from imbue.mng.test_support.testing import delete_modal_environment
-from imbue.mng.test_support.testing import delete_modal_volumes_in_environment
-from imbue.mng.test_support.testing import generate_test_environment_name
-from imbue.mng.test_support.testing import get_subprocess_test_env
-from imbue.mng.test_support.testing import init_git_repo
-from imbue.mng.test_support.testing import isolate_home
+from imbue.mng.testing.testing import assert_home_is_temp_directory
+from imbue.mng.testing.testing import cleanup_tmux_session
+from imbue.mng.testing.testing import delete_modal_apps_in_environment
+from imbue.mng.testing.testing import delete_modal_environment
+from imbue.mng.testing.testing import delete_modal_volumes_in_environment
+from imbue.mng.testing.testing import generate_test_environment_name
+from imbue.mng.testing.testing import get_subprocess_test_env
+from imbue.mng.testing.testing import init_git_repo
+from imbue.mng.testing.testing import isolate_home
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
