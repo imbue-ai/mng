@@ -1,5 +1,4 @@
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -16,6 +15,7 @@ from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.primitives import GitUrl
+from imbue.changelings.testing import init_and_commit_git_repo
 from imbue.mng.primitives import AgentId
 
 
@@ -119,52 +119,21 @@ def test_git_clone_error_is_changeling_error() -> None:
     assert isinstance(err, ChangelingError)
 
 
-def _init_git_repo(repo_dir: Path, tmp_path: Path) -> None:
-    """Initialize a git repo with an initial commit."""
-    repo_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "init"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
-    )
-
-
 def test_clone_git_repo_clones_local_repo(tmp_path: Path) -> None:
-    """Verify that clone_git_repo clones a local git repo."""
+    """Verify that clone_git_repo clones a local git repo into the given parent_dir."""
     repo_dir = tmp_path / "source-repo"
-    _init_git_repo(repo_dir, tmp_path)
+    repo_dir.mkdir()
     (repo_dir / "hello.txt").write_text("hello")
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "add file"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
-    )
+    init_and_commit_git_repo(repo_dir, tmp_path)
 
-    clone_dir = clone_git_repo(GitUrl(str(repo_dir)))
+    clone_parent = tmp_path / "clone-parent"
+    clone_parent.mkdir()
+    result = clone_git_repo(GitUrl(str(repo_dir)), parent_dir=clone_parent)
 
-    assert clone_dir.is_dir()
-    assert (clone_dir / "hello.txt").read_text() == "hello"
-    assert (clone_dir / ".git").is_dir()
+    assert result.clone_dir.is_dir()
+    assert (result.clone_dir / "hello.txt").read_text() == "hello"
+    assert (result.clone_dir / ".git").is_dir()
+    assert result.cleanup_dir == clone_parent
 
 
 def test_clone_git_repo_raises_for_invalid_url() -> None:
@@ -173,7 +142,15 @@ def test_clone_git_repo_raises_for_invalid_url() -> None:
         clone_git_repo(GitUrl("/nonexistent/repo/path"))
 
 
-def test_clone_git_repo_cleans_up_on_failure() -> None:
-    """Verify that the temporary directory is cleaned up when cloning fails."""
+def test_clone_git_repo_does_not_clean_caller_dir_on_failure(tmp_path: Path) -> None:
+    """Verify that a caller-provided parent_dir is not removed on clone failure."""
+    parent_dir = tmp_path / "my-parent"
+    parent_dir.mkdir()
+    marker_file = parent_dir / "marker.txt"
+    marker_file.write_text("should survive")
+
     with pytest.raises(GitCloneError):
-        clone_git_repo(GitUrl("/nonexistent/repo/path"))
+        clone_git_repo(GitUrl("/nonexistent/repo/path"), parent_dir=parent_dir)
+
+    assert parent_dir.exists(), "Caller-provided parent_dir should not be cleaned up"
+    assert marker_file.read_text() == "should survive"

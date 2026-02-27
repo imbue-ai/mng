@@ -1,34 +1,20 @@
-import subprocess
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from imbue.changelings.cli.deploy import deploy
 from imbue.changelings.core.zygote import ZYGOTE_CONFIG_FILENAME
+from imbue.changelings.testing import init_and_commit_git_repo
 
 
 def _create_git_zygote_repo(tmp_path: Path) -> Path:
     """Create a minimal git repo with a changeling.toml for testing."""
     repo_dir = tmp_path / "my-agent-repo"
     repo_dir.mkdir()
-    config_file = repo_dir / ZYGOTE_CONFIG_FILENAME
-    config_file.write_text('[changeling]\nname = "test-bot"\ncommand = "python server.py"\nport = 9100\n')
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
+    (repo_dir / ZYGOTE_CONFIG_FILENAME).write_text(
+        '[changeling]\nname = "test-bot"\ncommand = "python server.py"\nport = 9100\n'
     )
+    init_and_commit_git_repo(repo_dir, tmp_path)
     return repo_dir
 
 
@@ -36,24 +22,8 @@ def _create_git_agent_type_repo(tmp_path: Path) -> Path:
     """Create a minimal git repo with an agent_type changeling.toml."""
     repo_dir = tmp_path / "elena-repo"
     repo_dir.mkdir()
-    config_file = repo_dir / ZYGOTE_CONFIG_FILENAME
-    config_file.write_text('[changeling]\nname = "elena-code"\nagent_type = "elena-code"\n')
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
-    )
+    (repo_dir / ZYGOTE_CONFIG_FILENAME).write_text('[changeling]\nname = "elena-code"\nagent_type = "elena-code"\n')
+    init_and_commit_git_repo(repo_dir, tmp_path)
     return repo_dir
 
 
@@ -63,24 +33,10 @@ def _create_git_repo_with_subpath(tmp_path: Path) -> Path:
     repo_dir.mkdir()
     sub_dir = repo_dir / "agents" / "my-agent"
     sub_dir.mkdir(parents=True)
-    config_file = sub_dir / ZYGOTE_CONFIG_FILENAME
-    config_file.write_text('[changeling]\nname = "sub-bot"\ncommand = "python server.py"\nport = 9200\n')
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "init"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
+    (sub_dir / ZYGOTE_CONFIG_FILENAME).write_text(
+        '[changeling]\nname = "sub-bot"\ncommand = "python server.py"\nport = 9200\n'
     )
+    init_and_commit_git_repo(repo_dir, tmp_path)
     return repo_dir
 
 
@@ -95,21 +51,7 @@ def test_deploy_fails_for_invalid_git_url() -> None:
 def test_deploy_fails_when_no_changeling_toml(tmp_path: Path) -> None:
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "--allow-empty", "-m", "init"],
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env={
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@test",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@test",
-            "HOME": str(tmp_path),
-            "PATH": "/usr/bin:/bin:/usr/local/bin",
-        },
-    )
+    init_and_commit_git_repo(repo_dir, tmp_path, allow_empty=True)
 
     runner = CliRunner()
     result = runner.invoke(deploy, [str(repo_dir)])

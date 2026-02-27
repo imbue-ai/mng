@@ -197,20 +197,21 @@ def deploy(
     _write_line("Cloning repository: {}".format(url))
 
     try:
-        clone_dir = clone_git_repo(url)
+        clone_result = clone_git_repo(url)
     except GitCloneError as e:
         raise click.ClickException(str(e)) from e
 
+    clone_dir = clone_result.clone_dir
     zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
 
     if not zygote_dir.is_dir():
-        shutil.rmtree(str(clone_dir.parent), ignore_errors=True)
+        shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
         raise click.ClickException("Subdirectory '{}' not found in cloned repository".format(sub_path))
 
     try:
         zygote_config = load_zygote_config(zygote_dir)
     except ChangelingError as e:
-        shutil.rmtree(str(clone_dir.parent), ignore_errors=True)
+        shutil.rmtree(str(clone_result.cleanup_dir), ignore_errors=True)
         raise click.ClickException(str(e)) from e
 
     _write_line("Deploying changeling from: {}".format(zygote_dir))
