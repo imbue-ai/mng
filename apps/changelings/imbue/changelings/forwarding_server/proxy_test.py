@@ -1,12 +1,12 @@
 from inline_snapshot import snapshot
 
+from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
+from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
+from imbue.changelings.forwarding_server.proxy import generate_websocket_shim_js
+from imbue.changelings.forwarding_server.proxy import rewrite_absolute_paths_in_html
+from imbue.changelings.forwarding_server.proxy import rewrite_cookie_path
+from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.server.proxy import generate_bootstrap_html
-from imbue.changelings.server.proxy import generate_service_worker_js
-from imbue.changelings.server.proxy import generate_websocket_shim_js
-from imbue.changelings.server.proxy import rewrite_absolute_paths_in_html
-from imbue.changelings.server.proxy import rewrite_cookie_path
-from imbue.changelings.server.proxy import rewrite_proxied_html
 
 
 def test_generate_bootstrap_html_contains_service_worker_registration() -> None:

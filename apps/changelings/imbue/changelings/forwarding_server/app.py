@@ -17,20 +17,20 @@ from fastapi.responses import Response
 from loguru import logger
 from websockets import ClientConnection
 
+from imbue.changelings.forwarding_server.auth import AuthStoreInterface
+from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
+from imbue.changelings.forwarding_server.cookie_manager import create_signed_cookie_value
+from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_changeling
+from imbue.changelings.forwarding_server.cookie_manager import verify_signed_cookie_value
+from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
+from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
+from imbue.changelings.forwarding_server.proxy import rewrite_cookie_path
+from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
+from imbue.changelings.forwarding_server.templates import render_auth_error_page
+from imbue.changelings.forwarding_server.templates import render_landing_page
+from imbue.changelings.forwarding_server.templates import render_login_redirect_page
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
-from imbue.changelings.server.auth import AuthStoreInterface
-from imbue.changelings.server.backend_resolver import BackendResolverInterface
-from imbue.changelings.server.cookie_manager import create_signed_cookie_value
-from imbue.changelings.server.cookie_manager import get_cookie_name_for_changeling
-from imbue.changelings.server.cookie_manager import verify_signed_cookie_value
-from imbue.changelings.server.proxy import generate_bootstrap_html
-from imbue.changelings.server.proxy import generate_service_worker_js
-from imbue.changelings.server.proxy import rewrite_cookie_path
-from imbue.changelings.server.proxy import rewrite_proxied_html
-from imbue.changelings.server.templates import render_auth_error_page
-from imbue.changelings.server.templates import render_landing_page
-from imbue.changelings.server.templates import render_login_redirect_page
 
 _PROXY_TIMEOUT_SECONDS: Final[float] = 30.0
 

@@ -24,11 +24,11 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import PlainTextResponse
 from fastapi.responses import Response
 
+from imbue.changelings.forwarding_server.app import create_forwarding_server
+from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
-from imbue.changelings.server.app import create_forwarding_server
-from imbue.changelings.server.auth import FileAuthStore
-from imbue.changelings.server.backend_resolver import StaticBackendResolver
 
 
 def _create_file_browser_backend(browse_dir: str) -> FastAPI:

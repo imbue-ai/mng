@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from imbue.changelings.errors import SigningKeyError
+from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
-from imbue.changelings.server.auth import FileAuthStore
 
 
 def _make_auth_store(tmp_path: Path) -> FileAuthStore:

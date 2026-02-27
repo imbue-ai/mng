@@ -1,10 +1,10 @@
 import pytest
 
+from imbue.changelings.forwarding_server.templates import render_auth_error_page
+from imbue.changelings.forwarding_server.templates import render_landing_page
+from imbue.changelings.forwarding_server.templates import render_login_redirect_page
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
-from imbue.changelings.server.templates import render_auth_error_page
-from imbue.changelings.server.templates import render_landing_page
-from imbue.changelings.server.templates import render_login_redirect_page
 
 
 def test_render_landing_page_with_agents_lists_them_as_links() -> None:

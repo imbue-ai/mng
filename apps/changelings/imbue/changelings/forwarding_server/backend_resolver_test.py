@@ -1,5 +1,5 @@
+from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.primitives import ChangelingName
-from imbue.changelings.server.backend_resolver import StaticBackendResolver
 
 
 def test_get_backend_url_returns_url_for_known_changeling() -> None:

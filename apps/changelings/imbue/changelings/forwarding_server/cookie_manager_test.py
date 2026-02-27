@@ -1,10 +1,10 @@
 from inline_snapshot import snapshot
 
+from imbue.changelings.forwarding_server.cookie_manager import create_signed_cookie_value
+from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_changeling
+from imbue.changelings.forwarding_server.cookie_manager import verify_signed_cookie_value
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CookieSigningKey
-from imbue.changelings.server.cookie_manager import create_signed_cookie_value
-from imbue.changelings.server.cookie_manager import get_cookie_name_for_changeling
-from imbue.changelings.server.cookie_manager import verify_signed_cookie_value
 
 
 def test_get_cookie_name_for_simple_changeling_name() -> None:

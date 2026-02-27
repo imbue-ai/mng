@@ -10,12 +10,12 @@ from fastapi.responses import JSONResponse
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from imbue.changelings.forwarding_server.app import create_forwarding_server
+from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
+from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_changeling
 from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
-from imbue.changelings.server.app import create_forwarding_server
-from imbue.changelings.server.auth import FileAuthStore
-from imbue.changelings.server.backend_resolver import StaticBackendResolver
-from imbue.changelings.server.cookie_manager import get_cookie_name_for_changeling
 
 
 def _create_test_backend() -> FastAPI:

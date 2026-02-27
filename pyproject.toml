@@ -186,7 +186,7 @@ layers = [
     "imbue.changelings.desktop_client",
     "imbue.changelings.cli",
     "imbue.changelings.deployment",
-    "imbue.changelings.server",
+    "imbue.changelings.forwarding_server",
     "imbue.changelings.core",
     "imbue.changelings.interfaces",
     "imbue.changelings.config",

@@ -3,9 +3,9 @@ from typing import Final
 
 import uvicorn
 
-from imbue.changelings.server.app import create_forwarding_server
-from imbue.changelings.server.auth import FileAuthStore
-from imbue.changelings.server.backend_resolver import StaticBackendResolver
+from imbue.changelings.forwarding_server.app import create_forwarding_server
+from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 
 _DEFAULT_HOST: Final[str] = "127.0.0.1"
 
