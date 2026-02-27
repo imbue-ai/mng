@@ -5,22 +5,35 @@ from imbue.mng import hookimpl
 TTYD_WINDOW_NAME = "ttyd"
 TTYD_SERVER_NAME = "ttyd"
 
+
+def build_ttyd_server_command(ttyd_invocation: str, server_name: str) -> str:
+    """Build a shell command that runs ttyd with port detection and server registration.
+
+    Takes a ttyd invocation string (e.g. 'ttyd -p 0 bash') and a server name,
+    and wraps it with a port-watching loop that:
+    1. Pipes ttyd's stderr through a line reader
+    2. Detects the assigned port from the "Listening on port:" message
+    3. Writes a servers.jsonl record for the changelings forwarding server
+    """
+    return (
+        ttyd_invocation + " 2>&1 | "
+        "while IFS= read -r line; do "
+        'echo "$line" >&2; '
+        'if echo "$line" | grep -q "Listening on port:"; then '
+        '_PORT=$(echo "$line" | awk '
+        "'{print $NF}'); "
+        'if [ -n "$MNG_AGENT_STATE_DIR" ] && [ -n "$_PORT" ]; then '
+        'mkdir -p "$MNG_AGENT_STATE_DIR/logs" && '
+        'printf \'{"server":"' + server_name + '","url":"http://127.0.0.1:%s"}\\n\' '
+        '"$_PORT" >> "$MNG_AGENT_STATE_DIR/logs/servers.jsonl"; '
+        "fi; fi; done"
+    )
+
+
 # Bash wrapper that starts ttyd on a random port (-p 0), watches its stderr for
 # the assigned port number, and writes a servers.jsonl record so the changelings
 # forwarding server can discover it. The wrapper stays alive as long as ttyd does.
-TTYD_COMMAND = (
-    "ttyd -p 0 bash 2>&1 | "
-    "while IFS= read -r line; do "
-    'echo "$line" >&2; '
-    'if echo "$line" | grep -q "Listening on port:"; then '
-    '_PORT=$(echo "$line" | awk '
-    "'{print $NF}'); "
-    'if [ -n "$MNG_AGENT_STATE_DIR" ] && [ -n "$_PORT" ]; then '
-    'mkdir -p "$MNG_AGENT_STATE_DIR/logs" && '
-    'printf \'{"server":"' + TTYD_SERVER_NAME + '","url":"http://127.0.0.1:%s"}\\n\' '
-    '"$_PORT" >> "$MNG_AGENT_STATE_DIR/logs/servers.jsonl"; '
-    "fi; fi; done"
-)
+TTYD_COMMAND = build_ttyd_server_command("ttyd -p 0 bash", TTYD_SERVER_NAME)
 
 
 @hookimpl

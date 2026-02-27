@@ -1851,10 +1851,14 @@ version = "0.1.0"
 source = { editable = "libs/mng_claude_zygote" }
 dependencies = [
     { name = "mng" },
+    { name = "mng-ttyd" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mng", editable = "libs/mng" }]
+requires-dist = [
+    { name = "mng", editable = "libs/mng" },
+    { name = "mng-ttyd", editable = "libs/mng_ttyd" },
+]
 
 [[package]]
 name = "mng-elena-code"

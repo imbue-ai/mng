@@ -7,6 +7,7 @@ from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
 AGENT_TTYD_WINDOW_NAME = "agent"
 AGENT_TTYD_SERVER_NAME = "agent"
@@ -18,22 +19,14 @@ AGENT_TTYD_SERVER_NAME = "agent"
 # 1. Gets the current tmux session name (the agent's session)
 # 2. Starts ttyd on a random port (-p 0) running `tmux attach` to that session
 #    - Unsets TMUX env var so tmux allows the nested attach from ttyd's child process
-# 3. Watches ttyd's stderr for the assigned port number
+# 3. Watches ttyd's stderr for the assigned port number (via shared helper)
 # 4. Writes a servers.jsonl record so the changelings forwarding server can discover it
-AGENT_TTYD_COMMAND = (
+_AGENT_TTYD_INVOCATION = (
     "_SESSION=$(tmux display-message -p '#{session_name}') && "
-    'ttyd -p 0 bash -c \'unset TMUX && exec tmux attach -t "$1":0\' -- "$_SESSION" 2>&1 | '
-    "while IFS= read -r line; do "
-    'echo "$line" >&2; '
-    'if echo "$line" | grep -q "Listening on port:"; then '
-    '_PORT=$(echo "$line" | awk '
-    "'{print $NF}'); "
-    'if [ -n "$MNG_AGENT_STATE_DIR" ] && [ -n "$_PORT" ]; then '
-    'mkdir -p "$MNG_AGENT_STATE_DIR/logs" && '
-    'printf \'{"server":"' + AGENT_TTYD_SERVER_NAME + '","url":"http://127.0.0.1:%s"}\\n\' '
-    '"$_PORT" >> "$MNG_AGENT_STATE_DIR/logs/servers.jsonl"; '
-    "fi; fi; done"
+    'ttyd -p 0 bash -c \'unset TMUX && exec tmux attach -t "$1":0\' -- "$_SESSION"'
 )
+
+AGENT_TTYD_COMMAND = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)
 
 
 class ClaudeZygoteAgent(ClaudeAgent):
