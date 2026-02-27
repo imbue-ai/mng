@@ -511,10 +511,6 @@ class AgentGitOptions(FrozenModel):
         default=False,
         description="Whether to include files matching .gitignore",
     )
-    copy_git_info_exclude: bool = Field(
-        default=True,
-        description="Whether to copy .git/info/exclude from source to target",
-    )
 
 
 class AgentEnvironmentOptions(FrozenModel):

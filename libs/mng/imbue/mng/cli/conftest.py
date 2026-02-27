@@ -105,7 +105,6 @@ def default_create_cli_opts() -> CreateCliOptions:
         include_git=True,
         include_unclean=None,
         include_gitignored=False,
-        copy_git_info_exclude=True,
         base_branch=None,
         new_branch="",
         new_branch_prefix="mng/",

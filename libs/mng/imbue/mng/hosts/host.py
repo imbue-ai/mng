@@ -1094,12 +1094,10 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngError(f"Failed to configure git repo on target: {result.stderr}")
 
-            # Copy .git/info/exclude from source to target if requested.
-            # This file is not transferred by git push --mirror since it lives
-            # outside the git object store.
-            copy_git_info_exclude = options.git.copy_git_info_exclude if options.git else False
-            if copy_git_info_exclude:
-                self._transfer_git_info_exclude(source_host, source_path, target_path)
+            # Copy .git/info/exclude from source to target. This file is not
+            # transferred by git push --mirror since it lives outside the git
+            # object store.
+            self._transfer_git_info_exclude(source_host, source_path, target_path)
 
         return new_branch_name
 
