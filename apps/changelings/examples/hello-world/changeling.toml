@@ -1,0 +1,5 @@
+[changeling]
+name = "hello-world"
+command = "python3 server.py"
+port = 9100
+description = "A simple hello-world changeling that serves a static web page"

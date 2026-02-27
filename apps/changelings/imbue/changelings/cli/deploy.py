@@ -1,0 +1,177 @@
+import sys
+from enum import auto
+from pathlib import Path
+
+import click
+from loguru import logger
+
+from imbue.changelings.config.data_types import ChangelingPaths
+from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
+from imbue.changelings.config.data_types import get_default_data_dir
+from imbue.changelings.core.zygote import ZygoteConfig
+from imbue.changelings.core.zygote import load_zygote_config
+from imbue.changelings.deployment.local import deploy_local
+from imbue.changelings.errors import ChangelingError
+from imbue.changelings.forwarding_server.runner import start_forwarding_server
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.imbue_common.enums import UpperCaseStrEnum
+
+
+class DeploymentProvider(UpperCaseStrEnum):
+    """Where the changeling can be deployed."""
+
+    LOCAL = auto()
+    MODAL = auto()
+    DOCKER = auto()
+
+
+class SelfDeployChoice(UpperCaseStrEnum):
+    """Whether the changeling can launch its own agents."""
+
+    YES = auto()
+    NOT_NOW = auto()
+
+
+def _write_line(message: str) -> None:
+    """Write a line to stdout."""
+    sys.stdout.write(message + "\n")
+    sys.stdout.flush()
+
+
+def _prompt_agent_name(default_name: str) -> str:
+    """Prompt the user for the agent name."""
+    _write_line("")
+    return click.prompt(
+        "What would you like to name this agent?",
+        default=default_name,
+    )
+
+
+def _prompt_provider() -> DeploymentProvider:
+    """Prompt the user for where to deploy the agent."""
+    _write_line("")
+    _write_line("Where do you want to run this agent?")
+    _write_line("  [1] local  - Run on this machine")
+    _write_line("  [2] modal  - Run in the cloud (Modal)")
+    _write_line("  [3] docker - Run in a Docker container")
+    _write_line("")
+
+    choice = click.prompt(
+        "Selection",
+        type=click.IntRange(1, 3),
+        default=1,
+    )
+
+    match choice:
+        case 1:
+            return DeploymentProvider.LOCAL
+        case 2:
+            return DeploymentProvider.MODAL
+        case 3:
+            return DeploymentProvider.DOCKER
+        case _:
+            return DeploymentProvider.LOCAL
+
+
+def _prompt_self_deploy() -> SelfDeployChoice:
+    """Prompt the user about whether the agent can launch its own agents."""
+    _write_line("")
+    allow = click.confirm(
+        "Allow this agent to launch its own agents?",
+        default=False,
+    )
+    if allow:
+        return SelfDeployChoice.YES
+    else:
+        return SelfDeployChoice.NOT_NOW
+
+
+def _deploy_and_serve(
+    zygote_dir: Path,
+    zygote_config: ZygoteConfig,
+    agent_name: str,
+    provider: DeploymentProvider,
+) -> None:
+    """Deploy the changeling and start the forwarding server."""
+    if provider != DeploymentProvider.LOCAL:
+        raise ChangelingError(
+            "Only local deployment is supported for now. Support for {} is coming soon.".format(provider.value.lower())
+        )
+
+    paths = ChangelingPaths(data_dir=get_default_data_dir())
+    forwarding_port = DEFAULT_FORWARDING_SERVER_PORT
+
+    cg = ConcurrencyGroup(name="changeling-deploy")
+    with cg:
+        result = deploy_local(
+            zygote_dir=zygote_dir,
+            zygote_config=zygote_config,
+            agent_name=agent_name,
+            paths=paths,
+            forwarding_server_port=forwarding_port,
+            concurrency_group=cg,
+        )
+
+    _write_line("")
+    _write_line("=" * 60)
+    _write_line("Changeling deployed successfully")
+    _write_line("=" * 60)
+    _write_line("")
+    _write_line("  Agent name: {}".format(result.agent_name))
+    _write_line("  Agent ID:   {}".format(result.agent_id))
+    _write_line("  Backend:    {}".format(result.backend_url))
+    _write_line("")
+    _write_line("  Login URL (one-time use):")
+    _write_line("  {}".format(result.login_url))
+    _write_line("")
+    _write_line("Starting the forwarding server...")
+    _write_line("Press Ctrl+C to stop.")
+    _write_line("=" * 60)
+    _write_line("")
+
+    start_forwarding_server(
+        data_directory=paths.data_dir,
+        host="127.0.0.1",
+        port=forwarding_port,
+    )
+
+
+@click.command()
+@click.argument("zygote_path", type=click.Path(exists=True, file_okay=False, resolve_path=True))
+def deploy(zygote_path: str) -> None:
+    """Deploy a new changeling from a local repository.
+
+    ZYGOTE_PATH is the path to a directory containing a changeling.toml file
+    that defines the agent's configuration (name, command, port, etc.).
+
+    Example:
+
+        changeling deploy ./examples/hello-world
+    """
+    zygote_dir = Path(zygote_path)
+
+    try:
+        zygote_config = load_zygote_config(zygote_dir)
+    except ChangelingError as e:
+        raise click.ClickException(str(e)) from e
+
+    _write_line("Deploying changeling from: {}".format(zygote_dir))
+    if zygote_config.description:
+        _write_line("  {}".format(zygote_config.description))
+
+    agent_name = _prompt_agent_name(default_name=str(zygote_config.name))
+    provider = _prompt_provider()
+    self_deploy = _prompt_self_deploy()
+
+    if self_deploy == SelfDeployChoice.YES:
+        logger.debug("Self-deploy enabled (not yet implemented)")
+
+    try:
+        _deploy_and_serve(
+            zygote_dir=zygote_dir,
+            zygote_config=zygote_config,
+            agent_name=agent_name,
+            provider=provider,
+        )
+    except ChangelingError as e:
+        raise click.ClickException(str(e)) from e
