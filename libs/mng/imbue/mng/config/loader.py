@@ -1,5 +1,6 @@
 import os
 import tomllib
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -252,15 +253,21 @@ def _check_unknown_fields(
     model_class: type[BaseModel],
     context: str,
 ) -> None:
-    """Raise ConfigParseError if raw_config contains fields not defined on model_class.
+    """Warn about and remove unknown fields from raw_config.
 
-    This catches typos and misconfigured keys early rather than silently ignoring them,
-    which is important because model_construct bypasses pydantic's extra="forbid" validation.
+    Unknown fields are logged as warnings rather than causing errors, so that config files
+    written for newer versions of mng don't break older versions. The unknown fields are
+    removed from the dict so they don't leak into model_construct.
     """
     known_fields = set(model_class.model_fields.keys())
     unknown = set(raw_config.keys()) - known_fields
     if unknown:
-        raise ConfigParseError(f"Unknown fields in {context}: {sorted(unknown)}. Valid fields: {sorted(known_fields)}")
+        warnings.warn(
+            f"Unknown fields in {context}: {sorted(unknown)}. Valid fields: {sorted(known_fields)}",
+            stacklevel=2,
+        )
+        for key in unknown:
+            del raw_config[key]
 
 
 def _parse_providers(
@@ -493,7 +500,7 @@ def parse_config(
     kwargs["default_destroyed_host_persisted_seconds"] = raw.pop("default_destroyed_host_persisted_seconds", None)
 
     if len(raw) > 0:
-        raise ConfigParseError(f"Unknown configuration fields: {list(raw.keys())}")
+        warnings.warn(f"Unknown configuration fields: {list(raw.keys())}", stacklevel=2)
 
     # Use model_construct to bypass field defaults
     return MngConfig.model_construct(**kwargs)
