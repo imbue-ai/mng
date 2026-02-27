@@ -27,8 +27,8 @@ from fastapi.responses import Response
 from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
-from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
+from imbue.mng.primitives import AgentId
 
 
 def _create_file_browser_backend(browse_dir: str) -> FastAPI:
@@ -215,25 +215,27 @@ def main() -> None:
     )
 
     # Set up backends
-    backend_configs: list[tuple[str, int, FastAPI]] = [
-        ("file-browser", 9001, _create_file_browser_backend(str(sample_dir))),
-        ("ws-echo", 9002, _create_ws_echo_backend()),
+    file_browser_id = AgentId()
+    ws_echo_id = AgentId()
+
+    backend_configs: list[tuple[str, AgentId, int, FastAPI]] = [
+        ("file-browser", file_browser_id, 9001, _create_file_browser_backend(str(sample_dir))),
+        ("ws-echo", ws_echo_id, 9002, _create_ws_echo_backend()),
     ]
 
     # Start backend servers
-    url_by_name: dict[str, str] = {}
-    for agent_name, port, backend_app in backend_configs:
+    url_by_agent_id: dict[str, str] = {}
+    for _, agent_id, port, backend_app in backend_configs:
         thread = threading.Thread(
             target=_run_backend,
             args=(backend_app, port),
             daemon=True,
         )
         thread.start()
-        url_by_name[agent_name] = f"http://127.0.0.1:{port}"
+        url_by_agent_id[str(agent_id)] = f"http://127.0.0.1:{port}"
 
-    backend_resolver = StaticBackendResolver(url_by_changeling_name=url_by_name)
+    backend_resolver = StaticBackendResolver(url_by_agent_id=url_by_agent_id)
 
-    # Generate one-time codes and print login URLs
     print()
     print("=" * 60)
     print("Changelings Forwarding Server Demo")
@@ -242,14 +244,15 @@ def main() -> None:
     print(f"Data directory: {data_dir}")
     print()
 
-    for agent_name, port, _ in backend_configs:
+    # Generate one-time codes and print login URLs
+    for label, agent_id, port, _ in backend_configs:
         code = OneTimeCode(secrets.token_urlsafe(32))
         auth_store.add_one_time_code(
-            changeling_name=ChangelingName(agent_name),
+            agent_id=agent_id,
             code=code,
         )
-        login_url = f"http://127.0.0.1:{forwarding_port}/login?changeling_name={agent_name}&one_time_code={code}"
-        print(f"Login URL for {agent_name} (port {port}):")
+        login_url = f"http://127.0.0.1:{forwarding_port}/login?agent_id={agent_id}&one_time_code={code}"
+        print(f"Login URL for {label} ({agent_id}, port {port}):")
         print(f"  {login_url}")
         print()
 
@@ -259,7 +262,7 @@ def main() -> None:
     print("  1. Open the file-browser login URL -- browse files, click into subdirs")
     print("  2. Open the ws-echo login URL -- send messages, see echoed responses")
     print("  3. Visit the landing page to see both agents listed")
-    print("  4. Try accessing /agents/file-browser/ without auth (should get 403)")
+    print("  4. Try accessing /agents/<agent_id>/ without auth (should get 403)")
     print()
     print("Press Ctrl+C to stop.")
     print("=" * 60)

@@ -4,9 +4,9 @@ from typing import Final
 from jinja2 import Environment
 from jinja2 import select_autoescape
 
-from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
 from imbue.imbue_common.pure import pure
+from imbue.mng.primitives import AgentId
 
 _JINJA_ENV: Final[Environment] = Environment(autoescape=select_autoescape(default=True))
 
@@ -31,10 +31,10 @@ _LANDING_PAGE_TEMPLATE: Final[str] = """<!DOCTYPE html>
 </head>
 <body>
   <h1>Your Changelings</h1>
-  {% if changeling_names %}
+  {% if agent_ids %}
   <ul class="agent-list">
-    {% for name in changeling_names %}
-    <li><a href="/agents/{{ name }}/">{{ name }}</a></li>
+    {% for agent_id in agent_ids %}
+    <li><a href="/agents/{{ agent_id }}/">{{ agent_id }}</a></li>
     {% endfor %}
   </ul>
   {% else %}
@@ -51,7 +51,7 @@ _LOGIN_REDIRECT_TEMPLATE: Final[str] = """<!DOCTYPE html>
 <body>
 <p>Authenticating...</p>
 <script>
-window.location.href = '/authenticate?changeling_name={{ changeling_name }}&one_time_code={{ one_time_code }}';
+window.location.href = '/authenticate?agent_id={{ agent_id }}&one_time_code={{ one_time_code }}';
 </script>
 </body>
 </html>"""
@@ -76,20 +76,20 @@ _AUTH_ERROR_TEMPLATE: Final[str] = """<!DOCTYPE html>
 
 
 @pure
-def render_landing_page(accessible_changeling_names: Sequence[ChangelingName]) -> str:
+def render_landing_page(accessible_agent_ids: Sequence[AgentId]) -> str:
     """Render the landing page listing accessible changelings."""
     template = _JINJA_ENV.from_string(_LANDING_PAGE_TEMPLATE)
-    return template.render(changeling_names=accessible_changeling_names)
+    return template.render(agent_ids=accessible_agent_ids)
 
 
 @pure
 def render_login_redirect_page(
-    changeling_name: ChangelingName,
+    agent_id: AgentId,
     one_time_code: OneTimeCode,
 ) -> str:
     """Render the JS redirect page that forwards to /authenticate."""
     template = _JINJA_ENV.from_string(_LOGIN_REDIRECT_TEMPLATE)
-    return template.render(changeling_name=changeling_name, one_time_code=one_time_code)
+    return template.render(agent_id=agent_id, one_time_code=one_time_code)
 
 
 @pure

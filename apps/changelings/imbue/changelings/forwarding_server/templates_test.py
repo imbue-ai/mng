@@ -3,32 +3,36 @@ import pytest
 from imbue.changelings.forwarding_server.templates import render_auth_error_page
 from imbue.changelings.forwarding_server.templates import render_landing_page
 from imbue.changelings.forwarding_server.templates import render_login_redirect_page
-from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import OneTimeCode
+from imbue.imbue_common.ids import InvalidRandomIdError
+from imbue.mng.primitives import AgentId
+
+_AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
+_AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
 
 
 def test_render_landing_page_with_agents_lists_them_as_links() -> None:
-    names = (ChangelingName("elena-turing"), ChangelingName("code-reviewer"))
-    html = render_landing_page(accessible_changeling_names=names)
-    assert "/agents/elena-turing/" in html
-    assert "/agents/code-reviewer/" in html
-    assert "elena-turing" in html
-    assert "code-reviewer" in html
+    ids = (_AGENT_A, _AGENT_B)
+    html = render_landing_page(accessible_agent_ids=ids)
+    assert f"/agents/{_AGENT_A}/" in html
+    assert f"/agents/{_AGENT_B}/" in html
+    assert str(_AGENT_A) in html
+    assert str(_AGENT_B) in html
 
 
 def test_render_landing_page_with_no_agents_shows_empty_state() -> None:
-    html = render_landing_page(accessible_changeling_names=())
+    html = render_landing_page(accessible_agent_ids=())
     assert "No changelings are accessible" in html
     assert "/agents/" not in html
 
 
 def test_render_login_redirect_page_contains_redirect_script() -> None:
     html = render_login_redirect_page(
-        changeling_name=ChangelingName("elena-turing"),
+        agent_id=_AGENT_A,
         one_time_code=OneTimeCode("abc123-secret-82341"),
     )
     assert "window.location.href" in html
-    assert "changeling_name=elena-turing" in html
+    assert f"agent_id={_AGENT_A}" in html
     assert "one_time_code=abc123-secret-82341" in html
 
 
@@ -39,17 +43,11 @@ def test_render_auth_error_page_shows_error_message() -> None:
     assert "generate a new login URL" in html
 
 
-def test_changeling_name_rejects_script_injection_characters() -> None:
-    with pytest.raises(ValueError):
-        ChangelingName("<script>alert(1)</script>")
+def test_agent_id_rejects_invalid_format() -> None:
+    with pytest.raises(InvalidRandomIdError):
+        AgentId("not-a-valid-agent-id")
 
 
-def test_changeling_name_rejects_quote_characters() -> None:
-    with pytest.raises(ValueError):
-        ChangelingName("test'; alert(1); var x='")
-
-
-def test_changeling_name_allows_valid_names() -> None:
-    assert ChangelingName("elena-turing") == "elena-turing"
-    assert ChangelingName("code_reviewer") == "code_reviewer"
-    assert ChangelingName("Agent42") == "Agent42"
+def test_agent_id_accepts_valid_format() -> None:
+    agent_id = AgentId("agent-00000000000000000000000000000001")
+    assert agent_id == "agent-00000000000000000000000000000001"

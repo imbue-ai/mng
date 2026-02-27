@@ -19,7 +19,7 @@ def start_forwarding_server(
 ) -> None:
     """Start the local forwarding server using uvicorn."""
     auth_store = FileAuthStore(data_directory=data_directory / "auth")
-    backend_resolver = StaticBackendResolver(url_by_changeling_name={})
+    backend_resolver = StaticBackendResolver(url_by_agent_id={})
 
     app = create_forwarding_server(
         auth_store=auth_store,

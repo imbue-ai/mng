@@ -10,13 +10,13 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.changelings.errors import SigningKeyError
-from imbue.changelings.primitives import ChangelingName
 from imbue.changelings.primitives import CookieSigningKey
 from imbue.changelings.primitives import OneTimeCode
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mng.primitives import AgentId
 
 _SIGNING_KEY_LENGTH: Final[int] = 64
 
@@ -37,7 +37,7 @@ class StoredOneTimeCode(FrozenModel):
     """A one-time code with its current usage status."""
 
     code: OneTimeCode = Field(description="The one-time code value")
-    changeling_name: ChangelingName = Field(description="The changeling this code grants access to")
+    agent_id: AgentId = Field(description="The agent this code grants access to")
     status: OneTimeCodeStatus = Field(description="Current status of this code")
 
 
@@ -47,7 +47,7 @@ class AuthStoreInterface(MutableModel, ABC):
     @abstractmethod
     def validate_and_consume_code(
         self,
-        changeling_name: ChangelingName,
+        agent_id: AgentId,
         code: OneTimeCode,
     ) -> bool:
         """Validate a one-time code and mark it as used if valid."""
@@ -59,14 +59,14 @@ class AuthStoreInterface(MutableModel, ABC):
     @abstractmethod
     def add_one_time_code(
         self,
-        changeling_name: ChangelingName,
+        agent_id: AgentId,
         code: OneTimeCode,
     ) -> None:
-        """Register a new one-time code for a changeling."""
+        """Register a new one-time code for an agent."""
 
     @abstractmethod
-    def list_changeling_names_with_valid_codes(self) -> tuple[ChangelingName, ...]:
-        """Return changeling names that have at least one valid (unused) code."""
+    def list_agent_ids_with_valid_codes(self) -> tuple[AgentId, ...]:
+        """Return agent IDs that have at least one valid (unused) code."""
 
 
 class FileAuthStore(AuthStoreInterface):
@@ -76,36 +76,36 @@ class FileAuthStore(AuthStoreInterface):
 
     def validate_and_consume_code(
         self,
-        changeling_name: ChangelingName,
+        agent_id: AgentId,
         code: OneTimeCode,
     ) -> bool:
-        with log_span("Validating one-time code for {}", changeling_name):
+        with log_span("Validating one-time code for {}", agent_id):
             stored_codes = self._load_codes()
 
             matching_code_idx: int | None = None
             for idx, stored in enumerate(stored_codes):
-                if stored.code == code and stored.changeling_name == changeling_name:
+                if stored.code == code and stored.agent_id == agent_id:
                     matching_code_idx = idx
                     break
 
             if matching_code_idx is None:
-                logger.debug("Rejected unknown code for {}", changeling_name)
+                logger.debug("Rejected unknown code for {}", agent_id)
                 return False
 
             matched = stored_codes[matching_code_idx]
             if matched.status != OneTimeCodeStatus.VALID:
-                logger.debug("Rejected already-{} code for {}", matched.status, changeling_name)
+                logger.debug("Rejected already-{} code for {}", matched.status, agent_id)
                 return False
 
             # Mark as used
             updated_codes = list(stored_codes)
             updated_codes[matching_code_idx] = StoredOneTimeCode(
                 code=matched.code,
-                changeling_name=matched.changeling_name,
+                agent_id=matched.agent_id,
                 status=OneTimeCodeStatus.USED,
             )
             self._save_codes(tuple(updated_codes))
-            logger.debug("Accepted and consumed code for {}", changeling_name)
+            logger.debug("Accepted and consumed code for {}", agent_id)
             return True
 
     def get_signing_key(self) -> CookieSigningKey:
@@ -132,25 +132,25 @@ class FileAuthStore(AuthStoreInterface):
 
     def add_one_time_code(
         self,
-        changeling_name: ChangelingName,
+        agent_id: AgentId,
         code: OneTimeCode,
     ) -> None:
-        with log_span("Adding one-time code for {}", changeling_name):
+        with log_span("Adding one-time code for {}", agent_id):
             existing_codes = self._load_codes()
             new_code = StoredOneTimeCode(
                 code=code,
-                changeling_name=changeling_name,
+                agent_id=agent_id,
                 status=OneTimeCodeStatus.VALID,
             )
             self._save_codes(existing_codes + (new_code,))
 
-    def list_changeling_names_with_valid_codes(self) -> tuple[ChangelingName, ...]:
+    def list_agent_ids_with_valid_codes(self) -> tuple[AgentId, ...]:
         stored_codes = self._load_codes()
-        names: set[str] = set()
+        ids: set[str] = set()
         for stored in stored_codes:
             if stored.status == OneTimeCodeStatus.VALID:
-                names.add(str(stored.changeling_name))
-        return tuple(ChangelingName(n) for n in sorted(names))
+                ids.add(str(stored.agent_id))
+        return tuple(AgentId(i) for i in sorted(ids))
 
     def _load_codes(self) -> tuple[StoredOneTimeCode, ...]:
         codes_path = self.data_directory / _CODES_FILENAME

@@ -4,7 +4,7 @@ Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be
 
 # Terminology
 
-- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities
+- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`
 - **zygote**: the minimal core of a changeling's code, typically cloned from a git repo. This is the starting point before configuration and deployment.
 - **template**: an HTML/web template for serving a particular interface (e.g. a chat UI, a dashboard, etc.)
 - **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
@@ -35,17 +35,17 @@ This is a separate component from any individual changeling's web server -- it d
 The forwarding server uses `itsdangerous` for cookie signing. Auth works as follows:
 
 - **Signing key**: generated once on first server start, stored at `{data_directory}/signing_key`. Used to sign all auth cookies.
-- **One-time codes**: generated during `changeling deploy` and stored in `{data_directory}/one_time_codes.json`. Each code is associated with a changeling name and can only be used once. When a code is consumed, it is marked as "USED" in the JSON file.
-- **Cookies**: after successful authentication, the server sets a signed cookie for the specific changeling. The cookie value contains the changeling name, signed with the signing key.
+- **One-time codes**: generated during `changeling deploy` and stored in `{data_directory}/one_time_codes.json`. Each code is associated with an agent ID and can only be used once. When a code is consumed, it is marked as "USED" in the JSON file.
+- **Cookies**: after successful authentication, the server sets a signed cookie for the specific changeling. The cookie value contains the agent ID, signed with the signing key.
 
 ## Local forwarding server routes
 
-`/login` route (takes changeling_name and one_time_code params):
+`/login` route (takes agent_id and one_time_code params):
     if you have a valid cookie for this changeling, it redirects you to the main page ("/")
-    if you don't have a cookie, it uses JS to redirect you and your secret to "/authenticate?changeling_name={changeling_name}&one_time_code={one_time_code}"
+    if you don't have a cookie, it uses JS to redirect you and your secret to "/authenticate?agent_id={agent_id}&one_time_code={one_time_code}"
         this is done to prevent preloading servers from accidentally consuming your one-time use codes
 
-`/authenticate` route (takes changeling_name and one_time_code params):
+`/authenticate` route (takes agent_id and one_time_code params):
     validates the one-time code against stored codes
     if this is a valid code (not used and not revoked), marks it as used and replies with a signed cookie
     if this is not a valid code, explains to the user that they need to generate a new login URL for this device (each URL can only be used once)
@@ -55,18 +55,18 @@ The forwarding server uses `itsdangerous` for cookie signing. Auth works as foll
     if you have 0 valid cookies, it shows a placeholder telling you to log in
     if you have 1 or more valid cookies, those changelings are shown as links to their individual pages
 
-`/agents/{changeling_name}/` route serves individual changeling UIs:
+`/agents/{agent_id}/` route serves individual changeling UIs:
     requires a valid auth cookie for that changeling
     proxies any request from the user to the changeling's backend web server
-    uses Service Workers for transparent path rewriting so the changeling's app works correctly under the `/agents/{name}/` prefix
+    uses Service Workers for transparent path rewriting so the changeling's app works correctly under the `/agents/{agent_id}/` prefix
 
 All pages except "/", "/login" and "/authenticate" require the auth cookie to be set for the relevant changeling.
 
 ## Proxying design
 
-Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{changeling_name}/`). This requires a combination of Service Workers, script injection, and rewriting:
+Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{agent_id}/`). This requires a combination of Service Workers, script injection, and rewriting:
 
-- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{changeling_name}/`
+- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{agent_id}/`
 - The SW intercepts all same-origin requests and rewrites paths to include the prefix
 - HTML responses have a WebSocket shim injected to rewrite WS URLs
 - Cookie paths in Set-Cookie headers are rewritten to scope under the agent prefix
