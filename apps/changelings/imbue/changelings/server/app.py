@@ -240,6 +240,75 @@ def _handle_landing_page(
     return HTMLResponse(content=html)
 
 
+async def _forward_http_request(
+    request: Request,
+    backend_url: str,
+    path: str,
+    changeling_name: str,
+) -> httpx.Response | Response:
+    """Forward an HTTP request to the backend, returning the backend response or an error Response."""
+    proxy_url = f"{backend_url}/{path}"
+    if request.url.query:
+        proxy_url += f"?{request.url.query}"
+
+    headers = dict(request.headers)
+    headers.pop("host", None)
+
+    body = await request.body()
+
+    active_http_client: httpx.AsyncClient = request.app.state.http_client
+    try:
+        return await active_http_client.request(
+            method=request.method,
+            url=proxy_url,
+            headers=headers,
+            content=body,
+        )
+    except httpx.ConnectError:
+        logger.debug("Backend connection refused for {}", changeling_name)
+        return Response(status_code=502, content="Backend connection refused")
+    except httpx.TimeoutException:
+        logger.debug("Backend request timed out for {}", changeling_name)
+        return Response(status_code=504, content="Backend request timed out")
+
+
+def _build_proxy_response(
+    backend_response: httpx.Response,
+    changeling_name: ChangelingName,
+) -> Response:
+    """Transform a backend httpx response into a FastAPI Response with header/content rewriting."""
+    # Build response headers, dropping hop-by-hop headers
+    resp_headers: dict[str, list[str]] = {}
+    for header_key, header_value in backend_response.headers.multi_items():
+        if header_key.lower() in _EXCLUDED_RESPONSE_HEADERS:
+            continue
+        if header_key.lower() == "set-cookie":
+            header_value = rewrite_cookie_path(
+                set_cookie_header=header_value,
+                changeling_name=changeling_name,
+            )
+        resp_headers.setdefault(header_key, [])
+        resp_headers[header_key].append(header_value)
+
+    content: str | bytes = backend_response.content
+
+    # Inject WebSocket shim into HTML responses
+    content_type = backend_response.headers.get("content-type", "")
+    if "text/html" in content_type:
+        html_text = backend_response.text
+        injected_html = inject_websocket_shim_into_html(
+            html_content=html_text,
+            changeling_name=changeling_name,
+        )
+        content = injected_html.encode()
+
+    response = Response(content=content, status_code=backend_response.status_code)
+    for header_key, header_values in resp_headers.items():
+        for header_value in header_values:
+            response.headers.append(header_key, header_value)
+    return response
+
+
 async def _handle_proxy_http(
     changeling_name: str,
     path: str,
@@ -272,62 +341,19 @@ async def _handle_proxy_http(
     if is_navigation and not sw_cookie:
         return HTMLResponse(generate_bootstrap_html(name))
 
-    # Build proxy URL
-    proxy_url = f"{backend_url}/{path}"
-    if request.url.query:
-        proxy_url += f"?{request.url.query}"
+    # Forward request to backend
+    result = await _forward_http_request(
+        request=request,
+        backend_url=backend_url,
+        path=path,
+        changeling_name=changeling_name,
+    )
 
-    # Forward headers, dropping host
-    headers = dict(request.headers)
-    headers.pop("host", None)
+    # If forwarding returned an error Response directly, return it
+    if isinstance(result, Response):
+        return result
 
-    body = await request.body()
-
-    active_http_client: httpx.AsyncClient = request.app.state.http_client
-    try:
-        resp = await active_http_client.request(
-            method=request.method,
-            url=proxy_url,
-            headers=headers,
-            content=body,
-        )
-    except httpx.ConnectError:
-        logger.debug("Backend connection refused for {}", changeling_name)
-        return Response(status_code=502, content="Backend connection refused")
-    except httpx.TimeoutException:
-        logger.debug("Backend request timed out for {}", changeling_name)
-        return Response(status_code=504, content="Backend request timed out")
-
-    # Build response headers, dropping hop-by-hop headers
-    resp_headers: dict[str, list[str]] = {}
-    for header_key, header_value in resp.headers.multi_items():
-        if header_key.lower() in _EXCLUDED_RESPONSE_HEADERS:
-            continue
-        if header_key.lower() == "set-cookie":
-            header_value = rewrite_cookie_path(
-                set_cookie_header=header_value,
-                changeling_name=name,
-            )
-        resp_headers.setdefault(header_key, [])
-        resp_headers[header_key].append(header_value)
-
-    content: str | bytes = resp.content
-
-    # Inject WebSocket shim into HTML responses
-    content_type = resp.headers.get("content-type", "")
-    if "text/html" in content_type:
-        html_text = resp.text
-        injected_html = inject_websocket_shim_into_html(
-            html_content=html_text,
-            changeling_name=name,
-        )
-        content = injected_html.encode()
-
-    response = Response(content=content, status_code=resp.status_code)
-    for header_key, header_values in resp_headers.items():
-        for header_value in header_values:
-            response.headers.append(header_key, header_value)
-    return response
+    return _build_proxy_response(backend_response=result, changeling_name=name)
 
 
 async def _handle_proxy_websocket(
