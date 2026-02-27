@@ -962,9 +962,16 @@ class Host(BaseHost, OnlineHostInterface):
 
         self._mkdir(target_path)
 
-        # Track generated work directories at the host level
+        # Track generated work directories at the host level.
+        # When running in-place, actively remove from generated_work_dirs in case
+        # a previous agent had registered this path (e.g., a worktree agent created
+        # this directory, then the user ran --in-place from it). Without this removal,
+        # GC would treat the directory as orphaned and delete it after the in-place
+        # agent is destroyed.
         if is_generated_work_dir:
             self._add_generated_work_dir(target_path)
+        else:
+            self._remove_generated_work_dir(target_path)
 
         created_branch_name: str | None = None
 
