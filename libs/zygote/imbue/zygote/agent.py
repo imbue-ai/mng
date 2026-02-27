@@ -286,7 +286,7 @@ def create_zygote_agent(
     # dependency. We resolve this by first constructing a DefaultToolExecutor
     # that references itself (via agent), then immediately updating it.
     # This requires constructing the executor first with a temporary agent.
-    placeholder_executor = MockPlaceholderExecutor()
+    placeholder_executor = _PlaceholderToolExecutor()
     agent = ZygoteAgent(
         config=config,
         client=client,
@@ -297,7 +297,7 @@ def create_zygote_agent(
     return agent
 
 
-class MockPlaceholderExecutor(ToolExecutorInterface):
+class _PlaceholderToolExecutor(ToolExecutorInterface):
     """Temporary placeholder used only during ZygoteAgent construction.
 
     This should never be called -- it is immediately replaced by
@@ -305,16 +305,16 @@ class MockPlaceholderExecutor(ToolExecutorInterface):
     """
 
     async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
-        raise RuntimeError("Placeholder executor should not be called")
+        raise ZygoteError("Placeholder executor should not be called")
 
     async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
-        raise RuntimeError("Placeholder executor should not be called")
+        raise ZygoteError("Placeholder executor should not be called")
 
     async def read_memory(self, key: MemoryKey) -> str:
-        raise RuntimeError("Placeholder executor should not be called")
+        raise ZygoteError("Placeholder executor should not be called")
 
     async def write_memory(self, key: MemoryKey, value: str) -> str:
-        raise RuntimeError("Placeholder executor should not be called")
+        raise ZygoteError("Placeholder executor should not be called")
 
     async def compact_history(self) -> str:
-        raise RuntimeError("Placeholder executor should not be called")
+        raise ZygoteError("Placeholder executor should not be called")

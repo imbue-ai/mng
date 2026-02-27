@@ -16,6 +16,7 @@ classifiers = [
 dependencies = [
     "anthropic>=0.40",
     "imbue-common==0.1.4",
+    "loguru>=0.7",
     "pydantic>=2.0",
 ]
 

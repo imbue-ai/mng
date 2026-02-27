@@ -3597,6 +3597,7 @@ source = { editable = "libs/zygote" }
 dependencies = [
     { name = "anthropic" },
     { name = "imbue-common" },
+    { name = "loguru" },
     { name = "pydantic" },
 ]
 
@@ -3604,5 +3605,6 @@ dependencies = [
 requires-dist = [
     { name = "anthropic", specifier = ">=0.40" },
     { name = "imbue-common", editable = "libs/imbue_common" },
+    { name = "loguru", specifier = ">=0.7" },
     { name = "pydantic", specifier = ">=2.0" },
 ]
