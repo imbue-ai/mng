@@ -173,6 +173,7 @@ def test_pair_files_raises_when_git_required_but_not_present(
     assert "Git repositories required" in str(exc_info.value)
 
 
+@pytest.mark.git
 @pytest.mark.unison
 def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files properly starts and stops the unison syncer."""

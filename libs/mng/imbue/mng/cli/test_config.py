@@ -145,6 +145,7 @@ def test_config_get_with_json_format(
     assert "value" in output
 
 
+@pytest.mark.git
 def test_config_set_creates_config_file(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -172,6 +173,7 @@ def test_config_set_creates_config_file(
     assert 'prefix = "my-prefix-"' in content
 
 
+@pytest.mark.git
 def test_config_set_nested_key(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -198,6 +200,7 @@ def test_config_set_nested_key(
     assert "connect = false" in content
 
 
+@pytest.mark.git
 def test_config_set_parses_boolean_values(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -222,6 +225,7 @@ def test_config_set_parses_boolean_values(
     assert "is_nested_tmux_allowed = true" in content
 
 
+@pytest.mark.git
 def test_config_set_parses_integer_values(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -245,6 +249,7 @@ def test_config_set_parses_integer_values(
     assert "default_destroyed_host_persisted_seconds = 42" in content
 
 
+@pytest.mark.git
 def test_config_set_rejects_unknown_top_level_field(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -270,6 +275,7 @@ def test_config_set_rejects_unknown_top_level_field(
         assert "provider" not in content
 
 
+@pytest.mark.git
 def test_config_unset_removes_value(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -303,6 +309,7 @@ def test_config_unset_removes_value(
     assert "default_host_dir" in content
 
 
+@pytest.mark.git
 def test_config_unset_nonexistent_key_fails(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

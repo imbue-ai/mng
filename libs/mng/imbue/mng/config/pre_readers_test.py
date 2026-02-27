@@ -80,6 +80,7 @@ def test_read_default_command_returns_create_when_no_config(monkeypatch: pytest.
     assert read_default_command("mng") == "create"
 
 
+@pytest.mark.git
 def test_read_default_command_reads_from_project_config(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,
@@ -90,6 +91,7 @@ def test_read_default_command_reads_from_project_config(
     assert read_default_command("mng") == "list"
 
 
+@pytest.mark.git
 def test_read_default_command_local_overrides_project(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,
@@ -101,6 +103,7 @@ def test_read_default_command_local_overrides_project(
     assert read_default_command("mng") == "stop"
 
 
+@pytest.mark.git
 def test_read_default_command_empty_string_disables(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,
@@ -111,6 +114,7 @@ def test_read_default_command_empty_string_disables(
     assert read_default_command("mng") == ""
 
 
+@pytest.mark.git
 def test_read_default_command_independent_command_names(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,
@@ -136,6 +140,7 @@ def test_read_disabled_plugins_returns_empty_when_no_config(temp_git_repo_cwd: P
     assert read_disabled_plugins() == frozenset()
 
 
+@pytest.mark.git
 def test_read_disabled_plugins_reads_from_project_config(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,
@@ -157,6 +162,7 @@ def test_read_disabled_plugins_local_overrides_project(
     assert "modal" not in read_disabled_plugins()
 
 
+@pytest.mark.git
 def test_read_disabled_plugins_multiple_plugins(
     project_config_dir: Path,
     temp_git_repo_cwd: Path,

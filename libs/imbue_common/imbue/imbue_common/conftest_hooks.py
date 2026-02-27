@@ -111,38 +111,6 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
 # Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
 _GUARDED_RESOURCES: Final[list[str]] = ["tmux", "git", "rsync", "unison"]
 
-# Git subcommands that are considered "heavy" (state-mutating or network-accessing).
-# Only these trigger the guard. Lightweight read-only operations like ls-files,
-# rev-parse, config (read), status, diff, log, show, etc. pass through without
-# blocking or tracking, since they're fast and commonly used incidentally by
-# fixtures and utility code that doesn't warrant the @pytest.mark.git mark.
-_GIT_HEAVY_SUBCOMMANDS: Final[list[str]] = [
-    "init",
-    "clone",
-    "add",
-    "rm",
-    "mv",
-    "commit",
-    "merge",
-    "rebase",
-    "reset",
-    "checkout",
-    "switch",
-    "pull",
-    "push",
-    "fetch",
-    "stash",
-    "tag",
-    "cherry-pick",
-    "revert",
-    "am",
-    "apply",
-    "worktree",
-    "bisect",
-    "submodule",
-    "clean",
-]
-
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
 _guard_wrapper_dir: str | None = None
@@ -179,60 +147,8 @@ def _generate_wrapper_script(resource: str, real_path: str) -> str:
     - If the guard is "block", the wrapper prints an error and exits 127
     - If the guard is "allow", the wrapper touches a tracking file and delegates
     Outside the call phase (fixture setup/teardown), the wrapper always delegates.
-
-    For git specifically, only "heavy" subcommands (state-mutating or network-accessing)
-    trigger the guard. Lightweight read-only operations like ls-files and rev-parse
-    pass through unconditionally.
     """
     bash_guard_var = f"$_PYTEST_GUARD_{resource.upper()}"
-
-    if resource == "git":
-        # Build a bash case pattern from the heavy subcommands list
-        subcommands = "|".join(_GIT_HEAVY_SUBCOMMANDS)
-        return f"""#!/bin/bash
-if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
-    # Skip global git flags to find the actual subcommand.
-    # git -C /path worktree add ... has -C as $1, not worktree.
-    _subcmd=""
-    _skip_next=0
-    for _arg in "$@"; do
-        if [ "$_skip_next" = "1" ]; then
-            _skip_next=0
-            continue
-        fi
-        case "$_arg" in
-            -C|-c|--git-dir|--work-tree|--namespace|--super-prefix)
-                _skip_next=1
-                continue
-                ;;
-            --git-dir=*|--work-tree=*|-C*|-c*)
-                continue
-                ;;
-            -*)
-                continue
-                ;;
-            *)
-                _subcmd="$_arg"
-                break
-                ;;
-        esac
-    done
-    case "$_subcmd" in
-        {subcommands})
-            if [ "{bash_guard_var}" = "block" ]; then
-                echo "RESOURCE GUARD: Test invoked 'git $_subcmd' without @pytest.mark.git mark." >&2
-                echo "Add @pytest.mark.git to the test, or remove the git usage." >&2
-                exit 127
-            fi
-            if [ "{bash_guard_var}" = "allow" ] && [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
-                touch "$_PYTEST_GUARD_TRACKING_DIR/git"
-            fi
-            ;;
-    esac
-fi
-exec "{real_path}" "$@"
-"""
-
     return f"""#!/bin/bash
 if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
     if [ "{bash_guard_var}" = "block" ]; then

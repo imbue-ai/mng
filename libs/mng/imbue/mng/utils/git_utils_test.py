@@ -228,6 +228,7 @@ def test_find_git_common_dir_from_subdirectory(tmp_path: Path, cg: ConcurrencyGr
     assert result == git_dir / ".git"
 
 
+@pytest.mark.git
 def test_get_git_author_info_returns_configured_values(temp_git_repo: Path, cg: ConcurrencyGroup) -> None:
     """Test that get_git_author_info returns name and email from a configured repo."""
     name, email = get_git_author_info(temp_git_repo, cg)

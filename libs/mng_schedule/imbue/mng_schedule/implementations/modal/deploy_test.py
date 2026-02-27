@@ -856,6 +856,7 @@ def test_stage_deploy_files_does_not_stage_mng_source(
 # =============================================================================
 
 
+@pytest.mark.git
 def test_get_mng_dockerfile_path_editable_returns_resources_dockerfile() -> None:
     """get_mng_dockerfile_path returns the mng resources Dockerfile for EDITABLE mode."""
     result = get_mng_dockerfile_path(MngInstallMode.EDITABLE)
@@ -871,6 +872,7 @@ def test_get_mng_dockerfile_path_package_returns_resources_dockerfile() -> None:
     assert result.name == "Dockerfile"
 
 
+@pytest.mark.git
 def test_get_mng_dockerfile_path_skip_returns_editable_dockerfile() -> None:
     """get_mng_dockerfile_path returns the editable Dockerfile for SKIP mode."""
     result = get_mng_dockerfile_path(MngInstallMode.SKIP)
@@ -946,6 +948,7 @@ def test_build_package_mode_dockerfile_raises_on_missing_sentinel() -> None:
         _build_package_mode_dockerfile(mng_dockerfile)
 
 
+@pytest.mark.git
 def test_build_package_mode_dockerfile_works_with_real_dockerfile() -> None:
     """_build_package_mode_dockerfile produces valid output from the actual mng Dockerfile."""
     dockerfile_path = get_mng_dockerfile_path(MngInstallMode.EDITABLE)

@@ -143,6 +143,7 @@ def test_plugin_without_subcommand_shows_help(
 # =============================================================================
 
 
+@pytest.mark.git
 def test_plugin_enable_writes_enabled_true_to_project_toml(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -166,6 +167,7 @@ def test_plugin_enable_writes_enabled_true_to_project_toml(
     assert "enabled = true" in content
 
 
+@pytest.mark.git
 def test_plugin_disable_writes_enabled_false_to_project_toml(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -189,6 +191,7 @@ def test_plugin_disable_writes_enabled_false_to_project_toml(
     assert "enabled = false" in content
 
 
+@pytest.mark.git
 def test_plugin_enable_json_format_returns_valid_json(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -211,6 +214,7 @@ def test_plugin_enable_json_format_returns_valid_json(
     assert "path" in output
 
 
+@pytest.mark.git
 def test_plugin_enable_default_scope_is_project(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -230,6 +234,7 @@ def test_plugin_enable_default_scope_is_project(
     assert output["scope"] == "project"
 
 
+@pytest.mark.git
 def test_plugin_enable_registered_plugin_does_not_warn(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -258,6 +263,7 @@ def test_plugin_enable_registered_plugin_does_not_warn(
         )
 
 
+@pytest.mark.git
 def test_plugin_enable_unknown_plugin_warns_but_succeeds(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

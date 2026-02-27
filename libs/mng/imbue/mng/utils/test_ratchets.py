@@ -72,7 +72,7 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
 # Group all ratchet tests onto a single xdist worker to benefit from LRU caching
-pytestmark = pytest.mark.xdist_group(name="ratchets")
+pytestmark = [pytest.mark.xdist_group(name="ratchets"), pytest.mark.git]
 
 
 def teardown_module() -> None:

@@ -43,6 +43,7 @@ def pull_ctx(tmp_path: Path) -> SyncTestContext:
 # =============================================================================
 
 
+@pytest.mark.git
 @pytest.mark.rsync
 @pytest.mark.rsync
 def test_pull_files_fail_mode_with_no_uncommitted_changes_succeeds(
@@ -70,6 +71,7 @@ def test_pull_files_fail_mode_with_no_uncommitted_changes_succeeds(
     assert result.source_path == pull_ctx.agent_dir
 
 
+@pytest.mark.git
 def test_pull_files_fail_mode_with_uncommitted_changes_raises_error(
     pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
@@ -99,6 +101,7 @@ def test_pull_files_fail_mode_with_uncommitted_changes_raises_error(
 # =============================================================================
 
 
+@pytest.mark.git
 @pytest.mark.rsync
 def test_pull_files_clobber_mode_overwrites_host_changes(
     pull_ctx: SyncTestContext,
@@ -124,6 +127,7 @@ def test_pull_files_clobber_mode_overwrites_host_changes(
     assert result.destination_path == pull_ctx.local_dir
 
 
+@pytest.mark.git
 @pytest.mark.rsync
 def test_pull_files_clobber_mode_when_only_host_has_changes(
     pull_ctx: SyncTestContext,
@@ -309,6 +313,7 @@ def test_pull_files_merge_mode_restores_untracked_files(
     assert (pull_ctx.local_dir / "agent_file.txt").read_text() == "agent content"
 
 
+@pytest.mark.git
 @pytest.mark.rsync
 def test_pull_files_stash_mode_with_no_uncommitted_changes_does_not_stash(
     pull_ctx: SyncTestContext,
@@ -453,6 +458,7 @@ def test_pull_files_merge_mode_when_both_modify_different_files(
     assert final_stash_count == initial_stash_count
 
 
+@pytest.mark.git
 @pytest.mark.rsync
 def test_pull_files_merge_mode_with_no_uncommitted_changes(
     pull_ctx: SyncTestContext,

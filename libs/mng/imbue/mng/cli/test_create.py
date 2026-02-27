@@ -1027,6 +1027,7 @@ no_copy_work_dir = true
 # =============================================================================
 
 
+@pytest.mark.git
 def test_ensure_clean_rejects_dirty_worktree_by_default(
     cli_runner: CliRunner,
     temp_git_repo: Path,

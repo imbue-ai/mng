@@ -30,6 +30,7 @@ def _is_completion_refresh_process(proc: psutil.Process) -> bool:
         return False
 
 
+@pytest.mark.git
 @pytest.mark.timeout(30)
 def test_trigger_background_refresh_throttles_spawning(
     tmp_path: Path,
