@@ -187,9 +187,11 @@ def _handle_login(
     parsed_id = AgentId(agent_id)
     code = OneTimeCode(one_time_code)
 
+    # If user already has a valid cookie, redirect to landing page
     if _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
         return Response(status_code=307, headers={"Location": "/"})
 
+    # Render JS redirect to /authenticate (prevents prefetch consumption)
     html = render_login_redirect_page(agent_id=parsed_id, one_time_code=code)
     return HTMLResponse(content=html)
 
@@ -208,6 +210,7 @@ def _handle_authenticate(
         html = render_auth_error_page(message="This login code is invalid or has already been used.")
         return HTMLResponse(content=html, status_code=403)
 
+    # Set signed cookie
     signing_key = auth_store.get_signing_key()
     cookie_value = create_signed_cookie_value(agent_id=parsed_id, signing_key=signing_key)
     cookie_name = get_cookie_name_for_agent(parsed_id)
@@ -274,6 +277,7 @@ def _build_proxy_response(
     agent_id: AgentId,
 ) -> Response:
     """Transform a backend httpx response into a FastAPI Response with header/content rewriting."""
+    # Build response headers, dropping hop-by-hop headers
     resp_headers: dict[str, list[str]] = {}
     for header_key, header_value in backend_response.headers.multi_items():
         if header_key.lower() in _EXCLUDED_RESPONSE_HEADERS:
@@ -288,6 +292,7 @@ def _build_proxy_response(
 
     content: str | bytes = backend_response.content
 
+    # Rewrite HTML responses (absolute paths, base tag, WS shim)
     content_type = backend_response.headers.get("content-type", "")
     if "text/html" in content_type:
         html_text = backend_response.text
@@ -313,9 +318,11 @@ async def _handle_proxy_http(
 ) -> Response:
     parsed_id = AgentId(agent_id)
 
+    # Check auth
     if not _check_auth_cookie(cookies=request.cookies, agent_id=parsed_id, auth_store=auth_store):
         return Response(status_code=403, content="Not authenticated for this changeling")
 
+    # Serve the service worker script
     if path == "__sw.js":
         return Response(
             content=generate_service_worker_js(parsed_id),
@@ -326,12 +333,15 @@ async def _handle_proxy_http(
     if backend_url is None:
         return Response(status_code=502, content=f"Backend unavailable for agent: {agent_id}")
 
+    # Check if SW is installed via cookie
     sw_cookie = request.cookies.get(f"sw_installed_{agent_id}")
     is_navigation = request.headers.get("sec-fetch-mode") == "navigate"
 
+    # First HTML navigation without SW -> serve bootstrap
     if is_navigation and not sw_cookie:
         return HTMLResponse(generate_bootstrap_html(parsed_id))
 
+    # Forward request to backend
     result = await _forward_http_request(
         request=request,
         backend_url=backend_url,
@@ -339,6 +349,7 @@ async def _handle_proxy_http(
         agent_id=agent_id,
     )
 
+    # If forwarding returned an error Response directly, return it
     if isinstance(result, Response):
         return result
 
@@ -354,6 +365,7 @@ async def _handle_proxy_websocket(
 ) -> None:
     parsed_id = AgentId(agent_id)
 
+    # Check auth
     if not _check_auth_cookie(cookies=websocket.cookies, agent_id=parsed_id, auth_store=auth_store):
         await websocket.close(code=4003, reason="Not authenticated")
         return
@@ -415,6 +427,7 @@ def create_forwarding_server(
     if http_client is not None:
         app.state.http_client = http_client
 
+    # Register routes
     app.get("/login")(_handle_login)
     app.get("/authenticate")(_handle_authenticate)
     app.get("/")(_handle_landing_page)
@@ -423,6 +436,7 @@ def create_forwarding_server(
         methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
     )(_handle_proxy_http)
 
+    # WebSocket route needs manual dependency wiring since Depends doesn't work on WS
     @app.websocket("/agents/{agent_id}/{path:path}")
     async def proxy_websocket(websocket: WebSocket, agent_id: str, path: str) -> None:
         await _handle_proxy_websocket(

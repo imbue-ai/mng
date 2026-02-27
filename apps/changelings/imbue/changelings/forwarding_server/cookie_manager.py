@@ -14,6 +14,7 @@ _COOKIE_PREFIX: Final[str] = "changeling_"
 
 _COOKIE_MAX_AGE_SECONDS: Final[int] = 30 * 24 * 60 * 60
 
+# Only allow alphanumeric characters, hyphens, and underscores in cookie names
 _SAFE_COOKIE_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^a-zA-Z0-9_-]")
 
 

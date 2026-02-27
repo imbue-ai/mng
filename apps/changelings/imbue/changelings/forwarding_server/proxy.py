@@ -6,6 +6,8 @@ from imbue.mng.primitives import AgentId
 
 _COOKIE_PATH_PATTERN: Final[re.Pattern[str]] = re.compile(r"(;\s*[Pp]ath\s*=\s*)([^;]*)")
 
+# Matches HTML attributes containing absolute-path URLs (starting with /)
+# Handles href, src, action, formaction with both single and double quotes
 _ABSOLUTE_PATH_ATTR_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"""((?:href|src|action|formaction)\s*=\s*)(["'])(/(?!/))""",
     re.IGNORECASE,
@@ -163,6 +165,7 @@ def rewrite_absolute_paths_in_html(
         quote = match.group(2)
         path_start = match.group(3)
 
+        # Check full attribute value to avoid double-prefixing
         remaining = html_content[match.start(3) :]
         end_quote_idx = remaining.find(quote, 1)
         full_path = remaining[:end_quote_idx] if end_quote_idx > 0 else remaining
@@ -202,11 +205,13 @@ def rewrite_proxied_html(
     """
     prefix = _get_agent_prefix(agent_id)
 
+    # Rewrite absolute paths in HTML attributes
     rewritten = rewrite_absolute_paths_in_html(
         html_content=html_content,
         agent_id=agent_id,
     )
 
+    # Build the injection: base tag + WS shim
     base_tag = f'<base href="{prefix}/">'
     shim = generate_websocket_shim_js(agent_id)
     injection = base_tag + shim

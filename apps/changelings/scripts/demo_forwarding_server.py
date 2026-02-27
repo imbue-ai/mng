@@ -45,6 +45,7 @@ def _create_file_browser_backend(browse_dir: str) -> FastAPI:
         if not os.path.realpath(full_path).startswith(os.path.realpath(browse_dir)):
             return PlainTextResponse("Access denied", status_code=403)
         if os.path.isdir(full_path):
+            # Redirect to trailing slash so relative links resolve correctly
             if not str(request.url).endswith("/"):
                 return Response(status_code=307, headers={"Location": f"{path}/"})
             return _render_directory_listing(full_path, f"/{path}")
@@ -53,6 +54,7 @@ def _create_file_browser_backend(browse_dir: str) -> FastAPI:
                 content = open(full_path).read()
             except (OSError, UnicodeDecodeError):
                 return PlainTextResponse("Cannot read file", status_code=500)
+            # Absolute back link -- the forwarding server rewrites it
             parent_path = "/" + "/".join(path.split("/")[:-1])
             back_href = parent_path if parent_path != "/" else "/"
             return HTMLResponse(f"""<!DOCTYPE html>
@@ -78,6 +80,7 @@ def _render_directory_listing(dir_path: str, url_path: str) -> HTMLResponse:
     except OSError:
         items = []
 
+    # Use absolute links -- the forwarding server rewrites them transparently
     if url_path != "/":
         parent = "/".join(url_path.rstrip("/").split("/")[:-1])
         parent_href = parent if parent else "/"
@@ -194,9 +197,11 @@ def _run_backend(app: FastAPI, port: int) -> None:
 def main() -> None:
     forwarding_port = 8420
 
+    # Create temp dir for auth data and a sample file tree
     data_dir = Path(tempfile.mkdtemp(prefix="changelings-demo-"))
     auth_store = FileAuthStore(data_directory=data_dir / "auth")
 
+    # Create sample files for the file browser
     sample_dir = data_dir / "sample-files"
     sample_dir.mkdir()
     (sample_dir / "hello.txt").write_text("Hello from the file browser!\nThis file is served through the proxy.\n")
@@ -209,6 +214,7 @@ def main() -> None:
         "def main():\n    print('Hello, world!')\n\nif __name__ == '__main__':\n    main()\n"
     )
 
+    # Set up backends
     file_browser_id = AgentId()
     ws_echo_id = AgentId()
 
@@ -217,6 +223,7 @@ def main() -> None:
         ("ws-echo", ws_echo_id, 9002, _create_ws_echo_backend()),
     ]
 
+    # Start backend servers
     url_by_agent_id: dict[str, str] = {}
     for _, agent_id, port, backend_app in backend_configs:
         thread = threading.Thread(
@@ -237,6 +244,7 @@ def main() -> None:
     print(f"Data directory: {data_dir}")
     print()
 
+    # Generate one-time codes and print login URLs
     for label, agent_id, port, _ in backend_configs:
         code = OneTimeCode(secrets.token_urlsafe(32))
         auth_store.add_one_time_code(
@@ -260,6 +268,7 @@ def main() -> None:
     print("=" * 60)
     print()
 
+    # Start forwarding server
     app = create_forwarding_server(
         auth_store=auth_store,
         backend_resolver=backend_resolver,

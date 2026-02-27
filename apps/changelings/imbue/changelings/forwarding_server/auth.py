@@ -97,6 +97,7 @@ class FileAuthStore(AuthStoreInterface):
                 logger.debug("Rejected already-{} code for {}", matched.status, agent_id)
                 return False
 
+            # Mark as used
             updated_codes = list(stored_codes)
             updated_codes[matching_code_idx] = StoredOneTimeCode(
                 code=matched.code,
@@ -118,6 +119,7 @@ class FileAuthStore(AuthStoreInterface):
                 raise SigningKeyError(f"Signing key file is empty: {key_path}")
             return CookieSigningKey(key_value)
 
+        # Generate a new key
         with log_span("Generating new signing key"):
             new_key = secrets.token_urlsafe(_SIGNING_KEY_LENGTH)
             try:
