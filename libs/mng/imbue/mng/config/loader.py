@@ -1,6 +1,5 @@
 import os
 import tomllib
-from collections.abc import Callable
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from pydantic import BaseModel
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.model_update import to_update
+from imbue.mng.config.agent_config_registry import get_agent_config_class
 from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.consts import ROOT_CONFIG_FILENAME
 from imbue.mng.config.data_types import AgentTypeConfig
@@ -32,16 +32,13 @@ from imbue.mng.config.pre_readers import load_local_config
 from imbue.mng.config.pre_readers import load_project_config
 from imbue.mng.config.pre_readers import read_disabled_plugins
 from imbue.mng.config.pre_readers import try_load_toml
+from imbue.mng.config.provider_config_registry import get_provider_config_class
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.file_utils import atomic_write
-
-# Type aliases for registry lookup functions injected by callers.
-AgentConfigResolver = Callable[[str], type[AgentTypeConfig]]
-ProviderConfigResolver = Callable[[str], type[ProviderInstanceConfig]]
 
 # Environment variable prefix for command config overrides.
 # Format: MNG_COMMANDS_<COMMANDNAME>_<VARNAME>=<value>
@@ -61,8 +58,6 @@ _ENV_COMMANDS_PREFIX: Final[str] = "MNG_COMMANDS_"
 def load_config(
     pm: pluggy.PluginManager,
     concurrency_group: ConcurrencyGroup,
-    agent_config_resolver: AgentConfigResolver,
-    provider_config_resolver: ProviderConfigResolver,
     context_dir: Path | None = None,
     enabled_plugins: Sequence[str] | None = None,
     disabled_plugins: Sequence[str] | None = None,
@@ -120,11 +115,7 @@ def load_config(
         load_local_config(context_dir, root_name, concurrency_group),
     ):
         if raw is not None:
-            config = config.merge_with(
-                parse_config(
-                    raw, agent_config_resolver, provider_config_resolver, disabled_plugins=config_disabled_plugins
-                )
-            )
+            config = config.merge_with(parse_config(raw, disabled_plugins=config_disabled_plugins))
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -274,7 +265,6 @@ def _check_unknown_fields(
 
 def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
-    provider_config_resolver: ProviderConfigResolver,
     disabled_plugins: frozenset[str],
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
@@ -290,7 +280,7 @@ def _parse_providers(
         if plugin in disabled_plugins:
             continue
         try:
-            config_class = provider_config_resolver(backend)
+            config_class = get_provider_config_class(backend)
         except UnknownBackendError as e:
             msg = f"Provider '{name}' references unknown backend '{backend}'."
             if disabled_plugins:
@@ -322,7 +312,6 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
 
 def _parse_agent_types(
     raw_types: dict[str, dict[str, Any]],
-    agent_config_resolver: AgentConfigResolver,
 ) -> dict[AgentTypeName, AgentTypeConfig]:
     """Parse agent type configs using the registry.
 
@@ -331,7 +320,7 @@ def _parse_agent_types(
     agent_types: dict[AgentTypeName, AgentTypeConfig] = {}
 
     for name, raw_config in raw_types.items():
-        config_class = agent_config_resolver(name)
+        config_class = get_agent_config_class(name)
         _check_unknown_fields(raw_config, config_class, f"agent_types.{name}")
         normalized_config = _normalize_cli_args_for_construct(raw_config)
         agent_types[AgentTypeName(name)] = config_class.model_construct(**normalized_config)
@@ -473,8 +462,6 @@ def _parse_create_templates(raw_templates: dict[str, dict[str, Any]]) -> dict[Cr
 
 def parse_config(
     raw: dict[str, Any],
-    agent_config_resolver: AgentConfigResolver,
-    provider_config_resolver: ProviderConfigResolver,
     disabled_plugins: frozenset[str] = frozenset(),
 ) -> MngConfig:
     """Parse a raw config dict into MngConfig.
@@ -485,13 +472,9 @@ def parse_config(
     kwargs: dict[str, Any] = {}
     kwargs["prefix"] = raw.pop("prefix", None)
     kwargs["default_host_dir"] = raw.pop("default_host_dir", None)
-    kwargs["agent_types"] = (
-        _parse_agent_types(raw.pop("agent_types", {}), agent_config_resolver) if "agent_types" in raw else {}
-    )
+    kwargs["agent_types"] = _parse_agent_types(raw.pop("agent_types", {})) if "agent_types" in raw else {}
     kwargs["providers"] = (
-        _parse_providers(raw.pop("providers", {}), provider_config_resolver, disabled_plugins=disabled_plugins)
-        if "providers" in raw
-        else {}
+        _parse_providers(raw.pop("providers", {}), disabled_plugins=disabled_plugins) if "providers" in raw else {}
     )
     kwargs["plugins"] = _parse_plugins(raw.pop("plugins", {})) if "plugins" in raw else {}
     kwargs["commands"] = _parse_commands(raw.pop("commands", {})) if "commands" in raw else {}

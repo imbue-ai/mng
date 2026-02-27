@@ -15,7 +15,6 @@ from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
-from imbue.mng.agents.agent_registry import get_agent_config_class
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
@@ -36,7 +35,6 @@ from imbue.mng.errors import ConfigNotFoundError
 from imbue.mng.errors import ConfigParseError
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.primitives import OutputFormat
-from imbue.mng.providers.registry import get_config_class as get_provider_config_class
 from imbue.mng.utils.file_utils import atomic_write
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.interactive_subprocess import run_interactive_subprocess
@@ -413,8 +411,6 @@ def _config_set_impl(ctx: click.Context, key: str, value: str, **kwargs: Any) ->
     # Validate the resulting config before saving
     parse_config(
         dict(doc.unwrap()),
-        get_agent_config_class,
-        get_provider_config_class,
         disabled_plugins=mng_ctx.config.disabled_plugins,
     )
 

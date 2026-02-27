@@ -11,6 +11,10 @@ from imbue.mng.agents.default_plugins import claude_agent
 from imbue.mng.agents.default_plugins import code_guardian_agent
 from imbue.mng.agents.default_plugins import codex_agent
 from imbue.mng.agents.default_plugins import fixme_fairy_agent
+from imbue.mng.config.agent_config_registry import get_agent_config_class
+from imbue.mng.config.agent_config_registry import list_registered_agent_config_types
+from imbue.mng.config.agent_config_registry import register_agent_config as _register_agent_config_in_registry
+from imbue.mng.config.agent_config_registry import reset_agent_config_registry
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import merge_cli_args
@@ -23,7 +27,6 @@ from imbue.mng.primitives import AgentTypeName
 # =============================================================================
 
 _agent_class_registry: dict[AgentTypeName, type[AgentInterface]] = {}
-_agent_config_registry: dict[AgentTypeName, type[AgentTypeConfig]] = {}
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"agents_loaded": False}
 
@@ -34,7 +37,7 @@ def reset_agent_registry() -> None:
     This is primarily used for test isolation to ensure a clean state between tests.
     """
     _agent_class_registry.clear()
-    _agent_config_registry.clear()
+    reset_agent_config_registry()
     _registry_state["agents_loaded"] = False
 
 
@@ -71,7 +74,7 @@ def _register_agent_internal(
     if agent_class is not None:
         _agent_class_registry[key] = agent_class
     if config_class is not None:
-        _agent_config_registry[key] = config_class
+        _register_agent_config_in_registry(agent_type, config_class)
 
 
 def get_agent_class(agent_type: str) -> type[AgentInterface]:
@@ -82,21 +85,11 @@ def get_agent_class(agent_type: str) -> type[AgentInterface]:
     return _agent_class_registry[key]
 
 
-def get_agent_config_class(agent_type: str) -> type[AgentTypeConfig]:
-    """Get the config class for an agent type.
-
-    Returns the base AgentTypeConfig if no specific type is registered.
-    """
-    key = AgentTypeName(agent_type)
-    if key not in _agent_config_registry:
-        return AgentTypeConfig
-    return _agent_config_registry[key]
-
-
 def list_registered_agent_types() -> list[str]:
-    """List all registered agent type names."""
-    all_types = set(_agent_class_registry.keys()) | set(_agent_config_registry.keys())
-    return sorted(str(k) for k in all_types)
+    """List all registered agent type names (from both class and config registries)."""
+    class_types = {str(k) for k in _agent_class_registry.keys()}
+    config_types = set(list_registered_agent_config_types())
+    return sorted(class_types | config_types)
 
 
 def _register_agent(
@@ -122,7 +115,7 @@ def register_agent_config(
     This function exists primarily for testing and programmatic registration.
     For plugins, prefer using the @hookimpl decorator with register_agent_type().
     """
-    _register_agent(agent_type, config_class=config_class)
+    _register_agent_config_in_registry(agent_type, config_class)
 
 
 @pure

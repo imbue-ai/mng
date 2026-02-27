@@ -20,6 +20,9 @@ import imbue.mng.providers.ssh.backend as ssh_backend_module
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import ProviderInstanceConfig
+from imbue.mng.config.provider_config_registry import get_provider_config_class
+from imbue.mng.config.provider_config_registry import register_provider_config
+from imbue.mng.config.provider_config_registry import reset_provider_config_registry
 from imbue.mng.errors import ConfigStructureError
 from imbue.mng.errors import UnknownBackendError
 from imbue.mng.interfaces.provider_backend import ProviderBackendInterface
@@ -29,8 +32,6 @@ from imbue.mng.providers.base_provider import BaseProviderInstance
 
 # Cache for registered backends
 _backend_registry: dict[ProviderBackendName, type[ProviderBackendInterface]] = {}
-# Cache for registered config classes (may include configs for backends not currently loaded)
-_config_registry: dict[ProviderBackendName, type[ProviderInstanceConfig]] = {}
 # Use a mutable container to track state without 'global' keyword
 _registry_state: dict[str, bool] = {"backends_loaded": False}
 
@@ -53,7 +54,7 @@ def reset_backend_registry() -> None:
     This is primarily used for test isolation to ensure a clean state between tests.
     """
     _backend_registry.clear()
-    _config_registry.clear()
+    reset_provider_config_registry()
     _registry_state["backends_loaded"] = False
 
 
@@ -81,7 +82,7 @@ def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_doc
             backend_class, config_class = registration
             backend_name = backend_class.get_name()
             _backend_registry[backend_name] = backend_class
-            _config_registry[backend_name] = config_class
+            register_provider_config(str(backend_name), config_class)
 
     _registry_state["backends_loaded"] = True
 
@@ -118,14 +119,10 @@ def get_backend(name: str | ProviderBackendName) -> type[ProviderBackendInterfac
 def get_config_class(name: str | ProviderBackendName) -> type[ProviderInstanceConfig]:
     """Get the config class for a provider backend.
 
-    This returns the typed config class that should be used when parsing
-    configuration for the given backend.
+    Delegates to the config-layer registry. This function exists for callers
+    above the config layer (api, cli) that historically imported from here.
     """
-    key = ProviderBackendName(name) if isinstance(name, str) else name
-    if key not in _config_registry:
-        registered = ", ".join(sorted(str(k) for k in _config_registry.keys()))
-        raise UnknownBackendError(f"Unknown provider backend: {key}. Registered backends: {registered or '(none)'}")
-    return _config_registry[key]
+    return get_provider_config_class(str(name))
 
 
 def list_backends() -> list[str]:
