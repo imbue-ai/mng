@@ -4,10 +4,12 @@ import pytest
 
 from imbue.zygote.agent import DefaultToolExecutor
 from imbue.zygote.agent import ZygoteAgent
+from imbue.zygote.agent import create_zygote_agent
 from imbue.zygote.conftest import FakeAsyncAnthropic
 from imbue.zygote.conftest import make_default_config
 from imbue.zygote.conftest import make_text_response
 from imbue.zygote.conftest import make_tool_use_response
+from imbue.zygote.data_types import InnerDialogMessage
 from imbue.zygote.errors import ToolExecutionError
 from imbue.zygote.errors import ZygoteError
 from imbue.zygote.primitives import MemoryKey
@@ -20,7 +22,7 @@ def _make_agent(
     responses: list | None = None,
 ) -> tuple[ZygoteAgent, FakeAsyncAnthropic]:
     client = FakeAsyncAnthropic(responses)
-    agent = ZygoteAgent(config=make_default_config(), client=client)
+    agent = create_zygote_agent(config=make_default_config(), client=client)  # type: ignore[arg-type]
     return agent, client
 
 
@@ -160,7 +162,13 @@ class TestDefaultToolExecutor:
 
     def test_compact_history(self) -> None:
         agent, _ = _make_agent([make_text_response("Summary")])
-        messages = tuple({"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"} for i in range(20))
+        messages = tuple(
+            InnerDialogMessage(
+                role=MessageRole.USER if i % 2 == 0 else MessageRole.ASSISTANT,
+                content=f"msg {i}",
+            )
+            for i in range(20)
+        )
         agent.inner_dialog_state = agent.inner_dialog_state.model_copy(update={"messages": messages})
         executor = DefaultToolExecutor(agent=agent)
         result = asyncio.run(executor.compact_history())

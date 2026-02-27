@@ -4,6 +4,7 @@ from abc import ABC
 from abc import abstractmethod
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.zygote.data_types import AgentMemory
 from imbue.zygote.data_types import Thread
 from imbue.zygote.data_types import ThreadMessage
 from imbue.zygote.primitives import MemoryKey
@@ -69,6 +70,11 @@ class ZygoteAgentInterface(MutableModel, ABC):
     @abstractmethod
     def add_assistant_message(self, thread_id: ThreadId, content: str) -> ThreadMessage:
         """Add an assistant message to a thread."""
+        ...
+
+    @abstractmethod
+    def get_memory(self) -> AgentMemory:
+        """Return the agent's persistent memory."""
         ...
 
     @abstractmethod

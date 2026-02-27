@@ -17,12 +17,15 @@ from typing import Final
 import anthropic
 
 from imbue.imbue_common.pure import pure
+from imbue.zygote.data_types import ContentBlock
+from imbue.zygote.data_types import InnerDialogMessage
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
 from imbue.zygote.data_types import ToolResult
 from imbue.zygote.errors import CompactionError
 from imbue.zygote.errors import InnerDialogError
 from imbue.zygote.interfaces import ToolExecutorInterface
+from imbue.zygote.primitives import MessageRole
 from imbue.zygote.primitives import ModelName
 from imbue.zygote.prompts import build_compaction_prompt
 from imbue.zygote.tools import ALL_TOOLS
@@ -32,15 +35,15 @@ DEFAULT_MAX_TOOL_ITERATIONS: Final[int] = 50
 
 
 @pure
-def _build_notification_user_message(notification: Notification) -> dict[str, Any]:
+def _build_notification_user_message(notification: Notification) -> InnerDialogMessage:
     """Convert a notification into a user message for the inner dialog."""
     thread_context = ""
     if notification.thread_id is not None:
         thread_context = f" [thread: {notification.thread_id}]"
-    return {
-        "role": "user",
-        "content": (f"[{notification.source.value} notification{thread_context}]\n{notification.content}"),
-    }
+    return InnerDialogMessage(
+        role=MessageRole.USER,
+        content=f"[{notification.source.value} notification{thread_context}]\n{notification.content}",
+    )
 
 
 @pure
@@ -63,31 +66,32 @@ def _extract_tool_use_blocks(response: anthropic.types.Message) -> list[anthropi
 
 
 @pure
-def _build_tool_result_messages(results: list[ToolResult]) -> list[dict[str, Any]]:
-    """Build tool_result content blocks from tool execution results."""
-    return [
-        {
-            "type": "tool_result",
-            "tool_use_id": result.tool_use_id,
-            "content": result.content,
-            "is_error": result.is_error,
-        }
+def _build_tool_result_message(results: list[ToolResult]) -> InnerDialogMessage:
+    """Build a tool_result user message from tool execution results."""
+    blocks = tuple(
+        ContentBlock(
+            type="tool_result",
+            data={
+                "tool_use_id": result.tool_use_id,
+                "content": result.content,
+                "is_error": result.is_error,
+            },
+        )
         for result in results
-    ]
+    )
+    return InnerDialogMessage(role=MessageRole.USER, content=blocks)
 
 
 @pure
-def _response_content_to_serializable(content: list[Any]) -> list[dict[str, Any]]:
-    """Convert response content blocks to serializable dicts."""
-    result: list[dict[str, Any]] = []
-    for block in content:
-        if hasattr(block, "model_dump"):
-            result.append(block.model_dump())
-        elif isinstance(block, dict):
-            result.append(block)
-        else:
-            result.append({"type": "text", "text": str(block)})
-    return result
+def _response_to_message(response: anthropic.types.Message) -> InnerDialogMessage:
+    """Convert an API response to an InnerDialogMessage."""
+    blocks = tuple(
+        ContentBlock.from_api_dict(
+            block.model_dump() if hasattr(block, "model_dump") else {"type": "text", "text": str(block)}
+        )
+        for block in response.content
+    )
+    return InnerDialogMessage(role=MessageRole.ASSISTANT, content=blocks)
 
 
 async def process_notification(
@@ -135,15 +139,20 @@ async def process_notification(
     )
 
 
+def _messages_to_api_format(messages: list[InnerDialogMessage]) -> list[dict[str, Any]]:
+    """Convert typed messages to Claude API format for the messages parameter."""
+    return [msg.to_api_dict() for msg in messages]
+
+
 async def _run_tool_loop(
-    messages: list[dict[str, Any]],
+    messages: list[InnerDialogMessage],
     system_prompt: str,
     tool_executor: ToolExecutorInterface,
     client: anthropic.AsyncAnthropic,
     model: ModelName,
     max_tokens: int,
     max_iterations: int,
-) -> list[dict[str, Any]]:
+) -> list[InnerDialogMessage]:
     """Run the tool execution loop until the model stops calling tools.
 
     Raises InnerDialogError if max_iterations is exceeded.
@@ -153,12 +162,12 @@ async def _run_tool_loop(
             model=str(model),
             max_tokens=max_tokens,
             system=system_prompt,
-            messages=messages,
+            messages=_messages_to_api_format(messages),
             tools=list(ALL_TOOLS),
         )
 
-        serializable_content = _response_content_to_serializable(response.content)
-        messages.append({"role": "assistant", "content": serializable_content})
+        assistant_message = _response_to_message(response)
+        messages.append(assistant_message)
 
         tool_use_blocks = _extract_tool_use_blocks(response)
 
@@ -176,8 +185,8 @@ async def _run_tool_loop(
             )
             results.append(result)
 
-        tool_result_blocks = _build_tool_result_messages(results)
-        messages.append({"role": "user", "content": tool_result_blocks})
+        tool_result_msg = _build_tool_result_message(results)
+        messages.append(tool_result_msg)
 
     raise InnerDialogError(f"Tool loop exceeded maximum iterations ({max_iterations})")
 
@@ -203,7 +212,7 @@ async def compact_inner_dialog(
     older_messages = messages[:-messages_to_preserve]
     preserved_messages = messages[-messages_to_preserve:]
 
-    messages_text = json.dumps(older_messages, indent=2)
+    messages_text = json.dumps([msg.to_api_dict() for msg in older_messages], indent=2)
 
     compaction_prompt = build_compaction_prompt(messages_text)
 
@@ -252,16 +261,11 @@ def get_inner_dialog_summary(state: InnerDialogState) -> str:
     if recent_messages:
         recent_texts: list[str] = []
         for msg in recent_messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                recent_texts.append(f"  {role}: {content[:200]}")
-            elif isinstance(content, list):
-                text_parts = [
-                    block.get("text", "")
-                    for block in content
-                    if isinstance(block, dict) and block.get("type") == "text"
-                ]
+            role = msg.role.value.lower()
+            if isinstance(msg.content, str):
+                recent_texts.append(f"  {role}: {msg.content[:200]}")
+            else:
+                text_parts = [block.data.get("text", "") for block in msg.content if block.type == "text"]
                 if text_parts:
                     recent_texts.append(f"  {role}: {''.join(text_parts)[:200]}")
         if recent_texts:

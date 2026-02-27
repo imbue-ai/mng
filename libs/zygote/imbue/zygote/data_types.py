@@ -60,16 +60,75 @@ class ToolResult(FrozenModel):
     is_error: bool = Field(default=False, description="Whether the tool execution failed")
 
 
+class ContentBlock(FrozenModel):
+    """A content block in a Claude API message (text, tool_use, or tool_result).
+
+    Uses a flexible data field to store block-specific attributes alongside
+    the required type field.
+    """
+
+    type: str = Field(description="Block type (text, tool_use, tool_result)")
+    data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Block-specific data (text, tool_use_id, input, etc.)",
+    )
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        """Serialize to a flat dict for the Claude API."""
+        result = dict(self.data)
+        result["type"] = self.type
+        return result
+
+    @classmethod
+    def from_api_dict(cls, raw: dict[str, Any]) -> "ContentBlock":
+        """Construct from a Claude API content block dict."""
+        block_type = raw["type"]
+        data = {k: v for k, v in raw.items() if k != "type"}
+        return cls(type=block_type, data=data)
+
+
+class InnerDialogMessage(FrozenModel):
+    """A typed message in the inner dialog's conversation history.
+
+    Wraps the Claude API message format with proper types. Content can be
+    either a plain string (for simple messages) or a tuple of content blocks
+    (for tool use/result messages).
+    """
+
+    role: MessageRole = Field(description="Message role (USER or ASSISTANT)")
+    content: str | tuple[ContentBlock, ...] = Field(description="Message content")
+
+    def to_api_dict(self) -> dict[str, Any]:
+        """Convert to Claude API message format."""
+        if isinstance(self.content, str):
+            return {"role": self.role.value.lower(), "content": self.content}
+        return {
+            "role": self.role.value.lower(),
+            "content": [block.model_dump() for block in self.content],
+        }
+
+    @classmethod
+    def from_api_dict(cls, data: dict[str, Any]) -> "InnerDialogMessage":
+        """Construct from a Claude API message dict."""
+        role = MessageRole(data["role"].upper())
+        raw_content = data["content"]
+        if isinstance(raw_content, str):
+            content: str | tuple[ContentBlock, ...] = raw_content
+        else:
+            content = tuple(ContentBlock.from_api_dict(block) for block in raw_content)
+        return cls(role=role, content=content)
+
+
 class InnerDialogState(FrozenModel):
     """The state of the inner dialog agent's conversation with the model.
 
-    This tracks the full message history (in Claude API format) for the
-    inner dialog, along with any compacted summary of older messages.
+    This tracks the full message history for the inner dialog, along with
+    any compacted summary of older messages.
     """
 
-    messages: tuple[dict[str, Any], ...] = Field(
+    messages: tuple[InnerDialogMessage, ...] = Field(
         default=(),
-        description="Message history in Claude API format",
+        description="Message history",
     )
     compacted_summary: str | None = Field(
         default=None,

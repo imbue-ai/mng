@@ -12,10 +12,8 @@ threads and tool execution.
 from datetime import datetime
 from datetime import timezone
 from typing import Any
-from typing import Self
 
 from pydantic import Field
-from pydantic import model_validator
 
 from imbue.imbue_common.model_update import to_update
 from imbue.zygote.chat import generate_chat_response
@@ -51,7 +49,7 @@ class DefaultToolExecutor(ToolExecutorInterface):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    agent: Any = Field(description="The agent this executor delegates to")
+    agent: ZygoteAgentInterface = Field(description="The agent this executor delegates to")
 
     async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
         self.agent.add_assistant_message(thread_id, content)
@@ -61,7 +59,7 @@ class DefaultToolExecutor(ToolExecutorInterface):
         return await self.agent.create_sub_agent(name, agent_type, message)
 
     async def read_memory(self, key: MemoryKey) -> str:
-        value = self.agent.memory.entries.get(key)
+        value = self.agent.get_memory().entries.get(key)
         if value is None:
             raise ToolExecutionError(f"Memory key not found: {key}")
         return value
@@ -84,24 +82,16 @@ class ZygoteAgent(ZygoteAgentInterface):
     2. A chat response system that generates replies for user threads,
        informed by the inner dialog's current state.
 
-    Usage:
-        config = ZygoteAgentConfig(...)
-        agent = ZygoteAgent(
-            config=config,
-            client=AsyncAnthropic(),
-        )
-
-        # User sends a message
-        response = await agent.receive_user_message(thread_id, "Hello!")
-
-        # System event occurs
-        await agent.receive_event(NotificationSource.SYSTEM, "Daily check-in")
+    Use create_zygote_agent() to construct an instance with default tool executor.
     """
 
     model_config = {"arbitrary_types_allowed": True}
 
     config: ZygoteAgentConfig = Field(description="Agent configuration")
-    client: Any = Field(description="Anthropic API client (anthropic.AsyncAnthropic or compatible)")
+    # Note: typed as Any because pydantic validates isinstance and our test fakes
+    # cannot subclass the third-party AsyncAnthropic client. Callers should pass
+    # an anthropic.AsyncAnthropic instance (or a compatible fake for testing).
+    client: Any = Field(description="Anthropic API client (anthropic.AsyncAnthropic)")
     inner_dialog_state: InnerDialogState = Field(
         default_factory=InnerDialogState,
         description="Current state of the inner dialog",
@@ -114,30 +104,16 @@ class ZygoteAgent(ZygoteAgentInterface):
         default_factory=AgentMemory,
         description="Persistent key-value memory",
     )
-    inner_dialog_system_prompt: str = Field(
-        default="",
-        description="Compiled inner dialog system prompt (auto-generated from config)",
-    )
-    tool_executor: Any = Field(
-        default=None,
-        description="Tool executor for inner dialog (auto-generated if not provided)",
-    )
-
-    @model_validator(mode="after")
-    def _initialize_computed_fields(self) -> Self:
-        """Compute the inner dialog system prompt and default tool executor."""
-        if not self.inner_dialog_system_prompt:
-            self.inner_dialog_system_prompt = build_inner_dialog_full_prompt(
-                base_prompt=self.config.base_system_prompt,
-                inner_dialog_prompt=self.config.inner_dialog_system_prompt,
-            )
-        if self.tool_executor is None:
-            self.tool_executor = DefaultToolExecutor(agent=self)
-        return self
+    inner_dialog_system_prompt: str = Field(description="Compiled inner dialog system prompt")
+    tool_executor: ToolExecutorInterface = Field(description="Tool executor for inner dialog")
 
     @property
     def threads(self) -> dict[ThreadId, Thread]:
         return dict(self.thread_store)
+
+    def get_memory(self) -> AgentMemory:
+        """Return the agent's persistent memory."""
+        return self.memory
 
     def get_thread(self, thread_id: ThreadId) -> Thread:
         """Get a thread by ID, creating it if it does not exist."""
@@ -280,3 +256,65 @@ class ZygoteAgent(ZygoteAgentInterface):
         raise ZygoteError(
             "Sub-agent creation not configured. Override create_sub_agent or provide a custom ToolExecutor."
         )
+
+
+def create_zygote_agent(
+    config: ZygoteAgentConfig,
+    client: Any,
+    tool_executor: ToolExecutorInterface | None = None,
+) -> ZygoteAgent:
+    """Create a ZygoteAgent with the default tool executor.
+
+    This is the recommended way to construct a ZygoteAgent. If no
+    tool_executor is provided, a DefaultToolExecutor is created that
+    delegates to the agent.
+    """
+    compiled_prompt = build_inner_dialog_full_prompt(
+        base_prompt=config.base_system_prompt,
+        inner_dialog_prompt=config.inner_dialog_system_prompt,
+    )
+
+    if tool_executor is not None:
+        return ZygoteAgent(
+            config=config,
+            client=client,
+            inner_dialog_system_prompt=compiled_prompt,
+            tool_executor=tool_executor,
+        )
+
+    # We need the agent reference for DefaultToolExecutor, creating a circular
+    # dependency. We resolve this by first constructing a DefaultToolExecutor
+    # that references itself (via agent), then immediately updating it.
+    # This requires constructing the executor first with a temporary agent.
+    placeholder_executor = MockPlaceholderExecutor()
+    agent = ZygoteAgent(
+        config=config,
+        client=client,
+        inner_dialog_system_prompt=compiled_prompt,
+        tool_executor=placeholder_executor,
+    )
+    agent.tool_executor = DefaultToolExecutor(agent=agent)
+    return agent
+
+
+class MockPlaceholderExecutor(ToolExecutorInterface):
+    """Temporary placeholder used only during ZygoteAgent construction.
+
+    This should never be called -- it is immediately replaced by
+    DefaultToolExecutor in create_zygote_agent.
+    """
+
+    async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
+        raise RuntimeError("Placeholder executor should not be called")
+
+    async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
+        raise RuntimeError("Placeholder executor should not be called")
+
+    async def read_memory(self, key: MemoryKey) -> str:
+        raise RuntimeError("Placeholder executor should not be called")
+
+    async def write_memory(self, key: MemoryKey, value: str) -> str:
+        raise RuntimeError("Placeholder executor should not be called")
+
+    async def compact_history(self) -> str:
+        raise RuntimeError("Placeholder executor should not be called")

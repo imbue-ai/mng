@@ -6,6 +6,7 @@ import pytest
 
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.zygote.data_types import AgentMemory
+from imbue.zygote.data_types import InnerDialogMessage
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
 from imbue.zygote.data_types import Thread
@@ -102,9 +103,8 @@ class TestInnerDialogState:
         assert state.compacted_summary is None
 
     def test_with_messages(self) -> None:
-        state = InnerDialogState(
-            messages=({"role": "user", "content": "hello"},),
-        )
+        msg = InnerDialogMessage(role=MessageRole.USER, content="hello")
+        state = InnerDialogState(messages=(msg,))
         assert len(state.messages) == 1
 
     def test_with_summary(self) -> None:

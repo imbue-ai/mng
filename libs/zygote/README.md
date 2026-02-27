@@ -36,7 +36,7 @@ Three prompts control all behavior:
 
 ```python
 import anthropic
-from imbue.zygote.agent import ZygoteAgent
+from imbue.zygote.agent import create_zygote_agent
 from imbue.zygote.data_types import ZygoteAgentConfig
 from imbue.zygote.primitives import ModelName, NotificationSource, ThreadId
 
@@ -50,7 +50,7 @@ config = ZygoteAgentConfig(
 )
 
 client = anthropic.AsyncAnthropic()
-agent = ZygoteAgent(config=config, client=client)
+agent = create_zygote_agent(config=config, client=client)
 
 # Handle a user message (notifies inner dialog, then generates chat response)
 thread_id = ThreadId()
@@ -65,10 +65,10 @@ await agent.receive_event(NotificationSource.SYSTEM, "Daily check-in")
 To add mng-based sub-agent creation, subclass `ZygoteAgent` and override `create_sub_agent`, or provide a custom `ToolExecutor`:
 
 ```python
-from imbue.zygote.tools import ToolExecutor
+from imbue.zygote.interfaces import ToolExecutorInterface
 from imbue.zygote.primitives import MemoryKey, ThreadId
 
-class MyToolExecutor(ToolExecutor):
+class MyToolExecutor(ToolExecutorInterface):
     async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
         # Default: delegate to agent
         ...

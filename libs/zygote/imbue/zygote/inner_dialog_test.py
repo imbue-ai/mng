@@ -1,12 +1,12 @@
 import asyncio
 from datetime import datetime
 from datetime import timezone
-from typing import Any
 
 from imbue.zygote.conftest import FakeAsyncAnthropic
 from imbue.zygote.conftest import MockToolExecutor
 from imbue.zygote.conftest import make_text_response
 from imbue.zygote.conftest import make_tool_use_response
+from imbue.zygote.data_types import InnerDialogMessage
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
 from imbue.zygote.inner_dialog import _build_notification_user_message
@@ -14,6 +14,7 @@ from imbue.zygote.inner_dialog import _build_system_with_summary
 from imbue.zygote.inner_dialog import compact_inner_dialog
 from imbue.zygote.inner_dialog import get_inner_dialog_summary
 from imbue.zygote.inner_dialog import process_notification
+from imbue.zygote.primitives import MessageRole
 from imbue.zygote.primitives import ModelName
 from imbue.zygote.primitives import NotificationId
 from imbue.zygote.primitives import NotificationSource
@@ -39,17 +40,19 @@ class TestBuildNotificationUserMessage:
         thread_id = ThreadId()
         notif = _make_notification(content="hello", thread_id=thread_id)
         msg = _build_notification_user_message(notif)
-        assert msg["role"] == "user"
-        assert "USER_MESSAGE" in msg["content"]
-        assert str(thread_id) in msg["content"]
-        assert "hello" in msg["content"]
+        assert msg.role == MessageRole.USER
+        assert isinstance(msg.content, str)
+        assert "USER_MESSAGE" in msg.content
+        assert str(thread_id) in msg.content
+        assert "hello" in msg.content
 
     def test_without_thread(self) -> None:
         notif = _make_notification(content="event", source=NotificationSource.SYSTEM)
         msg = _build_notification_user_message(notif)
-        assert msg["role"] == "user"
-        assert "SYSTEM" in msg["content"]
-        assert "event" in msg["content"]
+        assert msg.role == MessageRole.USER
+        assert isinstance(msg.content, str)
+        assert "SYSTEM" in msg.content
+        assert "event" in msg.content
 
 
 class TestBuildSystemWithSummary:
@@ -84,8 +87,8 @@ class TestProcessNotification:
         )
 
         assert len(new_state.messages) == 2  # notification + response
-        assert new_state.messages[0]["role"] == "user"
-        assert new_state.messages[1]["role"] == "assistant"
+        assert new_state.messages[0].role == MessageRole.USER
+        assert new_state.messages[1].role == MessageRole.ASSISTANT
 
     def test_notification_with_tool_call(self) -> None:
         """Test processing a notification where the model calls a tool."""
@@ -117,9 +120,11 @@ class TestProcessNotification:
         """Test that existing messages in state are preserved."""
         client = FakeAsyncAnthropic([make_text_response("ok")])
 
-        existing_messages: tuple[dict[str, Any], ...] = (
-            {"role": "user", "content": "previous message"},
-            {"role": "assistant", "content": [{"type": "text", "text": "previous response"}]},
+        existing_messages: tuple[InnerDialogMessage, ...] = (
+            InnerDialogMessage(role=MessageRole.USER, content="previous message"),
+            InnerDialogMessage.from_api_dict(
+                {"role": "assistant", "content": [{"type": "text", "text": "previous response"}]}
+            ),
         )
         state = InnerDialogState(messages=existing_messages)
         notification = _make_notification("new message")
@@ -144,7 +149,7 @@ class TestCompactInnerDialog:
         """Test that compaction is a no-op when history is short."""
         client = FakeAsyncAnthropic()
         state = InnerDialogState(
-            messages=({"role": "user", "content": "hello"},),
+            messages=(InnerDialogMessage(role=MessageRole.USER, content="hello"),),
         )
 
         result = asyncio.run(
@@ -162,8 +167,12 @@ class TestCompactInnerDialog:
         """Test that compaction summarizes older messages."""
         client = FakeAsyncAnthropic([make_text_response("Summary of conversation.")])
 
-        messages: tuple[dict[str, Any], ...] = tuple(
-            {"role": "user" if i % 2 == 0 else "assistant", "content": f"msg {i}"} for i in range(20)
+        messages: tuple[InnerDialogMessage, ...] = tuple(
+            InnerDialogMessage(
+                role=MessageRole.USER if i % 2 == 0 else MessageRole.ASSISTANT,
+                content=f"msg {i}",
+            )
+            for i in range(20)
         )
         state = InnerDialogState(messages=messages)
 
@@ -194,8 +203,10 @@ class TestGetInnerDialogSummary:
     def test_with_recent_messages(self) -> None:
         state = InnerDialogState(
             messages=(
-                {"role": "user", "content": "hello from user"},
-                {"role": "assistant", "content": [{"type": "text", "text": "agent thinking"}]},
+                InnerDialogMessage(role=MessageRole.USER, content="hello from user"),
+                InnerDialogMessage.from_api_dict(
+                    {"role": "assistant", "content": [{"type": "text", "text": "agent thinking"}]}
+                ),
             ),
         )
         summary = get_inner_dialog_summary(state)
@@ -205,7 +216,7 @@ class TestGetInnerDialogSummary:
     def test_truncates_long_content(self) -> None:
         long_content = "x" * 500
         state = InnerDialogState(
-            messages=({"role": "user", "content": long_content},),
+            messages=(InnerDialogMessage(role=MessageRole.USER, content=long_content),),
         )
         summary = get_inner_dialog_summary(state)
         assert len(summary) < len(long_content)
