@@ -222,7 +222,7 @@ def _send_enter_and_wait(target: str, run_command: TmuxCommandRunner) -> None:
     """
     wait_channel = f"mng-submit-{target}"
     if _send_enter_and_wait_for_signal(target, wait_channel, run_command, ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS):
-        logger.trace("Submitted message successfully")
+        logger.debug("Message submitted successfully")
         return
 
     pane_content = capture_tmux_pane(target, run_command)
