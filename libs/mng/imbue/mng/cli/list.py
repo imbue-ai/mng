@@ -727,7 +727,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
         value = _get_header_label(field)
         parts.append(value.ljust(width))
-    return _COLUMN_SEPARATOR.join(parts)
+    return _COLUMN_SEPARATOR.join(parts).rstrip()
 
 
 @pure
@@ -740,7 +740,7 @@ def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_
         # Values are padded but intentionally not truncated: full values are preferred
         # over truncated ones, so columns may appear ragged when values exceed the width.
         parts.append(value.ljust(width))
-    return _COLUMN_SEPARATOR.join(parts)
+    return _COLUMN_SEPARATOR.join(parts).rstrip()
 
 
 class _ListIterationParams(BaseModel):
