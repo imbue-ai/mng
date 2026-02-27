@@ -2,14 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [release, main]
   pull_request:
     branches: ['**']
 
 jobs:
-  # Integration tests with coverage - runs on non-main branches
+  # Integration tests with coverage - runs on non-release branches
   test-integration:
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/release'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -17,10 +17,10 @@ jobs:
         group: [1, 2, 3, 4]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -30,7 +30,7 @@ jobs:
           sudo apt-get install -y tmux git openssh-server unison
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -39,6 +39,14 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -n 0 --timeout 10 --cov-fail-under=0 -v --tb=short --splits 4 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-integration-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 30
 
       - name: List coverage files
         run: |
@@ -54,20 +62,20 @@ jobs:
           retention-days: 1
 
   coverage:
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/release'
     needs: test-integration
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -104,21 +112,21 @@ jobs:
   # Coverage warning job - shows yellow indicator if coverage is below 81%
   # This is separate from the hard 80% threshold to provide early warning
   coverage-warning:
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/release'
     needs: test-integration
     runs-on: ubuntu-latest
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -135,8 +143,8 @@ jobs:
           uv run coverage combine coverage-*/.coverage
           uv run coverage report --fail-under=81
 
-  # Clean up old Modal test environments - runs on all branches including main,
-  # since both acceptance tests (non-main) and release tests (main) create environments.
+  # Clean up old Modal test environments - runs on all branches including release,
+  # since both acceptance tests (non-release) and release tests (release) create environments.
   cleanup-modal-environments:
     runs-on: ubuntu-latest
     env:
@@ -144,15 +152,15 @@ jobs:
       MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -163,9 +171,9 @@ jobs:
         run: uv run python scripts/cleanup_old_modal_test_environments.py --max-age-hours 1.0
 
 
-  # Acceptance tests - runs on all branches (except main, since release tests are a superset)
+  # Acceptance tests - runs on all branches (except release, since release tests are a superset)
   test-acceptance:
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/release'
     runs-on: ubuntu-latest
     env:
       MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
@@ -173,13 +181,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6, 7, 8]
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -188,8 +196,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
 
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -197,11 +210,19 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run acceptance tests
-        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "not release"' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_ACCEPTANCE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0 -m "acceptance"' --no-cov -v --tb=short --splits 16 --group ${{ matrix.group }} --splitting-algorithm=least_duration
 
-  # Release tests - runs only on main branch pushes
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-acceptance-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 30
+
+  # Release tests - runs only on release branch pushes
   test-release:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/release' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
       MODAL_TOKEN_ID: ${{ vars.MODAL_TOKEN_ID }}
@@ -209,13 +230,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2, 3, 4, 5, 6, 7, 8]
+        group: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -224,8 +245,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux git openssh-server unison
 
+      - name: Configure Docker Hub mirror
+        run: |
+          echo '{"registry-mirrors": ["https://mirror.gcr.io"]}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
 
@@ -233,4 +259,12 @@ jobs:
         run: uv sync --all-packages
 
       - name: Run release tests
-        run: export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 8 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+        run: export IS_RELEASE=1 && uv run pytest -n 0 --timeout 90 --override-ini='addopts=-n 0' --no-cov -v --tb=short --splits 12 --group ${{ matrix.group }} --splitting-algorithm=least_duration
+
+      - name: Upload test timing data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-durations-release-${{ matrix.group }}
+          path: .test_output/test_durations_*.json
+          retention-days: 30
