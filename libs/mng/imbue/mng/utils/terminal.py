@@ -93,8 +93,6 @@ def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
             if visible_col >= terminal_width:
                 result.append("\n")
                 visible_col = 0
-            else:
-                pass
             result.append(char)
             visible_col += 1
             idx += 1
