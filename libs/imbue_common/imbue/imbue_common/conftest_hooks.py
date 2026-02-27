@@ -191,10 +191,36 @@ def _generate_wrapper_script(resource: str, real_path: str) -> str:
         subcommands = "|".join(_GIT_HEAVY_SUBCOMMANDS)
         return f"""#!/bin/bash
 if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
-    case "$1" in
+    # Skip global git flags to find the actual subcommand.
+    # git -C /path worktree add ... has -C as $1, not worktree.
+    _subcmd=""
+    _skip_next=0
+    for _arg in "$@"; do
+        if [ "$_skip_next" = "1" ]; then
+            _skip_next=0
+            continue
+        fi
+        case "$_arg" in
+            -C|-c|--git-dir|--work-tree|--namespace|--super-prefix)
+                _skip_next=1
+                continue
+                ;;
+            --git-dir=*|--work-tree=*|-C*|-c*)
+                continue
+                ;;
+            -*)
+                continue
+                ;;
+            *)
+                _subcmd="$_arg"
+                break
+                ;;
+        esac
+    done
+    case "$_subcmd" in
         {subcommands})
             if [ "{bash_guard_var}" = "block" ]; then
-                echo "RESOURCE GUARD: Test invoked 'git $1' without @pytest.mark.git mark." >&2
+                echo "RESOURCE GUARD: Test invoked 'git $_subcmd' without @pytest.mark.git mark." >&2
                 echo "Add @pytest.mark.git to the test, or remove the git usage." >&2
                 exit 127
             fi
