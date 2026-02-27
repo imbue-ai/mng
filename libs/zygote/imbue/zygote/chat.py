@@ -7,6 +7,7 @@ To generate a reply for a given thread, we call a language model with:
 """
 
 from typing import Any
+from typing import assert_never
 
 import anthropic
 
@@ -19,11 +20,23 @@ from imbue.zygote.prompts import build_chat_full_prompt
 
 
 @pure
+def _role_to_api_string(role: MessageRole) -> str:
+    """Convert a MessageRole enum to the Claude API role string."""
+    match role:
+        case MessageRole.USER:
+            return "user"
+        case MessageRole.ASSISTANT:
+            return "assistant"
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+@pure
 def _thread_to_api_messages(thread: Thread) -> list[dict[str, Any]]:
     """Convert a Thread's messages into Claude API message format."""
     return [
         {
-            "role": "user" if msg.role == MessageRole.USER else "assistant",
+            "role": _role_to_api_string(msg.role),
             "content": msg.content,
         }
         for msg in thread.messages

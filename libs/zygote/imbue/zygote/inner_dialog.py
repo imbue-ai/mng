@@ -22,10 +22,10 @@ from imbue.zygote.data_types import Notification
 from imbue.zygote.data_types import ToolResult
 from imbue.zygote.errors import CompactionError
 from imbue.zygote.errors import InnerDialogError
+from imbue.zygote.interfaces import ToolExecutorInterface
 from imbue.zygote.primitives import ModelName
 from imbue.zygote.prompts import build_compaction_prompt
 from imbue.zygote.tools import ALL_TOOLS
-from imbue.zygote.tools import ToolExecutor
 from imbue.zygote.tools import execute_tool
 
 DEFAULT_MAX_TOOL_ITERATIONS: Final[int] = 50
@@ -94,7 +94,7 @@ async def process_notification(
     state: InnerDialogState,
     notification: Notification,
     system_prompt: str,
-    tool_executor: ToolExecutor,
+    tool_executor: ToolExecutorInterface,
     client: anthropic.AsyncAnthropic,
     model: ModelName,
     max_tokens: int = 4096,
@@ -138,7 +138,7 @@ async def process_notification(
 async def _run_tool_loop(
     messages: list[dict[str, Any]],
     system_prompt: str,
-    tool_executor: ToolExecutor,
+    tool_executor: ToolExecutorInterface,
     client: anthropic.AsyncAnthropic,
     model: ModelName,
     max_tokens: int,

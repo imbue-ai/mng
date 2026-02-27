@@ -4,6 +4,8 @@ from typing import Any
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.primitives import NonEmptyStr
+from imbue.imbue_common.primitives import PositiveInt
 from imbue.zygote.primitives import MemoryKey
 from imbue.zygote.primitives import MessageId
 from imbue.zygote.primitives import MessageRole
@@ -91,20 +93,22 @@ class ZygoteAgentConfig(FrozenModel):
     and model settings.
     """
 
-    agent_name: str = Field(description="Human-readable name for this agent")
-    agent_description: str = Field(description="Brief description of what this agent does")
-    base_system_prompt: str = Field(description="Base system prompt shared between inner dialog and chat")
-    inner_dialog_system_prompt: str = Field(description="Additional system prompt for the inner dialog agent loop")
-    chat_system_prompt: str = Field(description="Additional system prompt for chat response generation")
+    agent_name: NonEmptyStr = Field(description="Human-readable name for this agent")
+    agent_description: NonEmptyStr = Field(description="Brief description of what this agent does")
+    base_system_prompt: NonEmptyStr = Field(description="Base system prompt shared between inner dialog and chat")
+    inner_dialog_system_prompt: NonEmptyStr = Field(
+        description="Additional system prompt for the inner dialog agent loop"
+    )
+    chat_system_prompt: NonEmptyStr = Field(description="Additional system prompt for chat response generation")
     model: ModelName = Field(
         default=ModelName("claude-sonnet-4-5-20250514"),
         description="Claude model to use for API calls",
     )
-    max_tokens: int = Field(
-        default=4096,
+    max_tokens: PositiveInt = Field(
+        default=PositiveInt(4096),
         description="Maximum tokens per API response",
     )
-    max_inner_dialog_messages: int = Field(
-        default=100,
+    max_inner_dialog_messages: PositiveInt = Field(
+        default=PositiveInt(100),
         description="Maximum number of messages before suggesting compaction",
     )

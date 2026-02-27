@@ -3,44 +3,50 @@ from typing import Any
 import anthropic
 
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
+from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.zygote.data_types import ZygoteAgentConfig
 from imbue.zygote.errors import ToolExecutionError
+from imbue.zygote.interfaces import ToolExecutorInterface
 from imbue.zygote.primitives import MemoryKey
 from imbue.zygote.primitives import ModelName
 from imbue.zygote.primitives import ThreadId
-from imbue.zygote.tools import ToolExecutor
 
 register_conftest_hooks(globals())
 
 
-class MockToolExecutor(ToolExecutor):
+class MockToolExecutor(ToolExecutorInterface):
     """Mock executor that records calls and returns canned responses."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, str]]] = []
+        super().__init__()
+        self._calls: list[tuple[str, dict[str, str]]] = []
+
+    @property
+    def calls(self) -> list[tuple[str, dict[str, str]]]:
+        return self._calls
 
     async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
-        self.calls.append(("send_message", {"thread_id": str(thread_id), "content": content}))
+        self._calls.append(("send_message", {"thread_id": str(thread_id), "content": content}))
         return "message sent"
 
     async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
-        self.calls.append(("create_sub_agent", {"name": name, "agent_type": agent_type, "message": message}))
+        self._calls.append(("create_sub_agent", {"name": name, "agent_type": agent_type, "message": message}))
         return "agent created"
 
     async def read_memory(self, key: MemoryKey) -> str:
-        self.calls.append(("read_memory", {"key": str(key)}))
+        self._calls.append(("read_memory", {"key": str(key)}))
         return "stored_value"
 
     async def write_memory(self, key: MemoryKey, value: str) -> str:
-        self.calls.append(("write_memory", {"key": str(key), "value": value}))
+        self._calls.append(("write_memory", {"key": str(key), "value": value}))
         return "written"
 
     async def compact_history(self) -> str:
-        self.calls.append(("compact_history", {}))
+        self._calls.append(("compact_history", {}))
         return "compacted"
 
 
-class FailingSendExecutor(ToolExecutor):
+class FailingSendExecutor(ToolExecutorInterface):
     """Mock executor where send_message_to_thread raises ToolExecutionError."""
 
     async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
@@ -120,10 +126,10 @@ def make_tool_use_response(name: str, tool_input: dict[str, Any], block_id: str 
 def make_default_config() -> ZygoteAgentConfig:
     """Create a default ZygoteAgentConfig for tests."""
     return ZygoteAgentConfig(
-        agent_name="test-agent",
-        agent_description="A test agent",
-        base_system_prompt="You are a test agent.",
-        inner_dialog_system_prompt="Process notifications carefully.",
-        chat_system_prompt="Reply concisely.",
+        agent_name=NonEmptyStr("test-agent"),
+        agent_description=NonEmptyStr("A test agent"),
+        base_system_prompt=NonEmptyStr("You are a test agent."),
+        inner_dialog_system_prompt=NonEmptyStr("Process notifications carefully."),
+        chat_system_prompt=NonEmptyStr("Reply concisely."),
         model=ModelName("claude-sonnet-4-5-20250514"),
     )

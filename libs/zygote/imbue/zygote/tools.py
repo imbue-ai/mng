@@ -1,17 +1,18 @@
 """Tool definitions and execution for the inner dialog agent.
 
-Tools are defined as Claude API tool schemas and executed via a ToolExecutor
-protocol. The inner dialog agent uses these tools to interact with the outside
+Tools are defined as Claude API tool schemas and executed via a ToolExecutorInterface.
+The inner dialog agent uses these tools to interact with the outside
 world -- sending messages to users, creating sub-agents, and managing memory.
 """
 
-from abc import ABC
-from abc import abstractmethod
 from typing import Any
 from typing import Final
 
+from loguru import logger
+
 from imbue.zygote.data_types import ToolResult
 from imbue.zygote.errors import ToolExecutionError
+from imbue.zygote.interfaces import ToolExecutorInterface
 from imbue.zygote.primitives import MemoryKey
 from imbue.zygote.primitives import ThreadId
 
@@ -130,67 +131,37 @@ ALL_TOOLS: Final[tuple[dict[str, Any], ...]] = (
 )
 
 
-# =============================================================================
-# Tool Executor Interface
-# =============================================================================
-
-
-class ToolExecutor(ABC):
-    """Interface for executing tools called by the inner dialog agent.
-
-    Implementations of this interface provide the actual behavior for each tool.
-    The inner dialog loop calls execute_tool() with the tool name and input,
-    and the executor returns the result.
-    """
-
-    @abstractmethod
-    async def send_message_to_thread(self, thread_id: ThreadId, content: str) -> str:
-        """Send a message to a user chat thread. Returns a confirmation string."""
-        ...
-
-    @abstractmethod
-    async def create_sub_agent(self, name: str, agent_type: str, message: str) -> str:
-        """Create a sub-agent via mng. Returns a status string."""
-        ...
-
-    @abstractmethod
-    async def read_memory(self, key: MemoryKey) -> str:
-        """Read a value from persistent memory. Returns the stored value."""
-        ...
-
-    @abstractmethod
-    async def write_memory(self, key: MemoryKey, value: str) -> str:
-        """Write a value to persistent memory. Returns a confirmation string."""
-        ...
-
-    @abstractmethod
-    async def compact_history(self) -> str:
-        """Compact the inner dialog history. Returns the summary."""
-        ...
-
-
 async def execute_tool(
     tool_name: str,
     tool_input: dict[str, Any],
     tool_use_id: str,
-    executor: ToolExecutor,
+    executor: ToolExecutorInterface,
 ) -> ToolResult:
     """Execute a tool call and return the result.
 
-    Routes the tool call to the appropriate method on the executor,
-    catching ToolExecutionError and returning it as an error result.
+    Routes the tool call to the appropriate method on the executor.
+    Catches ToolExecutionError and input validation errors (KeyError,
+    ValueError, TypeError) and returns them as error results so the
+    model can retry with corrected input.
     """
     try:
         result_content = await _dispatch_tool(tool_name, tool_input, executor)
         return ToolResult(tool_use_id=tool_use_id, content=result_content)
     except ToolExecutionError as e:
         return ToolResult(tool_use_id=tool_use_id, content=str(e), is_error=True)
+    except (KeyError, ValueError, TypeError) as e:
+        logger.warning("Tool {} received invalid input: {}", tool_name, e)
+        return ToolResult(
+            tool_use_id=tool_use_id,
+            content=f"Invalid input for {tool_name}: {e}",
+            is_error=True,
+        )
 
 
 async def _dispatch_tool(
     tool_name: str,
     tool_input: dict[str, Any],
-    executor: ToolExecutor,
+    executor: ToolExecutorInterface,
 ) -> str:
     """Dispatch a tool call to the appropriate executor method."""
     match tool_name:

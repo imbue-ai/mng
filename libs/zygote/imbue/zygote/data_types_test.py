@@ -4,6 +4,7 @@ from datetime import timezone
 import pydantic
 import pytest
 
+from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.zygote.data_types import AgentMemory
 from imbue.zygote.data_types import InnerDialogState
 from imbue.zygote.data_types import Notification
@@ -124,11 +125,11 @@ class TestAgentMemory:
 class TestZygoteAgentConfig:
     def test_defaults(self) -> None:
         config = ZygoteAgentConfig(
-            agent_name="test",
-            agent_description="test agent",
-            base_system_prompt="base",
-            inner_dialog_system_prompt="inner",
-            chat_system_prompt="chat",
+            agent_name=NonEmptyStr("test"),
+            agent_description=NonEmptyStr("test agent"),
+            base_system_prompt=NonEmptyStr("base"),
+            inner_dialog_system_prompt=NonEmptyStr("inner"),
+            chat_system_prompt=NonEmptyStr("chat"),
         )
         assert config.model == ModelName("claude-sonnet-4-5-20250514")
         assert config.max_tokens == 4096
@@ -136,11 +137,11 @@ class TestZygoteAgentConfig:
 
     def test_custom_model(self) -> None:
         config = ZygoteAgentConfig(
-            agent_name="test",
-            agent_description="test agent",
-            base_system_prompt="base",
-            inner_dialog_system_prompt="inner",
-            chat_system_prompt="chat",
+            agent_name=NonEmptyStr("test"),
+            agent_description=NonEmptyStr("test agent"),
+            base_system_prompt=NonEmptyStr("base"),
+            inner_dialog_system_prompt=NonEmptyStr("inner"),
+            chat_system_prompt=NonEmptyStr("chat"),
             model=ModelName("claude-opus-4-6"),
         )
         assert config.model == ModelName("claude-opus-4-6")
