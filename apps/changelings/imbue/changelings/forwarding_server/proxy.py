@@ -1,6 +1,7 @@
 import re
 from typing import Final
 
+from imbue.changelings.primitives import ServerName
 from imbue.imbue_common.pure import pure
 from imbue.mng.primitives import AgentId
 
@@ -16,13 +17,20 @@ _ABSOLUTE_PATH_ATTR_PATTERN: Final[re.Pattern[str]] = re.compile(
 
 @pure
 def _get_agent_prefix(agent_id: AgentId) -> str:
+    """Return the URL prefix for an agent's top-level page (server listing)."""
     return f"/agents/{agent_id}"
 
 
 @pure
-def generate_bootstrap_html(agent_id: AgentId) -> str:
+def _get_server_prefix(agent_id: AgentId, server_name: ServerName) -> str:
+    """Return the URL prefix for a specific server of an agent."""
+    return f"/agents/{agent_id}/{server_name}"
+
+
+@pure
+def generate_bootstrap_html(agent_id: AgentId, server_name: ServerName) -> str:
     """Generate the bootstrap HTML that installs the Service Worker on first visit."""
-    prefix = _get_agent_prefix(agent_id)
+    prefix = _get_server_prefix(agent_id, server_name)
     return f"""<!DOCTYPE html>
 <html><head><title>Loading...</title></head>
 <body>
@@ -36,7 +44,7 @@ async function boot() {{
   const sw = reg.installing || reg.waiting || reg.active;
 
   function onActivated() {{
-    document.cookie = 'sw_installed_{agent_id}=1; path=' + PREFIX;
+    document.cookie = 'sw_installed_{agent_id}_{server_name}=1; path=' + PREFIX;
     location.reload();
   }}
 
@@ -58,9 +66,9 @@ boot().catch(err => {{
 
 
 @pure
-def generate_service_worker_js(agent_id: AgentId) -> str:
+def generate_service_worker_js(agent_id: AgentId, server_name: ServerName) -> str:
     """Generate the Service Worker JavaScript for transparent path rewriting."""
-    prefix = _get_agent_prefix(agent_id)
+    prefix = _get_server_prefix(agent_id, server_name)
     return f"""
 const PREFIX = '{prefix}';
 
@@ -97,9 +105,9 @@ self.addEventListener('fetch', (event) => {{
 
 
 @pure
-def generate_websocket_shim_js(agent_id: AgentId) -> str:
-    """Generate the WebSocket shim script that rewrites WS URLs to include the agent prefix."""
-    prefix = _get_agent_prefix(agent_id)
+def generate_websocket_shim_js(agent_id: AgentId, server_name: ServerName) -> str:
+    """Generate the WebSocket shim script that rewrites WS URLs to include the server prefix."""
+    prefix = _get_server_prefix(agent_id, server_name)
     return f"""<script>
 (function() {{
   var PREFIX = '{prefix}';
@@ -130,9 +138,13 @@ def generate_websocket_shim_js(agent_id: AgentId) -> str:
 
 
 @pure
-def rewrite_cookie_path(set_cookie_header: str, agent_id: AgentId) -> str:
-    """Rewrite the Path attribute in a Set-Cookie header to scope under the agent prefix."""
-    prefix = _get_agent_prefix(agent_id)
+def rewrite_cookie_path(
+    set_cookie_header: str,
+    agent_id: AgentId,
+    server_name: ServerName,
+) -> str:
+    """Rewrite the Path attribute in a Set-Cookie header to scope under the server prefix."""
+    prefix = _get_server_prefix(agent_id, server_name)
 
     match = _COOKIE_PATH_PATTERN.search(set_cookie_header)
 
@@ -151,13 +163,14 @@ def rewrite_cookie_path(set_cookie_header: str, agent_id: AgentId) -> str:
 def rewrite_absolute_paths_in_html(
     html_content: str,
     agent_id: AgentId,
+    server_name: ServerName,
 ) -> str:
-    """Rewrite absolute-path URLs in HTML attributes to include the agent prefix.
+    """Rewrite absolute-path URLs in HTML attributes to include the server prefix.
 
-    Handles href, src, action, formaction attributes. Rewrites /foo to /agents/{id}/foo
+    Handles href, src, action, formaction attributes. Rewrites /foo to /agents/{id}/{server}/foo
     but leaves already-prefixed paths and protocol-relative URLs (//...) unchanged.
     """
-    prefix = _get_agent_prefix(agent_id)
+    prefix = _get_server_prefix(agent_id, server_name)
     result_parts: list[str] = []
     last_end = 0
 
@@ -197,23 +210,25 @@ def _inject_into_head(html_content: str, injection: str) -> str:
 def rewrite_proxied_html(
     html_content: str,
     agent_id: AgentId,
+    server_name: ServerName,
 ) -> str:
     """Apply all HTML transformations needed for proxied responses.
 
     This rewrites absolute-path URLs, injects a <base> tag for relative URL resolution,
     and injects the WebSocket shim script.
     """
-    prefix = _get_agent_prefix(agent_id)
+    prefix = _get_server_prefix(agent_id, server_name)
 
     # Rewrite absolute paths in HTML attributes
     rewritten = rewrite_absolute_paths_in_html(
         html_content=html_content,
         agent_id=agent_id,
+        server_name=server_name,
     )
 
     # Build the injection: base tag + WS shim
     base_tag = f'<base href="{prefix}/">'
-    shim = generate_websocket_shim_js(agent_id)
+    shim = generate_websocket_shim_js(agent_id, server_name)
     injection = base_tag + shim
 
     return _inject_into_head(html_content=rewritten, injection=injection)

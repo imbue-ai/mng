@@ -26,7 +26,7 @@ The forwarding servers provide:
 - A landing page listing all accessible changelings
 - Reverse proxying of HTTP and WebSocket traffic to individual changeling web servers using Service Worker-based path rewriting
 
-Each changeling runs its own web server on a separate port. The forwarding server multiplexes access to all of them under path prefixes (e.g. `/agents/{agent_id}/`).
+Each changeling may run one or more web servers on separate ports. The forwarding server multiplexes access to all of them under path prefixes (e.g. `/agents/{agent_id}/{server_name}/`). Navigating to `/agents/{agent_id}/` shows a listing of all available servers for that agent.
 
 ## Design
 

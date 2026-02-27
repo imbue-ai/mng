@@ -13,3 +13,9 @@ class CookieSigningKey(SecretStr):
     """Secret key used for signing authentication cookies."""
 
     ...
+
+
+class ServerName(NonEmptyStr):
+    """Name of a server run by a changeling agent (e.g. 'web', 'api')."""
+
+    ...

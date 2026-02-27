@@ -1,9 +1,11 @@
 import pytest
 
+from imbue.changelings.forwarding_server.templates import render_agent_servers_page
 from imbue.changelings.forwarding_server.templates import render_auth_error_page
 from imbue.changelings.forwarding_server.templates import render_landing_page
 from imbue.changelings.forwarding_server.templates import render_login_redirect_page
 from imbue.changelings.primitives import OneTimeCode
+from imbue.changelings.primitives import ServerName
 from imbue.imbue_common.ids import InvalidRandomIdError
 from imbue.mng.primitives import AgentId
 
@@ -51,3 +53,28 @@ def test_agent_id_rejects_invalid_format() -> None:
 def test_agent_id_accepts_valid_format() -> None:
     agent_id = AgentId("agent-00000000000000000000000000000001")
     assert agent_id == "agent-00000000000000000000000000000001"
+
+
+# -- Agent servers page tests --
+
+
+def test_render_agent_servers_page_with_servers_lists_them_as_links() -> None:
+    server_names = (ServerName("api"), ServerName("web"))
+    html = render_agent_servers_page(agent_id=_AGENT_A, server_names=server_names)
+    assert f"/agents/{_AGENT_A}/api/" in html
+    assert f"/agents/{_AGENT_A}/web/" in html
+    assert "api" in html
+    assert "web" in html
+    assert str(_AGENT_A) in html
+
+
+def test_render_agent_servers_page_with_no_servers_shows_empty_state() -> None:
+    html = render_agent_servers_page(agent_id=_AGENT_A, server_names=())
+    assert "No servers are currently running" in html
+    assert str(_AGENT_A) in html
+
+
+def test_render_agent_servers_page_has_back_link() -> None:
+    html = render_agent_servers_page(agent_id=_AGENT_A, server_names=())
+    assert 'href="/"' in html
+    assert "Back to all changelings" in html

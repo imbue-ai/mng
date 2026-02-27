@@ -26,7 +26,7 @@ Each changeling has its own code repo (its zygote), cloned from a git remote. Th
 
 Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
-Changelings *must* serve web requests on some port (configurable, but will almost always be the default one, unless you're running a bunch locally). On startup, they write a JSON record to `$MNG_AGENT_STATE_DIR/logs/servers.jsonl` containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. The forwarding server reads this via `mng logs <agent-id> servers.jsonl` to discover backends.
+Changelings *must* serve web requests on one or more ports. On startup, they write JSON records to `$MNG_AGENT_STATE_DIR/logs/servers.jsonl` -- one line per server -- containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. An agent may write multiple records for different servers (e.g. a "web" UI server and an "api" backend server). Later entries for the same server name override earlier ones. The forwarding server reads this via `mng logs <agent-id> servers.jsonl` to discover all backends.
 
 # Architecture for the local forwarding server
 
@@ -59,21 +59,26 @@ The forwarding server uses `itsdangerous` for cookie signing. Auth works as foll
     if you have 0 valid cookies, it shows a placeholder telling you to log in
     if you have 1 or more valid cookies, those changelings are shown as links to their individual pages
 
-`/agents/{agent_id}/` route serves individual changeling UIs:
+`/agents/{agent_id}/` route lists all servers for a changeling:
     requires a valid auth cookie for that changeling
-    proxies any request from the user to the changeling's backend web server
-    uses Service Workers for transparent path rewriting so the changeling's app works correctly under the `/agents/{agent_id}/` prefix
+    shows a page listing all known server names for the agent (discovered via `mng logs`)
+    each server name links to `/agents/{agent_id}/{server_name}/`
+
+`/agents/{agent_id}/{server_name}/{path}` route serves individual server UIs:
+    requires a valid auth cookie for that changeling (auth is per-agent, not per-server)
+    proxies any request from the user to the specific server's backend URL
+    uses Service Workers for transparent path rewriting so the server's app works correctly under the `/agents/{agent_id}/{server_name}/` prefix
 
 All pages except "/", "/login" and "/authenticate" require the auth cookie to be set for the relevant changeling.
 
 ## Proxying design
 
-Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{agent_id}/`). This requires a combination of Service Workers, script injection, and rewriting:
+Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{agent_id}/{server_name}/`). Each server for an agent gets its own prefix and Service Worker scope. This requires a combination of Service Workers, script injection, and rewriting:
 
-- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{agent_id}/`
+- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{agent_id}/{server_name}/`
 - The SW intercepts all same-origin requests and rewrites paths to include the prefix
 - HTML responses have a WebSocket shim injected to rewrite WS URLs
-- Cookie paths in Set-Cookie headers are rewritten to scope under the agent prefix
+- Cookie paths in Set-Cookie headers are rewritten to scope under the server prefix
 - WebSocket connections are proxied bidirectionally
 
 # Command line interface
