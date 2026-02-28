@@ -1,4 +1,3 @@
-import datetime
 import os
 import signal
 import sys
@@ -8,6 +7,7 @@ import pytest
 import sqlite_utils
 
 from imbue.llm_live_chat.conftest import invoke_live_chat
+from imbue.llm_live_chat.plugin import _insert_response
 
 _HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 
@@ -62,32 +62,14 @@ def test_live_chat_sigusr1_pending(mock_model, logs_db, cli_runner):
             conv_id = conversation.id
             db = sqlite_utils.Database(log_path)
             from llm.migrations import migrate
+            from llm.utils import monotonic_ulid
 
             migrate(db)
             db["conversations"].insert(
                 {"id": conv_id, "name": "test", "model": "mock"},
                 ignore=True,
             )
-            db["responses"].insert(
-                {
-                    "id": "external-injected-response",
-                    "model": "mock",
-                    "prompt": "external prompt",
-                    "system": None,
-                    "prompt_json": None,
-                    "options_json": "{}",
-                    "response": "external followup message",
-                    "response_json": None,
-                    "conversation_id": conv_id,
-                    "duration_ms": 0,
-                    "datetime_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "token_details": None,
-                    "schema_id": None,
-                    "resolved_model": None,
-                },
-            )
+            _insert_response(db, monotonic_ulid, "mock", "external prompt", "external followup message", conv_id)
             os.kill(os.getpid(), signal.SIGUSR1)
             yield "second reply"
             response.set_usage(input=1, output=1)
