@@ -6,6 +6,7 @@ import pytest
 from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_short_random_string
 from imbue.mng.utils.testing import get_subprocess_test_env
+from imbue.mng.utils.testing import init_git_repo_with_config
 
 pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
 
@@ -192,6 +193,48 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
             f"--file={dockerfile_path}",
             "-b",
             str(temp_source_dir),
+            "--",
+            expected_output,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=docker_subprocess_env,
+    )
+
+    assert result.returncode == 0, f"CLI failed with stderr: {result.stderr}\nstdout: {result.stdout}"
+    assert "Done." in result.stdout, f"Expected 'Done.' in output: {result.stdout}"
+
+
+@pytest.mark.timeout(120)
+def test_mng_create_with_git_source_on_docker(
+    tmp_path: Path,
+    docker_subprocess_env: dict[str, str],
+) -> None:
+    """Test creating a Docker agent from a git repo source, exercising _transfer_git_repo."""
+    source_dir = tmp_path / "git-source"
+    init_git_repo_with_config(source_dir)
+    (source_dir / "test.txt").write_text("test content")
+    subprocess.run(["git", "add", "."], cwd=source_dir, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "Add test file"], cwd=source_dir, check=True, capture_output=True)
+
+    agent_name = f"test-docker-git-{get_short_random_string()}"
+    expected_output = f"git-test-{get_short_random_string()}"
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            "mng",
+            "create",
+            agent_name,
+            "echo",
+            "--in",
+            "docker",
+            "--no-connect",
+            "--await-ready",
+            "--source-path",
+            str(source_dir),
             "--",
             expected_output,
         ],
