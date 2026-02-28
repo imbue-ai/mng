@@ -27,11 +27,11 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
+from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.deploy_utils import collect_deploy_files
 from imbue.mng.providers.deploy_utils import detect_mng_install_mode as _shared_detect_mng_install_mode
 from imbue.mng.providers.deploy_utils import resolve_mng_install_mode as _shared_resolve_mng_install_mode
 from imbue.mng.providers.modal.instance import ModalProviderInstance
-from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
