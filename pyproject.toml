@@ -138,6 +138,7 @@ omit = [
     # Docker provider requires a Docker daemon for testing
     "libs/mng/imbue/mng/providers/docker/instance.py",
     "libs/mng/imbue/mng/providers/docker/volume.py",
+    "libs/mng/imbue/mng/providers/docker/testing.py",
     # Changeling deploy modules run on Modal and require infrastructure to test
     "apps/changelings/imbue/changelings/deploy/cron_runner.py",
     "apps/changelings/imbue/changelings/deploy/remote_runner.py",
