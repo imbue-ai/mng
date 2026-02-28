@@ -102,6 +102,7 @@ def test_create_and_cleanup_round_trip() -> None:
 
     # Save original module state
     original_dir = rg._guard_wrapper_dir
+    original_owns = rg._owns_guard_wrapper_dir
     original_path = os.environ.get("PATH", "")
 
     # Clear any pre-existing guard env vars so create sees a fresh state
@@ -123,13 +124,14 @@ def test_create_and_cleanup_round_trip() -> None:
             assert wrapper.stat().st_mode & stat.S_IXUSR
 
         # Cleanup should restore PATH and remove the directory
-        cleanup_resource_guard_wrappers(is_xdist_worker=False)
+        cleanup_resource_guard_wrappers()
         assert rg._guard_wrapper_dir is None
         assert not Path(wrapper_dir).exists()
         assert not os.environ["PATH"].startswith(wrapper_dir)
     finally:
         # Restore original state no matter what
         rg._guard_wrapper_dir = original_dir
+        rg._owns_guard_wrapper_dir = original_owns
         os.environ["PATH"] = original_path
         for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
             os.environ.pop(key, None)

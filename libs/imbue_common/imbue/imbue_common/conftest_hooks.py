@@ -274,7 +274,7 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     is always visible in CI output, even when the suite exceeds the limit.
     """
     # Clean up resource guard wrappers
-    cleanup_resource_guard_wrappers(is_xdist_worker=_is_xdist_worker())
+    cleanup_resource_guard_wrappers()
 
     # Print test durations before checking the time limit, so they are
     # visible in the CI output even when pytest.exit() aborts the session.

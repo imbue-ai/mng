@@ -36,6 +36,7 @@ class MissingGuardedResourceError(Exception):
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
 _guard_wrapper_dir: str | None = None
+_owns_guard_wrapper_dir: bool = False
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -77,18 +78,20 @@ def create_resource_guard_wrappers() -> None:
     inherit the modified PATH and wrapper directory via environment variables.
     The _PYTEST_GUARD_WRAPPER_DIR env var signals that wrappers already exist.
     """
-    global _guard_wrapper_dir
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir
 
     # If wrappers already exist (e.g., inherited from xdist controller), reuse them.
     existing_dir = os.environ.get("_PYTEST_GUARD_WRAPPER_DIR")
     if existing_dir and Path(existing_dir).is_dir():
         _guard_wrapper_dir = existing_dir
+        _owns_guard_wrapper_dir = False
         return
 
     original_path = os.environ.get("PATH", "")
     os.environ["_PYTEST_GUARD_ORIGINAL_PATH"] = original_path
 
     _guard_wrapper_dir = tempfile.mkdtemp(prefix="pytest_resource_guards_")
+    _owns_guard_wrapper_dir = True
 
     for resource in GUARDED_RESOURCES:
         real_path = shutil.which(resource)
@@ -107,15 +110,16 @@ def create_resource_guard_wrappers() -> None:
     os.environ["_PYTEST_GUARD_WRAPPER_DIR"] = _guard_wrapper_dir
 
 
-def cleanup_resource_guard_wrappers(*, is_xdist_worker: bool) -> None:
+def cleanup_resource_guard_wrappers() -> None:
     """Remove wrapper scripts and restore PATH.
 
-    Only the controller (or single-process pytest) should clean up. xdist
-    workers skip cleanup since they share the controller's wrapper directory.
+    Only the process that created the wrappers should delete them.  Processes
+    that merely reused an existing wrapper directory (e.g. xdist workers) just
+    clear their local reference.
     """
-    global _guard_wrapper_dir
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir
 
-    if is_xdist_worker:
+    if not _owns_guard_wrapper_dir:
         _guard_wrapper_dir = None
         return
 
@@ -127,6 +131,8 @@ def cleanup_resource_guard_wrappers(*, is_xdist_worker: bool) -> None:
 
         shutil.rmtree(_guard_wrapper_dir, ignore_errors=True)
         _guard_wrapper_dir = None
+
+    _owns_guard_wrapper_dir = False
 
     # Clean up guard env vars
     for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
