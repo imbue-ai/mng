@@ -9,11 +9,23 @@ from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
 from imbue.changelings.cli.deploy import _move_to_permanent_location
 from imbue.changelings.cli.deploy import _prepare_repo
+from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.main import cli
 from imbue.changelings.testing import init_and_commit_git_repo
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 _RUNNER = CliRunner()
+
+
+def _destroy_agent(name: str) -> None:
+    """Destroy an mng agent by name. Silently ignores failures."""
+    cg = ConcurrencyGroup(name="test-cleanup")
+    with cg:
+        cg.run_process_to_completion(
+            command=[MNG_BINARY, "destroy", name, "--yes"],
+            is_checked_after=False,
+        )
 
 
 def _create_git_repo_with_settings(tmp_path: Path, agent_type: str = "elena-code") -> Path:
@@ -44,9 +56,7 @@ def _deploy_with_agent_type(
 ) -> Result:
     """Invoke changeling deploy with --agent-type and standard non-interactive flags.
 
-    Deployment will fail at mng create since the test environment does not have
-    a full mng runtime. Tests using this helper should only assert on behavior
-    that occurs before the mng create step (repo preparation, prompts, etc.).
+    Cleans up any created agent after the test completes.
     """
     args: list[str] = ["deploy", "--agent-type", agent_type]
 
@@ -59,7 +69,13 @@ def _deploy_with_agent_type(
     args.extend(["--provider", provider, "--no-self-deploy"])
     args.extend(_data_dir_args(tmp_path))
 
-    return _RUNNER.invoke(cli, args, input=input_text)
+    result = _RUNNER.invoke(cli, args, input=input_text)
+
+    # Clean up any agent that was created
+    if result.exit_code == 0 and name is not None:
+        _destroy_agent(name)
+
+    return result
 
 
 def _deploy_with_git_url(
@@ -71,7 +87,10 @@ def _deploy_with_git_url(
     input_text: str | None = None,
     agent_type: str | None = None,
 ) -> Result:
-    """Invoke changeling deploy with a git URL and standard non-interactive flags."""
+    """Invoke changeling deploy with a git URL and standard non-interactive flags.
+
+    Cleans up any created agent after the test completes.
+    """
     args: list[str] = ["deploy", git_url]
 
     if agent_type is not None:
@@ -86,7 +105,13 @@ def _deploy_with_git_url(
     args.extend(["--provider", provider, "--no-self-deploy"])
     args.extend(_data_dir_args(tmp_path))
 
-    return _RUNNER.invoke(cli, args, input=input_text)
+    result = _RUNNER.invoke(cli, args, input=input_text)
+
+    # Clean up any agent that was created
+    if result.exit_code == 0 and name is not None:
+        _destroy_agent(name)
+
+    return result
 
 
 # --- Tests for git URL deployment ---
@@ -157,6 +182,9 @@ def test_deploy_shows_prompts(tmp_path: Path) -> None:
         input="my-agent\n2\nN\n",
     )
 
+    if result.exit_code == 0:
+        _destroy_agent("my-agent")
+
     assert "What would you like to name this agent" in result.output
     assert "Where do you want to run" in result.output
     assert "launch its own agents" in result.output
@@ -170,6 +198,9 @@ def test_deploy_displays_clone_url(tmp_path: Path) -> None:
         ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
         input="test-bot\n1\nN\n",
     )
+
+    if result.exit_code == 0:
+        _destroy_agent("test-bot")
 
     assert "Cloning repository" in result.output
 
@@ -193,6 +224,9 @@ def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
         input="test-bot\n",
     )
 
+    if result.exit_code == 0:
+        _destroy_agent("test-bot")
+
     assert "Where do you want to run" not in result.output
 
 
@@ -205,6 +239,9 @@ def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
         ["deploy", str(repo_dir), "--no-self-deploy", "--provider", "local", *_data_dir_args(tmp_path)],
         input="test-bot\n",
     )
+
+    if result.exit_code == 0:
+        _destroy_agent("test-bot")
 
     assert "launch its own agents" not in result.output
 
@@ -260,6 +297,10 @@ def test_deploy_agent_type_shows_creating_message(tmp_path: Path) -> None:
 def test_deploy_agent_type_defaults_name_to_agent_type(tmp_path: Path) -> None:
     """Verify that --agent-type defaults the agent name prompt to the agent type value."""
     result = _deploy_with_agent_type(tmp_path, name=None, input_text="elena-code\n")
+
+    # Clean up the agent that was created with the prompted name
+    if result.exit_code == 0:
+        _destroy_agent("elena-code")
 
     assert "elena-code" in result.output
 
