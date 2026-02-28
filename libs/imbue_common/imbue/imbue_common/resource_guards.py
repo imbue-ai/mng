@@ -21,6 +21,7 @@ import tempfile
 from collections.abc import Generator
 from pathlib import Path
 from typing import Final
+from unittest.mock import patch
 
 import pytest
 
@@ -147,6 +148,17 @@ def cleanup_resource_guard_wrappers() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _build_per_test_guard_env(marks: set[str], tracking_dir: str) -> dict[str, str]:
+    """Build the env var dict for a single test's resource guards."""
+    env: dict[str, str] = {
+        "_PYTEST_GUARD_PHASE": "call",
+        "_PYTEST_GUARD_TRACKING_DIR": tracking_dir,
+    }
+    for resource in GUARDED_RESOURCES:
+        env[f"_PYTEST_GUARD_{resource.upper()}"] = "allow" if resource in marks else "block"
+    return env
+
+
 @pytest.hookimpl(hookwrapper=True)
 def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
     """Activate resource guards for the entire test lifecycle.
@@ -156,6 +168,9 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
 
     Setting vars early also ensures fixtures that snapshot os.environ
     (like get_subprocess_test_env) capture the guard configuration.
+
+    Uses patch.dict to manage env vars so cleanup is automatic and the
+    set of vars added in setup can never drift from what teardown removes.
     """
     if _guard_wrapper_dir is None:
         yield
@@ -168,15 +183,10 @@ def _pytest_runtest_setup(item: pytest.Item) -> Generator[None, None, None]:
     setattr(item, "_resource_tracking_dir", tracking_dir)  # noqa: B010
     setattr(item, "_resource_marks", marks)  # noqa: B010
 
-    for resource in GUARDED_RESOURCES:
-        env_var = f"_PYTEST_GUARD_{resource.upper()}"
-        if resource in marks:
-            os.environ[env_var] = "allow"
-        else:
-            os.environ[env_var] = "block"
-
-    os.environ["_PYTEST_GUARD_TRACKING_DIR"] = tracking_dir
-    os.environ["_PYTEST_GUARD_PHASE"] = "call"
+    # Start a patch.dict that will be stopped in teardown
+    patcher = patch.dict(os.environ, _build_per_test_guard_env(marks, tracking_dir))
+    patcher.start()
+    setattr(item, "_guard_env_patcher", patcher)  # noqa: B010
 
     yield
 
@@ -186,13 +196,9 @@ def _pytest_runtest_teardown(item: pytest.Item) -> Generator[None, None, None]:
     """Clean up resource guard environment variables after teardown."""
     yield
 
-    if _guard_wrapper_dir is None:
-        return
-
-    os.environ.pop("_PYTEST_GUARD_PHASE", None)
-    os.environ.pop("_PYTEST_GUARD_TRACKING_DIR", None)
-    for resource in GUARDED_RESOURCES:
-        os.environ.pop(f"_PYTEST_GUARD_{resource.upper()}", None)
+    patcher = getattr(item, "_guard_env_patcher", None)
+    if patcher is not None:
+        patcher.stop()
 
 
 @pytest.hookimpl(hookwrapper=True)
