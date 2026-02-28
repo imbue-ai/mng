@@ -593,6 +593,63 @@ def _notify_live_chat_processes():
         logger.debug("pgrep not available, cannot notify live-chat processes")
 
 
+def _check_pending_signals(check_db, conversation, seen_response_ids, _has_sigusr1, check_pending_ref):
+    """Display any pending injected messages if a signal was received."""
+    if _has_sigusr1 and check_pending_ref[0]:
+        _display_new_responses(check_db, conversation, seen_response_ids)
+        check_pending_ref[0] = False
+
+
+def _process_command(prompt, db, conversation, process_fragments_in_chat, signal_ctx):
+    """Process !edit, !fragment commands. Returns (prompt, fragments, attachments) or None to skip."""
+    if prompt.strip() == "!edit":
+        edited = _handle_edit_command(
+            conversation, signal_ctx["has"], signal_ctx["pending"], signal_ctx["db"], signal_ctx["seen"]
+        )
+        if edited is None:
+            return None
+        prompt = edited
+
+    fragments = []
+    attachments = []
+    if prompt.strip().startswith("!fragment "):
+        prompt, fragments, attachments = process_fragments_in_chat(db, prompt)
+
+    return prompt, fragments, attachments
+
+
+class _MultiLineState:
+    """Tracks multi-line input accumulation state."""
+
+    def __init__(self):
+        self.active = False
+        self.accumulated = []
+        self.accumulated_fragments = []
+        self.accumulated_attachments = []
+        self.end_token = "!end"
+
+    def start(self, prompt):
+        self.active = True
+        bits = prompt.strip().split()
+        if len(bits) > 1:
+            self.end_token = "!end {}".format(" ".join(bits[1:]))
+
+    def accumulate_or_finish(self, prompt, fragments, attachments):
+        """Returns (prompt, fragments, attachments) if finished, or None if still accumulating."""
+        if prompt.strip() == self.end_token:
+            result = ("\n".join(self.accumulated), self.accumulated_fragments, self.accumulated_attachments)
+            self.active = False
+            self.accumulated = []
+            self.accumulated_fragments = []
+            self.accumulated_attachments = []
+            return result
+        if prompt:
+            self.accumulated.append(prompt)
+        self.accumulated_fragments += fragments
+        self.accumulated_attachments += attachments
+        return None
+
+
 def _run_repl(
     *,
     db,
@@ -611,54 +668,34 @@ def _run_repl(
     process_fragments_in_chat,
 ):
     """Run the interactive REPL loop."""
-    in_multi = False
-    accumulated = []
-    accumulated_fragments = []
-    accumulated_attachments = []
-    end_token = "!end"
+    multi = _MultiLineState()
+    signal_ctx = {"has": _has_sigusr1, "pending": check_pending_ref, "db": check_db, "seen": seen_response_ids}
 
     while True:
-        if _has_sigusr1 and check_pending_ref[0]:
-            _display_new_responses(check_db, conversation, seen_response_ids)
-            check_pending_ref[0] = False
+        _check_pending_signals(check_db, conversation, seen_response_ids, _has_sigusr1, check_pending_ref)
 
-        prompt = click.prompt("", prompt_suffix="> " if not in_multi else "")
+        prompt = click.prompt("", prompt_suffix="> " if not multi.active else "")
         fragments = list(argument_fragments)
         attachments = list(argument_attachments)
         argument_fragments.clear()
         argument_attachments.clear()
 
         if prompt.strip().startswith("!multi"):
-            in_multi = True
-            bits = prompt.strip().split()
-            if len(bits) > 1:
-                end_token = "!end {}".format(" ".join(bits[1:]))
+            multi.start(prompt)
             continue
 
-        if prompt.strip() == "!edit":
-            edited = _handle_edit_command(conversation, _has_sigusr1, check_pending_ref, check_db, seen_response_ids)
-            if edited is None:
-                continue
-            prompt = edited
+        result = _process_command(prompt, db, conversation, process_fragments_in_chat, signal_ctx)
+        if result is None:
+            continue
+        prompt, cmd_fragments, cmd_attachments = result
+        fragments += cmd_fragments
+        attachments += cmd_attachments
 
-        if prompt.strip().startswith("!fragment "):
-            prompt, fragments, attachments = process_fragments_in_chat(db, prompt)
-
-        if in_multi:
-            if prompt.strip() == end_token:
-                prompt = "\n".join(accumulated)
-                fragments = accumulated_fragments
-                attachments = accumulated_attachments
-                in_multi = False
-                accumulated = []
-                accumulated_fragments = []
-                accumulated_attachments = []
-            else:
-                if prompt:
-                    accumulated.append(prompt)
-                accumulated_fragments += fragments
-                accumulated_attachments += attachments
+        if multi.active:
+            finished = multi.accumulate_or_finish(prompt, fragments, attachments)
+            if finished is None:
                 continue
+            prompt, fragments, attachments = finished
 
         if template_obj:
             prompt, system = _apply_template_to_prompt(template_obj, prompt, system, params)
@@ -678,7 +715,4 @@ def _run_repl(
         system = None
         argument_system_fragments.clear()
         _stream_response(response, conversation, seen_response_ids, db)
-
-        if _has_sigusr1 and check_pending_ref[0]:
-            _display_new_responses(check_db, conversation, seen_response_ids)
-            check_pending_ref[0] = False
+        _check_pending_signals(check_db, conversation, seen_response_ids, _has_sigusr1, check_pending_ref)
