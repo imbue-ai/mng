@@ -588,8 +588,8 @@ def test_update_local_provision_uses_no_restart_flag() -> None:
 # --- _create_mng_agent tests ---
 
 
-def test_create_mng_agent_local_does_not_use_in_place(tmp_path: Path) -> None:
-    """Verify that local deployment does not use --in-place (temp dir is cleaned up after deploy)."""
+def test_create_mng_agent_local_uses_in_place(tmp_path: Path) -> None:
+    """Verify that local deployment uses --in-place."""
     cg = make_fake_concurrency_group()
 
     _create_mng_agent(
@@ -601,12 +601,13 @@ def test_create_mng_agent_local_does_not_use_in_place(tmp_path: Path) -> None:
 
     assert len(cg.commands_run) == 1
     cmd = cg.commands_run[0]
-    assert "--in-place" not in cmd
+    assert "--in-place" in cmd
     assert "--in" not in cmd
+    assert "--source-path" not in cmd
 
 
-def test_create_mng_agent_modal_uses_in_modal(tmp_path: Path) -> None:
-    """Verify that modal deployment uses --in modal."""
+def test_create_mng_agent_modal_uses_in_modal_and_source_path(tmp_path: Path) -> None:
+    """Verify that modal deployment uses --in modal and --source-path."""
     cg = make_fake_concurrency_group()
 
     _create_mng_agent(
@@ -622,10 +623,13 @@ def test_create_mng_agent_modal_uses_in_modal(tmp_path: Path) -> None:
     assert "--in" in cmd
     in_index = cmd.index("--in")
     assert cmd[in_index + 1] == "modal"
+    assert "--source-path" in cmd
+    sp_index = cmd.index("--source-path")
+    assert cmd[sp_index + 1] == str(tmp_path)
 
 
-def test_create_mng_agent_docker_uses_in_docker(tmp_path: Path) -> None:
-    """Verify that docker deployment uses --in docker."""
+def test_create_mng_agent_docker_uses_in_docker_and_source_path(tmp_path: Path) -> None:
+    """Verify that docker deployment uses --in docker and --source-path."""
     cg = make_fake_concurrency_group()
 
     _create_mng_agent(
@@ -640,6 +644,9 @@ def test_create_mng_agent_docker_uses_in_docker(tmp_path: Path) -> None:
     assert "--in" in cmd
     in_index = cmd.index("--in")
     assert cmd[in_index + 1] == "docker"
+    assert "--source-path" in cmd
+    sp_index = cmd.index("--source-path")
+    assert cmd[sp_index + 1] == str(tmp_path)
 
 
 def test_create_mng_agent_always_includes_changeling_label(tmp_path: Path) -> None:

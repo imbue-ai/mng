@@ -204,16 +204,18 @@ def deploy_changeling(
 ) -> DeploymentResult:
     """Deploy a changeling by creating an mng agent.
 
-    The changeling_dir is a temporary directory containing the changeling's
-    repo (e.g. cloned from git or created from --agent-type). The agent is
-    created via `mng create` using the entrypoint template from
-    .mng/settings.toml to determine the agent type.
+    The changeling_dir contains the changeling's repo (e.g. cloned from
+    git or created from --agent-type). The agent is created via `mng create`
+    using the entrypoint template from .mng/settings.toml to determine the
+    agent type.
 
-    For local deployments, mng creates a worktree/copy of the source.
-    For remote deployments (Modal, Docker), `--in <provider>` is used
-    so mng copies the code to the remote host. In both cases, the
-    changeling_dir is a temporary directory that is cleaned up after
-    deployment.
+    For local deployments, changeling_dir should already be the permanent
+    directory (e.g. ~/.changelings/<agent-id>/). The agent runs directly
+    in this directory via --in-place.
+
+    For remote deployments (Modal, Docker), changeling_dir is a temporary
+    directory. The code is copied to the remote host via --source-path,
+    and the caller is responsible for cleaning up the temp dir afterwards.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
@@ -319,10 +321,13 @@ def _create_mng_agent(
 ) -> None:
     """Create an mng agent from the changeling's repo directory.
 
-    For local deployment, runs `mng create -t entrypoint` (without
-    --in-place, since the source dir is temporary and cleaned up after).
-    For remote deployment, runs `mng create --in <provider> -t entrypoint`,
-    which copies the code to the remote host.
+    For local deployment, runs `mng create --in-place -t entrypoint` with
+    cwd set to changeling_dir (which should already be the permanent
+    ~/.changelings/<agent-id>/ directory).
+
+    For remote deployment, runs `mng create --in <provider> --source-path
+    <changeling_dir> -t entrypoint`, which copies the code from the
+    temporary source directory to the remote host.
 
     Both paths add `--label changeling=true` so `changeling list` can
     identify agents created by the changeling CLI.
@@ -342,12 +347,21 @@ def _create_mng_agent(
             "changeling=true",
         ]
 
-        # For remote providers, use --in <provider> to deploy to the remote host.
-        # For local, omit --in (local is the default) and let mng create a
-        # worktree/copy of the source. We never use --in-place because the
-        # source temp dir is cleaned up after deployment.
-        if provider != DeploymentProvider.LOCAL:
-            mng_command.extend(["--in", provider.value.lower()])
+        if provider == DeploymentProvider.LOCAL:
+            # Local: run in-place so the agent runs directly in the
+            # permanent changeling directory.
+            mng_command.append("--in-place")
+        else:
+            # Remote: point at the temp source dir and deploy to the
+            # remote provider. The temp dir is cleaned up after deployment.
+            mng_command.extend(
+                [
+                    "--in",
+                    provider.value.lower(),
+                    "--source-path",
+                    str(changeling_dir),
+                ]
+            )
 
         logger.debug("Running: {}", " ".join(mng_command))
 

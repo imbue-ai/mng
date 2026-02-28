@@ -22,6 +22,7 @@ from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.primitives import AgentId
 
 _TEMP_DIR_ID_BYTES: int = 8
 
@@ -273,6 +274,17 @@ def _resolve_self_deploy(self_deploy: bool | None) -> SelfDeployChoice:
     return _prompt_self_deploy()
 
 
+def _move_to_permanent_location(temp_dir: Path, changeling_dir: Path) -> None:
+    """Move the prepared repo from its temp location to the permanent changeling directory."""
+    if changeling_dir.exists():
+        raise ChangelingError("A changeling directory already exists at '{}'. Remove it first.".format(changeling_dir))
+
+    try:
+        temp_dir.rename(changeling_dir)
+    except OSError:
+        shutil.move(str(temp_dir), str(changeling_dir))
+
+
 @click.command()
 @click.argument("git_url", required=False, default=None)
 @click.option(
@@ -377,21 +389,42 @@ def deploy(
     if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
-    try:
-        result = _run_deployment(
-            changeling_dir=temp_dir,
-            agent_name=agent_name,
-            provider=provider_choice,
-            paths=paths,
-        )
-    except ChangelingError:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        raise
+    if provider_choice == DeploymentProvider.LOCAL:
+        # Local: move the temp dir to the permanent changeling directory
+        # before deploying, so the agent runs directly in it via --in-place.
+        # We use a pre-generated agent ID for the directory name.
+        agent_id = AgentId()
+        changeling_dir = paths.changeling_dir(agent_id)
+        try:
+            _move_to_permanent_location(temp_dir, changeling_dir)
+        except ChangelingError:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
 
-    # Clean up the temp dir now that the agent is deployed.
-    # For local deployments, mng copied the source into a managed
-    # directory. For remote deployments, the code has been copied to
-    # the remote host. Either way, the temp dir is no longer needed.
-    shutil.rmtree(temp_dir, ignore_errors=True)
+        try:
+            result = _run_deployment(
+                changeling_dir=changeling_dir,
+                agent_name=agent_name,
+                provider=provider_choice,
+                paths=paths,
+            )
+        except ChangelingError:
+            shutil.rmtree(changeling_dir, ignore_errors=True)
+            raise
+    else:
+        # Remote: deploy from the temp dir, then clean it up.
+        # The code is copied to the remote host via --source-path.
+        try:
+            result = _run_deployment(
+                changeling_dir=temp_dir,
+                agent_name=agent_name,
+                provider=provider_choice,
+                paths=paths,
+            )
+        except ChangelingError:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     _print_result(result, provider_choice)
