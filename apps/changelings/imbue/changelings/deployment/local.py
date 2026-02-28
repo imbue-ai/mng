@@ -14,6 +14,7 @@ from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.errors import GitCommitError
 from imbue.changelings.errors import GitInitError
+from imbue.changelings.errors import MngCommandError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
@@ -34,6 +35,15 @@ class DeploymentResult(FrozenModel):
     agent_name: str = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
     login_url: str = Field(description="One-time login URL for accessing the changeling")
+
+
+class UpdateResult(FrozenModel):
+    """Result of a successful local changeling update."""
+
+    agent_name: str = Field(description="The name of the updated agent")
+    did_snapshot: bool = Field(description="Whether a snapshot was created before updating")
+    did_push: bool = Field(description="Whether code was pushed to the agent")
+    did_provision: bool = Field(description="Whether provisioning was re-run")
 
 
 class MngNotFoundError(ChangelingError):
@@ -382,3 +392,141 @@ def _generate_auth_code(
         agent_id,
         code,
     )
+
+
+def update_local(
+    agent_name: str,
+    do_snapshot: bool,
+    do_push: bool,
+    do_provision: bool,
+    concurrency_group: ConcurrencyGroup,
+) -> UpdateResult:
+    """Update an existing locally-deployed changeling.
+
+    Performs the following steps in order:
+    1. Snapshot the agent's host (if do_snapshot is True)
+    2. Stop the agent
+    3. Push new code/content (if do_push is True)
+    4. Re-run provisioning (if do_provision is True)
+    5. Start the agent
+
+    Raises MngCommandError if any mng command fails.
+    Raises AgentIdLookupError if the agent cannot be found.
+    """
+    with log_span("Updating changeling '{}' locally", agent_name):
+        _verify_mng_available()
+
+        # Verify agent exists before doing anything
+        _get_agent_id(
+            agent_name=agent_name,
+            concurrency_group=concurrency_group,
+        )
+
+        did_snapshot = False
+        if do_snapshot:
+            _run_mng_snapshot(agent_name=agent_name, concurrency_group=concurrency_group)
+            did_snapshot = True
+
+        _run_mng_stop(agent_name=agent_name, concurrency_group=concurrency_group)
+
+        did_push = False
+        if do_push:
+            _run_mng_push(agent_name=agent_name, concurrency_group=concurrency_group)
+            did_push = True
+
+        did_provision = False
+        if do_provision:
+            _run_mng_provision(agent_name=agent_name, concurrency_group=concurrency_group)
+            did_provision = True
+
+        _run_mng_start(agent_name=agent_name, concurrency_group=concurrency_group)
+
+        return UpdateResult(
+            agent_name=agent_name,
+            did_snapshot=did_snapshot,
+            did_push=did_push,
+            did_provision=did_provision,
+        )
+
+
+def _run_mng_command(
+    command_name: str,
+    args: list[str],
+    concurrency_group: ConcurrencyGroup,
+) -> None:
+    """Run an mng CLI command and raise MngCommandError on failure."""
+    full_command = [_MNG_BINARY] + args
+
+    with log_span("Running mng {}", command_name):
+        logger.debug("Running: {}", " ".join(full_command))
+
+        result = concurrency_group.run_process_to_completion(
+            command=full_command,
+            is_checked_after=False,
+        )
+
+        if result.returncode != 0:
+            raise MngCommandError(
+                "mng {} failed (exit code {}):\n{}".format(
+                    command_name,
+                    result.returncode,
+                    result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+                )
+            )
+
+        logger.debug("mng {} output: {}", command_name, result.stdout.strip())
+
+
+def _run_mng_snapshot(agent_name: str, concurrency_group: ConcurrencyGroup) -> None:
+    """Create a snapshot of the agent's host via `mng snapshot`."""
+    logger.info("Creating snapshot of '{}'...", agent_name)
+    _run_mng_command(
+        command_name="snapshot",
+        args=["snapshot", agent_name],
+        concurrency_group=concurrency_group,
+    )
+    logger.info("Snapshot created.")
+
+
+def _run_mng_stop(agent_name: str, concurrency_group: ConcurrencyGroup) -> None:
+    """Stop the agent via `mng stop`."""
+    logger.info("Stopping '{}'...", agent_name)
+    _run_mng_command(
+        command_name="stop",
+        args=["stop", agent_name],
+        concurrency_group=concurrency_group,
+    )
+    logger.info("Agent stopped.")
+
+
+def _run_mng_push(agent_name: str, concurrency_group: ConcurrencyGroup) -> None:
+    """Push code/content to the agent via `mng push`."""
+    logger.info("Pushing to '{}'...", agent_name)
+    _run_mng_command(
+        command_name="push",
+        args=["push", agent_name],
+        concurrency_group=concurrency_group,
+    )
+    logger.info("Push complete.")
+
+
+def _run_mng_provision(agent_name: str, concurrency_group: ConcurrencyGroup) -> None:
+    """Re-run provisioning on the agent via `mng provision`."""
+    logger.info("Provisioning '{}'...", agent_name)
+    _run_mng_command(
+        command_name="provision",
+        args=["provision", agent_name, "--no-restart"],
+        concurrency_group=concurrency_group,
+    )
+    logger.info("Provisioning complete.")
+
+
+def _run_mng_start(agent_name: str, concurrency_group: ConcurrencyGroup) -> None:
+    """Start the agent via `mng start`."""
+    logger.info("Starting '{}'...", agent_name)
+    _run_mng_command(
+        command_name="start",
+        args=["start", agent_name],
+        concurrency_group=concurrency_group,
+    )
+    logger.info("Agent started.")

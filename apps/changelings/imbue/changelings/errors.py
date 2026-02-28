@@ -32,3 +32,9 @@ class GitCommitError(ChangelingError):
     """Raised when git add/commit fails."""
 
     ...
+
+
+class MngCommandError(ChangelingError):
+    """Raised when an mng CLI command fails during an update operation."""
+
+    ...
