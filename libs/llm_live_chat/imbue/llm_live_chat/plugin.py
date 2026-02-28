@@ -4,6 +4,21 @@ import llm
 
 def _cli_imports():
     """Lazy-import from llm.cli to avoid circular import at plugin load time."""
+    from llm.cli import FragmentNotFound  # noqa: F401
+    from llm.cli import LoadTemplateError  # noqa: F401
+    from llm.cli import _approve_tool_call  # noqa: F401
+    from llm.cli import _debug_tool_call  # noqa: F401
+    from llm.cli import _gather_tools  # noqa: F401
+    from llm.cli import _get_conversation_tools  # noqa: F401
+    from llm.cli import get_model_options  # noqa: F401
+    from llm.cli import load_conversation  # noqa: F401
+    from llm.cli import load_template  # noqa: F401
+    from llm.cli import logs_db_path  # noqa: F401
+    from llm.cli import process_fragments_in_chat  # noqa: F401
+    from llm.cli import render_errors  # noqa: F401
+    from llm.cli import resolve_fragments  # noqa: F401
+    from llm.migrations import migrate  # noqa: F401
+    from llm.utils import monotonic_ulid  # noqa: F401
 
     return locals()
 
