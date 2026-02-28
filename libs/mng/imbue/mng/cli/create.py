@@ -165,6 +165,7 @@ class CreateCliOptions(CommonCliOptions):
     ensure_clean: bool
     snapshot_source: bool | None
     name: str | None
+    agent_id: str | None
     name_style: str
     agent_command: str | None
     add_command: tuple[str, ...]
@@ -247,6 +248,7 @@ class CreateCliOptions(CommonCliOptions):
     help="Use a named template from create_templates config [repeatable, stacks in order]",
 )
 @optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
+@optgroup.option("--agent-id", help="Explicit agent ID [default: auto-generated]")
 @optgroup.option(
     "--name-style",
     type=click.Choice(_make_name_style_choices(), case_sensitive=False),
@@ -1386,6 +1388,7 @@ def _parse_agent_opts(
         resolved_agent_type = "generic"
 
     agent_opts = CreateAgentOptions(
+        agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
         name=parsed_agent_name,
         command=CommandString(opts.agent_command) if opts.agent_command else None,
