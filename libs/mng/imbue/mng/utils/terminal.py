@@ -72,13 +72,9 @@ def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
     while idx < len(text):
         char = text[idx]
 
-        if char == "\n":
+        if char == "\n" or char == "\r":
             idx += 1
-            result.append("\n")
-            visible_col = 0
-        elif char == "\r":
-            idx += 1
-            result.append("\r")
+            result.append(char)
             visible_col = 0
         elif char == "\x1b":
             # ANSI escape sequence -- pass through without advancing the column
