@@ -630,6 +630,7 @@ class _MultiLineState:
 
     def start(self, prompt):
         self.active = True
+        self.end_token = "!end"
         bits = prompt.strip().split()
         if len(bits) > 1:
             self.end_token = "!end {}".format(" ".join(bits[1:]))
