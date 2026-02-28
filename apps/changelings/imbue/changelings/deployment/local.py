@@ -30,7 +30,7 @@ _ONE_TIME_CODE_LENGTH: Final[int] = 32
 
 
 class DeploymentResult(FrozenModel):
-    """Result of a successful local changeling deployment."""
+    """Result of a successful changeling deployment."""
 
     agent_name: AgentName = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
@@ -209,9 +209,11 @@ def deploy_changeling(
     created via `mng create` using the entrypoint template from
     .mng/settings.toml to determine the agent type.
 
-    For local deployments, uses `--in-place` so the agent runs directly in
-    the changeling_dir. For remote deployments (Modal, Docker), uses
-    `--in <provider>` so mng copies the code to the remote host.
+    For local deployments, mng creates a worktree/copy of the source.
+    For remote deployments (Modal, Docker), `--in <provider>` is used
+    so mng copies the code to the remote host. In both cases, the
+    changeling_dir is a temporary directory that is cleaned up after
+    deployment.
 
     This function:
     1. Verifies mng is available and no agent with this name exists

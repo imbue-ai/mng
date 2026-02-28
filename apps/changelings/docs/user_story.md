@@ -8,7 +8,7 @@ This is the primary flow for how a user would deploy a changeling for the first 
    - Do you want this agent to be able to launch its own agents? [yes | not now]
    - [future] Do you want to access this agent from anywhere besides this computer? [yes (requires forwarding server) | not now]
    - [future] Do you want to receive mobile notifications from this agent? [yes (requires notification setup) | not now]
-4. We create a repo at `~/.changelings/<name>/` (either by cloning or by creating an empty git repo with .mng/settings.toml), then run `mng create --name <name> --no-connect --in-place -t entrypoint` from within that directory.
+4. We prepare a temporary repo (either by cloning or by creating an empty git repo with .mng/settings.toml), then run `mng create --name <name> --no-connect -t entrypoint --label changeling=true` from within that directory (adding `--in <provider>` for remote deployments). The temporary repo is cleaned up after deployment.
    If the user wants the agent to be able to run its own agents and tasks, we ensure that `mng` is injected as well.
 5. We ensure a local forwarding server daemon process is running (for forwarding web requests and handling authentication). One-time auth codes are generated and stored for the new changeling.
 6. We're done: print the associated URL where the agent can be accessed (e.g. http://localhost:8420/agents/<agent-id>/)
