@@ -869,6 +869,44 @@ def test_provision_skips_trust_when_git_common_dir_is_none(
     assert not config_path.exists()
 
 
+def test_provision_trusts_working_directory_when_enabled(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
+    """provision should add trust for work_dir when trust_working_directory is True."""
+    config = ClaudeAgentConfig(check_installation=False, trust_working_directory=True)
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx, agent_config=config)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
+
+    config_path = Path.home() / ".claude.json"
+    claude_config = json.loads(config_path.read_text())
+    assert str(agent.work_dir.resolve()) in claude_config["projects"]
+    assert claude_config["projects"][str(agent.work_dir.resolve())]["hasTrustDialogAccepted"] is True
+    assert claude_config["effortCalloutDismissed"] is True
+
+
+def test_provision_does_not_trust_working_directory_when_disabled(
+    local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
+) -> None:
+    """provision should not add trust when trust_working_directory is False (default)."""
+    agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
+
+    options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
+
+    agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
+
+    config_path = Path.home() / ".claude.json"
+    assert not config_path.exists()
+
+
+def test_trust_working_directory_defaults_to_false() -> None:
+    """Verify that trust_working_directory defaults to False for ClaudeAgentConfig."""
+    config = ClaudeAgentConfig()
+    assert config.trust_working_directory is False
+
+
 def test_on_before_provisioning_raises_for_worktree_on_remote_host(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:

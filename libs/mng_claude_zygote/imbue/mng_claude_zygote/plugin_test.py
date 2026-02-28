@@ -3,11 +3,13 @@
 from typing import Any
 
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
+from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_COMMAND
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_SERVER_NAME
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
+from imbue.mng_claude_zygote.plugin import ClaudeZygoteConfig
 from imbue.mng_claude_zygote.plugin import inject_agent_ttyd
 from imbue.mng_claude_zygote.plugin import override_command_options
 
@@ -167,3 +169,20 @@ def test_agent_ttyd_command_unsets_tmux_env() -> None:
 def test_agent_ttyd_command_skips_log_when_no_state_dir() -> None:
     """Verify that the command gracefully handles MNG_AGENT_STATE_DIR being unset."""
     assert 'if [ -n "$MNG_AGENT_STATE_DIR" ]' in AGENT_TTYD_COMMAND
+
+
+def test_claude_zygote_config_defaults_trust_to_true() -> None:
+    """Verify that ClaudeZygoteConfig defaults trust_working_directory to True."""
+    config = ClaudeZygoteConfig()
+    assert config.trust_working_directory is True
+
+
+def test_claude_zygote_config_inherits_from_claude_agent_config() -> None:
+    """Verify that ClaudeZygoteConfig is a subclass of ClaudeAgentConfig."""
+    assert issubclass(ClaudeZygoteConfig, ClaudeAgentConfig)
+
+
+def test_claude_agent_config_defaults_trust_to_false() -> None:
+    """Verify that the base ClaudeAgentConfig defaults trust_working_directory to False."""
+    config = ClaudeAgentConfig()
+    assert config.trust_working_directory is False

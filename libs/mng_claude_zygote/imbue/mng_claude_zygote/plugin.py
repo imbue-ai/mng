@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import Field
+
 from imbue.mng import hookimpl
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
@@ -27,6 +29,21 @@ _AGENT_TTYD_INVOCATION = (
 )
 
 AGENT_TTYD_COMMAND = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)
+
+
+class ClaudeZygoteConfig(ClaudeAgentConfig):
+    """Config for the claude-zygote agent type.
+
+    Defaults trust_working_directory to True because changelings run
+    --in-place in their own repo directory (e.g. ~/.changelings/<name>/)
+    and should not show the trust dialog on startup.
+    """
+
+    trust_working_directory: bool = Field(
+        default=True,
+        description="Automatically trust the agent's working directory in ~/.claude.json. "
+        "Enabled by default for changelings since they run in-place in their own repo.",
+    )
 
 
 class ClaudeZygoteAgent(ClaudeAgent):
@@ -59,7 +76,7 @@ def get_agent_type_from_params(params: dict[str, Any]) -> str | None:
 @hookimpl
 def register_agent_type() -> tuple[str, type[AgentInterface], type[AgentTypeConfig]]:
     """Register the claude-zygote agent type."""
-    return ("claude-zygote", ClaudeZygoteAgent, ClaudeAgentConfig)
+    return ("claude-zygote", ClaudeZygoteAgent, ClaudeZygoteConfig)
 
 
 @hookimpl

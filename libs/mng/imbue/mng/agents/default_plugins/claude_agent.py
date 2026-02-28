@@ -111,6 +111,12 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "When set, installation uses this specific version and provisioning verifies the installed version matches. "
         "If None, uses the latest available version.",
     )
+    trust_working_directory: bool = Field(
+        default=False,
+        description="Automatically add the agent's working directory to Claude's trusted directories "
+        "in ~/.claude.json before startup. This prevents the trust dialog from appearing. "
+        "Also dismisses the effort callout dialog.",
+    )
 
 
 def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
@@ -719,6 +725,10 @@ class ClaudeAgent(BaseAgent):
 
         For worktree-mode agents, ensures all Claude startup dialogs are
         dismissed and extends trust to the worktree.
+
+        When trust_working_directory is enabled, unconditionally adds trust
+        for the agent's working directory (used by changelings that run
+        --in-place in their own repo directory).
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
@@ -728,6 +738,9 @@ class ClaudeAgent(BaseAgent):
                 extend_claude_trust_to_worktree(source_path, self.work_dir)
 
         config = self._get_claude_config()
+
+        if config.trust_working_directory and host.is_local:
+            ensure_claude_dialogs_dismissed(self.work_dir)
 
         # ensure that claude is installed (and at the right version if pinned)
         if config.check_installation:
