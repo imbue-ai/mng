@@ -48,8 +48,9 @@ class ResourceGuardViolation(Exception):
 # process via the _PYTEST_GUARD_WRAPPER_DIR env var.
 # _session_env_patcher is the patch.dict that manages PATH and _PYTEST_GUARD_WRAPPER_DIR;
 # stopping it automatically restores PATH to its original value.
-# _guarded_resources is the list of resource names passed to create_resource_guard_wrappers;
-# the hooks read from it so callers control which resources are guarded.
+# _guarded_resources is the combined list of all guarded resource names (binary and SDK);
+# populated by create_resource_guard_wrappers and extended by create_sdk_resource_guards.
+# The hooks read from it so callers control which resources are guarded.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
