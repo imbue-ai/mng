@@ -370,18 +370,19 @@ def _pytest_runtest_makereport(
 ) -> Generator[None, None, None]:
     """Enforce resource guard invariants after each test.
 
-    After the call phase completes successfully, checks two things:
+    After the call phase, checks two things:
     1. Blocked invocations: if a test without @pytest.mark.<resource> invoked
-       the resource anyway (and handled the non-zero exit), the blocked_<resource>
-       tracking file catches it.
+       the resource anyway (and handled the non-zero exit or caught the
+       ResourceGuardViolation), the blocked_<resource> tracking file catches it.
+       This check runs regardless of test pass/fail so that the guard violation
+       is visible even when the test fails for a downstream reason.
     2. Superfluous marks: if a test has @pytest.mark.<resource> but the resource
-       binary was never invoked, the test is failed.
+       was never invoked, the test is failed. Only checked on passing tests.
     """
     outcome = yield
     report = outcome.get_result()
 
-    # Only check after the call phase, and only if the test passed
-    if call.when != "call" or not report.passed:
+    if call.when != "call":
         # Clean up tracking dir on the final phase (teardown)
         if call.when == "teardown":
             tracking_dir = getattr(item, "_resource_tracking_dir", None)
@@ -395,18 +396,30 @@ def _pytest_runtest_makereport(
 
     marks: set[str] = getattr(item, "_resource_marks", set())
 
+    # Check for blocked invocations regardless of pass/fail. When a guard
+    # blocks a resource inside a subprocess (e.g., mng create -> tmux), the
+    # test often fails for a downstream reason ("Agent is stopped") that
+    # obscures the real cause. Surfacing the guard violation makes it clear.
     for resource in _guarded_resources:
-        # Check for blocked invocations (test lacks mark but called the binary)
         blocked_file = Path(tracking_dir) / f"blocked_{resource}"
         if blocked_file.exists():
-            report.outcome = "failed"
-            report.longrepr = (
-                f"Test invoked '{resource}' without @pytest.mark.{resource}.\n"
+            msg = (
+                f"RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource}.\n"
                 f"Add @pytest.mark.{resource} to the test, or remove the {resource} usage."
             )
-            break
+            if report.passed:
+                report.outcome = "failed"
+                report.longrepr = msg
+            else:
+                # Append guard info to the existing failure so the root cause is visible.
+                report.longrepr = f"{report.longrepr}\n\n{msg}"
+            return
 
-        # Check for superfluous marks (test has mark but never called the binary)
+    # Superfluous mark check only matters if the test passed.
+    if not report.passed:
+        return
+
+    for resource in _guarded_resources:
         if resource in marks:
             tracking_file = Path(tracking_dir) / resource
             if not tracking_file.exists():
@@ -415,4 +428,4 @@ def _pytest_runtest_makereport(
                     f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
                     f"Remove the mark or ensure the test exercises {resource}."
                 )
-                break
+                return
