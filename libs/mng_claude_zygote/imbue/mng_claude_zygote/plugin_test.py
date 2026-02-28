@@ -182,7 +182,9 @@ def test_claude_zygote_config_inherits_from_claude_agent_config() -> None:
     assert issubclass(ClaudeZygoteConfig, ClaudeAgentConfig)
 
 
-def test_claude_agent_config_defaults_trust_to_false() -> None:
-    """Verify that the base ClaudeAgentConfig defaults trust_working_directory to False."""
-    config = ClaudeAgentConfig()
-    assert config.trust_working_directory is False
+def test_claude_zygote_config_overrides_base_trust_default() -> None:
+    """Verify that ClaudeZygoteConfig overrides the base default (False) to True."""
+    base = ClaudeAgentConfig()
+    zygote = ClaudeZygoteConfig()
+    assert base.trust_working_directory is False
+    assert zygote.trust_working_directory is True
