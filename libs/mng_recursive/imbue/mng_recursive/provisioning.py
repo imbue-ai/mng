@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import assert_never
 
 from loguru import logger
 
@@ -38,11 +39,14 @@ def _get_remote_home(host: OnlineHostInterface) -> str:
 def _resolve_remote_path(dest_path: Path, remote_home: str) -> Path:
     """Resolve a deploy destination path to an absolute path on the remote host.
 
-    Paths starting with '~' are resolved relative to the remote user's home.
+    Paths starting with '~/' are resolved relative to the remote user's home.
+    A bare '~' resolves to the remote home directory itself.
     Relative paths are left as-is.
     """
     dest_str = str(dest_path)
-    if dest_str.startswith("~"):
+    if dest_str == "~":
+        return Path(remote_home)
+    if dest_str.startswith("~/"):
         return Path(remote_home) / dest_str.removeprefix("~/")
     return dest_path
 
@@ -106,26 +110,32 @@ def _detect_local_install_mode() -> MngInstallMode:
         return MngInstallMode.PACKAGE
 
     direct_url_text = dist.read_text("direct_url.json")
-    if direct_url_text is not None and '"editable": true' in direct_url_text:
-        return MngInstallMode.EDITABLE
+    if direct_url_text is not None:
+        direct_url = json.loads(direct_url_text)
+        if direct_url.get("dir_info", {}).get("editable", False):
+            return MngInstallMode.EDITABLE
     return MngInstallMode.PACKAGE
 
 
 def _resolve_install_mode(mode: MngInstallMode) -> MngInstallMode:
     """Resolve AUTO mode to a concrete install mode."""
-    if mode == MngInstallMode.AUTO:
-        resolved = _detect_local_install_mode()
-        logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
-        return resolved
-    return mode
+    match mode:
+        case MngInstallMode.AUTO:
+            resolved = _detect_local_install_mode()
+            logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
+            return resolved
+        case MngInstallMode.PACKAGE | MngInstallMode.EDITABLE | MngInstallMode.SKIP:
+            return mode
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def _ensure_uv_available(host: OnlineHostInterface) -> None:
     """Ensure uv is available on the remote host, installing it if necessary.
 
-    After installing, verifies that uv is actually on the PATH. If it was
-    installed to ~/.local/bin (the default), adds it to the system PATH
-    via /etc/environment so subsequent commands can find it.
+    After installing, verifies that uv is findable in common install locations
+    ($HOME/.local/bin, $HOME/.cargo/bin). Subsequent commands that need uv
+    should use _UV_PATH_PREFIX to ensure it is on the PATH.
     """
     result = host.execute_command("command -v uv")
     if result.success:
@@ -284,6 +294,9 @@ def provision_mng_on_host(
     2. Uploads them to the appropriate locations on the remote host
     3. Ensures uv is available (installs if missing)
     4. Installs mng and plugins based on the configured install mode
+
+    Operational failures (MngError) are handled based on the is_errors_fatal
+    config setting. Programming errors propagate normally.
     """
     if host.is_local:
         logger.debug("Skipping mng provisioning on local host")
@@ -295,12 +308,6 @@ def provision_mng_on_host(
     if resolved_mode == MngInstallMode.SKIP:
         logger.debug("Skipping mng provisioning (install_mode=skip)")
         return
-
-    def _handle_error(msg: str, error: Exception) -> None:
-        """Handle an error based on the is_errors_fatal setting."""
-        if plugin_config.is_errors_fatal:
-            raise MngError(msg) from error
-        logger.warning("{}: {}", msg, error)
 
     try:
         with log_span("Provisioning mng on remote host"):
@@ -325,14 +332,23 @@ def provision_mng_on_host(
             _ensure_uv_available(host)
 
             # Install mng based on the resolved mode
-            if resolved_mode == MngInstallMode.PACKAGE:
-                packages = _get_installed_mng_packages()
-                if packages:
-                    _install_mng_package_mode(host, packages)
-                else:
-                    logger.warning("No mng packages found locally; cannot install on remote host")
-            elif resolved_mode == MngInstallMode.EDITABLE:
-                _install_mng_editable_mode(host)
+            match resolved_mode:
+                case MngInstallMode.PACKAGE:
+                    packages = _get_installed_mng_packages()
+                    if packages:
+                        _install_mng_package_mode(host, packages)
+                    else:
+                        logger.warning("No mng packages found locally; cannot install on remote host")
+                case MngInstallMode.EDITABLE:
+                    _install_mng_editable_mode(host)
+                case MngInstallMode.SKIP:
+                    pass
+                case MngInstallMode.AUTO:
+                    raise MngError(f"Unexpected unresolved install mode: {resolved_mode}")
+                case _ as unreachable:
+                    assert_never(unreachable)
 
-    except Exception as e:
-        _handle_error("Failed to provision mng on remote host", e)
+    except MngError as e:
+        if plugin_config.is_errors_fatal:
+            raise
+        logger.warning("Failed to provision mng on remote host: {}", e)

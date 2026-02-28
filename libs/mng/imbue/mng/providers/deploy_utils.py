@@ -50,7 +50,7 @@ def collect_deploy_files(
 
     Destination paths must either start with "~" (user home files) or be
     relative paths (project files). Absolute paths that do not start with
-    "~" are rejected with a ValueError.
+    "~" are rejected with an MngError.
     """
     all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(
         mng_ctx=mng_ctx,

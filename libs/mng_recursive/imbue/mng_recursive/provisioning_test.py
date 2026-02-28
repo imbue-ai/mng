@@ -211,21 +211,20 @@ def test_errors_fatal_raises_on_failure() -> None:
         plugin_config=RecursivePluginConfig(is_errors_fatal=True, install_mode=MngInstallMode.PACKAGE),
     )
 
-    with pytest.raises(MngError, match="Failed to provision mng on remote host"):
+    with pytest.raises(MngError, match="Failed to determine remote home directory"):
         provision_mng_on_host(host=host, mng_ctx=ctx)
 
 
 def test_errors_non_fatal_warns_on_failure() -> None:
-    """When is_errors_fatal=False, errors should log warnings instead of raising."""
+    """When is_errors_fatal=False, MngErrors should log warnings instead of raising."""
     host = _make_mock_host(is_local=False)
-    # Make echo $HOME succeed but get_files_for_deploy fail
-    host.execute_command.return_value = _make_command_result(True, stdout="/home/testuser\n")
+    # Make echo $HOME fail so _get_remote_home raises MngError
+    host.execute_command.return_value = _make_command_result(False, stderr="connection refused")
     ctx = _make_mock_mng_ctx(
         plugin_config=RecursivePluginConfig(is_errors_fatal=False, install_mode=MngInstallMode.PACKAGE),
     )
-    ctx.pm.hook.get_files_for_deploy.side_effect = RuntimeError("test error")
 
-    # Should not raise
+    # Should not raise (MngError is caught and logged as warning)
     provision_mng_on_host(host=host, mng_ctx=ctx)
 
 
