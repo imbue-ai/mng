@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 
 from imbue.changelings.config.data_types import ChangelingPaths
+from imbue.changelings.config.data_types import DeploymentProvider
 from imbue.changelings.deployment.local import AgentIdLookupError
 from imbue.changelings.deployment.local import MngCreateError
 from imbue.changelings.deployment.local import MngNotFoundError
 from imbue.changelings.deployment.local import UpdateResult
+from imbue.changelings.deployment.local import _create_mng_agent
 from imbue.changelings.deployment.local import _generate_auth_code
 from imbue.changelings.deployment.local import _raise_if_agent_exists
 from imbue.changelings.deployment.local import _run_mng_command
@@ -644,3 +646,117 @@ def test_update_local_provision_uses_no_restart_flag() -> None:
     provision_commands = [cmd for cmd in cg.commands_run if len(cmd) > 1 and cmd[1] == "provision"]
     assert len(provision_commands) == 1
     assert "--no-restart" in provision_commands[0]
+
+
+# --- _create_mng_agent tests ---
+
+
+def test_create_mng_agent_local_does_not_use_in_place(tmp_path: Path) -> None:
+    """Verify that local deployment does not use --in-place (temp dir is cleaned up after deploy)."""
+    cg = _FakeConcurrencyGroup()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.LOCAL,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in-place" not in cmd
+    assert "--in" not in cmd
+
+
+def test_create_mng_agent_modal_uses_in_modal(tmp_path: Path) -> None:
+    """Verify that modal deployment uses --in modal."""
+    cg = _FakeConcurrencyGroup()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.MODAL,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in-place" not in cmd
+    assert "--in" in cmd
+    in_index = cmd.index("--in")
+    assert cmd[in_index + 1] == "modal"
+
+
+def test_create_mng_agent_docker_uses_in_docker(tmp_path: Path) -> None:
+    """Verify that docker deployment uses --in docker."""
+    cg = _FakeConcurrencyGroup()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.DOCKER,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in" in cmd
+    in_index = cmd.index("--in")
+    assert cmd[in_index + 1] == "docker"
+
+
+def test_create_mng_agent_always_includes_changeling_label(tmp_path: Path) -> None:
+    """Verify that all providers include --label changeling=true."""
+    for provider in DeploymentProvider:
+        cg = _FakeConcurrencyGroup()
+
+        _create_mng_agent(
+            changeling_dir=tmp_path,
+            agent_name=AgentName("my-agent"),
+            provider=provider,
+            concurrency_group=cg,
+        )
+
+        cmd = cg.commands_run[0]
+        assert "--label" in cmd
+        label_index = cmd.index("--label")
+        assert cmd[label_index + 1] == "changeling=true"
+
+
+def test_create_mng_agent_includes_template_and_no_connect(tmp_path: Path) -> None:
+    """Verify that the mng create command always includes -t entrypoint and --no-connect."""
+    cg = _FakeConcurrencyGroup()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.LOCAL,
+        concurrency_group=cg,
+    )
+
+    cmd = cg.commands_run[0]
+    assert "-t" in cmd
+    t_index = cmd.index("-t")
+    assert cmd[t_index + 1] == "entrypoint"
+    assert "--no-connect" in cmd
+
+
+def test_create_mng_agent_raises_on_failure(tmp_path: Path) -> None:
+    """Verify that _create_mng_agent raises MngCreateError when mng create fails."""
+    cg = _FakeConcurrencyGroup(
+        results={
+            "create": _make_finished_process(
+                returncode=1,
+                stderr="create failed",
+                command=("mng", "create"),
+            ),
+        }
+    )
+
+    with pytest.raises(MngCreateError, match="mng create failed"):
+        _create_mng_agent(
+            changeling_dir=tmp_path,
+            agent_name=AgentName("my-agent"),
+            provider=DeploymentProvider.LOCAL,
+            concurrency_group=cg,
+        )

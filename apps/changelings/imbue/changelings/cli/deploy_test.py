@@ -36,13 +36,14 @@ def _deploy_with_agent_type(
     agent_type: str = "elena-code",
     name: str | None = "test-bot",
     add_paths: list[str] | None = None,
-    provider: str = "modal",
+    provider: str = "local",
     input_text: str | None = None,
 ) -> Result:
     """Invoke changeling deploy with --agent-type and standard non-interactive flags.
 
-    Uses --provider modal by default to abort before mng create (since mng create
-    requires a running mng environment). Set name=None to test the name prompt.
+    Deployment will fail at mng create since the test environment does not have
+    a full mng runtime. Tests using this helper should only assert on behavior
+    that occurs before the mng create step (repo preparation, prompts, etc.).
     """
     args: list[str] = ["deploy", "--agent-type", agent_type]
 
@@ -63,7 +64,7 @@ def _deploy_with_git_url(
     git_url: str,
     name: str | None = "test-bot",
     add_paths: list[str] | None = None,
-    provider: str = "modal",
+    provider: str = "local",
     input_text: str | None = None,
     agent_type: str | None = None,
 ) -> Result:
@@ -132,48 +133,22 @@ def test_deploy_cleans_up_temp_dir_on_missing_settings(tmp_path: Path) -> None:
 
 
 def test_deploy_cleans_up_temp_dir_on_deployment_failure(tmp_path: Path) -> None:
-    """Verify that a deployment failure (e.g. unsupported provider) cleans up the temp dir."""
+    """Verify that a deployment failure cleans up the temp dir."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
     data_dir = tmp_path / "changelings-data"
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="modal")
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
 
+    # Deployment will fail at mng create, but temp dir should be cleaned up
     assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
     if data_dir.exists():
         leftover = [p for p in data_dir.iterdir() if p.name.startswith(".tmp-")]
         assert leftover == []
 
 
-def test_deploy_rejects_modal_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n2\nN\n",
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-
-def test_deploy_rejects_docker_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n3\nN\n",
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-
 def test_deploy_shows_prompts(tmp_path: Path) -> None:
-    """Verify all three prompts appear when deploying (using modal to abort before mng create)."""
+    """Verify all three prompts appear when deploying without flags."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
@@ -193,7 +168,7 @@ def test_deploy_displays_clone_url(tmp_path: Path) -> None:
     result = _RUNNER.invoke(
         cli,
         ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n2\nN\n",
+        input="test-bot\n1\nN\n",
     )
 
     assert "Cloning repository" in result.output
@@ -206,8 +181,6 @@ def test_deploy_name_flag_skips_prompt(tmp_path: Path) -> None:
     result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-custom-name")
 
     assert "What would you like to name this agent" not in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
 
 def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
@@ -216,13 +189,11 @@ def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
 
     result = _RUNNER.invoke(
         cli,
-        ["deploy", str(repo_dir), "--provider", "modal", "--no-self-deploy", *_data_dir_args(tmp_path)],
+        ["deploy", str(repo_dir), "--provider", "local", "--no-self-deploy", *_data_dir_args(tmp_path)],
         input="test-bot\n",
     )
 
     assert "Where do you want to run" not in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
 
 def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
@@ -231,7 +202,7 @@ def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
 
     result = _RUNNER.invoke(
         cli,
-        ["deploy", str(repo_dir), "--no-self-deploy", "--provider", "modal", *_data_dir_args(tmp_path)],
+        ["deploy", str(repo_dir), "--no-self-deploy", "--provider", "local", *_data_dir_args(tmp_path)],
         input="test-bot\n",
     )
 
@@ -247,8 +218,28 @@ def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
     assert "What would you like to name this agent" not in result.output
     assert "Where do you want to run" not in result.output
     assert "launch its own agents" not in result.output
+
+
+def test_deploy_accepts_modal_provider(tmp_path: Path) -> None:
+    """Verify that modal provider is accepted (deployment fails at mng create, not at provider check)."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="modal")
+
+    # Should fail at mng create, NOT at provider check
     assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
+    assert "Only local deployment is supported" not in result.output
+
+
+def test_deploy_accepts_docker_provider(tmp_path: Path) -> None:
+    """Verify that docker provider is accepted (deployment fails at mng create, not at provider check)."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="docker")
+
+    # Should fail at mng create, NOT at provider check
+    assert result.exit_code != 0
+    assert "Only local deployment is supported" not in result.output
 
 
 # --- Tests for --agent-type (no git URL) ---
