@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 import imbue.mng.resources as mng_resources
 from imbue.mng.providers.ssh_host_setup import RequiredHostPackage
 from imbue.mng.providers.ssh_host_setup import WARNING_PREFIX
@@ -357,6 +359,7 @@ def test_has_running_agent_sessions_returns_true_during_grace_period(
     assert result.returncode == 0
 
 
+@pytest.mark.tmux
 def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessions(
     tmp_path: Path,
 ) -> None:

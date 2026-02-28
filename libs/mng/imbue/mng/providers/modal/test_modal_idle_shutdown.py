@@ -113,6 +113,7 @@ def _get_host_state(
     "This runs locally, fails remotely, I think because the make_tar_of_repo.sh script fails to create a current.tar.gz"
 )
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
     tmp_path: Path,
