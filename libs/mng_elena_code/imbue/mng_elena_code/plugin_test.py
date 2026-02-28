@@ -10,7 +10,6 @@ from typing import cast
 import pluggy
 
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.api.test_fixtures import FakeHost
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
@@ -22,6 +21,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_COMMAND
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
+from imbue.mng_claude_zygote.plugin import ClaudeZygoteConfig
 from imbue.mng_elena_code.plugin import ELENA_SYSTEM_PROMPT
 from imbue.mng_elena_code.plugin import ElenaCodeAgent
 from imbue.mng_elena_code.plugin import _merge_system_prompt_into_args
@@ -52,7 +52,7 @@ def _make_elena_agent(tmp_path: Path) -> tuple[ElenaCodeAgent, OnlineHostInterfa
         create_time=datetime.now(timezone.utc),
         host_id=HostId.generate(),
         mng_ctx=mng_ctx,
-        agent_config=ClaudeAgentConfig(check_installation=False),
+        agent_config=ClaudeZygoteConfig(check_installation=False),
         host=host,
     )
     return agent, host

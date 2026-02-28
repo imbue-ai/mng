@@ -4,12 +4,12 @@ import shlex
 from typing import Any
 
 from imbue.mng import hookimpl
-from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CommandString
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
+from imbue.mng_claude_zygote.plugin import ClaudeZygoteConfig
 from imbue.mng_claude_zygote.plugin import get_agent_type_from_params
 from imbue.mng_claude_zygote.plugin import inject_agent_ttyd
 
@@ -101,7 +101,7 @@ class ElenaCodeAgent(ClaudeZygoteAgent):
 @hookimpl
 def register_agent_type() -> tuple[str, type[AgentInterface], type[AgentTypeConfig]]:
     """Register the elena-code agent type."""
-    return ("elena-code", ElenaCodeAgent, ClaudeAgentConfig)
+    return ("elena-code", ElenaCodeAgent, ClaudeZygoteConfig)
 
 
 @hookimpl
