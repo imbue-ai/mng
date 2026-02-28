@@ -4,6 +4,8 @@ import sys
 # from being loaded, matching the behavior of the llm test suite.
 sys._called_from_test = True  # type: ignore[attr-defined]
 
+from collections.abc import Iterable
+from collections.abc import Iterator
 from typing import Optional
 
 import llm
@@ -89,15 +91,16 @@ class EmbedDemo(llm.EmbeddingModel):
     def __init__(self):
         self.embedded_content = []
 
-    def embed_batch(self, texts):
+    def embed_batch(self, items: Iterable[str | bytes]) -> Iterator[list[float]]:
         if not hasattr(self, "batch_count"):
             self.batch_count = 0
         self.batch_count += 1
-        for text in texts:
-            self.embedded_content.append(text)
+        for item in items:
+            self.embedded_content.append(item)
+            text = item if isinstance(item, str) else item.decode("utf-8", errors="replace")
             words = text.split()[:16]
-            embedding = [len(word) for word in words]
-            embedding += [0] * (16 - len(embedding))
+            embedding = [float(len(word)) for word in words]
+            embedding += [0.0] * (16 - len(embedding))
             yield embedding
 
 

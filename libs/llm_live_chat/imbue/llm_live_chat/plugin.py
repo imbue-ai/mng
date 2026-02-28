@@ -140,6 +140,8 @@ def _resolve_initial_fragments(ci, db, fragments, system_fragments):
 
 def _display_new_responses(check_db, conversation, seen_response_ids):
     """Query DB for new responses not yet seen, display them, and add to conversation context."""
+    import logging
+    import sqlite3
     import sys
 
     from llm import Response as LLMResponse
@@ -156,8 +158,8 @@ def _display_new_responses(check_db, conversation, seen_response_ids):
             where = "conversation_id = ?"
             params = [conv_id]
         new_responses = list(check_db["responses"].rows_where(where, params, order_by="datetime_utc"))
-    except Exception as ex:
-        sys.stderr.write("live-chat: error checking for new responses: {}\n".format(ex))
+    except (sqlite3.Error, sqlite3.Warning) as ex:
+        logging.getLogger(__name__).warning("Error checking for new responses: %s", ex)
         return False
 
     if not new_responses:
