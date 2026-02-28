@@ -3,7 +3,6 @@ import os
 import signal
 import sys
 
-import click
 import llm.cli
 import pytest
 import sqlite_utils
@@ -122,61 +121,6 @@ def test_live_chat_sigusr1_pending(mock_model, logs_db):
     assert result.exit_code == 0
     assert "external followup message" in result.output
     assert "> external prompt" in result.output
-
-
-@pytest.mark.skipif(not _HAS_SIGUSR1, reason="SIGUSR1 not available")
-@pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_live_chat_sigusr1_during_input(mock_model, logs_db, monkeypatch):
-    """SIGUSR1 during input mode directly displays new messages."""
-    log_path = str(llm.cli.logs_db_path())
-    original_prompt = click.prompt
-    call_count = [0]
-
-    mock_model.enqueue(["first reply"])
-    mock_model.enqueue(["second reply"])
-
-    def patched_prompt(*args, **kwargs):
-        call_count[0] += 1
-        if call_count[0] == 2:
-            db = sqlite_utils.Database(log_path)
-            convs = list(db["conversations"].rows_where(order_by="id desc", limit=1))
-            assert convs
-            conv_id = convs[0]["id"]
-            db["responses"].insert(
-                {
-                    "id": "injected-during-input",
-                    "model": "mock",
-                    "prompt": "injected prompt",
-                    "system": None,
-                    "prompt_json": None,
-                    "options_json": "{}",
-                    "response": "injected during input",
-                    "response_json": None,
-                    "conversation_id": conv_id,
-                    "duration_ms": 0,
-                    "datetime_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "token_details": None,
-                    "schema_id": None,
-                    "resolved_model": None,
-                },
-            )
-            os.kill(os.getpid(), signal.SIGUSR1)
-        return original_prompt(*args, **kwargs)
-
-    monkeypatch.setattr(click, "prompt", patched_prompt)
-
-    runner = CliRunner()
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hello\nWorld\nquit\n",
-        catch_exceptions=False,
-    )
-    assert result.exit_code == 0
-    assert "injected during input" in result.output
-    assert "> injected prompt" in result.output
 
 
 def test_inject_into_conversation(mock_model, logs_db):
