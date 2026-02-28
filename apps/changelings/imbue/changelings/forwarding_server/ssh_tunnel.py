@@ -102,6 +102,12 @@ class SSHTunnelManager(MutableModel):
         if existing is not None and _ssh_connection_is_active(existing):
             return existing
 
+        if existing is not None:
+            try:
+                existing.close()
+            except (OSError, paramiko.SSHException) as e:
+                logger.trace("Error closing stale SSH connection: {}", e)
+
         logger.info("Establishing SSH connection to {}:{}", ssh_info.host, ssh_info.port)
         client = _create_ssh_client(ssh_info)
         self._connections[conn_key] = client
@@ -246,7 +252,8 @@ def _tunnel_accept_loop(
                 client_sock, _ = server.accept()
             except socket.timeout:
                 continue
-            except OSError:
+            except OSError as e:
+                logger.warning("Accept loop socket error, stopping tunnel: {}", e)
                 break
 
             try:
@@ -270,8 +277,8 @@ def _tunnel_accept_loop(
         server.close()
         try:
             os.unlink(str(sock_path))
-        except OSError:
-            pass
+        except OSError as e:
+            logger.trace("Error unlinking tunnel socket: {}", e)
 
 
 def _relay_data(sock: socket.socket, channel: paramiko.Channel) -> None:

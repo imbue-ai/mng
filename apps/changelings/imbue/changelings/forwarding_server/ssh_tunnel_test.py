@@ -1,4 +1,3 @@
-import json
 import socket
 import threading
 from pathlib import Path
@@ -7,10 +6,6 @@ import paramiko
 import pytest
 from pydantic import ValidationError
 
-from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
-from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
-from imbue.changelings.forwarding_server.backend_resolver import _parse_agents_from_json
-from imbue.changelings.forwarding_server.conftest import FakeMngCli
 from imbue.changelings.forwarding_server.ssh_tunnel import RemoteSSHInfo
 from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
 from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelManager
@@ -20,11 +15,37 @@ from imbue.changelings.forwarding_server.ssh_tunnel import _ssh_connection_trans
 from imbue.changelings.forwarding_server.ssh_tunnel import _tunnel_accept_loop
 from imbue.changelings.forwarding_server.ssh_tunnel import _wait_for_socket
 from imbue.changelings.forwarding_server.ssh_tunnel import parse_url_host_port
-from imbue.changelings.primitives import ServerName
-from imbue.mng.primitives import AgentId
 
-_AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
-_AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
+
+class FakeChannelFromSocket:
+    """Stub that wraps a real socket to provide a paramiko-Channel-like interface.
+
+    Used in tests to simulate paramiko channels without requiring a real SSH connection.
+    """
+
+    _sock: socket.socket
+
+    @classmethod
+    def create(cls, sock: socket.socket) -> "FakeChannelFromSocket":
+        """Create a FakeChannelFromSocket wrapping the given socket."""
+        instance = cls.__new__(cls)
+        object.__setattr__(instance, "_sock", sock)
+        return instance
+
+    def sendall(self, data: bytes) -> None:
+        self._sock.sendall(data)
+
+    def recv(self, size: int) -> bytes:
+        return self._sock.recv(size)
+
+    def recv_ready(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return self._sock.fileno()
+
+    def close(self) -> None:
+        self._sock.close()
 
 
 class FakeParamikoTransport:
@@ -114,158 +135,6 @@ def test_parse_url_host_port_handles_localhost() -> None:
     assert port == 8080
 
 
-# -- _parse_agents_from_json tests --
-
-
-def _make_agents_json_with_ssh(*agents: tuple[str, dict[str, object] | None]) -> str:
-    """Build mng list --json output with optional SSH info per agent."""
-    agent_list = []
-    for agent_id, ssh in agents:
-        agent: dict[str, object] = {"id": agent_id}
-        if ssh is not None:
-            agent["host"] = {"ssh": ssh}
-        else:
-            agent["host"] = {}
-        agent_list.append(agent)
-    return json.dumps({"agents": agent_list})
-
-
-def test_parse_agents_from_json_extracts_agent_ids() -> None:
-    json_str = _make_agents_json_with_ssh(
-        (str(_AGENT_A), None),
-        (str(_AGENT_B), None),
-    )
-    result = _parse_agents_from_json(json_str)
-    assert _AGENT_A in result.agent_ids
-    assert _AGENT_B in result.agent_ids
-
-
-def test_parse_agents_from_json_extracts_ssh_info() -> None:
-    ssh_data = {
-        "user": "root",
-        "host": "remote.example.com",
-        "port": 12345,
-        "key_path": "/home/user/.mng/providers/modal/modal_ssh_key",
-    }
-    json_str = _make_agents_json_with_ssh((str(_AGENT_A), ssh_data))
-    result = _parse_agents_from_json(json_str)
-
-    ssh_info = result.ssh_info_by_agent_id.get(str(_AGENT_A))
-    assert ssh_info is not None
-    assert ssh_info.user == "root"
-    assert ssh_info.host == "remote.example.com"
-    assert ssh_info.port == 12345
-    assert ssh_info.key_path == Path("/home/user/.mng/providers/modal/modal_ssh_key")
-
-
-def test_parse_agents_from_json_returns_none_ssh_for_local_agents() -> None:
-    json_str = _make_agents_json_with_ssh((str(_AGENT_A), None))
-    result = _parse_agents_from_json(json_str)
-
-    assert str(_AGENT_A) not in result.ssh_info_by_agent_id
-
-
-def test_parse_agents_from_json_handles_mixed_local_and_remote() -> None:
-    ssh_data = {
-        "user": "root",
-        "host": "remote.example.com",
-        "port": 12345,
-        "key_path": "/tmp/key",
-    }
-    json_str = _make_agents_json_with_ssh(
-        (str(_AGENT_A), None),
-        (str(_AGENT_B), ssh_data),
-    )
-    result = _parse_agents_from_json(json_str)
-
-    assert len(result.agent_ids) == 2
-    assert str(_AGENT_A) not in result.ssh_info_by_agent_id
-    assert str(_AGENT_B) in result.ssh_info_by_agent_id
-
-
-def test_parse_agents_from_json_returns_empty_for_none() -> None:
-    result = _parse_agents_from_json(None)
-    assert result.agent_ids == ()
-    assert result.ssh_info_by_agent_id == {}
-
-
-def test_parse_agents_from_json_returns_empty_for_invalid_json() -> None:
-    result = _parse_agents_from_json("not json")
-    assert result.agent_ids == ()
-
-
-def test_parse_agents_from_json_skips_agents_with_invalid_ssh() -> None:
-    json_str = json.dumps(
-        {
-            "agents": [
-                {
-                    "id": str(_AGENT_A),
-                    "host": {"ssh": {"user": "root"}},
-                },
-            ],
-        }
-    )
-    result = _parse_agents_from_json(json_str)
-    assert _AGENT_A in result.agent_ids
-    assert str(_AGENT_A) not in result.ssh_info_by_agent_id
-
-
-# -- MngCliBackendResolver.get_ssh_info tests --
-
-
-def test_mng_cli_resolver_get_ssh_info_returns_info_for_remote_agent() -> None:
-    ssh_data = {
-        "user": "root",
-        "host": "remote.example.com",
-        "port": 12345,
-        "key_path": "/tmp/test_key",
-    }
-    agents_json = _make_agents_json_with_ssh((str(_AGENT_A), ssh_data))
-    fake_cli = FakeMngCli(server_logs={}, agents_json=agents_json)
-    resolver = MngCliBackendResolver(mng_cli=fake_cli)
-
-    ssh_info = resolver.get_ssh_info(_AGENT_A)
-    assert ssh_info is not None
-    assert ssh_info.host == "remote.example.com"
-    assert ssh_info.port == 12345
-
-
-def test_mng_cli_resolver_get_ssh_info_returns_none_for_local_agent() -> None:
-    agents_json = _make_agents_json_with_ssh((str(_AGENT_A), None))
-    fake_cli = FakeMngCli(server_logs={}, agents_json=agents_json)
-    resolver = MngCliBackendResolver(mng_cli=fake_cli)
-
-    assert resolver.get_ssh_info(_AGENT_A) is None
-
-
-def test_mng_cli_resolver_get_ssh_info_returns_none_for_unknown_agent() -> None:
-    agents_json = _make_agents_json_with_ssh((str(_AGENT_A), None))
-    fake_cli = FakeMngCli(server_logs={}, agents_json=agents_json)
-    resolver = MngCliBackendResolver(mng_cli=fake_cli)
-
-    assert resolver.get_ssh_info(_AGENT_B) is None
-
-
-# -- BackendResolverInterface.get_ssh_info default --
-
-
-def test_backend_resolver_interface_default_get_ssh_info_returns_none() -> None:
-    """The base class default get_ssh_info returns None for all agents."""
-
-    class MinimalResolver(BackendResolverInterface):
-        def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
-            return None
-
-        def list_known_agent_ids(self) -> tuple[AgentId, ...]:
-            return ()
-
-        def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
-            return ()
-
-    resolver = MinimalResolver()
-    assert resolver.get_ssh_info(_AGENT_A) is None
-
-
 # -- SSHTunnelManager tests --
 
 
@@ -336,25 +205,7 @@ def test_relay_data_forwards_between_socket_pair() -> None:
     app_sock, relay_sock_a = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     channel_sock, relay_sock_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
-    class FakeChannel:
-        """Minimal channel that delegates to a real socket."""
-
-        def sendall(self, data: bytes) -> None:
-            relay_sock_b.sendall(data)
-
-        def recv(self, size: int) -> bytes:
-            return relay_sock_b.recv(size)
-
-        def recv_ready(self) -> bool:
-            return True
-
-        def fileno(self) -> int:
-            return relay_sock_b.fileno()
-
-        def close(self) -> None:
-            relay_sock_b.close()
-
-    fake_channel = FakeChannel()
+    fake_channel = FakeChannelFromSocket.create(relay_sock_b)
     relay_thread = threading.Thread(target=_relay_data, args=(relay_sock_a, fake_channel), daemon=True)
     relay_thread.start()
 
@@ -382,26 +233,8 @@ def test_tunnel_accept_loop_forwards_connections(tmp_path: Path) -> None:
 
     channel_remote, channel_local = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
-    class FakeChannelFromSocket:
-        """Channel that delegates to a real socket for relay testing."""
-
-        def recv_ready(self) -> bool:
-            return True
-
-        def fileno(self) -> int:
-            return channel_local.fileno()
-
-        def recv(self, size: int) -> bytes:
-            return channel_local.recv(size)
-
-        def sendall(self, data: bytes) -> None:
-            channel_local.sendall(data)
-
-        def close(self) -> None:
-            channel_local.close()
-
     fake_transport = FakeParamikoTransport.create()
-    fake_channel = FakeChannelFromSocket()
+    fake_channel = FakeChannelFromSocket.create(channel_local)
     fake_transport.channel_to_return = fake_channel
 
     accept_thread = threading.Thread(
