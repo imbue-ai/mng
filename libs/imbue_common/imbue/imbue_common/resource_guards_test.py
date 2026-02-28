@@ -108,15 +108,22 @@ def test_unmarked_test_that_calls_resource_fails(pytester: pytest.Pytester) -> N
 
 
 def test_unmarked_test_that_handles_guard_error_still_fails(pytester: pytest.Pytester) -> None:
-    """A test that handles the guard's exit 127 gracefully should still fail."""
+    """A test that expects a resource to fail should still be caught by the guard.
+
+    This simulates a realistic scenario: a test checks that a command fails
+    when given bad arguments. The guard's exit 127 satisfies the assertion,
+    so the test would silently pass without the blocked-invocation tracking.
+    """
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
         import subprocess
 
-        def test_handles_error():
+        def test_echo_not_available():
+            # A test verifying that echo is "not found" or "fails".
+            # Without the mark, the guard blocks echo (exit 127),
+            # which satisfies returncode != 0 -- a false pass.
             result = subprocess.run(["echo", "hi"], capture_output=True)
-            # Test "passes" by accepting non-zero exit code
-            assert result.returncode != 0
+            assert result.returncode != 0, "expected echo to fail"
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(failed=1)
