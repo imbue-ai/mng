@@ -691,43 +691,14 @@ class _FailingTunnelManager(SSHTunnelManager):
         raise SSHTunnelError("SSH connection failed: test error")
 
 
-class _RemoteBackendResolver(BackendResolverInterface):
-    """Backend resolver that returns SSH info for all agents (simulating remote agents)."""
+class _RemoteStaticBackendResolver(StaticBackendResolver):
+    """StaticBackendResolver that also returns SSH info for all known agents."""
 
-    _urls: dict[str, dict[str, str]]
-    _ssh_info: RemoteSSHInfo
-
-    @classmethod
-    def create(
-        cls,
-        urls: dict[str, dict[str, str]],
-        ssh_info: RemoteSSHInfo,
-    ) -> "_RemoteBackendResolver":
-        """Create a resolver with fixed URLs and SSH info for all agents."""
-        instance = cls.__new__(cls)
-        BackendResolverInterface.__init__(instance)
-        object.__setattr__(instance, "_urls", urls)
-        object.__setattr__(instance, "_ssh_info", ssh_info)
-        return instance
-
-    def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
-        servers = self._urls.get(str(agent_id))
-        if servers is None:
-            return None
-        return servers.get(str(server_name))
-
-    def list_known_agent_ids(self) -> tuple[AgentId, ...]:
-        return tuple(AgentId(aid) for aid in sorted(self._urls.keys()))
-
-    def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
-        servers = self._urls.get(str(agent_id))
-        if servers is None:
-            return ()
-        return tuple(ServerName(name) for name in sorted(servers.keys()))
+    ssh_info: RemoteSSHInfo
 
     def get_ssh_info(self, agent_id: AgentId) -> RemoteSSHInfo | None:
-        if str(agent_id) in self._urls:
-            return self._ssh_info
+        if self.url_by_agent_and_server.get(str(agent_id)) is not None:
+            return self.ssh_info
         return None
 
 
@@ -739,26 +710,32 @@ _TEST_SSH_INFO: RemoteSSHInfo = RemoteSSHInfo(
 )
 
 
-def test_http_proxy_returns_502_when_ssh_tunnel_fails(tmp_path: Path) -> None:
-    """When SSH tunnel setup fails, the HTTP proxy should return 502 not 500."""
+def _setup_failing_tunnel_server(
+    tmp_path: Path,
+) -> tuple[TestClient, FileAuthStore, AgentId]:
+    """Set up a forwarding server with a tunnel manager that always fails."""
     agent_id = AgentId()
-    backend_resolver = _RemoteBackendResolver.create(
-        urls={str(agent_id): {"web": "http://127.0.0.1:9100"}},
+    backend_resolver = _RemoteStaticBackendResolver(
+        url_by_agent_and_server={str(agent_id): {"web": "http://127.0.0.1:9100"}},
         ssh_info=_TEST_SSH_INFO,
     )
     auth_dir = tmp_path / "auth"
     auth_store = FileAuthStore(data_directory=auth_dir)
-    tunnel_manager = _FailingTunnelManager()
 
     app = create_forwarding_server(
         auth_store=auth_store,
         backend_resolver=backend_resolver,
         http_client=None,
-        tunnel_manager=tunnel_manager,
+        tunnel_manager=_FailingTunnelManager(),
     )
     client = TestClient(app)
-
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+    return client, auth_store, agent_id
+
+
+def test_http_proxy_returns_502_when_ssh_tunnel_fails(tmp_path: Path) -> None:
+    """When SSH tunnel setup fails, the HTTP proxy should return 502 not 500."""
+    client, _, agent_id = _setup_failing_tunnel_server(tmp_path)
     client.cookies.set(f"sw_installed_{agent_id}_web", "1")
 
     response = client.get(f"/agents/{agent_id}/web/api/status")
@@ -768,24 +745,7 @@ def test_http_proxy_returns_502_when_ssh_tunnel_fails(tmp_path: Path) -> None:
 
 def test_websocket_proxy_closes_with_1011_when_ssh_tunnel_fails(tmp_path: Path) -> None:
     """When SSH tunnel setup fails, the WebSocket should close with code 1011."""
-    agent_id = AgentId()
-    backend_resolver = _RemoteBackendResolver.create(
-        urls={str(agent_id): {"web": "http://127.0.0.1:9100"}},
-        ssh_info=_TEST_SSH_INFO,
-    )
-    auth_dir = tmp_path / "auth"
-    auth_store = FileAuthStore(data_directory=auth_dir)
-    tunnel_manager = _FailingTunnelManager()
-
-    app = create_forwarding_server(
-        auth_store=auth_store,
-        backend_resolver=backend_resolver,
-        http_client=None,
-        tunnel_manager=tunnel_manager,
-    )
-    client = TestClient(app)
-
-    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+    client, _, agent_id = _setup_failing_tunnel_server(tmp_path)
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
         with client.websocket_connect(f"/agents/{agent_id}/web/ws"):

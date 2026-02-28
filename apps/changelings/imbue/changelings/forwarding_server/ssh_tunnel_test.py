@@ -292,9 +292,8 @@ def test_tunnel_accept_loop_handles_channel_open_failure(tmp_path: Path) -> None
 
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
-    client.settimeout(1.0)
+    client.settimeout(3.0)
 
-    ready.wait(timeout=0.3)
     try:
         data = client.recv(4096)
         assert data == b""

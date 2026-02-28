@@ -293,11 +293,11 @@ async def _forward_http_request(
     path: str,
     agent_id: str,
     server_name: str,
-    http_client: httpx.AsyncClient | None = None,
+    http_client: httpx.AsyncClient | None,
 ) -> httpx.Response | Response:
     """Forward an HTTP request to the backend, returning the backend response or an error Response.
 
-    If http_client is provided, uses it instead of the app's default client. This is
+    When http_client is not None, uses it instead of the app's default client. This is
     used for SSH-tunneled connections where the client is configured with UDS transport.
     """
     proxy_url = f"{backend_url}/{path}"

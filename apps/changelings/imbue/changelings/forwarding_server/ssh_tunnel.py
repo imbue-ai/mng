@@ -97,7 +97,7 @@ class SSHTunnelManager(MutableModel):
             except (OSError, paramiko.SSHException) as e:
                 logger.trace("Error closing stale SSH connection: {}", e)
 
-        logger.info("Establishing SSH connection to {}:{}", ssh_info.host, ssh_info.port)
+        logger.debug("Establishing SSH connection to {}:{}", ssh_info.host, ssh_info.port)
         client = _create_ssh_client(ssh_info)
         self._connections[conn_key] = client
         return client
