@@ -212,10 +212,7 @@ def _parse_agents_from_json(json_output: str | None) -> _ParsedAgentsResult:
 
 
 def _parse_agent_ids_from_json(json_output: str | None) -> tuple[AgentId, ...]:
-    """Parse agent IDs from mng list --json output.
-
-    Convenience wrapper around _parse_agents_from_json for backward compatibility.
-    """
+    """Parse agent IDs from mng list --json output, discarding SSH info."""
     return _parse_agents_from_json(json_output).agent_ids
 
 

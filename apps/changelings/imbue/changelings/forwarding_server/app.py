@@ -510,8 +510,12 @@ async def _connect_backend_websocket(
 
     if tunnel_socket_path is not None:
         sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-        sock.connect(str(tunnel_socket_path))
-        sock.setblocking(False)
+        try:
+            sock.connect(str(tunnel_socket_path))
+            sock.setblocking(False)
+        except OSError:
+            sock.close()
+            raise
         return websockets.connect(ws_url, subprotocols=ws_subprotocols, sock=sock)
 
     return websockets.connect(ws_url, subprotocols=ws_subprotocols)

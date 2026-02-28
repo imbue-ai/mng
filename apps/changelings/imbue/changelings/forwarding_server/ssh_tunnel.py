@@ -32,6 +32,8 @@ _SELECT_TIMEOUT_SECONDS: Final[float] = 1.0
 
 _ACCEPT_TIMEOUT_SECONDS: Final[float] = 1.0
 
+_SOCKET_POLL_SECONDS: Final[float] = 0.01
+
 
 class RemoteSSHInfo(FrozenModel):
     """SSH connection info for a remote agent host, parsed from mng list --json."""
@@ -42,33 +44,24 @@ class RemoteSSHInfo(FrozenModel):
     key_path: Path = Field(description="Path to SSH private key file")
 
 
-class _SSHConnection:
-    """Holds a paramiko SSHClient and provides access to its transport."""
-
-    __slots__ = ("client",)
-
-    def __init__(self, client: paramiko.SSHClient) -> None:
-        self.client = client
-
-    @property
-    def transport(self) -> paramiko.Transport:
-        t = self.client.get_transport()
-        if t is None:
-            raise SSHTunnelError("SSH transport is not active")
-        return t
-
-    def is_active(self) -> bool:
-        t = self.client.get_transport()
-        return t is not None and t.is_active()
-
-    def close(self) -> None:
-        self.client.close()
-
-
 class SSHTunnelError(Exception):
     """Raised when an SSH tunnel operation fails."""
 
     ...
+
+
+def _ssh_connection_is_active(client: paramiko.SSHClient) -> bool:
+    """Check whether the SSH client's transport is active."""
+    transport = client.get_transport()
+    return transport is not None and transport.is_active()
+
+
+def _ssh_connection_transport(client: paramiko.SSHClient) -> paramiko.Transport:
+    """Get the SSH client's transport, raising if not active."""
+    transport = client.get_transport()
+    if transport is None:
+        raise SSHTunnelError("SSH transport is not active")
+    return transport
 
 
 class SSHTunnelManager(MutableModel):
@@ -86,7 +79,7 @@ class SSHTunnelManager(MutableModel):
 
     _tmpdir: tempfile.TemporaryDirectory[str] | None = PrivateAttr(default=None)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
-    _connections: dict[str, _SSHConnection] = PrivateAttr(default_factory=dict)
+    _connections: dict[str, paramiko.SSHClient] = PrivateAttr(default_factory=dict)
     _tunnel_socket_paths: dict[str, Path] = PrivateAttr(default_factory=dict)
     _tunnel_threads: dict[str, threading.Thread] = PrivateAttr(default_factory=dict)
     _shutdown_event: threading.Event = PrivateAttr(default_factory=threading.Event)
@@ -98,7 +91,7 @@ class SSHTunnelManager(MutableModel):
             os.chmod(self._tmpdir.name, 0o700)
         return Path(self._tmpdir.name)
 
-    def _get_or_create_connection(self, ssh_info: RemoteSSHInfo) -> _SSHConnection:
+    def _get_or_create_connection(self, ssh_info: RemoteSSHInfo) -> paramiko.SSHClient:
         """Get or create an SSH connection to the given host.
 
         Reuses existing active connections. Creates a new connection if none
@@ -106,13 +99,13 @@ class SSHTunnelManager(MutableModel):
         """
         conn_key = f"{ssh_info.host}:{ssh_info.port}"
         existing = self._connections.get(conn_key)
-        if existing is not None and existing.is_active():
+        if existing is not None and _ssh_connection_is_active(existing):
             return existing
 
         logger.info("Establishing SSH connection to {}:{}", ssh_info.host, ssh_info.port)
-        connection = _create_ssh_connection(ssh_info)
-        self._connections[conn_key] = connection
-        return connection
+        client = _create_ssh_client(ssh_info)
+        self._connections[conn_key] = client
+        return client
 
     def get_tunnel_socket_path(
         self,
@@ -134,22 +127,21 @@ class SSHTunnelManager(MutableModel):
             if existing_path is not None and existing_thread is not None and existing_thread.is_alive():
                 return existing_path
 
-            connection = self._get_or_create_connection(ssh_info)
+            client = self._get_or_create_connection(ssh_info)
+            transport = _ssh_connection_transport(client)
             socket_path = self._get_tmpdir() / f"tunnel-{tunnel_key.replace(':', '-').replace('>', '')}.sock"
 
-            # Remove stale socket file if it exists
             if socket_path.exists():
                 socket_path.unlink()
 
             thread = threading.Thread(
                 target=_tunnel_accept_loop,
-                args=(socket_path, connection.transport, remote_host, remote_port, self._shutdown_event),
+                args=(socket_path, transport, remote_host, remote_port, self._shutdown_event),
                 daemon=True,
                 name=f"ssh-tunnel-{tunnel_key}",
             )
             thread.start()
 
-            # Wait briefly for the socket to become available
             _wait_for_socket(socket_path)
 
             self._tunnel_socket_paths[tunnel_key] = socket_path
@@ -163,11 +155,11 @@ class SSHTunnelManager(MutableModel):
         for thread in self._tunnel_threads.values():
             thread.join(timeout=5.0)
 
-        for conn in self._connections.values():
+        for client in self._connections.values():
             try:
-                conn.close()
-            except Exception:
-                pass
+                client.close()
+            except (OSError, paramiko.SSHException) as e:
+                logger.trace("Error closing SSH connection during cleanup: {}", e)
 
         self._connections.clear()
         self._tunnel_socket_paths.clear()
@@ -176,12 +168,12 @@ class SSHTunnelManager(MutableModel):
         if self._tmpdir is not None:
             try:
                 self._tmpdir.cleanup()
-            except Exception:
-                pass
+            except OSError as e:
+                logger.trace("Error cleaning up tunnel tmpdir: {}", e)
             self._tmpdir = None
 
 
-def _create_ssh_connection(ssh_info: RemoteSSHInfo) -> _SSHConnection:
+def _create_ssh_client(ssh_info: RemoteSSHInfo) -> paramiko.SSHClient:
     """Create a paramiko SSH connection to the given host.
 
     Uses the known_hosts file from the same directory as the SSH key (this is
@@ -206,19 +198,27 @@ def _create_ssh_connection(ssh_info: RemoteSSHInfo) -> _SSHConnection:
         timeout=10.0,
     )
 
-    return _SSHConnection(client=client)
+    return client
 
 
 def _wait_for_socket(socket_path: Path, timeout: float = 2.0) -> None:
-    """Wait for a Unix domain socket file to appear."""
-    import time
+    """Wait for a Unix domain socket file to appear.
 
-    start = time.monotonic()
-    while time.monotonic() - start < timeout:
-        if socket_path.exists():
-            return
-        time.sleep(0.01)
-    logger.warning("Timed out waiting for tunnel socket at {}", socket_path)
+    Raises SSHTunnelError if the socket does not appear within the timeout.
+    Uses threading.Event.wait for polling instead of time.sleep.
+    """
+    poll_event = threading.Event()
+    deadline = threading.Event()
+    timer = threading.Timer(timeout, deadline.set)
+    timer.start()
+    try:
+        while not deadline.is_set():
+            if socket_path.exists():
+                return
+            poll_event.wait(timeout=_SOCKET_POLL_SECONDS)
+    finally:
+        timer.cancel()
+    raise SSHTunnelError(f"SSH tunnel socket did not appear within {timeout}s at {socket_path}")
 
 
 def _tunnel_accept_loop(
@@ -255,7 +255,7 @@ def _tunnel_accept_loop(
                     (remote_host, remote_port),
                     ("127.0.0.1", 0),
                 )
-            except Exception as e:
+            except (paramiko.SSHException, OSError) as e:
                 logger.warning("Failed to open SSH channel to {}:{}: {}", remote_host, remote_port, e)
                 client_sock.close()
                 continue
@@ -280,33 +280,36 @@ def _relay_data(sock: socket.socket, channel: paramiko.Channel) -> None:
     Uses select() to multiplex reads from both ends. Terminates when either
     end closes or an error occurs.
     """
+    is_running = True
     try:
-        while True:
+        while is_running:
             r, _, _ = select.select([sock, channel], [], [], _SELECT_TIMEOUT_SECONDS)
 
             if sock in r:
                 data = sock.recv(_BUFFER_SIZE)
                 if not data:
-                    break
+                    is_running = False
+                    continue
                 channel.sendall(data)
 
             if channel in r:
                 if channel.recv_ready():
                     data = channel.recv(_BUFFER_SIZE)
                     if not data:
-                        break
+                        is_running = False
+                        continue
                     sock.sendall(data)
-    except (OSError, EOFError, paramiko.SSHException):
-        pass
+    except (OSError, EOFError, paramiko.SSHException) as e:
+        logger.trace("SSH tunnel relay ended: {}", e)
     finally:
         try:
             channel.close()
-        except Exception:
-            pass
+        except (OSError, paramiko.SSHException) as e:
+            logger.trace("Error closing SSH channel in relay: {}", e)
         try:
             sock.close()
-        except Exception:
-            pass
+        except OSError as e:
+            logger.trace("Error closing socket in relay: {}", e)
 
 
 def parse_url_host_port(url: str) -> tuple[str, int]:

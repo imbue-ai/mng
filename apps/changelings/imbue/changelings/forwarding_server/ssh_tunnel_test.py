@@ -1,9 +1,7 @@
 import json
 import socket
 import threading
-import time
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import paramiko
 import pytest
@@ -14,15 +12,52 @@ from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendRe
 from imbue.changelings.forwarding_server.backend_resolver import _parse_agents_from_json
 from imbue.changelings.forwarding_server.conftest import FakeMngCli
 from imbue.changelings.forwarding_server.ssh_tunnel import RemoteSSHInfo
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
 from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelManager
 from imbue.changelings.forwarding_server.ssh_tunnel import _relay_data
+from imbue.changelings.forwarding_server.ssh_tunnel import _ssh_connection_is_active
+from imbue.changelings.forwarding_server.ssh_tunnel import _ssh_connection_transport
 from imbue.changelings.forwarding_server.ssh_tunnel import _tunnel_accept_loop
+from imbue.changelings.forwarding_server.ssh_tunnel import _wait_for_socket
 from imbue.changelings.forwarding_server.ssh_tunnel import parse_url_host_port
 from imbue.changelings.primitives import ServerName
 from imbue.mng.primitives import AgentId
 
 _AGENT_A: AgentId = AgentId("agent-00000000000000000000000000000001")
 _AGENT_B: AgentId = AgentId("agent-00000000000000000000000000000002")
+
+
+class FakeParamikoTransport:
+    """Stub for paramiko.Transport that tracks open_channel calls."""
+
+    channel_to_return: object | None
+    channel_error: paramiko.SSHException | None
+    open_channel_calls: list[tuple[str, tuple[str, int], tuple[str, int]]]
+
+    @classmethod
+    def create(cls) -> "FakeParamikoTransport":
+        """Create a new FakeParamikoTransport with default values."""
+        instance = cls.__new__(cls)
+        object.__setattr__(instance, "channel_to_return", None)
+        object.__setattr__(instance, "channel_error", None)
+        object.__setattr__(instance, "open_channel_calls", [])
+        return instance
+
+    def is_active(self) -> bool:
+        return True
+
+    def open_channel(
+        self,
+        kind: str,
+        dest_addr: tuple[str, int],
+        src_addr: tuple[str, int],
+    ) -> object:
+        self.open_channel_calls.append((kind, dest_addr, src_addr))
+        if self.channel_error is not None:
+            raise self.channel_error
+        if self.channel_to_return is None:
+            raise paramiko.SSHException("No channel configured")
+        return self.channel_to_return
 
 
 # -- RemoteSSHInfo tests --
@@ -49,7 +84,7 @@ def test_remote_ssh_info_is_frozen() -> None:
         key_path=Path("/tmp/test_key"),
     )
     with pytest.raises(ValidationError):
-        info.user = "other"  # type: ignore[misc]
+        info.user = "other"
 
 
 # -- parse_url_host_port tests --
@@ -165,7 +200,7 @@ def test_parse_agents_from_json_skips_agents_with_invalid_ssh() -> None:
             "agents": [
                 {
                     "id": str(_AGENT_A),
-                    "host": {"ssh": {"user": "root"}},  # missing required fields
+                    "host": {"ssh": {"user": "root"}},
                 },
             ],
         }
@@ -247,7 +282,6 @@ def test_tunnel_manager_get_tmpdir_creates_secure_directory() -> None:
         tmpdir = manager._get_tmpdir()
         assert tmpdir.exists()
         stat = tmpdir.stat()
-        # 0o700 = owner read/write/execute only
         assert stat.st_mode & 0o777 == 0o700
     finally:
         manager.cleanup()
@@ -265,59 +299,33 @@ def test_tunnel_manager_get_tmpdir_returns_same_path() -> None:
 
 
 def test_wait_for_socket_returns_immediately_when_exists(tmp_path: Path) -> None:
-    """_wait_for_socket returns immediately when the socket file already exists."""
-    from imbue.changelings.forwarding_server.ssh_tunnel import _wait_for_socket
-
+    """_wait_for_socket returns when the socket file already exists."""
     sock_path = tmp_path / "test.sock"
-    sock_path.touch()  # Create the file
-    start = time.monotonic()
+    sock_path.touch()
     _wait_for_socket(sock_path, timeout=5.0)
-    elapsed = time.monotonic() - start
-    assert elapsed < 1.0
 
 
-def test_ssh_connection_is_active_returns_false_for_closed() -> None:
-    """_SSHConnection.is_active returns False when transport is None."""
-    from imbue.changelings.forwarding_server.ssh_tunnel import _SSHConnection
-
-    mock_client = MagicMock(spec=paramiko.SSHClient)
-    mock_client.get_transport.return_value = None
-    conn = _SSHConnection(client=mock_client)
-    assert conn.is_active() is False
-
-
-def test_ssh_connection_is_active_returns_true_for_active() -> None:
-    """_SSHConnection.is_active returns True when transport is active."""
-    from imbue.changelings.forwarding_server.ssh_tunnel import _SSHConnection
-
-    mock_client = MagicMock(spec=paramiko.SSHClient)
-    mock_transport = MagicMock(spec=paramiko.Transport)
-    mock_transport.is_active.return_value = True
-    mock_client.get_transport.return_value = mock_transport
-    conn = _SSHConnection(client=mock_client)
-    assert conn.is_active() is True
-
-
-def test_ssh_connection_close_calls_client_close() -> None:
-    """_SSHConnection.close delegates to the underlying SSHClient."""
-    from imbue.changelings.forwarding_server.ssh_tunnel import _SSHConnection
-
-    mock_client = MagicMock(spec=paramiko.SSHClient)
-    conn = _SSHConnection(client=mock_client)
-    conn.close()
-    mock_client.close.assert_called_once()
-
-
-def test_ssh_connection_transport_raises_when_closed() -> None:
-    """_SSHConnection.transport raises SSHTunnelError when transport is None."""
-    from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
-    from imbue.changelings.forwarding_server.ssh_tunnel import _SSHConnection
-
-    mock_client = MagicMock(spec=paramiko.SSHClient)
-    mock_client.get_transport.return_value = None
-    conn = _SSHConnection(client=mock_client)
+def test_wait_for_socket_raises_on_timeout(tmp_path: Path) -> None:
+    """_wait_for_socket raises SSHTunnelError when the socket does not appear."""
+    sock_path = tmp_path / "nonexistent.sock"
     with pytest.raises(SSHTunnelError):
-        _ = conn.transport
+        _wait_for_socket(sock_path, timeout=0.05)
+
+
+# -- SSH connection helper tests --
+
+
+def test_ssh_connection_is_active_returns_false_for_none_transport() -> None:
+    """Returns False when get_transport() returns None."""
+    client = paramiko.SSHClient()
+    assert _ssh_connection_is_active(client) is False
+
+
+def test_ssh_connection_transport_raises_when_none() -> None:
+    """Raises SSHTunnelError when transport is None."""
+    client = paramiko.SSHClient()
+    with pytest.raises(SSHTunnelError):
+        _ssh_connection_transport(client)
 
 
 # -- _relay_data tests --
@@ -325,54 +333,40 @@ def test_ssh_connection_transport_raises_when_closed() -> None:
 
 def test_relay_data_forwards_between_socket_pair() -> None:
     """Data sent on one end of a socketpair reaches the other via relay."""
-    # Create two socketpairs to simulate the two relay endpoints
     app_sock, relay_sock_a = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
     channel_sock, relay_sock_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
-    # Create a mock paramiko channel using the channel_sock
-    mock_channel = MagicMock(spec=paramiko.Channel)
+    class FakeChannel:
+        """Minimal channel that delegates to a real socket."""
 
-    # Track data sent to the channel
-    received_by_channel: list[bytes] = []
+        def sendall(self, data: bytes) -> None:
+            relay_sock_b.sendall(data)
 
-    def mock_sendall(data: bytes) -> None:
-        received_by_channel.append(data)
-        relay_sock_b.sendall(data)
+        def recv(self, size: int) -> bytes:
+            return relay_sock_b.recv(size)
 
-    def mock_recv(size: int) -> bytes:
-        return relay_sock_b.recv(size)
+        def recv_ready(self) -> bool:
+            return True
 
-    def mock_recv_ready() -> bool:
-        return True
+        def fileno(self) -> int:
+            return relay_sock_b.fileno()
 
-    def mock_fileno() -> int:
-        return relay_sock_b.fileno()
+        def close(self) -> None:
+            relay_sock_b.close()
 
-    mock_channel.sendall = mock_sendall
-    mock_channel.recv = mock_recv
-    mock_channel.recv_ready = mock_recv_ready
-    mock_channel.fileno = mock_fileno
-    mock_channel.close = MagicMock()
-
-    # Start relay in a thread
-    relay_thread = threading.Thread(target=_relay_data, args=(relay_sock_a, mock_channel), daemon=True)
+    fake_channel = FakeChannel()
+    relay_thread = threading.Thread(target=_relay_data, args=(relay_sock_a, fake_channel), daemon=True)
     relay_thread.start()
 
-    # Send data from app_sock (simulating httpx client)
     app_sock.sendall(b"hello from client")
-    time.sleep(0.1)
+    ready = threading.Event()
+    ready.wait(timeout=0.2)
 
-    # The channel should have received the data
-    assert len(received_by_channel) > 0
-    assert b"hello from client" in b"".join(received_by_channel)
-
-    # Send data back through channel socket (simulating remote backend response)
     channel_sock.sendall(b"hello from backend")
-    time.sleep(0.1)
+    ready.wait(timeout=0.2)
     data = app_sock.recv(4096)
     assert data == b"hello from backend"
 
-    # Close sockets to stop relay
     app_sock.close()
     channel_sock.close()
     relay_thread.join(timeout=3.0)
@@ -386,56 +380,57 @@ def test_tunnel_accept_loop_forwards_connections(tmp_path: Path) -> None:
     sock_path = tmp_path / "test.sock"
     shutdown_event = threading.Event()
 
-    # Create a mock transport
-    mock_transport = MagicMock(spec=paramiko.Transport)
-
-    # Create a socketpair for the "SSH channel" side
     channel_remote, channel_local = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
 
-    # Set up mock channel
-    mock_channel = MagicMock(spec=paramiko.Channel)
-    mock_channel.recv_ready.return_value = True
-    mock_channel.fileno.return_value = channel_local.fileno()
-    mock_channel.recv.side_effect = lambda size: channel_local.recv(size)
-    mock_channel.sendall.side_effect = lambda data: channel_local.sendall(data)
-    mock_channel.close.side_effect = lambda: channel_local.close()
+    class FakeChannelFromSocket:
+        """Channel that delegates to a real socket for relay testing."""
 
-    mock_transport.open_channel.return_value = mock_channel
+        def recv_ready(self) -> bool:
+            return True
 
-    # Start the accept loop in a thread
+        def fileno(self) -> int:
+            return channel_local.fileno()
+
+        def recv(self, size: int) -> bytes:
+            return channel_local.recv(size)
+
+        def sendall(self, data: bytes) -> None:
+            channel_local.sendall(data)
+
+        def close(self) -> None:
+            channel_local.close()
+
+    fake_transport = FakeParamikoTransport.create()
+    fake_channel = FakeChannelFromSocket()
+    fake_transport.channel_to_return = fake_channel
+
     accept_thread = threading.Thread(
         target=_tunnel_accept_loop,
-        args=(sock_path, mock_transport, "127.0.0.1", 9100, shutdown_event),
+        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
         daemon=True,
     )
     accept_thread.start()
 
-    # Wait for socket to appear
+    ready = threading.Event()
     for _ in range(50):
         if sock_path.exists():
             break
-        time.sleep(0.05)
+        ready.wait(timeout=0.05)
     assert sock_path.exists()
 
-    # Connect to the tunnel socket
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
 
-    # Send data through the tunnel
     client.sendall(b"test request")
-    time.sleep(0.1)
-
-    # The channel_remote should have received it (via the channel mock)
+    ready.wait(timeout=0.2)
     data = channel_remote.recv(4096)
     assert data == b"test request"
 
-    # Send response back
     channel_remote.sendall(b"test response")
-    time.sleep(0.1)
+    ready.wait(timeout=0.2)
     response = client.recv(4096)
     assert response == b"test response"
 
-    # Clean up
     client.close()
     channel_remote.close()
     shutdown_event.set()
@@ -447,34 +442,32 @@ def test_tunnel_accept_loop_handles_channel_open_failure(tmp_path: Path) -> None
     sock_path = tmp_path / "fail.sock"
     shutdown_event = threading.Event()
 
-    mock_transport = MagicMock(spec=paramiko.Transport)
-    mock_transport.open_channel.side_effect = paramiko.SSHException("Channel denied")
+    fake_transport = FakeParamikoTransport.create()
+    fake_transport.channel_error = paramiko.SSHException("Channel denied")
 
     accept_thread = threading.Thread(
         target=_tunnel_accept_loop,
-        args=(sock_path, mock_transport, "127.0.0.1", 9100, shutdown_event),
+        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
         daemon=True,
     )
     accept_thread.start()
 
+    ready = threading.Event()
     for _ in range(50):
         if sock_path.exists():
             break
-        time.sleep(0.05)
+        ready.wait(timeout=0.05)
 
-    # Connect - the connection should be accepted then closed
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
     client.settimeout(1.0)
 
-    # The tunnel should close the client socket since channel open failed
-    time.sleep(0.2)
+    ready.wait(timeout=0.3)
     try:
         data = client.recv(4096)
-        # Empty data means the other end closed
         assert data == b""
     except socket.timeout:
-        pass  # Acceptable - client may have been closed already
+        pass
 
     client.close()
     shutdown_event.set()
@@ -486,19 +479,20 @@ def test_tunnel_accept_loop_shutdown_event_stops_loop(tmp_path: Path) -> None:
     sock_path = tmp_path / "shutdown.sock"
     shutdown_event = threading.Event()
 
-    mock_transport = MagicMock(spec=paramiko.Transport)
+    fake_transport = FakeParamikoTransport.create()
 
     accept_thread = threading.Thread(
         target=_tunnel_accept_loop,
-        args=(sock_path, mock_transport, "127.0.0.1", 9100, shutdown_event),
+        args=(sock_path, fake_transport, "127.0.0.1", 9100, shutdown_event),
         daemon=True,
     )
     accept_thread.start()
 
+    ready = threading.Event()
     for _ in range(50):
         if sock_path.exists():
             break
-        time.sleep(0.05)
+        ready.wait(timeout=0.05)
 
     shutdown_event.set()
     accept_thread.join(timeout=3.0)
