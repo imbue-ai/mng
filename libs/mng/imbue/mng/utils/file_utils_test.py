@@ -63,6 +63,7 @@ def test_atomic_write_new_file_gets_default_permissions(tmp_path: Path) -> None:
     assert actual_mode == 0o600
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="Root bypasses permission checks")
 def test_atomic_write_raises_on_unwritable_directory(tmp_path: Path) -> None:
     locked_dir = tmp_path / "locked"
     locked_dir.mkdir()
