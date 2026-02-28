@@ -115,17 +115,6 @@ _GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
 _guard_wrapper_dir: str | None = None
 
 
-def _resolve_real_binary(resource: str, original_path: str) -> str | None:
-    """Find the real binary for a resource by searching a PATH string."""
-    for directory in original_path.split(os.pathsep):
-        if not directory:
-            continue
-        candidate = Path(directory) / resource
-        if candidate.is_file() and os.access(str(candidate), os.X_OK):
-            return str(candidate)
-    return None
-
-
 def _generate_wrapper_script(resource: str, real_path: str) -> str:
     """Generate a bash wrapper script for a guarded resource.
 
@@ -173,15 +162,13 @@ def _create_resource_guard_wrappers() -> None:
         _guard_wrapper_dir = existing_dir
         return
 
-    # Save the original PATH before any modification, so we can find real binaries
-    # even if wrappers from a crashed session are still on PATH.
     original_path = os.environ.get("PATH", "")
     os.environ["_PYTEST_GUARD_ORIGINAL_PATH"] = original_path
 
     _guard_wrapper_dir = tempfile.mkdtemp(prefix="pytest_resource_guards_")
 
     for resource in _GUARDED_RESOURCES:
-        real_path = _resolve_real_binary(resource, original_path)
+        real_path = shutil.which(resource)
         if real_path is None:
             continue
 
@@ -769,13 +756,9 @@ def _pytest_runtest_makereport(
         return
 
     marks: set[str] = getattr(item, "_resource_marks", set())
-    original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH", "")
 
     for resource in _GUARDED_RESOURCES:
         if resource not in marks:
-            continue
-        # Only enforce must-use if the resource binary is actually installed
-        if _resolve_real_binary(resource, original_path) is None:
             continue
         tracking_file = Path(tracking_dir) / resource
         if not tracking_file.exists():
