@@ -54,7 +54,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["imbue"]
-exclude = ["*_test.py", "test_*.py", "**/conftest.py", "**/utils/testing.py"]
+exclude = ["*_test.py", "test_*.py", "**/conftest.py", "**/testing.py", "**/plugin_testing.py"]
 
 [tool.uv.sources]
 imbue-common = { workspace = true }
@@ -95,11 +95,24 @@ omit = [
   "test_*.py",
   "*/tests/*",
   "*/conftest.py",
-  "*/utils/testing.py",
-  "imbue/mng/providers/modal/*",
-  "imbue/mng/providers/docker/instance.py",
-  "imbue/mng/providers/docker/volume.py",
-  "imbue/mng/providers/docker/testing.py",
+  "*/testing.py",
+  "*/plugin_testing.py",
+  "*/providers/modal/*",
+  "*/providers/docker/instance.py",
+  "*/providers/docker/volume.py",
+]
+
+[tool.coverage.report]
+omit = [
+  "*_test.py",
+  "test_*.py",
+  "*/tests/*",
+  "*/conftest.py",
+  "*/testing.py",
+  "*/plugin_testing.py",
+  "*/providers/modal/*",
+  "*/providers/docker/instance.py",
+  "*/providers/docker/volume.py",
 ]
 
 [tool.inline-snapshot]

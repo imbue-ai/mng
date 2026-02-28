@@ -1,9 +1,5 @@
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
-
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.snapshot import SnapshotCreateCliOptions
@@ -217,40 +213,26 @@ def test_classify_mixed_identifiers_no_agents_treats_all_as_hosts(
 # =============================================================================
 
 
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
-
-def test_emit_create_result_format_template() -> None:
+def test_emit_create_result_format_template(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_create_result renders format templates for created snapshots."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}")
     created = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["agent1"]},
         {"snapshot_id": "snap-def", "host_id": "host-2", "provider": "local", "agent_names": ["agent2", "agent3"]},
     ]
-    with _capture_stdout() as buf:
-        _emit_create_result(created, errors=[], output_opts=output_opts)
-    lines = buf.getvalue().strip().split("\n")
+    _emit_create_result(created, errors=[], output_opts=output_opts)
+    lines = capsys.readouterr().out.strip().split("\n")
     assert lines == ["snap-abc", "snap-def"]
 
 
-def test_emit_create_result_format_template_agent_names() -> None:
+def test_emit_create_result_format_template_agent_names(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_create_result format template renders agent_names as comma-separated."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{agent_names}")
     created = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["a1", "a2"]},
     ]
-    with _capture_stdout() as buf:
-        _emit_create_result(created, errors=[], output_opts=output_opts)
-    assert buf.getvalue().strip() == "a1, a2"
+    _emit_create_result(created, errors=[], output_opts=output_opts)
+    assert capsys.readouterr().out.strip() == "a1, a2"
 
 
 # =============================================================================
@@ -258,12 +240,11 @@ def test_emit_create_result_format_template_agent_names() -> None:
 # =============================================================================
 
 
-def test_emit_destroy_result_format_template() -> None:
+def test_emit_destroy_result_format_template(capsys: pytest.CaptureFixture[str]) -> None:
     """_emit_destroy_result renders format templates for destroyed snapshots."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}\t{host_id}")
     destroyed = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local"},
     ]
-    with _capture_stdout() as buf:
-        _emit_destroy_result(destroyed, output_opts=output_opts)
-    assert buf.getvalue().strip() == "snap-abc\thost-1"
+    _emit_destroy_result(destroyed, output_opts=output_opts)
+    assert capsys.readouterr().out.strip() == "snap-abc\thost-1"
