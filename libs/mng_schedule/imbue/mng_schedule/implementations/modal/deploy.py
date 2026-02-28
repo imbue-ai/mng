@@ -364,31 +364,21 @@ def _collect_deploy_files(
 ) -> dict[Path, Path | str]:
     """Collect all files for deployment by calling the get_files_for_deploy hook.
 
-    Destination paths must either start with "~" (user home files) or be
-    relative paths (project files copied to the image WORKDIR).  Absolute
-    paths that do not start with "~" are rejected.
+    Delegates to the shared collect_deploy_files utility in core mng.
+    Catches ValueError (from absolute path validation) and re-raises as
+    ScheduleDeployError for backward compatibility.
     """
-    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(
-        mng_ctx=mng_ctx,
-        include_user_settings=include_user_settings,
-        include_project_settings=include_project_settings,
-        repo_root=repo_root,
-    )
-    merged: dict[Path, Path | str] = {}
-    for result in all_results:
-        for dest_path, source in result.items():
-            dest_str = str(dest_path)
-            if dest_str.startswith("/"):
-                raise ScheduleDeployError(
-                    f"Deploy file destination path must be relative or start with '~', got: {dest_path}"
-                )
-            if dest_path in merged:
-                logger.warning(
-                    "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
-                    dest_path,
-                )
-            merged[dest_path] = source
-    return merged
+    from imbue.mng.providers.deploy_utils import collect_deploy_files
+
+    try:
+        return collect_deploy_files(
+            mng_ctx=mng_ctx,
+            repo_root=repo_root,
+            include_user_settings=include_user_settings,
+            include_project_settings=include_project_settings,
+        )
+    except ValueError as e:
+        raise ScheduleDeployError(str(e)) from e
 
 
 def stage_deploy_files(

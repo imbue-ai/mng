@@ -19,6 +19,7 @@ members = [
     "mng-elena-code",
     "mng-opencode",
     "mng-pair",
+    "mng-recursive",
     "mng-schedule",
     "mng-ttyd",
     "mng-tutor",
@@ -1902,6 +1903,17 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
+
+[[package]]
+name = "mng-recursive"
+version = "0.1.0"
+source = { editable = "libs/mng_recursive" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "mng-schedule"

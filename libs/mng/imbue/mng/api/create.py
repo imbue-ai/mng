@@ -119,11 +119,11 @@ def create(
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
         with log_span("Calling on_before_provisioning hooks"):
-            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
         with log_span("Provisioning agent {}", agent.name):
             host.provision_agent(agent, agent_options, mng_ctx)
         with log_span("Calling on_after_provisioning hooks"):
-            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
 
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
