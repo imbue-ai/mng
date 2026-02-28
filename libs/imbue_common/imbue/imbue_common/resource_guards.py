@@ -263,19 +263,19 @@ def _install_docker_guards() -> None:
     requests.Session usage.
     """
     try:
-        import requests
         from docker.api.client import APIClient
     except ImportError:
         return
 
-    inherited_send = requests.Session.send
+    # Capture whatever send() APIClient currently resolves to (via MRO).
+    original_send = APIClient.send
     _sdk_guard_originals["docker_send_existed"] = "send" in APIClient.__dict__
     if "send" in APIClient.__dict__:
         _sdk_guard_originals["docker_send_original"] = APIClient.__dict__["send"]
 
     def guarded_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         _enforce_sdk_guard("docker")
-        return inherited_send(self, *args, **kwargs)
+        return original_send(self, *args, **kwargs)
 
     APIClient.send = guarded_send  # type: ignore[method-assign]
 
