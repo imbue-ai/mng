@@ -121,7 +121,6 @@ def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Genera
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
-@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_message_succeeds(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mng create --message` successfully sends a message to Claude.
@@ -144,7 +143,6 @@ def test_mng_create_with_message_succeeds(claude_test_env: dict[str, str], temp_
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
-@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_message_multiple_times(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mng create --message` works reliably across multiple trials.
