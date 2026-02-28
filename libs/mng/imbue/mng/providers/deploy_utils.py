@@ -5,6 +5,7 @@ from pathlib import Path
 from loguru import logger
 
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 
 
 def collect_provider_profile_files(
@@ -62,7 +63,7 @@ def collect_deploy_files(
         for dest_path, source in result.items():
             dest_str = str(dest_path)
             if dest_str.startswith("/"):
-                raise ValueError(f"Deploy file destination path must be relative or start with '~', got: {dest_path}")
+                raise MngError(f"Deploy file destination path must be relative or start with '~', got: {dest_path}")
             if dest_path in merged:
                 logger.warning(
                     "Deploy file collision: {} registered by multiple plugins, overwriting previous value",

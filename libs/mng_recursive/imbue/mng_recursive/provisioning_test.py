@@ -211,7 +211,7 @@ def test_errors_fatal_raises_on_failure() -> None:
         plugin_config=RecursivePluginConfig(is_errors_fatal=True, install_mode=MngInstallMode.PACKAGE),
     )
 
-    with pytest.raises(MngError, match="Failed to determine remote home directory"):
+    with pytest.raises(MngError, match="Failed to provision mng on remote host"):
         provision_mng_on_host(host=host, mng_ctx=ctx)
 
 

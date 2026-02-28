@@ -24,8 +24,10 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
+from imbue.mng.providers.deploy_utils import collect_deploy_files
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
@@ -365,11 +367,9 @@ def _collect_deploy_files(
     """Collect all files for deployment by calling the get_files_for_deploy hook.
 
     Delegates to the shared collect_deploy_files utility in core mng.
-    Catches ValueError (from absolute path validation) and re-raises as
+    Catches MngError (from absolute path validation) and re-raises as
     ScheduleDeployError for backward compatibility.
     """
-    from imbue.mng.providers.deploy_utils import collect_deploy_files
-
     try:
         return collect_deploy_files(
             mng_ctx=mng_ctx,
@@ -377,7 +377,7 @@ def _collect_deploy_files(
             include_user_settings=include_user_settings,
             include_project_settings=include_project_settings,
         )
-    except ValueError as e:
+    except MngError as e:
         raise ScheduleDeployError(str(e)) from e
 
 

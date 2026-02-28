@@ -1,6 +1,7 @@
 """Core provisioning logic for injecting mng into remote hosts."""
 
 import importlib.metadata
+import json
 import shlex
 import subprocess
 import tempfile
@@ -120,7 +121,12 @@ def _resolve_install_mode(mode: MngInstallMode) -> MngInstallMode:
 
 
 def _ensure_uv_available(host: OnlineHostInterface) -> None:
-    """Ensure uv is available on the remote host, installing it if necessary."""
+    """Ensure uv is available on the remote host, installing it if necessary.
+
+    After installing, verifies that uv is actually on the PATH. If it was
+    installed to ~/.local/bin (the default), adds it to the system PATH
+    via /etc/environment so subsequent commands can find it.
+    """
     result = host.execute_command("command -v uv")
     if result.success:
         return
@@ -129,14 +135,12 @@ def _ensure_uv_available(host: OnlineHostInterface) -> None:
         install_result = host.execute_command("curl -LsSf https://astral.sh/uv/install.sh | sh")
         if not install_result.success:
             raise MngError(f"Failed to install uv on remote host: {install_result.stderr.strip()}")
-        # Source the cargo env to make uv available in subsequent commands
-        host.execute_command('. "$HOME/.local/bin/env" 2>/dev/null || true')
 
-
-def _is_mng_available_on_host(host: OnlineHostInterface) -> bool:
-    """Check if mng is already available on the remote host."""
-    result = host.execute_command("command -v mng")
-    return result.success
+        # Verify uv is findable after installation. Each execute_command runs
+        # in a new shell, so we need to check common install locations.
+        verify_result = host.execute_command('export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" && command -v uv')
+        if not verify_result.success:
+            raise MngError("uv was installed but cannot be found on PATH")
 
 
 def _get_mng_repo_root() -> Path:
@@ -155,8 +159,6 @@ def _get_mng_repo_root() -> Path:
         raise MngError("mng is not installed in editable mode; cannot determine repo root") from None
 
     # Find the source directory from the editable install
-    import json
-
     direct_url = json.loads(direct_url_text)
     url = direct_url.get("url", "")
     if url.startswith("file://"):
@@ -174,6 +176,10 @@ def _get_mng_repo_root() -> Path:
     if result.returncode != 0:
         raise MngError(f"Could not find git repo root from {source_dir}: {result.stderr.strip()}") from None
     return Path(result.stdout.strip())
+
+
+_UV_PATH_PREFIX = 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" && '
+"""Prefix for commands that need uv on the PATH after a fresh install."""
 
 
 def _install_mng_package_mode(
@@ -197,7 +203,7 @@ def _install_mng_package_mode(
     for pkg_name, pkg_version in plugin_packages:
         parts.append(f"--with {pkg_name}=={pkg_version}")
 
-    install_cmd = " ".join(parts)
+    install_cmd = _UV_PATH_PREFIX + " ".join(parts)
     with log_span("Installing mng (package mode) on remote host"):
         result = host.execute_command(install_cmd)
         if not result.success:
@@ -253,7 +259,7 @@ def _install_mng_editable_mode(
                 raise MngError(f"Failed to list mng libs: {ls_result.stderr.strip()}")
 
             lib_names = ls_result.stdout.strip().split()
-            install_parts = [f"cd {remote_repo_dir} && uv tool install -e libs/mng"]
+            install_parts = [f"{_UV_PATH_PREFIX}cd {remote_repo_dir} && uv tool install -e libs/mng"]
             for lib_name in lib_names:
                 if lib_name != "mng" and lib_name.startswith("mng_"):
                     install_parts.append(f"--with-editable libs/{lib_name}")
@@ -328,7 +334,5 @@ def provision_mng_on_host(
             elif resolved_mode == MngInstallMode.EDITABLE:
                 _install_mng_editable_mode(host)
 
-    except MngError:
-        raise
     except Exception as e:
         _handle_error("Failed to provision mng on remote host", e)
