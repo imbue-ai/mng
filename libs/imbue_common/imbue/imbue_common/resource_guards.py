@@ -45,17 +45,20 @@ _guarded_resources: list[str] = []
 def generate_wrapper_script(resource: str, real_path: str) -> str:
     """Generate a bash wrapper script for a guarded resource.
 
-    The wrapper checks environment variables set by the pytest_runtest_call hook:
-    - _PYTEST_GUARD_PHASE: Only enforce during the "call" phase (not setup/teardown)
+    The wrapper checks environment variables set by the pytest_runtest_setup hook:
+    - _PYTEST_GUARD_PHASE: Set to "call" for the entire test lifecycle (setup
+      through teardown). Outside the test lifecycle (e.g., during collection),
+      this variable is unset and the wrapper delegates unconditionally.
     - _PYTEST_GUARD_<RESOURCE>: "block" if the test lacks the mark, "allow" if it has it
     - _PYTEST_GUARD_TRACKING_DIR: Directory where tracking files are created
 
-    During the call phase:
+    When guard env vars are active (during a test's lifecycle):
     - If the guard is "block", the wrapper records the violation, prints an error,
       and exits 127. The tracking file ensures makereport catches the missing mark
       even if the test handles the non-zero exit code gracefully.
-    - If the guard is "allow", the wrapper touches a tracking file and delegates
-    Outside the call phase (fixture setup/teardown), the wrapper always delegates.
+    - If the guard is "allow", the wrapper touches a tracking file and delegates.
+    When guard env vars are not active (outside test lifecycle), the wrapper
+    always delegates to the real binary.
     """
     bash_guard_var = f"$_PYTEST_GUARD_{resource.upper()}"
     return f"""#!/bin/bash
