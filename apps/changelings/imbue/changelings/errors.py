@@ -1,5 +1,13 @@
-class ChangelingError(Exception):
-    """Base exception for all changelings errors."""
+import click
+
+
+class ChangelingError(click.ClickException):
+    """Base exception for all changelings errors.
+
+    Inherits from click.ClickException so that changeling errors are
+    automatically formatted and displayed by click without needing
+    manual re-raising as ClickException at every call site.
+    """
 
     ...
 
@@ -30,5 +38,17 @@ class GitInitError(ChangelingError):
 
 class GitCommitError(ChangelingError):
     """Raised when git add/commit fails."""
+
+    ...
+
+
+class MissingSettingsError(ChangelingError):
+    """Raised when a changeling repo is missing .mng/settings.toml."""
+
+    ...
+
+
+class MngCommandError(ChangelingError):
+    """Raised when an mng CLI command fails."""
 
     ...

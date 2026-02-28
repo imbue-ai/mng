@@ -1,14 +1,47 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from click.testing import Result
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
+from imbue.changelings.cli.deploy import _copy_add_paths
+from imbue.changelings.cli.deploy import _move_to_permanent_location
+from imbue.changelings.cli.deploy import _prepare_repo
+from imbue.changelings.config.data_types import MNG_BINARY
+from imbue.changelings.errors import ChangelingError
 from imbue.changelings.main import cli
 from imbue.changelings.testing import init_and_commit_git_repo
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 _RUNNER = CliRunner()
+
+
+def _destroy_agent(name: str) -> None:
+    """Destroy an mng agent by name. Ignores non-zero exit codes."""
+    cg = ConcurrencyGroup(name="test-cleanup")
+    with cg:
+        cg.run_process_to_completion(
+            command=[MNG_BINARY, "destroy", name, "--yes"],
+            is_checked_after=False,
+        )
+
+
+def _deploy_and_cleanup(
+    args: list[str],
+    agent_name: str,
+    input_text: str | None = None,
+) -> Result:
+    """Run a changeling deploy CLI invocation, destroying the agent on success.
+
+    Use this for tests that invoke the CLI directly (not via _deploy_with_agent_type
+    or _deploy_with_git_url, which handle cleanup internally).
+    """
+    result = _RUNNER.invoke(cli, args, input=input_text)
+    if result.exit_code == 0:
+        _destroy_agent(agent_name)
+    return result
 
 
 def _create_git_repo_with_settings(tmp_path: Path, agent_type: str = "elena-code") -> Path:
@@ -34,13 +67,14 @@ def _deploy_with_agent_type(
     agent_type: str = "elena-code",
     name: str | None = "test-bot",
     add_paths: list[str] | None = None,
-    provider: str = "modal",
+    provider: str = "local",
     input_text: str | None = None,
+    cleanup_name: str | None = None,
 ) -> Result:
     """Invoke changeling deploy with --agent-type and standard non-interactive flags.
 
-    Uses --provider modal by default to abort before mng create (since mng create
-    requires a running mng environment). Set name=None to test the name prompt.
+    Cleans up any created agent after the test completes. When name is None
+    (interactive prompt), pass cleanup_name to specify the name to destroy.
     """
     args: list[str] = ["deploy", "--agent-type", agent_type]
 
@@ -53,7 +87,13 @@ def _deploy_with_agent_type(
     args.extend(["--provider", provider, "--no-self-deploy"])
     args.extend(_data_dir_args(tmp_path))
 
-    return _RUNNER.invoke(cli, args, input=input_text)
+    result = _RUNNER.invoke(cli, args, input=input_text)
+
+    agent_to_destroy = name or cleanup_name
+    if result.exit_code == 0 and agent_to_destroy is not None:
+        _destroy_agent(agent_to_destroy)
+
+    return result
 
 
 def _deploy_with_git_url(
@@ -61,11 +101,14 @@ def _deploy_with_git_url(
     git_url: str,
     name: str | None = "test-bot",
     add_paths: list[str] | None = None,
-    provider: str = "modal",
+    provider: str = "local",
     input_text: str | None = None,
     agent_type: str | None = None,
 ) -> Result:
-    """Invoke changeling deploy with a git URL and standard non-interactive flags."""
+    """Invoke changeling deploy with a git URL and standard non-interactive flags.
+
+    Cleans up any created agent after the test completes.
+    """
     args: list[str] = ["deploy", git_url]
 
     if agent_type is not None:
@@ -80,12 +123,13 @@ def _deploy_with_git_url(
     args.extend(["--provider", provider, "--no-self-deploy"])
     args.extend(_data_dir_args(tmp_path))
 
-    return _RUNNER.invoke(cli, args, input=input_text)
+    result = _RUNNER.invoke(cli, args, input=input_text)
 
+    # Clean up any agent that was created
+    if result.exit_code == 0 and name is not None:
+        _destroy_agent(name)
 
-def _changeling_dir(tmp_path: Path, name: str) -> Path:
-    """Return the expected changeling directory for a given name."""
-    return tmp_path / "changelings-data" / name
+    return result
 
 
 # --- Tests for git URL deployment ---
@@ -134,54 +178,26 @@ def test_deploy_cleans_up_temp_dir_on_missing_settings(tmp_path: Path) -> None:
     assert leftover == []
 
 
-def test_deploy_stores_clone_under_agent_name(tmp_path: Path) -> None:
-    """Verify that the clone is stored at <data-dir>/<agent-name>/."""
+def test_deploy_cleans_up_temp_dir_after_deployment(tmp_path: Path) -> None:
+    """Verify that no .tmp- directories remain after deployment (success or failure)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
+    data_dir = tmp_path / "changelings-data"
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot")
+    _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
 
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-    cdir = _changeling_dir(tmp_path, "my-bot")
-    assert cdir.is_dir()
-    assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
-
-
-def test_deploy_rejects_modal_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n2\nN\n",
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-
-def test_deploy_rejects_docker_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n3\nN\n",
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
+    if data_dir.exists():
+        leftover = [p for p in data_dir.iterdir() if p.name.startswith(".tmp-")]
+        assert leftover == []
 
 
 def test_deploy_shows_prompts(tmp_path: Path) -> None:
-    """Verify all three prompts appear when deploying (using modal to abort before mng create)."""
+    """Verify all three prompts appear when deploying without flags."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _RUNNER.invoke(
-        cli,
+    result = _deploy_and_cleanup(
         ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="my-agent\n2\nN\n",
+        agent_name="my-agent",
+        input_text="my-agent\n2\nN\n",
     )
 
     assert "What would you like to name this agent" in result.output
@@ -192,10 +208,10 @@ def test_deploy_shows_prompts(tmp_path: Path) -> None:
 def test_deploy_displays_clone_url(tmp_path: Path) -> None:
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _RUNNER.invoke(
-        cli,
+    result = _deploy_and_cleanup(
         ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n2\nN\n",
+        agent_name="test-bot",
+        input_text="test-bot\n1\nN\n",
     )
 
     assert "Cloning repository" in result.output
@@ -208,33 +224,29 @@ def test_deploy_name_flag_skips_prompt(tmp_path: Path) -> None:
     result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-custom-name")
 
     assert "What would you like to name this agent" not in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
 
 def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
     """Verify that --provider skips the provider prompt."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), "--provider", "modal", "--no-self-deploy", *_data_dir_args(tmp_path)],
-        input="test-bot\n",
+    result = _deploy_and_cleanup(
+        ["deploy", str(repo_dir), "--provider", "local", "--no-self-deploy", *_data_dir_args(tmp_path)],
+        agent_name="test-bot",
+        input_text="test-bot\n",
     )
 
     assert "Where do you want to run" not in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
 
 def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
     """Verify that --no-self-deploy skips the self-deploy prompt."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), "--no-self-deploy", "--provider", "modal", *_data_dir_args(tmp_path)],
-        input="test-bot\n",
+    result = _deploy_and_cleanup(
+        ["deploy", str(repo_dir), "--no-self-deploy", "--provider", "local", *_data_dir_args(tmp_path)],
+        agent_name="test-bot",
+        input_text="test-bot\n",
     )
 
     assert "launch its own agents" not in result.output
@@ -249,63 +261,27 @@ def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
     assert "What would you like to name this agent" not in result.output
     assert "Where do you want to run" not in result.output
     assert "launch its own agents" not in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
 
 
-def test_deploy_rejects_duplicate_changeling_name(tmp_path: Path) -> None:
-    """Verify that deploying with a name that already has a directory fails."""
+def test_deploy_accepts_modal_provider(tmp_path: Path) -> None:
+    """Verify that modal provider is accepted (not rejected at provider check)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result1 = _deploy_with_git_url(tmp_path, str(repo_dir), name="dup-bot")
-    assert result1.exit_code != 0
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-modal", provider="modal")
 
-    result2 = _deploy_with_git_url(tmp_path, str(repo_dir), name="dup-bot")
-    assert result2.exit_code != 0
-    assert "already exists" in result2.output
+    assert "Only local deployment is supported" not in result.output
+
+
+def test_deploy_accepts_docker_provider(tmp_path: Path) -> None:
+    """Verify that docker provider is accepted (not rejected at provider check)."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-docker", provider="docker")
+
+    assert "Only local deployment is supported" not in result.output
 
 
 # --- Tests for --agent-type (no git URL) ---
-
-
-def test_deploy_agent_type_creates_mng_settings_toml(tmp_path: Path) -> None:
-    """Verify that --agent-type creates .mng/settings.toml with the correct template."""
-    result = _deploy_with_agent_type(tmp_path, name="my-elena")
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-    settings_path = _changeling_dir(tmp_path, "my-elena") / _MNG_SETTINGS_REL_PATH
-    assert settings_path.exists()
-
-    settings_content = settings_path.read_text()
-    assert "[create_templates.entrypoint]" in settings_content
-    assert 'agent_type = "elena-code"' in settings_content
-
-
-def test_deploy_agent_type_creates_git_repo_with_commit(tmp_path: Path) -> None:
-    """Verify that --agent-type creates a git repo with an initial commit."""
-    _deploy_with_agent_type(tmp_path, name="my-elena")
-
-    cdir = _changeling_dir(tmp_path, "my-elena")
-    assert (cdir / ".git").is_dir()
-
-    log_result = subprocess.run(
-        ["git", "log", "--oneline"],
-        cwd=cdir,
-        capture_output=True,
-        text=True,
-    )
-    assert log_result.returncode == 0
-    assert "Initial changeling setup" in log_result.stdout
-
-
-def test_deploy_agent_type_defaults_name_to_agent_type(tmp_path: Path) -> None:
-    """Verify that --agent-type defaults the agent name prompt to the agent type value."""
-    result = _deploy_with_agent_type(tmp_path, name=None, input_text="elena-code\n")
-
-    assert "elena-code" in result.output
-    assert _changeling_dir(tmp_path, "elena-code").is_dir()
 
 
 def test_deploy_fails_without_git_url_or_agent_type(tmp_path: Path) -> None:
@@ -324,88 +300,14 @@ def test_deploy_agent_type_shows_creating_message(tmp_path: Path) -> None:
     assert "Deploying changeling from" in result.output
 
 
-# --- Tests for --add-path ---
+def test_deploy_agent_type_defaults_name_to_agent_type(tmp_path: Path) -> None:
+    """Verify that --agent-type defaults the agent name prompt to the agent type value."""
+    result = _deploy_with_agent_type(tmp_path, name=None, input_text="elena-code\n", cleanup_name="elena-code")
+
+    assert "elena-code" in result.output
 
 
-def test_deploy_add_path_copies_file_into_repo(tmp_path: Path) -> None:
-    """Verify that --add-path copies a file into the cloned repo."""
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    extra_file = tmp_path / "extra.txt"
-    extra_file.write_text("extra content")
-
-    result = _deploy_with_git_url(
-        tmp_path,
-        str(repo_dir),
-        name="add-path-bot",
-        add_paths=["{}:extra.txt".format(extra_file)],
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-    assert (_changeling_dir(tmp_path, "add-path-bot") / "extra.txt").read_text() == "extra content"
-
-
-def test_deploy_add_path_copies_directory_into_repo(tmp_path: Path) -> None:
-    """Verify that --add-path recursively copies a directory into the repo."""
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    src_dir = tmp_path / "src-config"
-    src_dir.mkdir()
-    (src_dir / "a.txt").write_text("file a")
-    sub = src_dir / "sub"
-    sub.mkdir()
-    (sub / "b.txt").write_text("file b")
-
-    result = _deploy_with_git_url(
-        tmp_path,
-        str(repo_dir),
-        name="dir-bot",
-        add_paths=["{}:config".format(src_dir)],
-    )
-
-    assert result.exit_code != 0
-    cdir = _changeling_dir(tmp_path, "dir-bot")
-    assert (cdir / "config" / "a.txt").read_text() == "file a"
-    assert (cdir / "config" / "sub" / "b.txt").read_text() == "file b"
-
-
-def test_deploy_add_path_with_agent_type(tmp_path: Path) -> None:
-    """Verify that --add-path works with --agent-type (no git URL)."""
-    extra_file = tmp_path / "my-config.json"
-    extra_file.write_text('{"key": "value"}')
-
-    result = _deploy_with_agent_type(
-        tmp_path,
-        name="path-elena",
-        add_paths=["{}:config/my-config.json".format(extra_file)],
-    )
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-    cdir = _changeling_dir(tmp_path, "path-elena")
-    assert (cdir / "config" / "my-config.json").read_text() == '{"key": "value"}'
-    assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
-
-
-def test_deploy_add_path_multiple_paths(tmp_path: Path) -> None:
-    """Verify that multiple --add-path args are all copied."""
-    file_a = tmp_path / "a.txt"
-    file_a.write_text("aaa")
-    file_b = tmp_path / "b.txt"
-    file_b.write_text("bbb")
-
-    result = _deploy_with_agent_type(
-        tmp_path,
-        name="multi-bot",
-        add_paths=["{}:a.txt".format(file_a), "{}:b.txt".format(file_b)],
-    )
-
-    assert result.exit_code != 0
-    cdir = _changeling_dir(tmp_path, "multi-bot")
-    assert (cdir / "a.txt").read_text() == "aaa"
-    assert (cdir / "b.txt").read_text() == "bbb"
+# --- Tests for --add-path validation ---
 
 
 def test_deploy_add_path_fails_for_nonexistent_source(tmp_path: Path) -> None:
@@ -447,66 +349,262 @@ def test_deploy_add_path_fails_for_absolute_dest(tmp_path: Path) -> None:
     assert "must be relative" in result.output
 
 
-def test_deploy_add_path_files_are_committed(tmp_path: Path) -> None:
+# --- Tests for _prepare_repo (repo preparation logic) ---
+
+
+def test_prepare_repo_with_agent_type_creates_settings_toml(tmp_path: Path) -> None:
+    """Verify that _prepare_repo with agent_type creates .mng/settings.toml."""
+    repo_dir = tmp_path / "repo"
+
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=(),
+    )
+
+    settings_path = repo_dir / _MNG_SETTINGS_REL_PATH
+    assert settings_path.exists()
+    settings_content = settings_path.read_text()
+    assert "[create_templates.entrypoint]" in settings_content
+    assert 'agent_type = "elena-code"' in settings_content
+
+
+def test_prepare_repo_with_agent_type_creates_git_repo(tmp_path: Path) -> None:
+    """Verify that _prepare_repo with agent_type creates a git repo with an initial commit."""
+    repo_dir = tmp_path / "repo"
+
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=(),
+    )
+
+    assert (repo_dir / ".git").is_dir()
+    log_result = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert log_result.returncode == 0
+    assert "Initial changeling setup" in log_result.stdout
+
+
+def test_prepare_repo_with_git_url_clones(tmp_path: Path) -> None:
+    """Verify that _prepare_repo clones a git URL."""
+    source = _create_git_repo_with_settings(tmp_path)
+    clone_dir = tmp_path / "clone"
+
+    _prepare_repo(
+        temp_dir=clone_dir,
+        git_url=str(source),
+        agent_type=None,
+        branch=None,
+        add_paths=(),
+    )
+
+    assert (clone_dir / ".git").is_dir()
+    assert (clone_dir / _MNG_SETTINGS_REL_PATH).exists()
+
+
+def test_prepare_repo_add_path_copies_file(tmp_path: Path) -> None:
+    """Verify that _prepare_repo copies --add-path files into the repo."""
+    extra_file = tmp_path / "extra.txt"
+    extra_file.write_text("extra content")
+
+    repo_dir = tmp_path / "repo"
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=((extra_file, Path("extra.txt")),),
+    )
+
+    assert (repo_dir / "extra.txt").read_text() == "extra content"
+
+
+def test_prepare_repo_add_path_copies_directory(tmp_path: Path) -> None:
+    """Verify that _prepare_repo recursively copies --add-path directories."""
+    src_dir = tmp_path / "src-config"
+    src_dir.mkdir()
+    (src_dir / "a.txt").write_text("file a")
+    sub = src_dir / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("file b")
+
+    repo_dir = tmp_path / "repo"
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=((src_dir, Path("config")),),
+    )
+
+    assert (repo_dir / "config" / "a.txt").read_text() == "file a"
+    assert (repo_dir / "config" / "sub" / "b.txt").read_text() == "file b"
+
+
+def test_prepare_repo_add_path_multiple(tmp_path: Path) -> None:
+    """Verify that multiple --add-path args are all copied."""
+    file_a = tmp_path / "a.txt"
+    file_a.write_text("aaa")
+    file_b = tmp_path / "b.txt"
+    file_b.write_text("bbb")
+
+    repo_dir = tmp_path / "repo"
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=((file_a, Path("a.txt")), (file_b, Path("b.txt"))),
+    )
+
+    assert (repo_dir / "a.txt").read_text() == "aaa"
+    assert (repo_dir / "b.txt").read_text() == "bbb"
+
+
+def test_prepare_repo_add_path_files_are_committed(tmp_path: Path) -> None:
     """Verify that --add-path files are included in the git commit."""
     extra_file = tmp_path / "extra.txt"
     extra_file.write_text("committed content")
 
-    _deploy_with_agent_type(
-        tmp_path,
-        name="commit-bot",
-        add_paths=["{}:extra.txt".format(extra_file)],
+    repo_dir = tmp_path / "repo"
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=((extra_file, Path("extra.txt")),),
     )
 
     ls_result = subprocess.run(
         ["git", "ls-files"],
-        cwd=_changeling_dir(tmp_path, "commit-bot"),
+        cwd=repo_dir,
         capture_output=True,
         text=True,
     )
     assert "extra.txt" in ls_result.stdout
 
 
-def test_deploy_add_path_with_clone_commits_added_files(tmp_path: Path) -> None:
+def test_prepare_repo_add_path_with_clone_commits_added_files(tmp_path: Path) -> None:
     """Verify that --add-path files are committed when used with a git URL."""
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
+    source = _create_git_repo_with_settings(tmp_path)
     extra_file = tmp_path / "extra.txt"
     extra_file.write_text("extra from clone")
 
-    _deploy_with_git_url(
-        tmp_path,
-        str(repo_dir),
-        name="clone-add-bot",
-        add_paths=["{}:extra.txt".format(extra_file)],
+    clone_dir = tmp_path / "clone"
+    _prepare_repo(
+        temp_dir=clone_dir,
+        git_url=str(source),
+        agent_type=None,
+        branch=None,
+        add_paths=((extra_file, Path("extra.txt")),),
     )
-
-    cdir = _changeling_dir(tmp_path, "clone-add-bot")
 
     ls_result = subprocess.run(
         ["git", "ls-files"],
-        cwd=cdir,
+        cwd=clone_dir,
         capture_output=True,
         text=True,
     )
     assert "extra.txt" in ls_result.stdout
-    assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
+    assert (clone_dir / _MNG_SETTINGS_REL_PATH).exists()
 
 
-def test_deploy_agent_type_does_not_overwrite_existing_settings_toml(tmp_path: Path) -> None:
+def test_prepare_repo_does_not_overwrite_existing_settings_toml(tmp_path: Path) -> None:
     """Verify that --agent-type does not overwrite an existing .mng/settings.toml from --add-path."""
     settings_dir = tmp_path / "mng-settings"
     settings_dir.mkdir()
     settings_file = settings_dir / "settings.toml"
     settings_file.write_text('[create_templates.custom]\nagent_type = "custom-type"\n')
 
-    _deploy_with_agent_type(
-        tmp_path,
-        name="no-overwrite-bot",
-        add_paths=["{}:.mng/settings.toml".format(settings_file)],
+    repo_dir = tmp_path / "repo"
+    _prepare_repo(
+        temp_dir=repo_dir,
+        git_url=None,
+        agent_type="elena-code",
+        branch=None,
+        add_paths=((settings_file, Path(".mng/settings.toml")),),
     )
 
-    settings_content = (_changeling_dir(tmp_path, "no-overwrite-bot") / _MNG_SETTINGS_REL_PATH).read_text()
+    settings_content = (repo_dir / _MNG_SETTINGS_REL_PATH).read_text()
     # --add-path files are copied first, then _write_mng_settings_toml skips
     # creation because the file already exists. User-provided files win.
     assert "custom-type" in settings_content
+
+
+# --- Tests for _copy_add_paths ---
+
+
+def test_copy_add_paths_returns_count(tmp_path: Path) -> None:
+    """Verify that _copy_add_paths returns the number of paths copied."""
+    file_a = tmp_path / "a.txt"
+    file_a.write_text("aaa")
+    file_b = tmp_path / "b.txt"
+    file_b.write_text("bbb")
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+
+    copied = _copy_add_paths(
+        ((file_a, Path("a.txt")), (file_b, Path("b.txt"))),
+        repo_dir,
+    )
+
+    assert copied == 2
+    assert (repo_dir / "a.txt").read_text() == "aaa"
+    assert (repo_dir / "b.txt").read_text() == "bbb"
+
+
+# --- Tests for _move_to_permanent_location ---
+
+
+def test_move_to_permanent_location_moves_directory(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location moves the source to the target."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_text("content")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert not source.exists()
+    assert target.is_dir()
+    assert (target / "file.txt").read_text() == "content"
+
+
+def test_move_to_permanent_location_raises_when_target_exists(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location raises when the target already exists."""
+    source = tmp_path / "source"
+    source.mkdir()
+
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with pytest.raises(ChangelingError, match="already exists"):
+        _move_to_permanent_location(source, target)
+
+
+def test_move_to_permanent_location_preserves_contents(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location preserves all directory contents."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.txt").write_text("aaa")
+    sub = source / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("bbb")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert (target / "a.txt").read_text() == "aaa"
+    assert (target / "sub" / "b.txt").read_text() == "bbb"

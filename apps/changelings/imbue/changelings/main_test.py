@@ -10,6 +10,8 @@ def test_cli_shows_help() -> None:
     assert result.exit_code == 0
     assert "deploy" in result.output
     assert "forward" in result.output
+    assert "list" in result.output
+    assert "update" in result.output
 
 
 def test_cli_deploy_help() -> None:
