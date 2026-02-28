@@ -7,6 +7,7 @@ IF YOU FAIL TO FOLLOW ONE, YOU MUST EXPLICITLY CALL THAT OUT IN YOUR RESPONSE.
 - This is a monorepo.
 - ALWAYS run commands by calling "uv run" from the root of the git checkout (ex: "uv run mng create ..."). Do NOT call "mng" directly (it will refer to the wrong version).
 - NEVER amend commits or rebase--always create new commits.
+- If you ever need to work with another *git* repo that is *outside* of this monorepo, you should do so by creating a worktree for that repo and putting it within a ".external_worktrees/" directory *within* this root folder (ie, at the same level as the ".git/" folder).  Use the same branch name in the worktree as the branch you are working on in this repo, and be sure to commit inside there as well.
 
 # How to get started on any task:
 
