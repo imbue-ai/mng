@@ -405,10 +405,10 @@ async def _handle_proxy_http(
     # Determine if this backend needs SSH tunneling (run in executor to avoid blocking event loop
     # during SSH handshake which can take several seconds)
     try:
-        tunnel_client = await asyncio.get_event_loop().run_in_executor(
+        tunnel_client = await asyncio.get_running_loop().run_in_executor(
             None, _get_tunnel_http_client, request.app, parsed_id, backend_url, backend_resolver
         )
-    except (SSHTunnelError, paramiko.SSHException) as e:
+    except (SSHTunnelError, paramiko.SSHException, OSError) as e:
         logger.debug("SSH tunnel setup failed for {} server {}: {}", agent_id, server_name, e)
         return Response(status_code=502, content=f"SSH tunnel to remote backend failed: {e}")
 
@@ -469,10 +469,10 @@ async def _handle_proxy_websocket(
 
     # Check if this backend needs SSH tunneling (run in executor to avoid blocking event loop)
     try:
-        tunnel_socket_path = await asyncio.get_event_loop().run_in_executor(
+        tunnel_socket_path = await asyncio.get_running_loop().run_in_executor(
             None, _get_tunnel_socket_path, tunnel_manager, parsed_id, backend_url, backend_resolver
         )
-    except (SSHTunnelError, paramiko.SSHException) as e:
+    except (SSHTunnelError, paramiko.SSHException, OSError) as e:
         logger.debug("SSH tunnel setup failed for WS {}/{}: {}", agent_id, server_name, e)
         try:
             await websocket.close(code=1011, reason="SSH tunnel to remote backend failed")
