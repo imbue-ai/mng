@@ -26,6 +26,7 @@ from imbue.mng_elena_code.plugin import ELENA_SYSTEM_PROMPT
 from imbue.mng_elena_code.plugin import ElenaCodeAgent
 from imbue.mng_elena_code.plugin import _merge_system_prompt_into_args
 from imbue.mng_elena_code.plugin import override_command_options
+from imbue.mng_elena_code.plugin import register_agent_type
 
 
 class _DummyCommandClass:
@@ -56,6 +57,16 @@ def _make_elena_agent(tmp_path: Path) -> tuple[ElenaCodeAgent, OnlineHostInterfa
         host=host,
     )
     return agent, host
+
+
+def test_elena_code_registers_with_claude_zygote_config() -> None:
+    """Verify that register_agent_type returns ClaudeZygoteConfig (not ClaudeAgentConfig).
+
+    This ensures elena-code inherits trust_working_directory=True so the
+    Claude trust dialog does not appear when deploying with --in-place.
+    """
+    _agent_type_name, _agent_class, config_class = register_agent_type()
+    assert config_class is ClaudeZygoteConfig
 
 
 def test_elena_code_agent_inherits_from_claude_zygote_agent() -> None:

@@ -166,6 +166,8 @@ async def _forward_backend_to_client(
                 await client_websocket.send_bytes(msg)
     except websockets.exceptions.ConnectionClosed:
         logger.debug("Backend WebSocket closed for {}", agent_id)
+    except RuntimeError as e:
+        logger.trace("Client WebSocket send error (likely post-disconnect): {}", e)
 
 
 # -- Lifespan --
