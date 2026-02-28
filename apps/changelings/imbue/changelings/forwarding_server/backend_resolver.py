@@ -11,6 +11,7 @@ from pydantic import PrivateAttr
 
 from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.primitives import ServerName
+from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
@@ -109,7 +110,7 @@ class SubprocessMngCli(MngCliInterface):
                     timeout=_SUBPROCESS_TIMEOUT_SECONDS,
                     is_checked_after=False,
                 )
-        except (FileNotFoundError, OSError) as e:
+        except ConcurrencyExceptionGroup as e:
             logger.warning("Failed to run mng logs for {}: {}", agent_id, e)
             return None
 
@@ -128,7 +129,7 @@ class SubprocessMngCli(MngCliInterface):
                     timeout=_SUBPROCESS_TIMEOUT_SECONDS,
                     is_checked_after=False,
                 )
-        except (FileNotFoundError, OSError) as e:
+        except ConcurrencyExceptionGroup as e:
             logger.warning("Failed to run mng list: {}", e)
             return None
 
