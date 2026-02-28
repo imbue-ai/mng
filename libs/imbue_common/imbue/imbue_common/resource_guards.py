@@ -1,16 +1,14 @@
 """Resource guard system for enforcing pytest marks on external tool usage.
 
-Provides PATH wrapper scripts that intercept calls to guarded binaries (tmux,
-rsync, unison) during tests. During the test call phase, wrappers:
+Provides PATH wrapper scripts that intercept calls to guarded binaries
+during tests. During the test call phase, wrappers:
 - Block invocation if the test lacks the corresponding mark (catches missing marks)
 - Track invocation if the test has the mark (catches superfluous marks)
 
-Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
-
 Usage:
-    Call create_resource_guard_wrappers() during pytest_sessionstart and
-    cleanup_resource_guard_wrappers() during pytest_sessionfinish. Register the
-    three runtest hooks (pytest_runtest_setup, pytest_runtest_teardown,
+    Call create_resource_guard_wrappers(resources) during pytest_sessionstart
+    and cleanup_resource_guard_wrappers() during pytest_sessionfinish. Register
+    the three runtest hooks (pytest_runtest_setup, pytest_runtest_teardown,
     pytest_runtest_makereport) into the conftest namespace.
 """
 
@@ -20,18 +18,13 @@ import stat
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
-from typing import Final
 from unittest.mock import patch
 
 import pytest
 
-# Resources guarded by PATH wrapper scripts. Each resource name corresponds to
-# both a binary on PATH and a pytest mark name (e.g., @pytest.mark.tmux).
-GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
-
 
 class MissingGuardedResourceError(Exception):
-    """A guarded resource binary (tmux, rsync, unison) is not installed."""
+    """A guarded resource binary is not installed."""
 
 
 # Module-level state for resource guard wrappers. The wrapper directory is created
@@ -41,9 +34,12 @@ class MissingGuardedResourceError(Exception):
 # process via the _PYTEST_GUARD_WRAPPER_DIR env var.
 # _session_env_patcher is the patch.dict that manages PATH and _PYTEST_GUARD_WRAPPER_DIR;
 # stopping it automatically restores PATH to its original value.
+# _guarded_resources is the list of resource names passed to create_resource_guard_wrappers;
+# the hooks read from it so callers control which resources are guarded.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
+_guarded_resources: list[str] = []
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -75,7 +71,7 @@ exec "{real_path}" "$@"
 """
 
 
-def create_resource_guard_wrappers() -> None:
+def create_resource_guard_wrappers(resources: list[str]) -> None:
     """Create wrapper scripts for guarded resources and prepend to PATH.
 
     Each wrapper intercepts calls to the corresponding binary and enforces
@@ -88,7 +84,9 @@ def create_resource_guard_wrappers() -> None:
     Uses patch.dict to manage PATH and _PYTEST_GUARD_WRAPPER_DIR so that
     cleanup_resource_guard_wrappers can restore everything by calling .stop().
     """
-    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher, _guarded_resources
+
+    _guarded_resources = list(resources)
 
     # If wrappers already exist (e.g., inherited from xdist controller), reuse them.
     existing_dir = os.environ.get("_PYTEST_GUARD_WRAPPER_DIR")
@@ -100,12 +98,12 @@ def create_resource_guard_wrappers() -> None:
     _guard_wrapper_dir = tempfile.mkdtemp(prefix="pytest_resource_guards_")
     _owns_guard_wrapper_dir = True
 
-    for resource in GUARDED_RESOURCES:
+    for resource in _guarded_resources:
         real_path = shutil.which(resource)
         if real_path is None:
             raise MissingGuardedResourceError(
                 f"Guarded resource '{resource}' not found on PATH. "
-                f"Install {resource} or remove it from GUARDED_RESOURCES."
+                f"Install {resource} or remove it from the guarded resources list."
             )
 
         wrapper_path = Path(_guard_wrapper_dir) / resource
@@ -161,7 +159,7 @@ def _build_per_test_guard_env(marks: set[str], tracking_dir: str) -> dict[str, s
         "_PYTEST_GUARD_PHASE": "call",
         "_PYTEST_GUARD_TRACKING_DIR": tracking_dir,
     }
-    for resource in GUARDED_RESOURCES:
+    for resource in _guarded_resources:
         env[f"_PYTEST_GUARD_{resource.upper()}"] = "allow" if resource in marks else "block"
     return env
 
@@ -240,7 +238,7 @@ def _pytest_runtest_makereport(
 
     marks: set[str] = getattr(item, "_resource_marks", set())
 
-    for resource in GUARDED_RESOURCES:
+    for resource in _guarded_resources:
         if resource not in marks:
             continue
         tracking_file = Path(tracking_dir) / resource

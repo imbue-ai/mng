@@ -104,6 +104,11 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
     r"^\s*\.\.\.$",  # Matches lines containing only "..."
 ]
 
+# Resources guarded by PATH wrapper scripts. Each resource name corresponds to
+# both a binary on PATH and a pytest mark name (e.g., @pytest.mark.tmux).
+# Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
+_GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
+
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -252,7 +257,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
         # Use setattr to avoid type errors - pytest Session doesn't declare these attributes
         setattr(session, "start_time", time.time())  # noqa: B010
         # Workers reuse the controller's resource guard wrappers (via env var)
-        create_resource_guard_wrappers()
+        create_resource_guard_wrappers(_GUARDED_RESOURCES)
         return
 
     # Acquire the lock and store the handle on the session to keep it open
@@ -263,7 +268,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
     setattr(session, "start_time", time.time())  # noqa: B010
 
     # Create resource guard wrappers (after the lock, before tests run)
-    create_resource_guard_wrappers()
+    create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
 
 @pytest.hookimpl(trylast=True)
