@@ -204,18 +204,18 @@ def deploy_changeling(
 ) -> DeploymentResult:
     """Deploy a changeling by creating an mng agent.
 
-    The changeling_dir contains the changeling's repo (e.g. cloned from
-    git or created from --agent-type). The agent is created via `mng create`
-    using the entrypoint template from .mng/settings.toml to determine the
-    agent type.
+    The changeling_dir is a temporary directory containing the changeling's
+    repo (e.g. cloned from git or created from --agent-type). The agent is
+    created via `mng create` using the entrypoint template from
+    .mng/settings.toml to determine the agent type.
 
-    For local deployments, changeling_dir should already be the permanent
-    directory (e.g. ~/.changelings/<agent-id>/). The agent runs directly
-    in this directory via --in-place.
+    For local deployments, the agent is created with --in-place in this
+    temp dir. The caller is responsible for moving the temp dir to its
+    permanent location (~/.changelings/<agent-id>/) after this returns.
 
-    For remote deployments (Modal, Docker), changeling_dir is a temporary
-    directory. The code is copied to the remote host via --source-path,
-    and the caller is responsible for cleaning up the temp dir afterwards.
+    For remote deployments (Modal, Docker), the code is copied to the
+    remote host via --source-path. The caller is responsible for cleaning
+    up the temp dir afterwards.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
@@ -322,8 +322,8 @@ def _create_mng_agent(
     """Create an mng agent from the changeling's repo directory.
 
     For local deployment, runs `mng create --in-place -t entrypoint` with
-    cwd set to changeling_dir (which should already be the permanent
-    ~/.changelings/<agent-id>/ directory).
+    cwd set to changeling_dir (a temporary directory; the caller moves it
+    to the permanent location after deployment).
 
     For remote deployment, runs `mng create --in <provider> --source-path
     <changeling_dir> -t entrypoint`, which copies the code from the
