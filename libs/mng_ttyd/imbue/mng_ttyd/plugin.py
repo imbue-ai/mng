@@ -30,10 +30,11 @@ def build_ttyd_server_command(ttyd_invocation: str, server_name: str) -> str:
     )
 
 
+# FIXME: technically, this plugin ought to have some settings to configure whether the ttyd server is writable or not, and it should figure out what shell the user actually uses, rather than hardcoding it here (I think this is done somewhere else already, likely in our tmux config)
 # Bash wrapper that starts ttyd on a random port (-p 0), watches its stderr for
 # the assigned port number, and writes a servers.jsonl record so the changelings
 # forwarding server can discover it. The wrapper stays alive as long as ttyd does.
-TTYD_COMMAND = build_ttyd_server_command("ttyd -p 0 bash", TTYD_SERVER_NAME)
+TTYD_COMMAND = build_ttyd_server_command("ttyd -p 0 -W bash", TTYD_SERVER_NAME)
 
 
 @hookimpl
