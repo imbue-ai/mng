@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 
 import imbue.imbue_common.resource_guards as rg
+from imbue.imbue_common.resource_guards import ResourceGuardViolation
+from imbue.imbue_common.resource_guards import _enforce_sdk_guard
 from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import generate_wrapper_script
@@ -177,3 +179,185 @@ def test_create_and_cleanup_round_trip(isolated_guard_state: None) -> None:
     assert rg._guard_wrapper_dir is None
     assert not Path(wrapper_dir).exists()
     assert not os.environ["PATH"].startswith(wrapper_dir)
+
+
+# ---------------------------------------------------------------------------
+# SDK guard: _enforce_sdk_guard (unit tests)
+# ---------------------------------------------------------------------------
+
+
+def test_enforce_sdk_guard_blocks_when_unmarked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("_PYTEST_GUARD_PHASE", "call")
+    monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "block")
+    monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
+
+    with pytest.raises(ResourceGuardViolation, match="without @pytest.mark.mysdk"):
+        _enforce_sdk_guard("mysdk")
+
+    assert (tmp_path / "blocked_mysdk").exists()
+
+
+def test_enforce_sdk_guard_allows_when_marked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("_PYTEST_GUARD_PHASE", "call")
+    monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "allow")
+    monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
+
+    _enforce_sdk_guard("mysdk")
+
+    assert (tmp_path / "mysdk").exists()
+
+
+def test_enforce_sdk_guard_skips_outside_call_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("_PYTEST_GUARD_PHASE", "setup")
+    monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "block")
+    monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
+
+    _enforce_sdk_guard("mysdk")
+
+    assert not (tmp_path / "blocked_mysdk").exists()
+    assert not (tmp_path / "mysdk").exists()
+
+
+def test_enforce_sdk_guard_skips_when_no_phase_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("_PYTEST_GUARD_PHASE", raising=False)
+    monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "block")
+    monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
+
+    _enforce_sdk_guard("mysdk")
+
+    assert not (tmp_path / "blocked_mysdk").exists()
+
+
+# ---------------------------------------------------------------------------
+# SDK guard: end-to-end behavior (pytester)
+# ---------------------------------------------------------------------------
+
+# Conftest for SDK guard pytester tests. Uses create_resource_guard_wrappers([])
+# to initialize the guard infrastructure, then adds an SDK resource. Tests trigger
+# the guard by calling _enforce_sdk_guard directly (no real SDK needed).
+_PYTESTER_SDK_CONFTEST = """\
+import os
+import pytest
+from imbue.imbue_common.resource_guards import (
+    create_resource_guard_wrappers,
+    cleanup_resource_guard_wrappers,
+    create_sdk_resource_guards,
+    cleanup_sdk_resource_guards,
+    _pytest_runtest_setup,
+    _pytest_runtest_teardown,
+    _pytest_runtest_makereport,
+)
+
+# Clear inherited guard state so we create fresh wrappers.
+os.environ.pop("_PYTEST_GUARD_WRAPPER_DIR", None)
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "test_sdk: test uses test_sdk")
+
+def pytest_sessionstart(session):
+    create_resource_guard_wrappers([])
+    create_sdk_resource_guards(["test_sdk"])
+
+def pytest_sessionfinish(session, exitstatus):
+    cleanup_sdk_resource_guards()
+    cleanup_resource_guard_wrappers()
+
+pytest_runtest_setup = _pytest_runtest_setup
+pytest_runtest_teardown = _pytest_runtest_teardown
+pytest_runtest_makereport = _pytest_runtest_makereport
+"""
+
+
+def test_sdk_marked_test_that_triggers_guard_passes(pytester: pytest.Pytester) -> None:
+    """A test with the SDK mark that triggers the guard should pass."""
+    pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
+    pytester.makepyfile("""
+        import pytest
+        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+
+        @pytest.mark.test_sdk
+        def test_sdk_call():
+            _enforce_sdk_guard("test_sdk")
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)
+
+
+def test_sdk_unmarked_test_that_triggers_guard_fails(pytester: pytest.Pytester) -> None:
+    """A test without the SDK mark that triggers the guard should fail."""
+    pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
+    pytester.makepyfile("""
+        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+
+        def test_sdk_call():
+            _enforce_sdk_guard("test_sdk")
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*without @pytest.mark.test_sdk*"])
+
+
+def test_sdk_unmarked_test_that_catches_guard_error_still_fails(
+    pytester: pytest.Pytester,
+) -> None:
+    """A test that catches ResourceGuardViolation should still be caught by the guard.
+
+    The blocked tracking file ensures makereport fails the test even when the
+    exception is swallowed, mirroring the binary guard's exit-127 tracking.
+    """
+    pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
+    pytester.makepyfile("""
+        from imbue.imbue_common.resource_guards import ResourceGuardViolation
+        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+
+        def test_sdk_catches_error():
+            try:
+                _enforce_sdk_guard("test_sdk")
+            except ResourceGuardViolation:
+                pass
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*without @pytest.mark.test_sdk*"])
+
+
+def test_sdk_marked_test_that_never_triggers_guard_fails(
+    pytester: pytest.Pytester,
+) -> None:
+    """A test with the SDK mark that never triggers the guard fails (superfluous mark)."""
+    pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
+    pytester.makepyfile("""
+        import pytest
+
+        @pytest.mark.test_sdk
+        def test_never_calls_sdk():
+            assert 1 + 1 == 2
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*never invoked test_sdk*"])
+
+
+def test_sdk_unmarked_test_that_does_not_trigger_guard_passes(
+    pytester: pytest.Pytester,
+) -> None:
+    """A test with no SDK mark and no guard trigger should pass."""
+    pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
+    pytester.makepyfile("""
+        def test_no_sdk():
+            assert 1 + 1 == 2
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)

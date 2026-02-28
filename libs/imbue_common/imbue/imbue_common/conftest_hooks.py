@@ -45,7 +45,9 @@ from imbue.imbue_common.resource_guards import _pytest_runtest_makereport
 from imbue.imbue_common.resource_guards import _pytest_runtest_setup
 from imbue.imbue_common.resource_guards import _pytest_runtest_teardown
 from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
+from imbue.imbue_common.resource_guards import cleanup_sdk_resource_guards
 from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
+from imbue.imbue_common.resource_guards import create_sdk_resource_guards
 
 # Directory for test output files (slow tests, coverage summaries).
 # Relative to wherever pytest is invoked from.
@@ -106,8 +108,11 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
 
 # Resources guarded by PATH wrapper scripts. Each resource name corresponds to
 # both a binary on PATH and a pytest mark name (e.g., @pytest.mark.tmux).
-# Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
 _GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
+
+# Resources guarded by SDK monkeypatches. Each resource name corresponds to
+# a Python SDK and a pytest mark name (e.g., @pytest.mark.modal).
+_GUARDED_SDK_RESOURCES: Final[list[str]] = ["modal", "docker"]
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +271,9 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
     # Create resource guard wrappers (workers reuse the controller's via env var)
     create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
+    # Install SDK-level guards (each process patches independently, no shared state)
+    create_sdk_resource_guards(_GUARDED_SDK_RESOURCES)
+
 
 @pytest.hookimpl(trylast=True)
 def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -275,6 +283,7 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     is always visible in CI output, even when the suite exceeds the limit.
     """
     # Clean up resource guard wrappers
+    cleanup_sdk_resource_guards()
     cleanup_resource_guard_wrappers()
 
     # Print test durations before checking the time limit, so they are

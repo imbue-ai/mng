@@ -27,6 +27,10 @@ class MissingGuardedResourceError(Exception):
     """A guarded resource binary is not installed."""
 
 
+class ResourceGuardViolation(Exception):
+    """Raised when a test invokes an SDK resource without the required mark."""
+
+
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
 # _owns_guard_wrapper_dir tracks whether this process created the directory (and is
@@ -40,6 +44,10 @@ _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
 _guarded_resources: list[str] = []
+
+# Module-level state for SDK guards. Stores original methods so they can be
+# restored by cleanup_sdk_resource_guards().
+_sdk_guard_originals: dict[str, object] = {}
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -151,6 +159,140 @@ def cleanup_resource_guard_wrappers() -> None:
         _session_env_patcher = None
 
     _owns_guard_wrapper_dir = False
+
+
+# ---------------------------------------------------------------------------
+# SDK resource guards (monkeypatch-based, for Python SDK chokepoints)
+# ---------------------------------------------------------------------------
+
+
+def _enforce_sdk_guard(resource: str) -> None:
+    """Check SDK resource guard env vars and enforce/track usage.
+
+    Mirrors the bash wrapper logic for binary guards, but called from Python.
+    During the test call phase:
+    - If blocked: creates tracking file and raises ResourceGuardViolation
+    - If allowed: creates tracking file to confirm the resource was used
+    Outside the call phase (fixture setup/teardown), does nothing.
+    """
+    if os.environ.get("_PYTEST_GUARD_PHASE") != "call":
+        return
+
+    guard_status = os.environ.get(f"_PYTEST_GUARD_{resource.upper()}")
+    tracking_dir = os.environ.get("_PYTEST_GUARD_TRACKING_DIR")
+
+    if guard_status == "block":
+        if tracking_dir:
+            Path(tracking_dir).joinpath(f"blocked_{resource}").touch()
+        raise ResourceGuardViolation(
+            f"RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource} mark.\n"
+            f"Add @pytest.mark.{resource} to the test, or remove the {resource} usage."
+        )
+
+    if guard_status == "allow" and tracking_dir:
+        Path(tracking_dir).joinpath(resource).touch()
+
+
+def create_sdk_resource_guards(resources: list[str]) -> None:
+    """Register SDK resources as guarded and install monkeypatches.
+
+    Each SDK resource is added to _guarded_resources so the per-test hooks
+    set up env vars for it. For known SDKs (modal, docker), monkeypatches
+    are installed on the SDK's chokepoint methods to call _enforce_sdk_guard.
+    Silently skips SDKs whose packages are not importable.
+    """
+    _guarded_resources.extend(resources)
+    for resource in resources:
+        if resource == "modal":
+            _install_modal_guards()
+        elif resource == "docker":
+            _install_docker_guards()
+        else:
+            # Unknown SDK: tracked via _guarded_resources for env var setup,
+            # but no monkeypatch installed.
+            pass
+
+
+def _install_modal_guards() -> None:
+    """Monkeypatch Modal's gRPC wrapper classes to enforce resource guards.
+
+    Patches UnaryUnaryWrapper.__call__ and UnaryStreamWrapper.unary_stream,
+    which are the entry points for all Modal unary and streaming RPC calls.
+    """
+    try:
+        from modal._grpc_client import UnaryStreamWrapper
+        from modal._grpc_client import UnaryUnaryWrapper
+    except ImportError:
+        return
+
+    original_call = UnaryUnaryWrapper.__call__
+    original_stream = UnaryStreamWrapper.unary_stream
+    _sdk_guard_originals["modal_unary_call"] = original_call
+    _sdk_guard_originals["modal_unary_stream"] = original_stream
+
+    # async is required here because the original methods are async
+    async def guarded_unary_call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _enforce_sdk_guard("modal")
+        return await original_call(self, *args, **kwargs)
+
+    async def guarded_unary_stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _enforce_sdk_guard("modal")
+        async for response in original_stream(self, *args, **kwargs):
+            yield response
+
+    UnaryUnaryWrapper.__call__ = guarded_unary_call  # type: ignore[assignment]
+    UnaryStreamWrapper.unary_stream = guarded_unary_stream  # type: ignore[assignment]
+
+
+def _install_docker_guards() -> None:
+    """Monkeypatch Docker's APIClient.send to enforce resource guards.
+
+    APIClient inherits send from requests.Session. We shadow it on APIClient
+    so that all Docker HTTP requests are guarded without affecting other
+    requests.Session usage.
+    """
+    try:
+        import requests
+        from docker.api.client import APIClient
+    except ImportError:
+        return
+
+    inherited_send = requests.Session.send
+    _sdk_guard_originals["docker_send_existed"] = "send" in APIClient.__dict__
+    if "send" in APIClient.__dict__:
+        _sdk_guard_originals["docker_send_original"] = APIClient.__dict__["send"]
+
+    def guarded_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        _enforce_sdk_guard("docker")
+        return inherited_send(self, *args, **kwargs)
+
+    APIClient.send = guarded_send  # type: ignore[method-assign]
+
+
+def cleanup_sdk_resource_guards() -> None:
+    """Restore original SDK methods patched by create_sdk_resource_guards."""
+    if "modal_unary_call" in _sdk_guard_originals:
+        try:
+            from modal._grpc_client import UnaryStreamWrapper
+            from modal._grpc_client import UnaryUnaryWrapper
+        except ImportError:
+            pass
+        else:
+            UnaryUnaryWrapper.__call__ = _sdk_guard_originals["modal_unary_call"]  # type: ignore[assignment]
+            UnaryStreamWrapper.unary_stream = _sdk_guard_originals["modal_unary_stream"]  # type: ignore[assignment]
+
+    if "docker_send_existed" in _sdk_guard_originals:
+        try:
+            from docker.api.client import APIClient
+        except ImportError:
+            pass
+        else:
+            if _sdk_guard_originals["docker_send_existed"]:
+                APIClient.send = _sdk_guard_originals["docker_send_original"]  # type: ignore[method-assign]
+            elif "send" in APIClient.__dict__:
+                del APIClient.send  # type: ignore[misc]
+
+    _sdk_guard_originals.clear()
 
 
 # ---------------------------------------------------------------------------
