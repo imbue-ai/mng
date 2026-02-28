@@ -116,17 +116,9 @@ _guard_wrapper_dir: str | None = None
 
 
 def _resolve_real_binary(resource: str, original_path: str) -> str | None:
-    """Find the real binary for a resource by searching a PATH string.
-
-    Skips any directories that look like guard wrapper directories (from a
-    previous session that wasn't cleaned up, or from the controller process
-    in xdist setups).
-    """
+    """Find the real binary for a resource by searching a PATH string."""
     for directory in original_path.split(os.pathsep):
         if not directory:
-            continue
-        # Skip guard wrapper directories from any session
-        if "pytest_resource_guards_" in directory:
             continue
         candidate = Path(directory) / resource
         if candidate.is_file() and os.access(str(candidate), os.X_OK):
