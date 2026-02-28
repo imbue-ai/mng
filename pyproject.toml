@@ -65,6 +65,7 @@ addopts = [
   "--cov=imbue.mng_tutor",
   "--cov=imbue.mng_claude_zygote",
   "--cov=imbue.mng_elena_code",
+  "--cov=imbue.llm_live_chat",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
