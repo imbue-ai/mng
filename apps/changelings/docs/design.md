@@ -22,7 +22,20 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-Each changeling has its own code repo (its zygote), cloned from a git remote and stored at `~/.changelings/<agent-name>/`. The agent should make commits there if it's ever changing anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+Each changeling has its own code repo (its zygote) stored at `~/.changelings/<agent-name>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+
+## Entrypoint template
+
+Every changeling repo contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
+
+```toml
+[create_templates.entrypoint]
+agent_type = "elena-code"
+```
+
+When deploying, `mng create` is invoked with `-t entrypoint` to apply this template. This is the standard mechanism for controlling which agent type a changeling uses.
+
+## Data and servers
 
 Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
@@ -84,6 +97,8 @@ Since we can't control DNS or use subdomains, we multiplex changelings under URL
 # Command line interface
 
 - `changeling deploy <git-url>` (clones a git repo and deploys a changeling from it)
+- `changeling deploy --agent-type <type>` (creates a changeling from scratch for the given agent type)
+- `changeling deploy ... --add-path SRC:DEST` (copies extra files into the changeling repo, works with both modes)
 - `changeling forward` (starts the local forwarding server for accessing changelings)
 
 [future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)

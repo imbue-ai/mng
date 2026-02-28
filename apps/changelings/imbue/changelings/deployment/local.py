@@ -122,6 +122,9 @@ def init_empty_git_repo(repo_dir: Path) -> None:
 def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
     """Stage all files and commit in the given git repo.
 
+    Uses a default author/committer identity so that commits succeed even
+    in environments without a global git config (e.g. CI runners).
+
     Returns True if a commit was created, False if there was nothing to commit.
     Raises GitCommitError if the git operations fail unexpectedly.
     """
@@ -153,7 +156,16 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
         return False
 
     commit_result = subprocess.run(
-        ["git", "commit", "-m", message],
+        [
+            "git",
+            "-c",
+            "user.name=changeling",
+            "-c",
+            "user.email=changeling@localhost",
+            "commit",
+            "-m",
+            message,
+        ],
         cwd=repo_dir,
         capture_output=True,
         text=True,
@@ -181,13 +193,17 @@ def deploy_local(
 ) -> DeploymentResult:
     """Deploy a changeling locally by creating an mng agent.
 
-    The zygote_dir should be a directory within a git clone (created via
-    clone_git_repo). The agent is created by running mng create from this
-    directory, so mng uses the clone as the agent's working directory.
+    The zygote_dir is the changeling's own repo directory (e.g.
+    ~/.changelings/<name>/). The agent is created via `mng create --in-place`
+    so it runs directly in this directory.
+
+    Changelings with an agent_type use the "entrypoint" create template
+    (from .mng/settings.toml) to determine the agent type. Custom-command
+    changelings pass their command and port directly.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
-    2. Creates an mng agent via `mng create` from the cloned zygote directory
+    2. Creates an mng agent via `mng create --in-place -t entrypoint`
     3. Looks up the mng agent ID via `mng list`
     4. Generates a one-time auth code for the forwarding server
     5. Returns the deployment result with the login URL
@@ -293,15 +309,17 @@ def _create_mng_agent(
     zygote_config: ZygoteConfig,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
-    """Create an mng agent from a cloned git repository.
+    """Create an mng agent from the changeling's own repo directory.
 
-    Runs mng create from the zygote directory (which should be within a git clone).
-    Since the directory is already a standalone clone, there is no risk of mng
-    detecting a parent git repository or modifying the user's worktree.
+    Runs mng create --in-place from the zygote directory so the agent runs
+    directly in the changeling's repo (e.g. ~/.changelings/<name>/).
 
-    When the zygote config specifies an agent_type, creates the agent using that
-    type (via --agent-type). Otherwise, uses the command and port from the config
-    (via --agent-cmd and --env PORT=).
+    Changelings are expected to have a .mng/settings.toml file with an
+    "entrypoint" create template that specifies the agent type. This template
+    is applied via -t entrypoint.
+
+    For custom-command changelings (no agent_type), the command and port from
+    the changeling.toml config are passed directly via --agent-cmd and --env.
     """
     with log_span("Creating mng agent '{}'", agent_name):
         mng_command = [
@@ -310,10 +328,11 @@ def _create_mng_agent(
             "--name",
             agent_name,
             "--no-connect",
+            "--in-place",
         ]
 
         if zygote_config.agent_type is not None:
-            mng_command.extend(["--agent-type", str(zygote_config.agent_type)])
+            mng_command.extend(["-t", "entrypoint"])
         else:
             mng_command.extend(["--agent-cmd", str(zygote_config.command)])
             mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
