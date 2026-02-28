@@ -1,9 +1,6 @@
 import json
 from pathlib import Path
 
-from imbue.mng.cli.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.cli.completion_writer import read_provider_names_for_identifiers
-from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentReference
@@ -11,6 +8,9 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.agent_cache import AGENT_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.utils.agent_cache import read_provider_names_for_identifiers
+from imbue.mng.utils.agent_cache import write_agent_names_cache
 
 # =============================================================================
 # Helpers

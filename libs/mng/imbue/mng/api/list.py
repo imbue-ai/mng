@@ -22,8 +22,6 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
-from imbue.mng.cli.completion_writer import get_completion_cache_dir
-from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostAuthenticationError
@@ -49,6 +47,8 @@ from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
+from imbue.mng.utils.agent_cache import get_completion_cache_dir
+from imbue.mng.utils.agent_cache import write_agent_names_cache
 from imbue.mng.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mng.utils.cel_utils import compile_cel_filters
 
@@ -204,23 +204,6 @@ def list_agents(
         result.errors.append(error_info)
         if on_error:
             on_error(error_info)
-
-    # Build agents_by_host from results for the cache writer
-    cache_agents_by_host: dict[HostReference, list[AgentReference]] = {}
-    for agent in result.agents:
-        host_ref = HostReference(
-            host_id=agent.host.id,
-            host_name=HostName(agent.host.name),
-            provider_name=agent.host.provider_name,
-        )
-        agent_ref = AgentReference(
-            host_id=agent.host.id,
-            agent_id=agent.id,
-            agent_name=agent.name,
-            provider_name=agent.host.provider_name,
-        )
-        cache_agents_by_host.setdefault(host_ref, []).append(agent_ref)
-    write_agent_names_cache(get_completion_cache_dir(), cache_agents_by_host)
 
     return result
 
