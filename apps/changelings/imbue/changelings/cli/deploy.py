@@ -10,9 +10,6 @@ from loguru import logger
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
 from imbue.changelings.config.data_types import get_default_data_dir
-from imbue.changelings.core.zygote import ZYGOTE_CONFIG_FILENAME
-from imbue.changelings.core.zygote import ZygoteConfig
-from imbue.changelings.core.zygote import load_zygote_config
 from imbue.changelings.deployment.local import DeploymentResult
 from imbue.changelings.deployment.local import clone_git_repo
 from imbue.changelings.deployment.local import commit_files_in_repo
@@ -96,8 +93,7 @@ def _prompt_self_deploy() -> SelfDeployChoice:
 
 
 def _run_deployment(
-    zygote_dir: Path,
-    zygote_config: ZygoteConfig,
+    changeling_dir: Path,
     agent_name: str,
     provider: DeploymentProvider,
     paths: ChangelingPaths,
@@ -119,8 +115,7 @@ def _run_deployment(
     with cg:
         try:
             result = deploy_local(
-                zygote_dir=zygote_dir,
-                zygote_config=zygote_config,
+                changeling_dir=changeling_dir,
                 agent_name=agent_name,
                 paths=paths,
                 forwarding_server_port=forwarding_port,
@@ -144,8 +139,6 @@ def _print_result(result: DeploymentResult) -> None:
     logger.info("")
     logger.info("  Agent name: {}", result.agent_name)
     logger.info("  Agent ID:   {}", result.agent_id)
-    if result.backend_url is not None:
-        logger.info("  Backend:    {}", result.backend_url)
     logger.info("")
     logger.info("  Login URL (one-time use):")
     logger.info("  {}", result.login_url)
@@ -211,20 +204,6 @@ def _copy_add_paths(add_paths: tuple[tuple[Path, Path], ...], repo_dir: Path) ->
     return copied
 
 
-def _write_changeling_toml(repo_dir: Path, agent_type: str) -> None:
-    """Write a changeling.toml file with the given agent type.
-
-    Only writes the file if it does not already exist.
-    """
-    config_path = repo_dir / ZYGOTE_CONFIG_FILENAME
-    if config_path.exists():
-        logger.debug("Changeling config already exists at {}, skipping creation", config_path)
-        return
-
-    config_path.write_text('[changeling]\nname = "{}"\nagent_type = "{}"\n'.format(agent_type, agent_type))
-    logger.debug("Created {}", config_path)
-
-
 def _write_mng_settings_toml(repo_dir: Path, agent_type: str) -> None:
     """Write .mng/settings.toml with a create template for the agent type.
 
@@ -245,7 +224,7 @@ def _write_mng_settings_toml(repo_dir: Path, agent_type: str) -> None:
 @click.option(
     "--agent-type",
     default=None,
-    help="Agent type to deploy (e.g. 'elena-code'). Alternative to providing a git URL.",
+    help="Agent type to deploy (e.g. 'elena-code'). Required when not cloning a repo that already has .mng/settings.toml.",
 )
 @click.option(
     "--add-path",
@@ -296,15 +275,19 @@ def deploy(
 
     Either GIT_URL or --agent-type must be provided.
 
-    Example:
+    The changeling's agent type is defined by the entrypoint template in
+    .mng/settings.toml. When --agent-type is provided, this file is generated
+    automatically.
 
-        changeling deploy ./my-agent-repo
+    Example:
 
         changeling deploy --agent-type elena-code
 
         changeling deploy --agent-type elena-code --add-path ./config:config --name my-agent
 
-        changeling deploy git@github.com:user/my-agent.git --add-path ./extra:extra
+        changeling deploy ./my-agent-repo --agent-type elena-code
+
+        changeling deploy ./my-agent-repo
     """
     if git_url is None and agent_type is None:
         raise click.UsageError("Either GIT_URL or --agent-type must be provided.")
@@ -332,23 +315,20 @@ def deploy(
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise click.ClickException(str(e)) from e
 
-    try:
-        zygote_config = load_zygote_config(temp_dir)
-    except ChangelingError as e:
+    # Validate that the repo has an entrypoint template
+    settings_path = temp_dir / _MNG_SETTINGS_REL_PATH
+    if not settings_path.exists():
         shutil.rmtree(temp_dir, ignore_errors=True)
-        raise click.ClickException(str(e)) from e
+        raise click.ClickException(
+            "No .mng/settings.toml found. Either provide --agent-type to generate one, "
+            "or clone a repository that already contains one."
+        )
 
     logger.info("Deploying changeling from: {}", temp_dir)
-    if zygote_config.description:
-        logger.info("  {}", zygote_config.description)
 
     # Determine agent name: --name flag, then agent_type default, then prompt
-    if name is not None:
-        agent_name = name
-    elif agent_type is not None and git_url is None:
-        agent_name = _prompt_agent_name(default_name=agent_type)
-    else:
-        agent_name = _prompt_agent_name(default_name=str(zygote_config.name))
+    default_name = agent_type if agent_type is not None else "changeling"
+    agent_name = name if name is not None else _prompt_agent_name(default_name=default_name)
 
     if provider is not None:
         provider_choice = DeploymentProvider(provider.upper())
@@ -378,12 +358,9 @@ def deploy(
     except OSError:
         shutil.move(str(temp_dir), str(changeling_dir))
 
-    zygote_dir = changeling_dir
-
     try:
         result = _run_deployment(
-            zygote_dir=zygote_dir,
-            zygote_config=zygote_config,
+            changeling_dir=changeling_dir,
             agent_name=agent_name,
             provider=provider_choice,
             paths=paths,
@@ -404,10 +381,9 @@ def _prepare_repo(
     """Prepare the temporary repo directory by cloning or initializing.
 
     When git_url is provided, clones the repository. Otherwise, creates an
-    empty git repo and generates changeling.toml and .mng/settings.toml.
-
-    In both cases, copies any --add-path files into the repo and commits
-    if new files were added.
+    empty git repo. In both cases, copies any --add-path files and generates
+    .mng/settings.toml if --agent-type is provided and the file doesn't
+    already exist.
     """
     if git_url is not None:
         url = GitUrl(git_url)
@@ -433,10 +409,9 @@ def _prepare_repo(
     # files take precedence over auto-generated configs
     files_added = _copy_add_paths(add_paths, temp_dir)
 
-    # Generate config files (only if they don't already exist, so --add-path
-    # versions are preserved)
+    # Generate .mng/settings.toml (only if it doesn't already exist,
+    # so --add-path or cloned versions are preserved)
     if agent_type is not None:
-        _write_changeling_toml(temp_dir, agent_type)
         _write_mng_settings_toml(temp_dir, agent_type)
 
     # Commit any new files that were added to the repo

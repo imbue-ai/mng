@@ -9,7 +9,6 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.changelings.config.data_types import ChangelingPaths
-from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
@@ -34,9 +33,6 @@ class DeploymentResult(FrozenModel):
 
     agent_name: str = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
-    backend_url: str | None = Field(
-        description="The backend URL where the changeling serves, or None for agent-type-managed servers"
-    )
     login_url: str = Field(description="One-time login URL for accessing the changeling")
 
 
@@ -184,8 +180,7 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
 
 
 def deploy_local(
-    zygote_dir: Path,
-    zygote_config: ZygoteConfig,
+    changeling_dir: Path,
     agent_name: str,
     paths: ChangelingPaths,
     forwarding_server_port: int,
@@ -193,13 +188,11 @@ def deploy_local(
 ) -> DeploymentResult:
     """Deploy a changeling locally by creating an mng agent.
 
-    The zygote_dir is the changeling's own repo directory (e.g.
-    ~/.changelings/<name>/). The agent is created via `mng create --in-place`
-    so it runs directly in this directory.
-
-    Changelings with an agent_type use the "entrypoint" create template
-    (from .mng/settings.toml) to determine the agent type. Custom-command
-    changelings pass their command and port directly.
+    The changeling_dir is the changeling's own repo directory (e.g.
+    ~/.changelings/<name>/). The agent is created via
+    `mng create --in-place -t entrypoint` so it runs directly in this
+    directory, using the entrypoint template from .mng/settings.toml
+    to determine the agent type.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
@@ -220,15 +213,9 @@ def deploy_local(
             concurrency_group=concurrency_group,
         )
 
-        if zygote_config.agent_type is not None:
-            backend_url = None
-        else:
-            backend_url = "http://127.0.0.1:{}".format(zygote_config.port)
-
         _create_mng_agent(
-            zygote_dir=zygote_dir,
+            changeling_dir=changeling_dir,
             agent_name=agent_name,
-            zygote_config=zygote_config,
             concurrency_group=concurrency_group,
         )
 
@@ -246,7 +233,6 @@ def deploy_local(
         return DeploymentResult(
             agent_name=agent_name,
             agent_id=agent_id,
-            backend_url=backend_url,
             login_url=login_url,
         )
 
@@ -304,22 +290,14 @@ def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
 
 
 def _create_mng_agent(
-    zygote_dir: Path,
+    changeling_dir: Path,
     agent_name: str,
-    zygote_config: ZygoteConfig,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Create an mng agent from the changeling's own repo directory.
 
-    Runs mng create --in-place from the zygote directory so the agent runs
-    directly in the changeling's repo (e.g. ~/.changelings/<name>/).
-
-    Changelings are expected to have a .mng/settings.toml file with an
-    "entrypoint" create template that specifies the agent type. This template
-    is applied via -t entrypoint.
-
-    For custom-command changelings (no agent_type), the command and port from
-    the changeling.toml config are passed directly via --agent-cmd and --env.
+    Runs `mng create --in-place -t entrypoint` from the changeling directory.
+    The entrypoint template in .mng/settings.toml specifies the agent type.
     """
     with log_span("Creating mng agent '{}'", agent_name):
         mng_command = [
@@ -329,19 +307,15 @@ def _create_mng_agent(
             agent_name,
             "--no-connect",
             "--in-place",
+            "-t",
+            "entrypoint",
         ]
-
-        if zygote_config.agent_type is not None:
-            mng_command.extend(["-t", "entrypoint"])
-        else:
-            mng_command.extend(["--agent-cmd", str(zygote_config.command)])
-            mng_command.extend(["--env", "PORT={}".format(zygote_config.port)])
 
         logger.debug("Running: {}", " ".join(mng_command))
 
         result = concurrency_group.run_process_to_completion(
             command=mng_command,
-            cwd=zygote_dir,
+            cwd=changeling_dir,
             is_checked_after=False,
         )
 

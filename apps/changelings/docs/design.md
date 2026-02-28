@@ -4,9 +4,7 @@ Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be
 
 # Terminology
 
-- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`
-- **zygote**: the minimal core of a changeling's code, typically cloned from a git repo. This is the starting point before configuration and deployment.
-- **template**: an HTML/web template for serving a particular interface (e.g. a chat UI, a dashboard, etc.)
+- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`. Each changeling has a repo directory at `~/.changelings/<agent-name>/` containing a `.mng/settings.toml` with an entrypoint template that defines its agent type.
 - **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
 
 # Relationship to mng
@@ -22,7 +20,7 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-Each changeling has its own code repo (its zygote) stored at `~/.changelings/<agent-name>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+Each changeling has its own repo stored at `~/.changelings/<agent-name>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
 
 ## Entrypoint template
 

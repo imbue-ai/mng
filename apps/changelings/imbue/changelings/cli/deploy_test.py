@@ -5,29 +5,21 @@ from click.testing import CliRunner
 from click.testing import Result
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
-from imbue.changelings.core.zygote import ZYGOTE_CONFIG_FILENAME
 from imbue.changelings.main import cli
 from imbue.changelings.testing import init_and_commit_git_repo
 
 _RUNNER = CliRunner()
 
 
-def _create_git_zygote_repo(tmp_path: Path) -> Path:
-    """Create a minimal git repo with a changeling.toml for testing."""
+def _create_git_repo_with_settings(tmp_path: Path, agent_type: str = "elena-code") -> Path:
+    """Create a minimal git repo with .mng/settings.toml for testing."""
     repo_dir = tmp_path / "my-agent-repo"
     repo_dir.mkdir()
-    (repo_dir / ZYGOTE_CONFIG_FILENAME).write_text(
-        '[changeling]\nname = "test-bot"\ncommand = "python server.py"\nport = 9100\n'
+    settings_dir = repo_dir / ".mng"
+    settings_dir.mkdir()
+    (settings_dir / "settings.toml").write_text(
+        '[create_templates.entrypoint]\nagent_type = "{}"\n'.format(agent_type)
     )
-    init_and_commit_git_repo(repo_dir, tmp_path)
-    return repo_dir
-
-
-def _create_git_agent_type_repo(tmp_path: Path) -> Path:
-    """Create a minimal git repo with an agent_type changeling.toml."""
-    repo_dir = tmp_path / "elena-repo"
-    repo_dir.mkdir()
-    (repo_dir / ZYGOTE_CONFIG_FILENAME).write_text('[changeling]\nname = "elena-code"\nagent_type = "elena-code"\n')
     init_and_commit_git_repo(repo_dir, tmp_path)
     return repo_dir
 
@@ -71,9 +63,13 @@ def _deploy_with_git_url(
     add_paths: list[str] | None = None,
     provider: str = "modal",
     input_text: str | None = None,
+    agent_type: str | None = None,
 ) -> Result:
     """Invoke changeling deploy with a git URL and standard non-interactive flags."""
     args: list[str] = ["deploy", git_url]
+
+    if agent_type is not None:
+        args.extend(["--agent-type", agent_type])
 
     if name is not None:
         args.extend(["--name", name])
@@ -102,7 +98,8 @@ def test_deploy_fails_for_invalid_git_url(tmp_path: Path) -> None:
     assert "git clone failed" in result.output
 
 
-def test_deploy_fails_when_no_changeling_toml(tmp_path: Path) -> None:
+def test_deploy_fails_when_no_settings_toml(tmp_path: Path) -> None:
+    """Cloning a repo without .mng/settings.toml should fail."""
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
     init_and_commit_git_repo(repo_dir, tmp_path, allow_empty=True)
@@ -110,7 +107,7 @@ def test_deploy_fails_when_no_changeling_toml(tmp_path: Path) -> None:
     result = _RUNNER.invoke(cli, ["deploy", str(repo_dir), *_data_dir_args(tmp_path)])
 
     assert result.exit_code != 0
-    assert "changeling.toml" in result.output
+    assert ".mng/settings.toml" in result.output
 
 
 def test_deploy_cleans_up_temp_dir_on_clone_failure(tmp_path: Path) -> None:
@@ -124,8 +121,8 @@ def test_deploy_cleans_up_temp_dir_on_clone_failure(tmp_path: Path) -> None:
         assert leftover == []
 
 
-def test_deploy_cleans_up_temp_dir_on_config_failure(tmp_path: Path) -> None:
-    """Verify that a failed config load does not leave temporary directories behind."""
+def test_deploy_cleans_up_temp_dir_on_missing_settings(tmp_path: Path) -> None:
+    """Verify that a missing .mng/settings.toml does not leave temporary directories behind."""
     repo_dir = tmp_path / "empty-repo"
     repo_dir.mkdir()
     init_and_commit_git_repo(repo_dir, tmp_path, allow_empty=True)
@@ -139,7 +136,7 @@ def test_deploy_cleans_up_temp_dir_on_config_failure(tmp_path: Path) -> None:
 
 def test_deploy_stores_clone_under_agent_name(tmp_path: Path) -> None:
     """Verify that the clone is stored at <data-dir>/<agent-name>/."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot")
 
@@ -148,11 +145,11 @@ def test_deploy_stores_clone_under_agent_name(tmp_path: Path) -> None:
 
     cdir = _changeling_dir(tmp_path, "my-bot")
     assert cdir.is_dir()
-    assert (cdir / ZYGOTE_CONFIG_FILENAME).exists()
+    assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
 
 
 def test_deploy_rejects_modal_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -165,7 +162,7 @@ def test_deploy_rejects_modal_provider(tmp_path: Path) -> None:
 
 
 def test_deploy_rejects_docker_provider(tmp_path: Path) -> None:
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -179,7 +176,7 @@ def test_deploy_rejects_docker_provider(tmp_path: Path) -> None:
 
 def test_deploy_shows_prompts(tmp_path: Path) -> None:
     """Verify all three prompts appear when deploying (using modal to abort before mng create)."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -193,7 +190,7 @@ def test_deploy_shows_prompts(tmp_path: Path) -> None:
 
 
 def test_deploy_displays_clone_url(tmp_path: Path) -> None:
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -206,7 +203,7 @@ def test_deploy_displays_clone_url(tmp_path: Path) -> None:
 
 def test_deploy_name_flag_skips_prompt(tmp_path: Path) -> None:
     """Verify that --name skips the name prompt."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-custom-name")
 
@@ -217,7 +214,7 @@ def test_deploy_name_flag_skips_prompt(tmp_path: Path) -> None:
 
 def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
     """Verify that --provider skips the provider prompt."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -232,7 +229,7 @@ def test_deploy_provider_flag_skips_prompt(tmp_path: Path) -> None:
 
 def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
     """Verify that --no-self-deploy skips the self-deploy prompt."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
@@ -245,7 +242,7 @@ def test_deploy_self_deploy_flag_skips_prompt(tmp_path: Path) -> None:
 
 def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
     """Verify that providing all flags skips all interactive prompts."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _deploy_with_git_url(tmp_path, str(repo_dir), name="bot")
 
@@ -256,20 +253,9 @@ def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
     assert "Only local deployment is supported" in result.output
 
 
-def test_deploy_loads_agent_type_zygote(tmp_path: Path) -> None:
-    """Verify that a zygote with agent_type is loaded correctly."""
-    repo_dir = _create_git_agent_type_repo(tmp_path)
-
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-elena")
-
-    assert "Deploying changeling from" in result.output
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-
 def test_deploy_rejects_duplicate_changeling_name(tmp_path: Path) -> None:
     """Verify that deploying with a name that already has a directory fails."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result1 = _deploy_with_git_url(tmp_path, str(repo_dir), name="dup-bot")
     assert result1.exit_code != 0
@@ -280,21 +266,6 @@ def test_deploy_rejects_duplicate_changeling_name(tmp_path: Path) -> None:
 
 
 # --- Tests for --agent-type (no git URL) ---
-
-
-def test_deploy_agent_type_creates_repo_with_changeling_toml(tmp_path: Path) -> None:
-    """Verify that --agent-type creates a changeling.toml with the correct agent_type."""
-    result = _deploy_with_agent_type(tmp_path, name="my-elena")
-
-    assert result.exit_code != 0
-    assert "Only local deployment is supported" in result.output
-
-    cdir = _changeling_dir(tmp_path, "my-elena")
-    assert cdir.is_dir()
-
-    config_content = (cdir / ZYGOTE_CONFIG_FILENAME).read_text()
-    assert 'agent_type = "elena-code"' in config_content
-    assert 'name = "elena-code"' in config_content
 
 
 def test_deploy_agent_type_creates_mng_settings_toml(tmp_path: Path) -> None:
@@ -358,7 +329,7 @@ def test_deploy_agent_type_shows_creating_message(tmp_path: Path) -> None:
 
 def test_deploy_add_path_copies_file_into_repo(tmp_path: Path) -> None:
     """Verify that --add-path copies a file into the cloned repo."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     extra_file = tmp_path / "extra.txt"
     extra_file.write_text("extra content")
@@ -377,7 +348,7 @@ def test_deploy_add_path_copies_file_into_repo(tmp_path: Path) -> None:
 
 def test_deploy_add_path_copies_directory_into_repo(tmp_path: Path) -> None:
     """Verify that --add-path recursively copies a directory into the repo."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     src_dir = tmp_path / "src-config"
     src_dir.mkdir()
@@ -415,7 +386,6 @@ def test_deploy_add_path_with_agent_type(tmp_path: Path) -> None:
 
     cdir = _changeling_dir(tmp_path, "path-elena")
     assert (cdir / "config" / "my-config.json").read_text() == '{"key": "value"}'
-    assert (cdir / ZYGOTE_CONFIG_FILENAME).exists()
     assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
 
 
@@ -499,7 +469,7 @@ def test_deploy_add_path_files_are_committed(tmp_path: Path) -> None:
 
 def test_deploy_add_path_with_clone_commits_added_files(tmp_path: Path) -> None:
     """Verify that --add-path files are committed when used with a git URL."""
-    repo_dir = _create_git_zygote_repo(tmp_path)
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
     extra_file = tmp_path / "extra.txt"
     extra_file.write_text("extra from clone")
@@ -520,7 +490,7 @@ def test_deploy_add_path_with_clone_commits_added_files(tmp_path: Path) -> None:
         text=True,
     )
     assert "extra.txt" in ls_result.stdout
-    assert (cdir / ZYGOTE_CONFIG_FILENAME).exists()
+    assert (cdir / _MNG_SETTINGS_REL_PATH).exists()
 
 
 def test_deploy_agent_type_does_not_overwrite_existing_settings_toml(tmp_path: Path) -> None:
