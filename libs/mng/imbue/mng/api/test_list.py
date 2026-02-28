@@ -382,11 +382,13 @@ def test_list_agents_with_agent(
 ) -> None:
     """Test that list_agents returns agents that exist."""
     agent_name = f"test-list-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 847291"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 847291"
+        )
+
         result = list_agents(mng_ctx=temp_mng_ctx, is_streaming=False)
 
         assert len(result.agents) >= 1
@@ -403,11 +405,13 @@ def test_list_agents_with_include_filter(
 ) -> None:
     """Test that list_agents applies include filters correctly."""
     agent_name = f"test-filter-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 938274"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 938274"
+        )
+
         result = list_agents(
             mng_ctx=temp_mng_ctx,
             include_filters=(f'name == "{agent_name}"',),
@@ -427,11 +431,13 @@ def test_list_agents_with_exclude_filter(
 ) -> None:
     """Test that list_agents applies exclude filters correctly."""
     agent_name = f"test-exclude-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 726485"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 726485"
+        )
+
         result = list_agents(
             mng_ctx=temp_mng_ctx,
             exclude_filters=(f'name == "{agent_name}"',),
@@ -451,9 +457,7 @@ def test_list_agents_with_callbacks(
 ) -> None:
     """Test that list_agents calls on_agent callback for each agent."""
     agent_name = f"test-callback-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 619274"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     agents_received: list[AgentInfo] = []
 
@@ -461,6 +465,10 @@ def test_list_agents_with_callbacks(
         agents_received.append(agent)
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 619274"
+        )
+
         result = list_agents(
             mng_ctx=temp_mng_ctx,
             on_agent=on_agent,
@@ -912,11 +920,13 @@ def test_list_agents_populates_idle_mode(
 ) -> None:
     """Test that list_agents populates idle_mode from the host's activity config."""
     agent_name = f"test-idle-mode-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 123456"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 123456"
+        )
+
         result = list_agents(mng_ctx=temp_mng_ctx, is_streaming=False)
 
         our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
@@ -935,11 +945,13 @@ def test_list_agents_populates_lock_fields_for_online_host(
 ) -> None:
     """Test that list_agents populates is_locked and locked_time for online hosts."""
     agent_name = f"test-lock-fields-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 847292"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 847292"
+        )
+
         result = list_agents(mng_ctx=temp_mng_ctx, is_streaming=False)
 
         our_agent = next((a for a in result.agents if a.name == AgentName(agent_name)), None)
@@ -960,9 +972,7 @@ def test_list_agents_streaming_with_callback(
 ) -> None:
     """Test that list_agents with is_streaming=True delivers agents via on_agent callback."""
     agent_name = f"test-stream-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 519283"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     agents_received: list[AgentInfo] = []
 
@@ -970,6 +980,10 @@ def test_list_agents_streaming_with_callback(
         agents_received.append(agent)
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 519283"
+        )
+
         result = list_agents(
             mng_ctx=temp_mng_ctx,
             on_agent=on_agent,
@@ -1028,11 +1042,13 @@ def test_list_agents_with_provider_names_filter(
 ) -> None:
     """Test that list_agents filters by provider_names."""
     agent_name = f"test-provider-filter-{int(time.time())}"
-    session_name = create_test_agent_via_cli(
-        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 234567"
-    )
+    session_name = f"{mng_test_prefix}{agent_name}"
 
     with tmux_session_cleanup(session_name):
+        create_test_agent_via_cli(
+            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 234567"
+        )
+
         result = list_agents(mng_ctx=temp_mng_ctx, provider_names=("local",), is_streaming=False)
 
         agent_names = [a.name for a in result.agents]
