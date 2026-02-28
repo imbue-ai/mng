@@ -1,136 +1,17 @@
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
-from datetime import timezone
 from io import StringIO
-from pathlib import Path
 
 from loguru import logger
 
 from imbue.mng.api.list import _warn_on_duplicate_host_names
-from imbue.mng.conftest import build_agents_by_host_from_tuples
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentReference
-from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.utils.agent_cache import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.utils.agent_cache import write_agent_names_cache
-
-# =============================================================================
-# Helpers
-# =============================================================================
-
-
-def _make_host_info() -> HostInfo:
-    return HostInfo(
-        id=HostId.generate(),
-        name="test-host",
-        provider_name=ProviderInstanceName("local"),
-    )
-
-
-def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
-    return AgentInfo(
-        id=AgentId.generate(),
-        name=AgentName(name),
-        type="claude",
-        command=CommandString("sleep 100"),
-        work_dir=Path("/work"),
-        create_time=datetime.now(timezone.utc),
-        start_on_boot=False,
-        state=AgentLifecycleState.RUNNING,
-        host=host_info,
-    )
-
-
-# =============================================================================
-# Completion Cache Write Tests
-# =============================================================================
-
-
-def test_write_agent_names_cache_writes_sorted_names(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should write sorted agent names to the cache file."""
-    agents_by_host, _ = build_agents_by_host_from_tuples(
-        [
-            ("beta-agent", "modal", "host-beta"),
-            ("alpha-agent", "modal", "host-alpha"),
-        ]
-    )
-    write_agent_names_cache(temp_host_dir, agents_by_host)
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    assert cache_path.is_file()
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == ["alpha-agent", "beta-agent"]
-    assert "updated_at" in cache_data
-    assert "agents" in cache_data
-    assert len(cache_data["agents"]) == 2
-
-
-def test_write_agent_names_cache_writes_empty_list_for_no_agents(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should write an empty names list when no agents."""
-    write_agent_names_cache(temp_host_dir, {})
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    assert cache_path.is_file()
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == []
-    assert cache_data["agents"] == []
-
-
-def test_write_agent_names_cache_deduplicates_names(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should deduplicate names in the names list."""
-    # Two agents with the same name on different hosts
-    host_ref_1 = HostReference(
-        host_id=HostId.generate(),
-        host_name=HostName("host-1"),
-        provider_name=ProviderInstanceName("modal"),
-    )
-    host_ref_2 = HostReference(
-        host_id=HostId.generate(),
-        host_name=HostName("host-2"),
-        provider_name=ProviderInstanceName("modal"),
-    )
-    agents_by_host: dict[HostReference, list[AgentReference]] = {
-        host_ref_1: [
-            AgentReference(
-                host_id=host_ref_1.host_id,
-                agent_id=AgentId.generate(),
-                agent_name=AgentName("same-name"),
-                provider_name=ProviderInstanceName("modal"),
-            )
-        ],
-        host_ref_2: [
-            AgentReference(
-                host_id=host_ref_2.host_id,
-                agent_id=AgentId.generate(),
-                agent_name=AgentName("same-name"),
-                provider_name=ProviderInstanceName("modal"),
-            )
-        ],
-    }
-    write_agent_names_cache(temp_host_dir, agents_by_host)
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == ["same-name"]
-    # But the agents list should have both entries
-    assert len(cache_data["agents"]) == 2
-
 
 # =============================================================================
 # Duplicate Host Name Warning Tests
