@@ -54,7 +54,7 @@ def _is_agent_remote(
         return False
 
     host = agents[0].get("host", {})
-    provider = host.get("provider", "local")
+    provider = host.get("provider_name", "local")
     return provider != "local"
 
 

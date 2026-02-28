@@ -319,7 +319,8 @@ def _create_mng_agent(
 ) -> None:
     """Create an mng agent from the changeling's repo directory.
 
-    For local deployment, runs `mng create --in-place -t entrypoint`.
+    For local deployment, runs `mng create -t entrypoint` (without
+    --in-place, since the source dir is temporary and cleaned up after).
     For remote deployment, runs `mng create --in <provider> -t entrypoint`,
     which copies the code to the remote host.
 

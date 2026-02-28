@@ -23,7 +23,7 @@ def _make_list_cg(provider: str) -> FakeConcurrencyGroup:
                             {
                                 "id": "agent-abc123",
                                 "name": "my-agent",
-                                "host": {"provider": provider, "state": "RUNNING"},
+                                "host": {"provider_name": provider, "state": "RUNNING"},
                             }
                         ]
                     }

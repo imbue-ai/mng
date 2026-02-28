@@ -389,7 +389,7 @@ def deploy(
         raise
 
     # Clean up the temp dir now that the agent is deployed.
-    # For local deployments, the agent runs in-place in a mng-managed
+    # For local deployments, mng copied the source into a managed
     # directory. For remote deployments, the code has been copied to
     # the remote host. Either way, the temp dir is no longer needed.
     shutil.rmtree(temp_dir, ignore_errors=True)
