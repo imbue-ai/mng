@@ -139,15 +139,17 @@ async def _forward_client_to_backend(
                 await backend_ws.send(data["bytes"])
             else:
                 logger.trace("Ignoring WebSocket message with no text or bytes: {}", msg_type)
-    except (WebSocketDisconnect, RuntimeError):
-        pass
+    except WebSocketDisconnect:
+        logger.trace("Client WebSocket disconnected")
+    except RuntimeError as e:
+        logger.trace("Client WebSocket receive error (likely post-disconnect): {}", e)
     except websockets.exceptions.ConnectionClosed:
         logger.debug("Backend WebSocket closed while forwarding client message")
 
     try:
         await backend_ws.close()
     except websockets.exceptions.ConnectionClosed:
-        pass
+        logger.trace("Backend WebSocket already closed during cleanup")
 
 
 async def _forward_backend_to_client(
