@@ -18,14 +18,17 @@ def _isolated_guard_state() -> Generator[None, None, None]:
     """Save and restore resource guard module state and env vars."""
     original_dir = rg._guard_wrapper_dir
     original_owns = rg._owns_guard_wrapper_dir
-    original_path = os.environ.get("PATH", "")
-    saved_env = {k: os.environ.pop(k, None) for k in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH")}
+    original_patcher = rg._session_env_patcher
+    saved_env = {k: os.environ.pop(k, None) for k in ("_PYTEST_GUARD_WRAPPER_DIR",)}
     try:
         yield
     finally:
+        # If create started a patcher that cleanup didn't stop, stop it now
+        if rg._session_env_patcher is not None and rg._session_env_patcher is not original_patcher:
+            rg._session_env_patcher.stop()
         rg._guard_wrapper_dir = original_dir
         rg._owns_guard_wrapper_dir = original_owns
-        os.environ["PATH"] = original_path
+        rg._session_env_patcher = original_patcher
         for k, v in saved_env.items():
             if v is not None:
                 os.environ[k] = v

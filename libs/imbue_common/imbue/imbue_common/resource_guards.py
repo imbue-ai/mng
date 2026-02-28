@@ -39,8 +39,11 @@ class MissingGuardedResourceError(Exception):
 # _owns_guard_wrapper_dir tracks whether this process created the directory (and is
 # therefore responsible for deleting it) vs merely reusing one inherited from a parent
 # process via the _PYTEST_GUARD_WRAPPER_DIR env var.
+# _session_env_patcher is the patch.dict that manages PATH and _PYTEST_GUARD_WRAPPER_DIR;
+# stopping it automatically restores PATH to its original value.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
+_session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -81,8 +84,11 @@ def create_resource_guard_wrappers() -> None:
     For xdist: the controller creates the wrappers and modifies PATH. Workers
     inherit the modified PATH and wrapper directory via environment variables.
     The _PYTEST_GUARD_WRAPPER_DIR env var signals that wrappers already exist.
+
+    Uses patch.dict to manage PATH and _PYTEST_GUARD_WRAPPER_DIR so that
+    cleanup_resource_guard_wrappers can restore everything by calling .stop().
     """
-    global _guard_wrapper_dir, _owns_guard_wrapper_dir
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher
 
     # If wrappers already exist (e.g., inherited from xdist controller), reuse them.
     existing_dir = os.environ.get("_PYTEST_GUARD_WRAPPER_DIR")
@@ -90,9 +96,6 @@ def create_resource_guard_wrappers() -> None:
         _guard_wrapper_dir = existing_dir
         _owns_guard_wrapper_dir = False
         return
-
-    original_path = os.environ.get("PATH", "")
-    os.environ["_PYTEST_GUARD_ORIGINAL_PATH"] = original_path
 
     _guard_wrapper_dir = tempfile.mkdtemp(prefix="pytest_resource_guards_")
     _owns_guard_wrapper_dir = True
@@ -109,9 +112,17 @@ def create_resource_guard_wrappers() -> None:
         wrapper_path.write_text(generate_wrapper_script(resource, real_path))
         wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
-    # Prepend wrapper directory to PATH and store for xdist workers
-    os.environ["PATH"] = f"{_guard_wrapper_dir}{os.pathsep}{original_path}"
-    os.environ["_PYTEST_GUARD_WRAPPER_DIR"] = _guard_wrapper_dir
+    # Prepend wrapper directory to PATH and advertise to xdist workers.
+    # patch.dict saves the original PATH and restores it when stopped.
+    original_path = os.environ.get("PATH", "")
+    _session_env_patcher = patch.dict(
+        os.environ,
+        {
+            "PATH": f"{_guard_wrapper_dir}{os.pathsep}{original_path}",
+            "_PYTEST_GUARD_WRAPPER_DIR": _guard_wrapper_dir,
+        },
+    )
+    _session_env_patcher.start()
 
 
 def cleanup_resource_guard_wrappers() -> None:
@@ -121,26 +132,22 @@ def cleanup_resource_guard_wrappers() -> None:
     that merely reused an existing wrapper directory (e.g. xdist workers) just
     clear their local reference.
     """
-    global _guard_wrapper_dir, _owns_guard_wrapper_dir
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher
 
     if not _owns_guard_wrapper_dir:
         _guard_wrapper_dir = None
         return
 
     if _guard_wrapper_dir is not None:
-        # Restore original PATH
-        original_path = os.environ.get("_PYTEST_GUARD_ORIGINAL_PATH")
-        if original_path is not None:
-            os.environ["PATH"] = original_path
-
         shutil.rmtree(_guard_wrapper_dir, ignore_errors=True)
         _guard_wrapper_dir = None
 
-    _owns_guard_wrapper_dir = False
+    # Stopping the patcher restores PATH and removes _PYTEST_GUARD_WRAPPER_DIR.
+    if _session_env_patcher is not None:
+        _session_env_patcher.stop()
+        _session_env_patcher = None
 
-    # Clean up guard env vars
-    for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
-        os.environ.pop(key, None)
+    _owns_guard_wrapper_dir = False
 
 
 # ---------------------------------------------------------------------------
