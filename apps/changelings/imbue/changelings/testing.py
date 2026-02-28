@@ -1,6 +1,7 @@
-import subprocess
 from pathlib import Path
 from typing import Final
+
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 
 _GIT_TEST_ENV_KEYS: Final[dict[str, str]] = {
     "GIT_AUTHOR_NAME": "test",
@@ -29,17 +30,17 @@ def init_and_commit_git_repo(repo_dir: Path, tmp_path: Path, allow_empty: bool =
     If allow_empty is True, creates an empty commit even when there are no
     staged files. Otherwise, all files in the directory are staged and committed.
     """
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
-    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True, capture_output=True)
+    cg = ConcurrencyGroup(name="test-git-init")
+    with cg:
+        cg.run_process_to_completion(command=["git", "init"], cwd=repo_dir)
+        cg.run_process_to_completion(command=["git", "add", "."], cwd=repo_dir)
 
-    commit_cmd = ["git", "commit", "-m", "init"]
-    if allow_empty:
-        commit_cmd.append("--allow-empty")
+        commit_cmd = ["git", "commit", "-m", "init"]
+        if allow_empty:
+            commit_cmd.append("--allow-empty")
 
-    subprocess.run(
-        commit_cmd,
-        cwd=repo_dir,
-        check=True,
-        capture_output=True,
-        env=_git_test_env(tmp_path),
-    )
+        cg.run_process_to_completion(
+            command=commit_cmd,
+            cwd=repo_dir,
+            env=_git_test_env(tmp_path),
+        )

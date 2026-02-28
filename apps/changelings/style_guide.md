@@ -1,4 +1,4 @@
-# ttyle guide deltas for changelings
+# Style guide deltas for changelings
 
 All rules from the [normal style guide](../../style_guide.md) apply to changelings, with the following exceptions and additions:
 

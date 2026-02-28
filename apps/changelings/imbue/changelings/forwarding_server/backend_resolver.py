@@ -1,5 +1,4 @@
 import json
-import subprocess
 import time
 from abc import ABC
 from abc import abstractmethod
@@ -10,14 +9,14 @@ from loguru import logger
 from pydantic import Field
 from pydantic import PrivateAttr
 
+from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.primitives import ServerName
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.primitives import AgentId
 
 SERVERS_LOG_FILENAME: Final[str] = "servers.jsonl"
-
-_MNG_BINARY: Final[str] = "mng"
 
 _SUBPROCESS_TIMEOUT_SECONDS: Final[float] = 10.0
 
@@ -99,17 +98,18 @@ class MngCliInterface(MutableModel, ABC):
 
 
 class SubprocessMngCli(MngCliInterface):
-    """Real implementation that shells out to the mng binary."""
+    """Real implementation that shells out to the mng binary via ConcurrencyGroup."""
 
     def read_agent_log(self, agent_id: AgentId, log_file: str) -> str | None:
+        cg = ConcurrencyGroup(name="mng-logs")
         try:
-            result = subprocess.run(
-                [_MNG_BINARY, "logs", str(agent_id), log_file, "--quiet"],
-                capture_output=True,
-                text=True,
-                timeout=_SUBPROCESS_TIMEOUT_SECONDS,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            with cg:
+                result = cg.run_process_to_completion(
+                    command=[MNG_BINARY, "logs", str(agent_id), log_file, "--quiet"],
+                    timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+                    is_checked_after=False,
+                )
+        except (FileNotFoundError, OSError) as e:
             logger.warning("Failed to run mng logs for {}: {}", agent_id, e)
             return None
 
@@ -120,14 +120,15 @@ class SubprocessMngCli(MngCliInterface):
         return result.stdout
 
     def list_agents_json(self) -> str | None:
+        cg = ConcurrencyGroup(name="mng-list")
         try:
-            result = subprocess.run(
-                [_MNG_BINARY, "list", "--json", "--quiet"],
-                capture_output=True,
-                text=True,
-                timeout=_SUBPROCESS_TIMEOUT_SECONDS,
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            with cg:
+                result = cg.run_process_to_completion(
+                    command=[MNG_BINARY, "list", "--json", "--quiet"],
+                    timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+                    is_checked_after=False,
+                )
+        except (FileNotFoundError, OSError) as e:
             logger.warning("Failed to run mng list: {}", e)
             return None
 

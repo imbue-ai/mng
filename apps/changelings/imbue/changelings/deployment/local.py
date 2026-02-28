@@ -1,7 +1,6 @@
 import json
 import secrets
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Final
 
@@ -9,12 +8,14 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.changelings.config.data_types import ChangelingPaths
+from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.errors import GitCommitError
 from imbue.changelings.errors import GitInitError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
+from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.changelings.primitives import OneTimeCode
@@ -23,15 +24,13 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng.primitives import AgentId
 
-_MNG_BINARY: Final[str] = "mng"
-
 _ONE_TIME_CODE_LENGTH: Final[int] = 32
 
 
 class DeploymentResult(FrozenModel):
     """Result of a successful local changeling deployment."""
 
-    agent_name: str = Field(description="The name of the deployed agent")
+    agent_name: AgentName = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
     login_url: str = Field(description="One-time login URL for accessing the changeling")
 
@@ -72,11 +71,12 @@ def clone_git_repo(git_url: GitUrl, clone_dir: Path, branch: GitBranch | None = 
         command.extend(["-b", str(branch)])
     command.extend([str(git_url), str(clone_dir)])
 
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-    )
+    cg = ConcurrencyGroup(name="git-clone")
+    with cg:
+        result = cg.run_process_to_completion(
+            command=command,
+            is_checked_after=False,
+        )
 
     if result.returncode != 0:
         raise GitCloneError(
@@ -97,12 +97,13 @@ def init_empty_git_repo(repo_dir: Path) -> None:
     repo_dir.mkdir(parents=True, exist_ok=True)
     logger.debug("Initializing empty git repo at {}", repo_dir)
 
-    result = subprocess.run(
-        ["git", "init"],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
+    cg = ConcurrencyGroup(name="git-init")
+    with cg:
+        result = cg.run_process_to_completion(
+            command=["git", "init"],
+            cwd=repo_dir,
+            is_checked_after=False,
+        )
 
     if result.returncode != 0:
         raise GitInitError(
@@ -124,12 +125,13 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
     Returns True if a commit was created, False if there was nothing to commit.
     Raises GitCommitError if the git operations fail unexpectedly.
     """
-    add_result = subprocess.run(
-        ["git", "add", "."],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
+    cg = ConcurrencyGroup(name="git-commit")
+    with cg:
+        add_result = cg.run_process_to_completion(
+            command=["git", "add", "."],
+            cwd=repo_dir,
+            is_checked_after=False,
+        )
 
     if add_result.returncode != 0:
         raise GitCommitError(
@@ -140,32 +142,34 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
         )
 
     # Check if there is anything to commit
-    status_result = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
+    cg_status = ConcurrencyGroup(name="git-status")
+    with cg_status:
+        status_result = cg_status.run_process_to_completion(
+            command=["git", "status", "--porcelain"],
+            cwd=repo_dir,
+            is_checked_after=False,
+        )
 
     if not status_result.stdout.strip():
         logger.debug("No changes to commit in {}", repo_dir)
         return False
 
-    commit_result = subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.name=changeling",
-            "-c",
-            "user.email=changeling@localhost",
-            "commit",
-            "-m",
-            message,
-        ],
-        cwd=repo_dir,
-        capture_output=True,
-        text=True,
-    )
+    cg_commit = ConcurrencyGroup(name="git-commit-run")
+    with cg_commit:
+        commit_result = cg_commit.run_process_to_completion(
+            command=[
+                "git",
+                "-c",
+                "user.name=changeling",
+                "-c",
+                "user.email=changeling@localhost",
+                "commit",
+                "-m",
+                message,
+            ],
+            cwd=repo_dir,
+            is_checked_after=False,
+        )
 
     if commit_result.returncode != 0:
         raise GitCommitError(
@@ -181,7 +185,7 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
 
 def deploy_local(
     changeling_dir: Path,
-    agent_name: str,
+    agent_name: AgentName,
     paths: ChangelingPaths,
     forwarding_server_port: int,
     concurrency_group: ConcurrencyGroup,
@@ -239,12 +243,12 @@ def deploy_local(
 
 def _verify_mng_available() -> None:
     """Verify that the mng binary is available on PATH."""
-    if shutil.which(_MNG_BINARY) is None:
+    if shutil.which(MNG_BINARY) is None:
         raise MngNotFoundError("The 'mng' command was not found on PATH. Install mng first: uv tool install mng")
 
 
 def _check_agent_not_exists(
-    agent_name: str,
+    agent_name: AgentName,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Check that no agent with this name already exists.
@@ -253,7 +257,7 @@ def _check_agent_not_exists(
     """
     result = concurrency_group.run_process_to_completion(
         command=[
-            _MNG_BINARY,
+            MNG_BINARY,
             "list",
             "--include",
             'name == "{}"'.format(agent_name),
@@ -269,7 +273,7 @@ def _check_agent_not_exists(
     _raise_if_agent_exists(agent_name, result.stdout)
 
 
-def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
+def _raise_if_agent_exists(agent_name: AgentName, mng_list_output: str) -> None:
     """Parse mng list JSON output and raise if an agent with the given name exists.
 
     Silently returns if the output cannot be parsed as JSON (defensive -- the caller
@@ -291,7 +295,7 @@ def _raise_if_agent_exists(agent_name: str, mng_list_output: str) -> None:
 
 def _create_mng_agent(
     changeling_dir: Path,
-    agent_name: str,
+    agent_name: AgentName,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Create an mng agent from the changeling's own repo directory.
@@ -301,7 +305,7 @@ def _create_mng_agent(
     """
     with log_span("Creating mng agent '{}'", agent_name):
         mng_command = [
-            _MNG_BINARY,
+            MNG_BINARY,
             "create",
             "--name",
             agent_name,
@@ -331,14 +335,14 @@ def _create_mng_agent(
 
 
 def _get_agent_id(
-    agent_name: str,
+    agent_name: AgentName,
     concurrency_group: ConcurrencyGroup,
 ) -> AgentId:
     """Look up the mng agent ID by name using `mng list --json`."""
     with log_span("Looking up agent ID for '{}'", agent_name):
         result = concurrency_group.run_process_to_completion(
             command=[
-                _MNG_BINARY,
+                MNG_BINARY,
                 "list",
                 "--include",
                 'name == "{}"'.format(agent_name),

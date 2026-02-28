@@ -19,6 +19,7 @@ from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
 from imbue.changelings.errors import GitCommitError
 from imbue.changelings.errors import GitInitError
+from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitUrl
 from imbue.changelings.testing import init_and_commit_git_repo
 from imbue.mng.primitives import AgentId
@@ -93,19 +94,19 @@ def test_raise_if_agent_exists_raises_when_agent_found() -> None:
     mng_output = json.dumps({"agents": [{"id": "agent-abc123", "name": "my-agent"}]})
 
     with pytest.raises(AgentAlreadyExistsError, match="already exists"):
-        _raise_if_agent_exists("my-agent", mng_output)
+        _raise_if_agent_exists(AgentName("my-agent"), mng_output)
 
 
 def test_raise_if_agent_exists_does_not_raise_when_no_agents() -> None:
     """Verify that _raise_if_agent_exists does not raise when agents list is empty."""
     mng_output = json.dumps({"agents": []})
 
-    _raise_if_agent_exists("my-agent", mng_output)
+    _raise_if_agent_exists(AgentName("my-agent"), mng_output)
 
 
 def test_raise_if_agent_exists_does_not_raise_for_invalid_json() -> None:
     """Verify that _raise_if_agent_exists silently proceeds on malformed JSON."""
-    _raise_if_agent_exists("my-agent", "not valid json {{{")
+    _raise_if_agent_exists(AgentName("my-agent"), "not valid json {{{")
 
 
 def test_raise_if_agent_exists_error_mentions_update_and_destroy() -> None:
@@ -113,7 +114,7 @@ def test_raise_if_agent_exists_error_mentions_update_and_destroy() -> None:
     mng_output = json.dumps({"agents": [{"id": "agent-abc123"}]})
 
     with pytest.raises(AgentAlreadyExistsError) as exc_info:
-        _raise_if_agent_exists("my-agent", mng_output)
+        _raise_if_agent_exists(AgentName("my-agent"), mng_output)
 
     assert "changeling update" in str(exc_info.value)
     assert "changeling destroy" in str(exc_info.value)

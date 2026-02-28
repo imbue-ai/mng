@@ -1,11 +1,6 @@
 # Overview
 
-Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be any process running in a tmux session, changelings additionally *must* serve a web interface and be conversational (able to receive messages and generate responses).
-
-# Terminology
-
-- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`. Each changeling has a repo directory at `~/.changelings/<agent-name>/` containing a `.mng/settings.toml` with an entrypoint template that defines its agent type.
-- **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
+See the [README](../README.md) for an overview of what changelings are and the terminology used throughout.
 
 # Relationship to mng
 
