@@ -2,6 +2,8 @@ import click
 
 from imbue.changelings.cli.deploy import deploy
 from imbue.changelings.cli.forward import forward
+from imbue.changelings.cli.list import list_command
+from imbue.changelings.cli.update import update
 from imbue.changelings.utils.logging import console_level_from_verbose_and_quiet
 from imbue.changelings.utils.logging import setup_logging
 
@@ -20,3 +22,5 @@ def cli(ctx: click.Context, verbose: int, quiet: bool) -> None:
 
 cli.add_command(deploy)
 cli.add_command(forward)
+cli.add_command(list_command)
+cli.add_command(update)

@@ -323,7 +323,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     Test files are excluded from this check.
     """
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_changelings_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(10), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(0), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 # --- AST-based ratchets ---

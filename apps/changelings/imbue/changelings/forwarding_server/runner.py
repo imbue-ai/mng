@@ -1,16 +1,12 @@
 from pathlib import Path
-from typing import Final
 
 import uvicorn
 
+from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.forwarding_server.app import create_forwarding_server
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import SubprocessMngCli
-
-_DEFAULT_HOST: Final[str] = "127.0.0.1"
-
-_DEFAULT_PORT: Final[int] = 8420
 
 
 def start_forwarding_server(
@@ -24,7 +20,8 @@ def start_forwarding_server(
     and discovers agents via `mng list`. This ensures newly deployed changelings are
     immediately available without restarting the forwarding server.
     """
-    auth_store = FileAuthStore(data_directory=data_directory / "auth")
+    paths = ChangelingPaths(data_dir=data_directory)
+    auth_store = FileAuthStore(data_directory=paths.auth_dir)
     backend_resolver = MngCliBackendResolver(mng_cli=SubprocessMngCli())
 
     app = create_forwarding_server(
