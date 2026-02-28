@@ -143,26 +143,30 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
             is_checked_after=False,
         )
 
-        if add_result.returncode != 0:
-            raise GitCommitError(
-                "git add failed (exit code {}):\n{}".format(
-                    add_result.returncode,
-                    add_result.stderr.strip() if add_result.stderr.strip() else add_result.stdout.strip(),
-                )
+    if add_result.returncode != 0:
+        raise GitCommitError(
+            "git add failed (exit code {}):\n{}".format(
+                add_result.returncode,
+                add_result.stderr.strip() if add_result.stderr.strip() else add_result.stdout.strip(),
             )
+        )
 
-        # Check if there is anything to commit
-        status_result = cg.run_process_to_completion(
+    # Check if there is anything to commit
+    cg_status = ConcurrencyGroup(name="git-status")
+    with cg_status:
+        status_result = cg_status.run_process_to_completion(
             command=["git", "status", "--porcelain"],
             cwd=repo_dir,
             is_checked_after=False,
         )
 
-        if not status_result.stdout.strip():
-            logger.debug("No changes to commit in {}", repo_dir)
-            return False
+    if not status_result.stdout.strip():
+        logger.debug("No changes to commit in {}", repo_dir)
+        return False
 
-        commit_result = cg.run_process_to_completion(
+    cg_commit = ConcurrencyGroup(name="git-commit-run")
+    with cg_commit:
+        commit_result = cg_commit.run_process_to_completion(
             command=[
                 "git",
                 "-c",
@@ -177,16 +181,16 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
             is_checked_after=False,
         )
 
-        if commit_result.returncode != 0:
-            raise GitCommitError(
-                "git commit failed (exit code {}):\n{}".format(
-                    commit_result.returncode,
-                    commit_result.stderr.strip() if commit_result.stderr.strip() else commit_result.stdout.strip(),
-                )
+    if commit_result.returncode != 0:
+        raise GitCommitError(
+            "git commit failed (exit code {}):\n{}".format(
+                commit_result.returncode,
+                commit_result.stderr.strip() if commit_result.stderr.strip() else commit_result.stdout.strip(),
             )
+        )
 
-        logger.debug("Committed files in {}: {}", repo_dir, message)
-        return True
+    logger.debug("Committed files in {}: {}", repo_dir, message)
+    return True
 
 
 def deploy_local(
