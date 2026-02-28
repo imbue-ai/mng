@@ -14,6 +14,7 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import HostReference
+from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.utils.file_utils import atomic_write
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
@@ -138,6 +139,6 @@ def read_provider_names_for_identifiers(
         if id_match is not None:
             matched_providers.update(id_match)
 
-    # Always include "local" since local filesystem operations are cheap
-    matched_providers.add("local")
+    # Always include the local provider since local filesystem operations are cheap
+    matched_providers.add(str(LOCAL_PROVIDER_NAME))
     return tuple(sorted(matched_providers))
