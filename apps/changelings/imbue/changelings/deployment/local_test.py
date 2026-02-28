@@ -595,6 +595,7 @@ def test_create_mng_agent_local_uses_in_place(tmp_path: Path) -> None:
     _create_mng_agent(
         changeling_dir=tmp_path,
         agent_name=AgentName("my-agent"),
+        agent_id=AgentId(),
         provider=DeploymentProvider.LOCAL,
         concurrency_group=cg,
     )
@@ -613,6 +614,7 @@ def test_create_mng_agent_modal_uses_in_modal_and_source_path(tmp_path: Path) ->
     _create_mng_agent(
         changeling_dir=tmp_path,
         agent_name=AgentName("my-agent"),
+        agent_id=AgentId(),
         provider=DeploymentProvider.MODAL,
         concurrency_group=cg,
     )
@@ -635,6 +637,7 @@ def test_create_mng_agent_docker_uses_in_docker_and_source_path(tmp_path: Path) 
     _create_mng_agent(
         changeling_dir=tmp_path,
         agent_name=AgentName("my-agent"),
+        agent_id=AgentId(),
         provider=DeploymentProvider.DOCKER,
         concurrency_group=cg,
     )
@@ -657,6 +660,7 @@ def test_create_mng_agent_always_includes_changeling_label(tmp_path: Path) -> No
         _create_mng_agent(
             changeling_dir=tmp_path,
             agent_name=AgentName("my-agent"),
+            agent_id=AgentId(),
             provider=provider,
             concurrency_group=cg,
         )
@@ -674,6 +678,7 @@ def test_create_mng_agent_includes_template_and_no_connect(tmp_path: Path) -> No
     _create_mng_agent(
         changeling_dir=tmp_path,
         agent_name=AgentName("my-agent"),
+        agent_id=AgentId(),
         provider=DeploymentProvider.LOCAL,
         concurrency_group=cg,
     )
@@ -683,6 +688,25 @@ def test_create_mng_agent_includes_template_and_no_connect(tmp_path: Path) -> No
     t_index = cmd.index("-t")
     assert cmd[t_index + 1] == "entrypoint"
     assert "--no-connect" in cmd
+
+
+def test_create_mng_agent_passes_agent_id(tmp_path: Path) -> None:
+    """Verify that the mng create command includes --agent-id with the provided ID."""
+    cg = make_fake_concurrency_group()
+    agent_id = AgentId()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        agent_id=agent_id,
+        provider=DeploymentProvider.LOCAL,
+        concurrency_group=cg,
+    )
+
+    cmd = cg.commands_run[0]
+    assert "--agent-id" in cmd
+    id_index = cmd.index("--agent-id")
+    assert cmd[id_index + 1] == str(agent_id)
 
 
 def test_create_mng_agent_raises_on_failure(tmp_path: Path) -> None:
@@ -701,6 +725,7 @@ def test_create_mng_agent_raises_on_failure(tmp_path: Path) -> None:
         _create_mng_agent(
             changeling_dir=tmp_path,
             agent_name=AgentName("my-agent"),
+            agent_id=AgentId(),
             provider=DeploymentProvider.LOCAL,
             concurrency_group=cg,
         )

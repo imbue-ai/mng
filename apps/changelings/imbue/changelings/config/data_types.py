@@ -28,7 +28,7 @@ class ChangelingPaths(FrozenModel):
         return self.data_dir / "auth"
 
     def changeling_dir(self, agent_id: AgentId) -> Path:
-        """Directory for a specific local changeling's repo (e.g. ~/.changelings/<agent-id>/)."""
+        """Directory for a specific changeling's repo (e.g. ~/.changelings/<agent-id>/)."""
         return self.data_dir / str(agent_id)
 
 

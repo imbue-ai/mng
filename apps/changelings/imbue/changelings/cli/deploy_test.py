@@ -135,15 +135,12 @@ def test_deploy_cleans_up_temp_dir_on_missing_settings(tmp_path: Path) -> None:
     assert leftover == []
 
 
-def test_deploy_cleans_up_temp_dir_on_deployment_failure(tmp_path: Path) -> None:
-    """Verify that a deployment failure cleans up the temp dir."""
+def test_deploy_cleans_up_temp_dir_after_deployment(tmp_path: Path) -> None:
+    """Verify that no .tmp- directories remain after deployment (success or failure)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
     data_dir = tmp_path / "changelings-data"
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
-
-    # Deployment will fail at mng create, but temp dir should be cleaned up
-    assert result.exit_code != 0
+    _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
 
     if data_dir.exists():
         leftover = [p for p in data_dir.iterdir() if p.name.startswith(".tmp-")]
@@ -224,24 +221,20 @@ def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
 
 
 def test_deploy_accepts_modal_provider(tmp_path: Path) -> None:
-    """Verify that modal provider is accepted (deployment fails at mng create, not at provider check)."""
+    """Verify that modal provider is accepted (not rejected at provider check)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="modal")
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-modal", provider="modal")
 
-    # Should fail at mng create, NOT at provider check
-    assert result.exit_code != 0
     assert "Only local deployment is supported" not in result.output
 
 
 def test_deploy_accepts_docker_provider(tmp_path: Path) -> None:
-    """Verify that docker provider is accepted (deployment fails at mng create, not at provider check)."""
+    """Verify that docker provider is accepted (not rejected at provider check)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="docker")
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-docker", provider="docker")
 
-    # Should fail at mng create, NOT at provider check
-    assert result.exit_code != 0
     assert "Only local deployment is supported" not in result.output
 
 

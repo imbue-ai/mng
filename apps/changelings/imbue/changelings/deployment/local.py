@@ -197,6 +197,7 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
 def deploy_changeling(
     changeling_dir: Path,
     agent_name: AgentName,
+    agent_id: AgentId,
     provider: DeploymentProvider,
     paths: ChangelingPaths,
     forwarding_server_port: int,
@@ -204,25 +205,23 @@ def deploy_changeling(
 ) -> DeploymentResult:
     """Deploy a changeling by creating an mng agent.
 
-    The changeling_dir is a temporary directory containing the changeling's
-    repo (e.g. cloned from git or created from --agent-type). The agent is
-    created via `mng create` using the entrypoint template from
-    .mng/settings.toml to determine the agent type.
+    The changeling_dir is the permanent changeling directory (e.g.
+    ~/.changelings/<agent-id>/) containing the prepared repo. The caller
+    generates the agent_id upfront and uses it for both the directory name
+    and the --agent-id flag passed to mng create, ensuring they match.
 
-    For local deployments, the agent is created with --in-place in this
-    temp dir. The caller is responsible for moving the temp dir to its
-    permanent location (~/.changelings/<agent-id>/) after this returns.
+    For local deployments, the agent is created with --in-place so it
+    runs directly in changeling_dir.
 
-    For remote deployments (Modal, Docker), the code is copied to the
-    remote host via --source-path. The caller is responsible for cleaning
-    up the temp dir afterwards.
+    For remote deployments (Modal, Docker), the code is copied from
+    changeling_dir to the remote host via --source-path. The caller
+    is responsible for cleaning up changeling_dir afterwards.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
-    2. Creates an mng agent via `mng create -t entrypoint --label changeling=true`
-    3. Looks up the mng agent ID via `mng list`
-    4. Generates a one-time auth code for the forwarding server
-    5. Returns the deployment result with the login URL
+    2. Creates an mng agent via `mng create --agent-id <id> -t entrypoint --label changeling=true`
+    3. Generates a one-time auth code for the forwarding server
+    4. Returns the deployment result with the login URL
 
     The agent itself is responsible for writing its server info to
     $MNG_AGENT_STATE_DIR/logs/servers.jsonl on startup, which the forwarding
@@ -239,12 +238,8 @@ def deploy_changeling(
         _create_mng_agent(
             changeling_dir=changeling_dir,
             agent_name=agent_name,
+            agent_id=agent_id,
             provider=provider,
-            concurrency_group=concurrency_group,
-        )
-
-        agent_id = _get_agent_id(
-            agent_name=agent_name,
             concurrency_group=concurrency_group,
         )
 
@@ -316,23 +311,22 @@ def _raise_if_agent_exists(agent_name: AgentName, mng_list_output: str) -> None:
 def _create_mng_agent(
     changeling_dir: Path,
     agent_name: AgentName,
+    agent_id: AgentId,
     provider: DeploymentProvider,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
     """Create an mng agent from the changeling's repo directory.
 
-    For local deployment, runs `mng create --in-place -t entrypoint` with
-    cwd set to changeling_dir (a temporary directory; the caller moves it
-    to the permanent location after deployment).
+    The agent_id is passed via --agent-id so mng uses the same ID as the
+    changeling directory name (~/.changelings/<agent-id>/).
+
+    For local deployment, runs `mng create --in-place` so the agent runs
+    directly in changeling_dir.
 
     For remote deployment, runs `mng create --in <provider> --source-path
-    <changeling_dir> -t entrypoint`, which copies the code from the
-    temporary source directory to the remote host.
+    <changeling_dir>`, which copies the code to the remote host.
 
-    Both paths add `--label changeling=true` so `changeling list` can
-    identify agents created by the changeling CLI.
-
-    The entrypoint template in .mng/settings.toml specifies the agent type.
+    Both paths add `--label changeling=true` and `-t entrypoint`.
     """
     with log_span("Creating mng agent '{}' via provider '{}'", agent_name, provider.value):
         mng_command = [
@@ -340,6 +334,8 @@ def _create_mng_agent(
             "create",
             "--name",
             agent_name,
+            "--agent-id",
+            str(agent_id),
             "--no-connect",
             "-t",
             "entrypoint",
