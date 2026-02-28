@@ -11,9 +11,9 @@ from imbue.mng.cli.cleanup import CleanupCliOptions
 from imbue.mng.cli.cleanup import _build_cel_filters_from_options
 from imbue.mng.cli.cleanup import _selected_marker
 from imbue.mng.cli.cleanup import cleanup
-from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.primitives import AgentLifecycleState
+from imbue.mng.testing import make_test_agent_info
 
 # =============================================================================
 # Tests for _build_cel_filters_from_options
