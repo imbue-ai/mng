@@ -466,7 +466,7 @@ class BaseAgent(AgentInterface):
         """
         wait_channel = f"mng-submit-{session_name}"
         if self._send_enter_and_wait_for_signal(session_name, wait_channel):
-            logger.trace("Submitted message successfully")
+            logger.debug("Message submitted successfully")
             return
 
         pane_content = self._capture_pane_content(session_name)

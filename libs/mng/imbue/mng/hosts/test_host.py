@@ -1656,6 +1656,38 @@ def test_create_work_dir_copy_with_git(
     assert "Initial commit" in result.stdout
 
 
+def test_create_work_dir_copy_with_git_copies_info_exclude(
+    host_with_temp_dir: tuple[Host, Path],
+    setup_git_config: None,
+) -> None:
+    """Test that .git/info/exclude is copied from source to target by default."""
+    host, temp_dir = host_with_temp_dir
+
+    source_path = temp_dir / "source_info_exclude"
+    source_path.mkdir()
+    (source_path / "file1.txt").write_text("content")
+    _init_git_repo(source_path)
+
+    # Write a custom exclude pattern to .git/info/exclude
+    exclude_file = source_path / ".git" / "info" / "exclude"
+    exclude_file.write_text("my_custom_pattern\n")
+
+    target_path = temp_dir / "target_info_exclude"
+
+    options = CreateAgentOptions(
+        name=AgentName("copy-info-exclude"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+        target_path=target_path,
+    )
+
+    host.create_agent_work_dir(host, source_path, options)
+
+    target_exclude = target_path / ".git" / "info" / "exclude"
+    assert target_exclude.exists()
+    assert target_exclude.read_text() == "my_custom_pattern\n"
+
+
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
