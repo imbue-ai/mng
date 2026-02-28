@@ -348,8 +348,8 @@ def _create_mng_agent(
             # permanent changeling directory.
             mng_command.append("--in-place")
         else:
-            # Remote: point at the temp source dir and deploy to the
-            # remote provider. The temp dir is cleaned up after deployment.
+            # Remote: use the changeling directory as source and deploy
+            # to the remote provider. The caller cleans up the directory.
             mng_command.extend(
                 [
                     "--in",
