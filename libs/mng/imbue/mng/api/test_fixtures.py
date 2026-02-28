@@ -28,6 +28,10 @@ class FakeHost(MutableModel):
 
     is_local: bool = Field(default=True, description="Whether this is a local host")
     host_dir: Path = Field(default_factory=lambda: Path("/fake/host_dir"), description="Host state directory")
+    ssh_info: tuple[str, str, int, Path] | None = Field(
+        default=None,
+        description="SSH connection info (user, hostname, port, key_path) for remote hosts",
+    )
 
     def execute_command(
         self,
@@ -67,6 +71,12 @@ class FakeHost(MutableModel):
         """Write a binary file to the local filesystem."""
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+
+    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+        """Return configured SSH connection info, or None for local hosts."""
+        if self.is_local:
+            return None
+        return self.ssh_info
 
 
 class SyncTestContext(FrozenModel):

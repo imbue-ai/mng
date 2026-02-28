@@ -13,6 +13,7 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 from typing import Final
+from typing import assert_never
 
 import modal.exception
 from dotenv import dotenv_values
@@ -50,9 +51,8 @@ def _forward_output(line: str, is_stdout: bool) -> None:
     if is_stdout:
         logger.log(LogLevel.BUILD.value, "{}", line.rstrip(), source="modal deploy")
     else:
-        stream = sys.stdout if is_stdout else sys.stderr
-        stream.write(line)
-        stream.flush()
+        sys.stderr.write(line)
+        sys.stderr.flush()
 
 
 @pure
@@ -759,28 +759,36 @@ def deploy_schedule(
     mng_build_dir = deploy_build_path / "mng_build"
     mng_build_dir.mkdir(parents=True, exist_ok=True)
 
-    if resolved_install_mode == MngInstallMode.SKIP:
-        effective_dockerfile_path = mng_dockerfile_path
-        mng_build_dir = target_repo_dir
-        target_repo_dir = None
-    elif resolved_install_mode == MngInstallMode.EDITABLE:
-        mng_repo_root = _get_mng_repo_root()
-        mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
-        with log_span("Packaging mng monorepo at commit {}", mng_head_commit):
-            package_repo_at_commit(mng_head_commit, mng_build_dir, mng_repo_root)
-        mng_tarball = mng_build_dir / "current.tar.gz"
-        if not mng_tarball.exists():
+    match resolved_install_mode:
+        case MngInstallMode.SKIP:
+            effective_dockerfile_path = mng_dockerfile_path
+            mng_build_dir = target_repo_dir
+            target_repo_dir = None
+        case MngInstallMode.EDITABLE:
+            mng_repo_root = _get_mng_repo_root()
+            mng_head_commit = resolve_git_ref("HEAD", cwd=mng_repo_root)
+            with log_span("Packaging mng monorepo at commit {}", mng_head_commit):
+                package_repo_at_commit(mng_head_commit, mng_build_dir, mng_repo_root)
+            mng_tarball = mng_build_dir / "current.tar.gz"
+            if not mng_tarball.exists():
+                raise ScheduleDeployError(
+                    f"Expected tarball at {mng_tarball} after packaging mng monorepo, but it was not found"
+                ) from None
+            effective_dockerfile_path = mng_dockerfile_path
+        case MngInstallMode.PACKAGE:
+            # Generate a modified Dockerfile that installs mng from PyPI
+            mng_dockerfile_content = mng_dockerfile_path.read_text()
+            package_mode_content = _build_package_mode_dockerfile(mng_dockerfile_content)
+            effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
+            effective_dockerfile_path.write_text(package_mode_content)
+            logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
+        case MngInstallMode.AUTO:
             raise ScheduleDeployError(
-                f"Expected tarball at {mng_tarball} after packaging mng monorepo, but it was not found"
-            ) from None
-        effective_dockerfile_path = mng_dockerfile_path
-    else:
-        # PACKAGE mode: generate a modified Dockerfile that installs mng from PyPI
-        mng_dockerfile_content = mng_dockerfile_path.read_text()
-        package_mode_content = _build_package_mode_dockerfile(mng_dockerfile_content)
-        effective_dockerfile_path = mng_build_dir / "Dockerfile.package"
-        effective_dockerfile_path.write_text(package_mode_content)
-        logger.info("Generated PACKAGE mode Dockerfile at {}", effective_dockerfile_path)
+                "MngInstallMode.AUTO should have been resolved before reaching this point. "
+                "Call resolve_mng_install_mode() first."
+            )
+        case _ as unreachable:
+            assert_never(unreachable)
 
     # Validate that GH_TOKEN will be available at runtime when auto-merge is enabled.
     # It must be present either in the consolidated env (via --pass-env or --env-file)

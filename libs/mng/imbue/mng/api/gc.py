@@ -23,6 +23,7 @@ from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.interfaces.data_types import LogFileInfo
 from imbue.mng.interfaces.data_types import SizeBytes
 from imbue.mng.interfaces.data_types import WorkDirInfo
+from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ErrorBehavior
@@ -205,19 +206,20 @@ def gc_machines(
                         agent_refs = host.get_agent_references()
                         if len(agent_refs) > 0:
                             continue
+                        host_to_destroy: HostInterface = host
                     except HostAuthenticationError:
                         # hosts that fail to authenticate should be destroyed--we assume all hosts are reachable
                         logger.warning("Failed to authenticate with host during GC, destroying: {}", host.id)
-                        host = host.to_offline_host()
+                        host_to_destroy = host.to_offline_host()
                     except HostConnectionError as e:
                         # we skip hosts that suddenly appear offline for now--it's hard to tell exactly what happened
                         logger.warning("Failed to connect to host {} during gc, skipping: {}", host.id, e)
                         continue
 
                     if not dry_run:
-                        mng_ctx.pm.hook.on_before_host_destroy(host=host)
-                        provider.destroy_host(host)
-                        mng_ctx.pm.hook.on_host_destroyed(host=host)
+                        mng_ctx.pm.hook.on_before_host_destroy(host=host_to_destroy)
+                        provider.destroy_host(host_to_destroy)
+                        mng_ctx.pm.hook.on_host_destroyed(host=host_to_destroy)
 
                     result.machines_destroyed.append(host_info)
 

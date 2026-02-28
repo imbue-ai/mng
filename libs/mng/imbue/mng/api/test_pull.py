@@ -611,18 +611,14 @@ def remote_git_pull_ctx(tmp_path: Path) -> SyncTestContext:
     )
 
 
-def test_pull_files_with_remote_host_raises_not_implemented(
+def test_pull_files_with_remote_host_without_ssh_info_raises_assertion(
     remote_pull_ctx: SyncTestContext,
     cg: ConcurrencyGroup,
 ) -> None:
-    """Test that pull_files raises NotImplementedError for remote hosts.
-
-    File sync via rsync requires local paths on both sides. Remote host
-    support will require SSH-based rsync or a different transfer mechanism.
-    """
+    """Test that pull_files fails when remote host has no SSH info configured."""
     (remote_pull_ctx.agent_dir / "file.txt").write_text("agent content")
 
-    with pytest.raises(NotImplementedError, match="remote hosts"):
+    with pytest.raises(AssertionError, match="SSH connection info"):
         pull_files(
             agent=remote_pull_ctx.agent,
             host=remote_pull_ctx.host,

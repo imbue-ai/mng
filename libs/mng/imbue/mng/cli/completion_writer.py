@@ -156,12 +156,12 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
         logger.debug("Failed to write CLI completions cache")
 
 
-def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
+def write_agent_names_cache(cache_dir: Path, agent_names: list[str]) -> None:
     """Write agent names to the completion cache file (best-effort).
 
     Writes a JSON file with agent names so that shell completion can read it
     without importing the mng config system. The cache file is written to
-    {host_dir}/.agent_completions.json.
+    {cache_dir}/.agent_completions.json.
 
     Catches OSError from cache writes so filesystem failures do not break
     the caller. Other exceptions are allowed to propagate.
@@ -172,7 +172,7 @@ def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = cache_dir / AGENT_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write agent name completion cache")

@@ -459,7 +459,7 @@ def _handle_offline_or_unreachable_host(
     offline_hosts: list[_OfflineHostToDestroy],
     provider: BaseProviderInstance,
     seen_offline_hosts: set[str],
-):
+) -> None:
     all_agent_refs_on_host = offline_host.get_agent_references()
     all_targeted = destroy_all or all(
         str(ref.agent_name) in agent_identifiers or str(ref.agent_id) in agent_identifiers
