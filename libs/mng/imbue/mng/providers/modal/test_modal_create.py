@@ -326,6 +326,7 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_transfers_git_repo_with_untracked_files(
     temp_git_repo: Path,
