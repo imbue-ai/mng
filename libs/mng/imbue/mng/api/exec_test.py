@@ -197,6 +197,7 @@ def test_multi_exec_result_accumulates_results() -> None:
     assert result.failed_agents[0] == ("agent-2", "host offline")
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agents_single_agent(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
@@ -229,6 +230,7 @@ def test_exec_command_on_agents_nonexistent_agent(
         )
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agents_invokes_callbacks(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,

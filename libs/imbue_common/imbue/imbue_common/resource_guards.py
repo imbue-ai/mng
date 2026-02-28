@@ -51,7 +51,9 @@ def generate_wrapper_script(resource: str, real_path: str) -> str:
     - _PYTEST_GUARD_TRACKING_DIR: Directory where tracking files are created
 
     During the call phase:
-    - If the guard is "block", the wrapper prints an error and exits 127
+    - If the guard is "block", the wrapper records the violation, prints an error,
+      and exits 127. The tracking file ensures makereport catches the missing mark
+      even if the test handles the non-zero exit code gracefully.
     - If the guard is "allow", the wrapper touches a tracking file and delegates
     Outside the call phase (fixture setup/teardown), the wrapper always delegates.
     """
@@ -59,6 +61,9 @@ def generate_wrapper_script(resource: str, real_path: str) -> str:
     return f"""#!/bin/bash
 if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
     if [ "{bash_guard_var}" = "block" ]; then
+        if [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
+            touch "$_PYTEST_GUARD_TRACKING_DIR/blocked_{resource}"
+        fi
         echo "RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource} mark." >&2
         echo "Add @pytest.mark.{resource} to the test, or remove the {resource} usage." >&2
         exit 127
@@ -211,14 +216,14 @@ def _pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo,  # type: ignore[type-arg]
 ) -> Generator[None, None, None]:
-    """Enforce that tests with resource marks actually invoked the resource.
+    """Enforce resource guard invariants after each test.
 
-    After the call phase completes successfully, checks each marked resource's
-    tracking file. If a test has @pytest.mark.<resource> but the resource binary
-    was never invoked during the test function, the test is failed.
-
-    This catches superfluous marks that would unnecessarily slow down filtered
-    test runs (e.g., `pytest -m 'not tmux'` skipping a test that doesn't use tmux).
+    After the call phase completes successfully, checks two things:
+    1. Blocked invocations: if a test without @pytest.mark.<resource> invoked
+       the resource anyway (and handled the non-zero exit), the blocked_<resource>
+       tracking file catches it.
+    2. Superfluous marks: if a test has @pytest.mark.<resource> but the resource
+       binary was never invoked, the test is failed.
     """
     outcome = yield
     report = outcome.get_result()
@@ -239,13 +244,23 @@ def _pytest_runtest_makereport(
     marks: set[str] = getattr(item, "_resource_marks", set())
 
     for resource in _guarded_resources:
-        if resource not in marks:
-            continue
-        tracking_file = Path(tracking_dir) / resource
-        if not tracking_file.exists():
+        # Check for blocked invocations (test lacks mark but called the binary)
+        blocked_file = Path(tracking_dir) / f"blocked_{resource}"
+        if blocked_file.exists():
             report.outcome = "failed"
             report.longrepr = (
-                f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
-                f"Remove the mark or ensure the test exercises {resource}."
+                f"Test invoked '{resource}' without @pytest.mark.{resource}.\n"
+                f"Add @pytest.mark.{resource} to the test, or remove the {resource} usage."
             )
             break
+
+        # Check for superfluous marks (test has mark but never called the binary)
+        if resource in marks:
+            tracking_file = Path(tracking_dir) / resource
+            if not tracking_file.exists():
+                report.outcome = "failed"
+                report.longrepr = (
+                    f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
+                    f"Remove the mark or ensure the test exercises {resource}."
+                )
+                break

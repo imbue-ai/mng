@@ -38,6 +38,7 @@ def _create_stopped_agent(
     return host
 
 
+@pytest.mark.tmux
 def test_rename_stopped_agent_updates_data_json(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -205,6 +206,7 @@ def test_rename_to_same_name_is_no_op(
     assert "already named" in result.output
 
 
+@pytest.mark.tmux
 def test_rename_with_agent_id(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -239,6 +241,7 @@ def test_rename_with_agent_id(
     assert new_name in agent_names
 
 
+@pytest.mark.tmux
 def test_rename_json_output(
     cli_runner: CliRunner,
     temp_work_dir: Path,

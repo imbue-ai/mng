@@ -74,6 +74,7 @@ def create_test_agent(
     return agent
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_stopped_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,

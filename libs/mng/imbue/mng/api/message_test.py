@@ -40,6 +40,7 @@ def test_message_result_can_add_failed_agent() -> None:
     assert result.failed_agents == [("test-agent", "error message")]
 
 
+@pytest.mark.tmux
 def test_agent_to_cel_context_returns_expected_fields(
     temp_work_dir: Path,
     local_provider: LocalProviderInstance,
