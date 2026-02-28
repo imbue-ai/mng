@@ -268,14 +268,17 @@ def _install_docker_guards() -> None:
     except ImportError:
         return
 
-    inherited_send = requests.Session.send
     _sdk_guard_originals["docker_send_existed"] = "send" in APIClient.__dict__
     if "send" in APIClient.__dict__:
         _sdk_guard_originals["docker_send_original"] = APIClient.__dict__["send"]
 
+    # Capture the method to delegate to: the existing APIClient override if it
+    # exists, otherwise the inherited requests.Session.send.
+    original_send = APIClient.__dict__["send"] if "send" in APIClient.__dict__ else requests.Session.send
+
     def guarded_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
         _enforce_sdk_guard("docker")
-        return inherited_send(self, *args, **kwargs)
+        return original_send(self, *args, **kwargs)
 
     APIClient.send = guarded_send  # type: ignore[method-assign]
 
