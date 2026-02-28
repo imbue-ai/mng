@@ -124,15 +124,11 @@ def _print_result(result: DeploymentResult, provider: DeploymentProvider) -> Non
     logger.info("  Agent ID:   {}", result.agent_id)
     logger.info("  Provider:   {}", provider.value.lower())
     logger.info("")
-    if provider == DeploymentProvider.LOCAL:
-        logger.info("  Login URL (one-time use):")
-        logger.info("  {}", result.login_url)
-        logger.info("")
-        logger.info("Start the forwarding server to access your changeling:")
-        logger.info("  changeling forward")
-    else:
-        logger.info("Connect to your changeling:")
-        logger.info("  mng connect {}", result.agent_name)
+    logger.info("  Login URL (one-time use):")
+    logger.info("  {}", result.login_url)
+    logger.info("")
+    logger.info("Start the forwarding server to access your changeling:")
+    logger.info("  changeling forward")
     logger.info("=" * 60)
 
 
