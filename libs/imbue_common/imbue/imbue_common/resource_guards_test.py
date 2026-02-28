@@ -2,12 +2,35 @@ import os
 import shutil
 import stat
 import subprocess
+from collections.abc import Generator
+from contextlib import contextmanager
 from pathlib import Path
 
+import imbue.imbue_common.resource_guards as rg
 from imbue.imbue_common.resource_guards import GUARDED_RESOURCES
 from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import generate_wrapper_script
+
+
+@contextmanager
+def _isolated_guard_state() -> Generator[None, None, None]:
+    """Save and restore resource guard module state and env vars."""
+    original_dir = rg._guard_wrapper_dir
+    original_owns = rg._owns_guard_wrapper_dir
+    original_path = os.environ.get("PATH", "")
+    saved_env = {k: os.environ.pop(k, None) for k in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH")}
+    try:
+        yield
+    finally:
+        rg._guard_wrapper_dir = original_dir
+        rg._owns_guard_wrapper_dir = original_owns
+        os.environ["PATH"] = original_path
+        for k, v in saved_env.items():
+            if v is not None:
+                os.environ[k] = v
+            else:
+                os.environ.pop(k, None)
 
 
 def test_generate_wrapper_script_contains_shebang_and_exec() -> None:
@@ -98,18 +121,7 @@ def test_wrapper_passes_through_outside_call_phase(tmp_path: Path) -> None:
 
 def test_create_and_cleanup_round_trip() -> None:
     """create_resource_guard_wrappers modifies PATH; cleanup restores it."""
-    import imbue.imbue_common.resource_guards as rg
-
-    # Save original module state
-    original_dir = rg._guard_wrapper_dir
-    original_owns = rg._owns_guard_wrapper_dir
-    original_path = os.environ.get("PATH", "")
-
-    # Clear any pre-existing guard env vars so create sees a fresh state
-    for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
-        os.environ.pop(key, None)
-
-    try:
+    with _isolated_guard_state():
         create_resource_guard_wrappers()
 
         # Wrapper dir should be set and prepended to PATH
@@ -128,10 +140,3 @@ def test_create_and_cleanup_round_trip() -> None:
         assert rg._guard_wrapper_dir is None
         assert not Path(wrapper_dir).exists()
         assert not os.environ["PATH"].startswith(wrapper_dir)
-    finally:
-        # Restore original state no matter what
-        rg._guard_wrapper_dir = original_dir
-        rg._owns_guard_wrapper_dir = original_owns
-        os.environ["PATH"] = original_path
-        for key in ("_PYTEST_GUARD_WRAPPER_DIR", "_PYTEST_GUARD_ORIGINAL_PATH"):
-            os.environ.pop(key, None)
