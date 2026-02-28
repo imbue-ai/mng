@@ -106,6 +106,7 @@ def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_files_transfers_files_to_agent(
@@ -136,6 +137,7 @@ def test_push_files_transfers_files_to_agent(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_files_dry_run_does_not_transfer(
@@ -375,6 +377,7 @@ def test_push_git_mirror_mode_overwrites_all_refs(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_pull_files_transfers_files_from_agent(
@@ -453,6 +456,7 @@ def test_pull_git_merges_agent_commits(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_then_pull_round_trips_files(
