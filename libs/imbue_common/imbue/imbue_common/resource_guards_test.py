@@ -54,6 +54,7 @@ def isolated_guard_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rg, "_owns_guard_wrapper_dir", False)
     monkeypatch.setattr(rg, "_session_env_patcher", None)
     monkeypatch.setattr(rg, "_guarded_resources", [])
+    monkeypatch.setattr(rg, "_sdk_guard_originals", {})
     monkeypatch.delenv("_PYTEST_GUARD_WRAPPER_DIR", raising=False)
 
 
