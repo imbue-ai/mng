@@ -391,16 +391,20 @@ def deploy(
         logger.debug("Self-deploy enabled (not yet implemented)")
 
     try:
-        _move_to_permanent_location(temp_dir, paths.changeling_dir(agent_name))
+        result = _run_deployment(
+            changeling_dir=temp_dir,
+            agent_name=agent_name,
+            provider=provider_choice,
+            paths=paths,
+        )
     except ChangelingError:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
-    result = _run_deployment(
-        changeling_dir=paths.changeling_dir(agent_name),
-        agent_name=agent_name,
-        provider=provider_choice,
-        paths=paths,
-    )
+    try:
+        _move_to_permanent_location(temp_dir, paths.changeling_dir(result.agent_id))
+    except ChangelingError:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
 
     _print_result(result)

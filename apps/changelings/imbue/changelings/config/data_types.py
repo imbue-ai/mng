@@ -4,9 +4,9 @@ from typing import Final
 
 from pydantic import Field
 
-from imbue.changelings.primitives import AgentName
 from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mng.primitives import AgentId
 
 DEFAULT_DATA_DIR_NAME: Final[str] = ".changelings"
 
@@ -27,9 +27,9 @@ class ChangelingPaths(FrozenModel):
         """Directory for authentication data (signing key, one-time codes)."""
         return self.data_dir / "auth"
 
-    def changeling_dir(self, agent_name: AgentName) -> Path:
+    def changeling_dir(self, agent_id: AgentId) -> Path:
         """Directory for a specific changeling's data (git clone, etc.)."""
-        return self.data_dir / str(agent_name)
+        return self.data_dir / str(agent_id)
 
 
 class DeploymentProvider(UpperCaseStrEnum):

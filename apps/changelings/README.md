@@ -15,7 +15,7 @@ Other than that, the design of each changeling is completely open -- you can cus
 
 ## Terminology
 
-- **changeling**: a persistent `mng` agent that serves a web interface and is conversational. Each changeling is identified by its `AgentId` and has a repo directory at `~/.changelings/<agent-name>/` containing a `.mng/settings.toml` with an "entrypoint" create template that specifies the agent type. The agent runs directly in this directory via `mng create --in-place`.
+- **changeling**: a persistent `mng` agent that serves a web interface and is conversational. Each changeling is identified by its `AgentId` and has a repo directory at `~/.changelings/<agent-id>/` containing a `.mng/settings.toml` with an "entrypoint" create template that specifies the agent type. The agent runs directly in this directory via `mng create --in-place`.
 - **forwarding server**: a local process (started via `changeling forward`) that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Users access all their changelings through such gateways.
 
 ## Architecture

@@ -15,7 +15,7 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-Each changeling has its own repo stored at `~/.changelings/<agent-name>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+Each changeling has its own repo stored at `~/.changelings/<agent-id>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
 
 ## Entrypoint template
 
@@ -46,9 +46,10 @@ See [the forwarding server design doc](../imbue/changelings/forwarding_server/RE
 - `changeling deploy --agent-type <type>` (creates a changeling from scratch for the given agent type)
 - `changeling deploy ... --add-path SRC:DEST` (copies extra files into the changeling repo, works with both modes)
 - `changeling update <agent-name>` (updates an existing changeling by snapshotting, stopping, pushing new code, re-provisioning, and restarting)
+- `changeling list` (lists deployed changelings with their current state)
 - `changeling forward` (starts the local forwarding server for accessing changelings)
 
-[future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
+[future] Additional commands for managing deployed changelings (stop, start, destroy, logs, etc.)
 
 # Deferred items
 
