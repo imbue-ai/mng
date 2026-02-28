@@ -1,23 +1,20 @@
 import json
 import sys
-from pathlib import Path
 from typing import Any
 
 import click
 from loguru import logger
 from tabulate import tabulate
 
-from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import MNG_BINARY
-from imbue.changelings.config.data_types import get_default_data_dir
 from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.primitives import AgentId
 
 _DEFAULT_DISPLAY_FIELDS = (
     "name",
     "id",
     "state",
+    "host.provider_name",
     "host.state",
 )
 
@@ -31,38 +28,17 @@ _HEADER_LABELS: dict[str, str] = {
 }
 
 
-def _discover_changeling_ids(paths: ChangelingPaths) -> list[AgentId]:
-    """Scan the data directory for changeling directories named by agent ID.
+def _fetch_changeling_agents_json() -> list[dict[str, Any]]:
+    """Call `mng list --label changeling=true --json --quiet` and return the agents list.
 
-    Directories whose name starts with the AgentId prefix ("agent-") are
-    considered changeling directories. Hidden directories and the auth
-    directory are skipped.
-    """
-    if not paths.data_dir.exists():
-        return []
-
-    ids: list[AgentId] = []
-    for entry in sorted(paths.data_dir.iterdir()):
-        if not entry.is_dir():
-            continue
-        if entry.name.startswith(".") or entry.name == "auth":
-            continue
-        if entry.name.startswith("agent-"):
-            ids.append(AgentId(entry.name))
-
-    return ids
-
-
-def _fetch_mng_agents_json() -> list[dict[str, Any]]:
-    """Call `mng list --json --quiet` and return the agents list.
-
-    Returns an empty list on failure.
+    Filters to only agents with the changeling=true label (set during
+    changeling deploy). Returns an empty list on failure.
     """
     cg = ConcurrencyGroup(name="changeling-list")
     try:
         with cg:
             result = cg.run_process_to_completion(
-                command=[MNG_BINARY, "list", "--json", "--quiet"],
+                command=[MNG_BINARY, "list", "--label", "changeling=true", "--json", "--quiet"],
                 timeout=10.0,
                 is_checked_after=False,
             )
@@ -99,77 +75,36 @@ def _get_field_value(agent: dict[str, Any], field: str) -> str:
     return str(value)
 
 
-def _index_agents_by_id(mng_agents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Build a lookup dict from agent ID string to agent data dict."""
-    agents_by_id: dict[str, dict[str, Any]] = {}
-    for agent in mng_agents:
-        agent_id = agent.get("id")
-        if agent_id is not None:
-            agents_by_id[str(agent_id)] = agent
-    return agents_by_id
-
-
 def _build_table(
-    changeling_ids: list[AgentId],
-    mng_agents: list[dict[str, Any]],
+    agents: list[dict[str, Any]],
     fields: tuple[str, ...],
 ) -> list[list[str]]:
-    """Build table rows by matching changeling IDs against mng agent data.
-
-    Returns one row per changeling. If a changeling's agent ID is not found in
-    the mng agent list (e.g. the agent was destroyed but the directory remains),
-    fields other than "id" are left blank.
-    """
-    agents_by_id = _index_agents_by_id(mng_agents)
-
+    """Build table rows from mng agent data."""
     rows: list[list[str]] = []
-    for cid in changeling_ids:
-        agent_data = agents_by_id.get(str(cid))
-        row: list[str] = []
-        for field in fields:
-            if field == "id":
-                row.append(str(cid))
-            elif agent_data is not None:
-                row.append(_get_field_value(agent_data, field))
-            else:
-                row.append("")
+    for agent in agents:
+        row = [_get_field_value(agent, field) for field in fields]
         rows.append(row)
-
     return rows
 
 
 def _emit_human_output(
-    changeling_ids: list[AgentId],
-    mng_agents: list[dict[str, Any]],
+    agents: list[dict[str, Any]],
     fields: tuple[str, ...],
 ) -> None:
     """Print a human-readable table of changelings."""
-    if not changeling_ids:
+    if not agents:
         logger.info("No changelings found")
         return
 
     headers = [_HEADER_LABELS.get(f, f.upper()) for f in fields]
-    rows = _build_table(changeling_ids, mng_agents, fields)
+    rows = _build_table(agents, fields)
     table = tabulate(rows, headers=headers, tablefmt="plain")
     logger.info("{}", table)
 
 
-def _emit_json_output(
-    changeling_ids: list[AgentId],
-    mng_agents: list[dict[str, Any]],
-) -> None:
+def _emit_json_output(agents: list[dict[str, Any]]) -> None:
     """Print JSON output with changeling info."""
-    agents_by_id = _index_agents_by_id(mng_agents)
-
-    changelings_data: list[dict[str, Any]] = []
-    for cid in changeling_ids:
-        agent_data = agents_by_id.get(str(cid))
-        if agent_data is not None:
-            changelings_data.append(agent_data)
-        else:
-            changelings_data.append({"id": str(cid)})
-
-    sys.stdout.write(json.dumps({"changelings": changelings_data}, indent=2))
+    sys.stdout.write(json.dumps({"changelings": agents}, indent=2))
     sys.stdout.write("\n")
     sys.stdout.flush()
 
@@ -182,20 +117,13 @@ def _emit_json_output(
     default=False,
     help="Output in JSON format",
 )
-@click.option(
-    "--data-dir",
-    type=click.Path(resolve_path=True),
-    default=None,
-    help="Data directory for changelings state (default: ~/.changelings)",
-)
 def list_command(
     output_json: bool,
-    data_dir: str | None,
 ) -> None:
     """List deployed changelings.
 
-    Scans the changelings data directory for deployed changeling directories
-    and cross-references with mng to show the current state of each one.
+    Queries mng for agents with the changeling=true label to show
+    the current state of each deployed changeling.
 
     Example:
 
@@ -203,13 +131,9 @@ def list_command(
         changeling list
         changeling list --json
     """
-    data_directory = Path(data_dir) if data_dir else get_default_data_dir()
-    paths = ChangelingPaths(data_dir=data_directory)
-
-    changeling_ids = _discover_changeling_ids(paths)
-    mng_agents = _fetch_mng_agents_json()
+    agents = _fetch_changeling_agents_json()
 
     if output_json:
-        _emit_json_output(changeling_ids, mng_agents)
+        _emit_json_output(agents)
     else:
-        _emit_human_output(changeling_ids, mng_agents, _DEFAULT_DISPLAY_FIELDS)
+        _emit_human_output(agents, _DEFAULT_DISPLAY_FIELDS)

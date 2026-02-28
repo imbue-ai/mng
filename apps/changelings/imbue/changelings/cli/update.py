@@ -1,11 +1,61 @@
+import json
+
 import click
 from loguru import logger
 
+from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.deployment.local import UpdateResult
 from imbue.changelings.deployment.local import update_local
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.primitives import AgentName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+
+
+def _is_agent_remote(
+    agent_name: AgentName,
+    concurrency_group: ConcurrencyGroup | None = None,
+) -> bool:
+    """Check if the named agent is running on a remote provider.
+
+    Returns True if the agent's host provider is not "local".
+    Returns False if the provider is "local" or if the check fails
+    (fail-open to allow the update to proceed).
+    """
+    if concurrency_group is not None:
+        cg = concurrency_group
+    else:
+        cg = ConcurrencyGroup(name="changeling-check-remote")
+
+    with cg:
+        result = cg.run_process_to_completion(
+            command=[
+                MNG_BINARY,
+                "list",
+                "--include",
+                'name == "{}"'.format(agent_name),
+                "--json",
+                "--quiet",
+            ],
+            is_checked_after=False,
+        )
+
+    if result.returncode != 0:
+        logger.warning("Failed to check agent provider, proceeding with update")
+        return False
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        logger.warning("Failed to parse mng list output, proceeding with update")
+        return False
+
+    agents = data.get("agents", [])
+    if not agents:
+        return False
+
+    host = agents[0].get("host", {})
+    provider = host.get("provider_name", "local")
+    return provider != "local"
 
 
 def _run_update(
@@ -102,6 +152,9 @@ def update(
     Use --no-snapshot, --no-push, or --no-provision to skip individual steps.
     Stop and start are always performed.
 
+    Currently only supports local agents. Remote agent update support
+    requires mng push/pull to support remote hosts.
+
     Example:
 
     \b
@@ -109,10 +162,18 @@ def update(
         changeling update my-agent --no-snapshot
         changeling update my-agent --no-push --no-provision
     """
+    parsed_name = AgentName(agent_name)
+
+    if _is_agent_remote(parsed_name):
+        raise ChangelingError(
+            "Updating remote changelings is not yet supported. "
+            "Remote update requires mng push/pull to support remote hosts."
+        )
+
     logger.info("Updating changeling '{}'...", agent_name)
 
     result = _run_update(
-        agent_name=AgentName(agent_name),
+        agent_name=parsed_name,
         do_snapshot=snapshot,
         do_push=push,
         do_provision=provision,

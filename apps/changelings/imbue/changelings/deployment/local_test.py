@@ -1,17 +1,16 @@
 import json
 import subprocess
-from collections.abc import Callable
-from collections.abc import Mapping
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
 from imbue.changelings.config.data_types import ChangelingPaths
+from imbue.changelings.config.data_types import DeploymentProvider
 from imbue.changelings.deployment.local import AgentIdLookupError
 from imbue.changelings.deployment.local import MngCreateError
 from imbue.changelings.deployment.local import MngNotFoundError
 from imbue.changelings.deployment.local import UpdateResult
+from imbue.changelings.deployment.local import _create_mng_agent
 from imbue.changelings.deployment.local import _generate_auth_code
 from imbue.changelings.deployment.local import _raise_if_agent_exists
 from imbue.changelings.deployment.local import _run_mng_command
@@ -28,80 +27,20 @@ from imbue.changelings.errors import GitInitError
 from imbue.changelings.errors import MngCommandError
 from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitUrl
+from imbue.changelings.testing import FakeConcurrencyGroup
 from imbue.changelings.testing import init_and_commit_git_repo
-from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.concurrency_group.event_utils import ReadOnlyEvent
+from imbue.changelings.testing import make_fake_concurrency_group
+from imbue.changelings.testing import make_finished_process
 from imbue.concurrency_group.subprocess_utils import FinishedProcess
 from imbue.mng.primitives import AgentId
-
-
-def _make_finished_process(
-    returncode: int = 0,
-    stdout: str = "",
-    stderr: str = "",
-    command: tuple[str, ...] = ("mng",),
-) -> FinishedProcess:
-    return FinishedProcess(
-        returncode=returncode,
-        stdout=stdout,
-        stderr=stderr,
-        command=command,
-        is_output_already_logged=False,
-    )
-
-
-class _FakeConcurrencyGroup(ConcurrencyGroup):
-    """ConcurrencyGroup subclass that returns pre-configured results instead of running processes.
-
-    Accepts a mapping of command-name -> FinishedProcess so tests can control
-    what each mng subcommand returns. Also records the commands that were run
-    in order.
-    """
-
-    _fake_results: dict[str, FinishedProcess]
-    _commands_run: list[list[str]]
-
-    def __init__(self, results: dict[str, FinishedProcess] | None = None) -> None:
-        super().__init__(name="fake-cg")
-        self._fake_results = results or {}
-        self._commands_run = []
-
-    @property
-    def commands_run(self) -> list[list[str]]:
-        return self._commands_run
-
-    @property
-    def subcommands_run(self) -> list[str]:
-        """Extract the mng subcommand names (second element) from all recorded commands."""
-        return [cmd[1] for cmd in self._commands_run if len(cmd) > 1]
-
-    def run_process_to_completion(
-        self,
-        command: Sequence[str],
-        timeout: float | None = None,
-        is_checked_after: bool = True,
-        on_output: Callable[[str, bool], None] | None = None,
-        cwd: Path | None = None,
-        env: Mapping[str, str] | None = None,
-        shutdown_event: ReadOnlyEvent | None = None,
-    ) -> FinishedProcess:
-        cmd_list = list(command)
-        self._commands_run.append(cmd_list)
-
-        # Try to match by the mng subcommand (second element, e.g. "snapshot", "stop")
-        if len(cmd_list) > 1 and cmd_list[1] in self._fake_results:
-            return self._fake_results[cmd_list[1]]
-
-        # Default: success
-        return _make_finished_process(command=tuple(cmd_list))
 
 
 def _make_fake_cg(
     agent_id: str | None = None,
     failing_command: str | None = None,
     fail_stderr: str = "command failed",
-) -> _FakeConcurrencyGroup:
-    """Create a _FakeConcurrencyGroup configured for testing.
+) -> FakeConcurrencyGroup:
+    """Create a FakeConcurrencyGroup configured for testing.
 
     By default, all commands succeed. The `list` command returns a JSON response
     with the given agent_id (or a generated one). If failing_command is provided,
@@ -110,20 +49,20 @@ def _make_fake_cg(
     resolved_agent_id = agent_id or str(AgentId())
 
     results: dict[str, FinishedProcess] = {
-        "list": _make_finished_process(
+        "list": make_finished_process(
             stdout=json.dumps({"agents": [{"id": resolved_agent_id, "name": "my-agent"}]}),
             command=("mng", "list"),
         ),
     }
 
     if failing_command is not None:
-        results[failing_command] = _make_finished_process(
+        results[failing_command] = make_finished_process(
             returncode=1,
             stderr=fail_stderr,
             command=("mng", failing_command, "my-agent"),
         )
 
-    return _FakeConcurrencyGroup(results=results)
+    return make_fake_concurrency_group(results=results)
 
 
 def test_verify_mng_available_succeeds_when_mng_exists() -> None:
@@ -346,9 +285,9 @@ def test_mng_command_error_is_changeling_error() -> None:
 
 def test_run_mng_command_raises_on_failure() -> None:
     """Verify that _run_mng_command raises MngCommandError when the command fails."""
-    cg = _FakeConcurrencyGroup(
+    cg = make_fake_concurrency_group(
         results={
-            "stop": _make_finished_process(
+            "stop": make_finished_process(
                 returncode=1,
                 stderr="something went wrong",
                 command=("mng", "stop", "my-agent"),
@@ -366,7 +305,7 @@ def test_run_mng_command_raises_on_failure() -> None:
 
 def test_run_mng_command_succeeds_on_zero_exit() -> None:
     """Verify that _run_mng_command does not raise when the command succeeds."""
-    cg = _FakeConcurrencyGroup()
+    cg = make_fake_concurrency_group()
 
     _run_mng_command(
         command_name="stop",
@@ -377,9 +316,9 @@ def test_run_mng_command_succeeds_on_zero_exit() -> None:
 
 def test_run_mng_command_includes_stderr_in_error() -> None:
     """Verify that the error message includes stderr output."""
-    cg = _FakeConcurrencyGroup(
+    cg = make_fake_concurrency_group(
         results={
-            "snapshot": _make_finished_process(
+            "snapshot": make_finished_process(
                 returncode=1,
                 stderr="detailed error info",
                 command=("mng", "snapshot", "my-agent"),
@@ -397,9 +336,9 @@ def test_run_mng_command_includes_stderr_in_error() -> None:
 
 def test_run_mng_command_falls_back_to_stdout_in_error() -> None:
     """Verify that when stderr is empty, stdout is used in the error message."""
-    cg = _FakeConcurrencyGroup(
+    cg = make_fake_concurrency_group(
         results={
-            "push": _make_finished_process(
+            "push": make_finished_process(
                 returncode=1,
                 stdout="stdout error info",
                 stderr="",
@@ -418,7 +357,7 @@ def test_run_mng_command_falls_back_to_stdout_in_error() -> None:
 
 def test_run_mng_command_records_command() -> None:
     """Verify that _run_mng_command passes the correct command to the concurrency group."""
-    cg = _FakeConcurrencyGroup()
+    cg = make_fake_concurrency_group()
 
     _run_mng_command(
         command_name="stop",
@@ -537,9 +476,9 @@ def test_update_local_all_optional_steps_disabled() -> None:
 
 def test_update_local_raises_when_agent_not_found() -> None:
     """Verify that update_local raises AgentIdLookupError when agent is not found."""
-    cg = _FakeConcurrencyGroup(
+    cg = make_fake_concurrency_group(
         results={
-            "list": _make_finished_process(
+            "list": make_finished_process(
                 stdout=json.dumps({"agents": []}),
                 command=("mng", "list"),
             ),
@@ -644,3 +583,117 @@ def test_update_local_provision_uses_no_restart_flag() -> None:
     provision_commands = [cmd for cmd in cg.commands_run if len(cmd) > 1 and cmd[1] == "provision"]
     assert len(provision_commands) == 1
     assert "--no-restart" in provision_commands[0]
+
+
+# --- _create_mng_agent tests ---
+
+
+def test_create_mng_agent_local_does_not_use_in_place(tmp_path: Path) -> None:
+    """Verify that local deployment does not use --in-place (temp dir is cleaned up after deploy)."""
+    cg = make_fake_concurrency_group()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.LOCAL,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in-place" not in cmd
+    assert "--in" not in cmd
+
+
+def test_create_mng_agent_modal_uses_in_modal(tmp_path: Path) -> None:
+    """Verify that modal deployment uses --in modal."""
+    cg = make_fake_concurrency_group()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.MODAL,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in-place" not in cmd
+    assert "--in" in cmd
+    in_index = cmd.index("--in")
+    assert cmd[in_index + 1] == "modal"
+
+
+def test_create_mng_agent_docker_uses_in_docker(tmp_path: Path) -> None:
+    """Verify that docker deployment uses --in docker."""
+    cg = make_fake_concurrency_group()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.DOCKER,
+        concurrency_group=cg,
+    )
+
+    assert len(cg.commands_run) == 1
+    cmd = cg.commands_run[0]
+    assert "--in" in cmd
+    in_index = cmd.index("--in")
+    assert cmd[in_index + 1] == "docker"
+
+
+def test_create_mng_agent_always_includes_changeling_label(tmp_path: Path) -> None:
+    """Verify that all providers include --label changeling=true."""
+    for provider in DeploymentProvider:
+        cg = make_fake_concurrency_group()
+
+        _create_mng_agent(
+            changeling_dir=tmp_path,
+            agent_name=AgentName("my-agent"),
+            provider=provider,
+            concurrency_group=cg,
+        )
+
+        cmd = cg.commands_run[0]
+        assert "--label" in cmd
+        label_index = cmd.index("--label")
+        assert cmd[label_index + 1] == "changeling=true"
+
+
+def test_create_mng_agent_includes_template_and_no_connect(tmp_path: Path) -> None:
+    """Verify that the mng create command always includes -t entrypoint and --no-connect."""
+    cg = make_fake_concurrency_group()
+
+    _create_mng_agent(
+        changeling_dir=tmp_path,
+        agent_name=AgentName("my-agent"),
+        provider=DeploymentProvider.LOCAL,
+        concurrency_group=cg,
+    )
+
+    cmd = cg.commands_run[0]
+    assert "-t" in cmd
+    t_index = cmd.index("-t")
+    assert cmd[t_index + 1] == "entrypoint"
+    assert "--no-connect" in cmd
+
+
+def test_create_mng_agent_raises_on_failure(tmp_path: Path) -> None:
+    """Verify that _create_mng_agent raises MngCreateError when mng create fails."""
+    cg = make_fake_concurrency_group(
+        results={
+            "create": make_finished_process(
+                returncode=1,
+                stderr="create failed",
+                command=("mng", "create"),
+            ),
+        }
+    )
+
+    with pytest.raises(MngCreateError, match="mng create failed"):
+        _create_mng_agent(
+            changeling_dir=tmp_path,
+            agent_name=AgentName("my-agent"),
+            provider=DeploymentProvider.LOCAL,
+            concurrency_group=cg,
+        )

@@ -8,6 +8,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.changelings.config.data_types import ChangelingPaths
+from imbue.changelings.config.data_types import DeploymentProvider
 from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
@@ -29,7 +30,7 @@ _ONE_TIME_CODE_LENGTH: Final[int] = 32
 
 
 class DeploymentResult(FrozenModel):
-    """Result of a successful local changeling deployment."""
+    """Result of a successful changeling deployment."""
 
     agent_name: AgentName = Field(description="The name of the deployed agent")
     agent_id: AgentId = Field(description="The mng agent ID (used for forwarding server routing)")
@@ -193,24 +194,30 @@ def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
     return True
 
 
-def deploy_local(
+def deploy_changeling(
     changeling_dir: Path,
     agent_name: AgentName,
+    provider: DeploymentProvider,
     paths: ChangelingPaths,
     forwarding_server_port: int,
     concurrency_group: ConcurrencyGroup,
 ) -> DeploymentResult:
-    """Deploy a changeling locally by creating an mng agent.
+    """Deploy a changeling by creating an mng agent.
 
-    The changeling_dir is the changeling's own repo directory (e.g.
-    ~/.changelings/<name>/). The agent is created via
-    `mng create --in-place -t entrypoint` so it runs directly in this
-    directory, using the entrypoint template from .mng/settings.toml
-    to determine the agent type.
+    The changeling_dir is a temporary directory containing the changeling's
+    repo (e.g. cloned from git or created from --agent-type). The agent is
+    created via `mng create` using the entrypoint template from
+    .mng/settings.toml to determine the agent type.
+
+    For local deployments, mng creates a worktree/copy of the source.
+    For remote deployments (Modal, Docker), `--in <provider>` is used
+    so mng copies the code to the remote host. In both cases, the
+    changeling_dir is a temporary directory that is cleaned up after
+    deployment.
 
     This function:
     1. Verifies mng is available and no agent with this name exists
-    2. Creates an mng agent via `mng create --in-place -t entrypoint`
+    2. Creates an mng agent via `mng create -t entrypoint --label changeling=true`
     3. Looks up the mng agent ID via `mng list`
     4. Generates a one-time auth code for the forwarding server
     5. Returns the deployment result with the login URL
@@ -219,7 +226,7 @@ def deploy_local(
     $MNG_AGENT_STATE_DIR/logs/servers.jsonl on startup, which the forwarding
     server reads to discover backends.
     """
-    with log_span("Deploying changeling '{}' locally", agent_name):
+    with log_span("Deploying changeling '{}' via provider '{}'", agent_name, provider.value):
         _verify_mng_available()
 
         _check_agent_not_exists(
@@ -230,6 +237,7 @@ def deploy_local(
         _create_mng_agent(
             changeling_dir=changeling_dir,
             agent_name=agent_name,
+            provider=provider,
             concurrency_group=concurrency_group,
         )
 
@@ -306,24 +314,40 @@ def _raise_if_agent_exists(agent_name: AgentName, mng_list_output: str) -> None:
 def _create_mng_agent(
     changeling_dir: Path,
     agent_name: AgentName,
+    provider: DeploymentProvider,
     concurrency_group: ConcurrencyGroup,
 ) -> None:
-    """Create an mng agent from the changeling's own repo directory.
+    """Create an mng agent from the changeling's repo directory.
 
-    Runs `mng create --in-place -t entrypoint` from the changeling directory.
+    For local deployment, runs `mng create -t entrypoint` (without
+    --in-place, since the source dir is temporary and cleaned up after).
+    For remote deployment, runs `mng create --in <provider> -t entrypoint`,
+    which copies the code to the remote host.
+
+    Both paths add `--label changeling=true` so `changeling list` can
+    identify agents created by the changeling CLI.
+
     The entrypoint template in .mng/settings.toml specifies the agent type.
     """
-    with log_span("Creating mng agent '{}'", agent_name):
+    with log_span("Creating mng agent '{}' via provider '{}'", agent_name, provider.value):
         mng_command = [
             MNG_BINARY,
             "create",
             "--name",
             agent_name,
             "--no-connect",
-            "--in-place",
             "-t",
             "entrypoint",
+            "--label",
+            "changeling=true",
         ]
+
+        # For remote providers, use --in <provider> to deploy to the remote host.
+        # For local, omit --in (local is the default) and let mng create a
+        # worktree/copy of the source. We never use --in-place because the
+        # source temp dir is cleaned up after deployment.
+        if provider != DeploymentProvider.LOCAL:
+            mng_command.extend(["--in", provider.value.lower()])
 
         logger.debug("Running: {}", " ".join(mng_command))
 
