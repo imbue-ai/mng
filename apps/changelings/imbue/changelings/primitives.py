@@ -3,6 +3,12 @@ from pydantic import SecretStr
 from imbue.imbue_common.primitives import NonEmptyStr
 
 
+class AgentName(NonEmptyStr):
+    """User-chosen name for a changeling agent."""
+
+    ...
+
+
 class OneTimeCode(NonEmptyStr):
     """A single-use authentication code for changeling access."""
 

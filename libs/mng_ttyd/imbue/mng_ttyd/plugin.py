@@ -34,7 +34,7 @@ def build_ttyd_server_command(ttyd_invocation: str, server_name: str) -> str:
 # Bash wrapper that starts ttyd on a random port (-p 0), watches its stderr for
 # the assigned port number, and writes a servers.jsonl record so the changelings
 # forwarding server can discover it. The wrapper stays alive as long as ttyd does.
-TTYD_COMMAND = build_ttyd_server_command("ttyd -p 0 -W bash", TTYD_SERVER_NAME)
+TTYD_COMMAND = build_ttyd_server_command("ttyd -p 0 -t disableLeaveAlert=true -W bash", TTYD_SERVER_NAME)
 
 
 @hookimpl

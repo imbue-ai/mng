@@ -25,7 +25,7 @@ AGENT_TTYD_SERVER_NAME = "agent"
 # 4. Writes a servers.jsonl record so the changelings forwarding server can discover it
 _AGENT_TTYD_INVOCATION = (
     "_SESSION=$(tmux display-message -p '#{session_name}') && "
-    'ttyd -p 0 -W bash -c \'unset TMUX && exec tmux attach -t "$1":0\' -- "$_SESSION"'
+    'ttyd -p 0 -t disableLeaveAlert=true -W bash -c \'unset TMUX && exec tmux attach -t "$1":0\' -- "$_SESSION"'
 )
 
 AGENT_TTYD_COMMAND = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)

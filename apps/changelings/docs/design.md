@@ -1,11 +1,6 @@
 # Overview
 
-Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be any process running in a tmux session, changelings additionally *must* serve a web interface and be conversational (able to receive messages and generate responses).
-
-# Terminology
-
-- **changeling**: a persistent `mng` agent with a web interface and conversational capabilities, identified by its `AgentId`. Each changeling has a repo directory at `~/.changelings/<agent-name>/` containing a `.mng/settings.toml` with an entrypoint template that defines its agent type.
-- **forwarding server**: a local gateway that authenticates users and proxies traffic to changeling web servers
+See the [README](../README.md) for an overview of what changelings are and the terminology used throughout.
 
 # Relationship to mng
 
@@ -20,11 +15,13 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-Each changeling has its own repo stored at `~/.changelings/<agent-name>/`. This repo can be created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+For local deployments, each changeling has its own repo stored at `~/.changelings/<agent-id>/`. This repo is created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+
+For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider> --source-path <temp-dir>`. The temporary repo is cleaned up after deployment.
 
 ## Entrypoint template
 
-Every changeling repo contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
+The changeling repo contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
 
 ```toml
 [create_templates.entrypoint]
@@ -39,67 +36,22 @@ Changelings use space in the host volume (via the agent dir) for persistent data
 
 Changelings *must* serve web requests on one or more ports. On startup, they write JSON records to `$MNG_AGENT_STATE_DIR/logs/servers.jsonl` -- one line per server -- containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. An agent may write multiple records for different servers (e.g. a "web" UI server and an "api" backend server). Later entries for the same server name override earlier ones. The forwarding server reads this via `mng logs <agent-id> servers.jsonl` to discover all backends.
 
-# Architecture for the local forwarding server
+# Forwarding server
 
-The local forwarding server is a FastAPI app that handles authentication and traffic forwarding. It is the gateway through which users access all their changelings.
+The forwarding server handles routing and authentication so that the URLs being served by the changeling are accessible remotely.
 
-This is a separate component from any individual changeling's web server -- it does not define what changelings do or how they respond to messages. It only handles routing and authentication.
-
-## Authentication
-
-The forwarding server uses `itsdangerous` for cookie signing. Auth works as follows:
-
-- **Signing key**: generated once on first server start, stored at `{data_directory}/signing_key`. Used to sign all auth cookies.
-- **One-time codes**: generated during `changeling deploy` and stored in `{data_directory}/one_time_codes.json`. Each code is associated with an agent ID and can only be used once. When a code is consumed, it is marked as "USED" in the JSON file.
-- **Cookies**: after successful authentication, the server sets a signed cookie for the specific changeling. The cookie value contains the agent ID, signed with the signing key.
-
-## Local forwarding server routes
-
-`/login` route (takes agent_id and one_time_code params):
-    if you have a valid cookie for this changeling, it redirects you to the main page ("/")
-    if you don't have a cookie, it uses JS to redirect you and your secret to "/authenticate?agent_id={agent_id}&one_time_code={one_time_code}"
-        this is done to prevent preloading servers from accidentally consuming your one-time use codes
-
-`/authenticate` route (takes agent_id and one_time_code params):
-    validates the one-time code against stored codes
-    if this is a valid code (not used and not revoked), marks it as used and replies with a signed cookie
-    if this is not a valid code, explains to the user that they need to generate a new login URL for this device (each URL can only be used once)
-
-`/` route is special:
-    looks at the cookies you have -- for each valid changeling cookie, that changeling is listed
-    if you have 0 valid cookies, it shows a placeholder telling you to log in
-    if you have 1 or more valid cookies, those changelings are shown as links to their individual pages
-
-`/agents/{agent_id}/` route lists all servers for a changeling:
-    requires a valid auth cookie for that changeling
-    shows a page listing all known server names for the agent (discovered via `mng logs`)
-    each server name links to `/agents/{agent_id}/{server_name}/`
-
-`/agents/{agent_id}/{server_name}/{path}` route serves individual server UIs:
-    requires a valid auth cookie for that changeling (auth is per-agent, not per-server)
-    proxies any request from the user to the specific server's backend URL
-    uses Service Workers for transparent path rewriting so the server's app works correctly under the `/agents/{agent_id}/{server_name}/` prefix
-
-All pages except "/", "/login" and "/authenticate" require the auth cookie to be set for the relevant changeling.
-
-## Proxying design
-
-Since we can't control DNS or use subdomains, we multiplex changelings under URL path prefixes (`/agents/{agent_id}/{server_name}/`). Each server for an agent gets its own prefix and Service Worker scope. This requires a combination of Service Workers, script injection, and rewriting:
-
-- On first navigation, a bootstrap page installs a Service Worker scoped to `/agents/{agent_id}/{server_name}/`
-- The SW intercepts all same-origin requests and rewrites paths to include the prefix
-- HTML responses have a WebSocket shim injected to rewrite WS URLs
-- Cookie paths in Set-Cookie headers are rewritten to scope under the server prefix
-- WebSocket connections are proxied bidirectionally
+See [the forwarding server design doc](../imbue/changelings/forwarding_server/README.md) for more details on how it is implemented.
 
 # Command line interface
 
 - `changeling deploy <git-url>` (clones a git repo and deploys a changeling from it)
 - `changeling deploy --agent-type <type>` (creates a changeling from scratch for the given agent type)
 - `changeling deploy ... --add-path SRC:DEST` (copies extra files into the changeling repo, works with both modes)
+- `changeling update <agent-name>` (updates an existing changeling by snapshotting, stopping, pushing new code, re-provisioning, and restarting)
+- `changeling list` (lists deployed changelings with their current state)
 - `changeling forward` (starts the local forwarding server for accessing changelings)
 
-[future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
+[future] Additional commands for managing deployed changelings (stop, start, destroy, logs, etc.)
 
 # Deferred items
 
