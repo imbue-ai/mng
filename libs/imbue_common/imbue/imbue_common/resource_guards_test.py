@@ -1,6 +1,4 @@
 import os
-from collections.abc import Generator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -46,28 +44,14 @@ pytest_runtest_makereport = _pytest_runtest_makereport
 pytest_plugins = ["pytester"]
 
 
-@contextmanager
-def _isolated_guard_state() -> Generator[None, None, None]:
-    """Save and restore resource guard module state and env vars."""
-    original_dir = rg._guard_wrapper_dir
-    original_owns = rg._owns_guard_wrapper_dir
-    original_patcher = rg._session_env_patcher
-    original_resources = rg._guarded_resources
-    saved_env = {k: os.environ.pop(k, None) for k in ("_PYTEST_GUARD_WRAPPER_DIR",)}
-    try:
-        yield
-    finally:
-        if rg._session_env_patcher is not None and rg._session_env_patcher is not original_patcher:
-            rg._session_env_patcher.stop()
-        rg._guard_wrapper_dir = original_dir
-        rg._owns_guard_wrapper_dir = original_owns
-        rg._session_env_patcher = original_patcher
-        rg._guarded_resources = original_resources
-        for k, v in saved_env.items():
-            if v is not None:
-                os.environ[k] = v
-            else:
-                os.environ.pop(k, None)
+@pytest.fixture()
+def isolated_guard_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate resource guard module state so create/cleanup don't affect the session."""
+    monkeypatch.setattr(rg, "_guard_wrapper_dir", None)
+    monkeypatch.setattr(rg, "_owns_guard_wrapper_dir", False)
+    monkeypatch.setattr(rg, "_session_env_patcher", None)
+    monkeypatch.setattr(rg, "_guarded_resources", [])
+    monkeypatch.delenv("_PYTEST_GUARD_WRAPPER_DIR", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -170,19 +154,18 @@ def test_unmarked_test_that_does_not_call_resource_passes(pytester: pytest.Pytes
 # ---------------------------------------------------------------------------
 
 
-def test_create_and_cleanup_round_trip() -> None:
+def test_create_and_cleanup_round_trip(isolated_guard_state: None) -> None:
     """create_resource_guard_wrappers modifies PATH; cleanup restores it."""
-    with _isolated_guard_state():
-        create_resource_guard_wrappers(_TEST_RESOURCES)
+    create_resource_guard_wrappers(_TEST_RESOURCES)
 
-        assert rg._guard_wrapper_dir is not None
-        wrapper_dir = rg._guard_wrapper_dir
-        assert os.environ["PATH"].startswith(wrapper_dir)
+    assert rg._guard_wrapper_dir is not None
+    wrapper_dir = rg._guard_wrapper_dir
+    assert os.environ["PATH"].startswith(wrapper_dir)
 
-        for resource in _TEST_RESOURCES:
-            assert (Path(wrapper_dir) / resource).exists()
+    for resource in _TEST_RESOURCES:
+        assert (Path(wrapper_dir) / resource).exists()
 
-        cleanup_resource_guard_wrappers()
-        assert rg._guard_wrapper_dir is None
-        assert not Path(wrapper_dir).exists()
-        assert not os.environ["PATH"].startswith(wrapper_dir)
+    cleanup_resource_guard_wrappers()
+    assert rg._guard_wrapper_dir is None
+    assert not Path(wrapper_dir).exists()
+    assert not os.environ["PATH"].startswith(wrapper_dir)
