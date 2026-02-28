@@ -519,6 +519,7 @@ def _get_agent_info(agent_name: str, env: dict[str, str]) -> dict | None:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(600)
 def test_provision_stopped_modal_agent(
     tmp_path: Path,
