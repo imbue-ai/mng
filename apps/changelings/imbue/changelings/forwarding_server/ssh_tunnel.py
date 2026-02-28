@@ -1,14 +1,3 @@
-"""SSH tunnel management for forwarding traffic to remote agent hosts via paramiko.
-
-The SSHTunnelManager creates in-process Unix domain sockets in a secure temporary
-directory. Each socket forwards connections through an SSH tunnel (paramiko
-direct-tcpip channel) to a specific port on the remote host.
-
-Security: The Unix sockets are created in a temporary directory with 0o700
-permissions, making them inaccessible to other users. The directory path is
-randomly generated, preventing discovery by other same-user processes.
-"""
-
 import os
 import select
 import socket
@@ -59,7 +48,7 @@ def _ssh_connection_is_active(client: paramiko.SSHClient) -> bool:
 def _ssh_connection_transport(client: paramiko.SSHClient) -> paramiko.Transport:
     """Get the SSH client's transport, raising if not active."""
     transport = client.get_transport()
-    if transport is None:
+    if transport is None or not transport.is_active():
         raise SSHTunnelError("SSH transport is not active")
     return transport
 
@@ -281,31 +270,38 @@ def _tunnel_accept_loop(
             logger.trace("Error unlinking tunnel socket: {}", e)
 
 
+def _relay_step(sock: socket.socket, channel: paramiko.Channel) -> bool:
+    """Perform one relay step: transfer available data between sock and channel.
+
+    Returns True to continue relaying, False when either end has closed.
+    """
+    r, _, _ = select.select([sock, channel], [], [], _SELECT_TIMEOUT_SECONDS)
+
+    if sock in r:
+        data = sock.recv(_BUFFER_SIZE)
+        if not data:
+            return False
+        channel.sendall(data)
+
+    if channel in r:
+        if channel.recv_ready():
+            data = channel.recv(_BUFFER_SIZE)
+            if not data:
+                return False
+            sock.sendall(data)
+
+    return True
+
+
 def _relay_data(sock: socket.socket, channel: paramiko.Channel) -> None:
     """Relay data bidirectionally between a local socket and a paramiko channel.
 
     Uses select() to multiplex reads from both ends. Terminates when either
     end closes or an error occurs.
     """
-    is_running = True
     try:
-        while is_running:
-            r, _, _ = select.select([sock, channel], [], [], _SELECT_TIMEOUT_SECONDS)
-
-            if sock in r:
-                data = sock.recv(_BUFFER_SIZE)
-                if not data:
-                    is_running = False
-                    continue
-                channel.sendall(data)
-
-            if channel in r:
-                if channel.recv_ready():
-                    data = channel.recv(_BUFFER_SIZE)
-                    if not data:
-                        is_running = False
-                        continue
-                    sock.sendall(data)
+        while _relay_step(sock, channel):
+            pass
     except (OSError, EOFError, paramiko.SSHException) as e:
         logger.trace("SSH tunnel relay ended: {}", e)
     finally:

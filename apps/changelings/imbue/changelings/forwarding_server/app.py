@@ -8,6 +8,7 @@ from typing import Annotated
 from typing import Final
 
 import httpx
+import paramiko
 import websockets
 import websockets.asyncio.client
 from fastapi import Depends
@@ -29,6 +30,7 @@ from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
 from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
 from imbue.changelings.forwarding_server.proxy import rewrite_cookie_path
 from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
 from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelManager
 from imbue.changelings.forwarding_server.ssh_tunnel import parse_url_host_port
 from imbue.changelings.forwarding_server.templates import render_agent_servers_page
@@ -401,7 +403,11 @@ async def _handle_proxy_http(
         return HTMLResponse(generate_bootstrap_html(parsed_id, parsed_server))
 
     # Determine if this backend needs SSH tunneling
-    tunnel_client = _get_tunnel_http_client(request.app, parsed_id, backend_url, backend_resolver)
+    try:
+        tunnel_client = _get_tunnel_http_client(request.app, parsed_id, backend_url, backend_resolver)
+    except (SSHTunnelError, paramiko.SSHException) as e:
+        logger.debug("SSH tunnel setup failed for {} server {}: {}", agent_id, server_name, e)
+        return Response(status_code=502, content=f"SSH tunnel to remote backend failed: {e}")
 
     # Forward request to backend
     result = await _forward_http_request(
@@ -459,7 +465,15 @@ async def _handle_proxy_websocket(
         subprotocols = [s.strip() for s in client_subprotocol_header.split(",")]
 
     # Check if this backend needs SSH tunneling
-    tunnel_socket_path = _get_tunnel_socket_path(tunnel_manager, parsed_id, backend_url, backend_resolver)
+    try:
+        tunnel_socket_path = _get_tunnel_socket_path(tunnel_manager, parsed_id, backend_url, backend_resolver)
+    except (SSHTunnelError, paramiko.SSHException) as e:
+        logger.debug("SSH tunnel setup failed for WS {}/{}: {}", agent_id, server_name, e)
+        try:
+            await websocket.close(code=1011, reason="SSH tunnel to remote backend failed")
+        except RuntimeError:
+            logger.trace("WebSocket already closed when trying to send tunnel error for {}", agent_id)
+        return
 
     try:
         backend_ws_conn = await _connect_backend_websocket(
@@ -483,7 +497,7 @@ async def _handle_proxy_websocket(
                 ),
             )
 
-    except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
+    except (ConnectionRefusedError, OSError, TimeoutError, SSHTunnelError, paramiko.SSHException) as connection_error:
         logger.debug(
             "Backend WebSocket connection failed for {}/{}: {}",
             agent_id,

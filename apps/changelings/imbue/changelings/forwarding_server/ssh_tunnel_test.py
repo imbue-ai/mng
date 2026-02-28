@@ -209,18 +209,17 @@ def test_relay_data_forwards_between_socket_pair() -> None:
     relay_thread = threading.Thread(target=_relay_data, args=(relay_sock_a, fake_channel), daemon=True)
     relay_thread.start()
 
-    app_sock.sendall(b"hello from client")
-    ready = threading.Event()
-    ready.wait(timeout=0.2)
+    app_sock.settimeout(3.0)
+    channel_sock.settimeout(3.0)
 
+    app_sock.sendall(b"hello from client")
     channel_sock.sendall(b"hello from backend")
-    ready.wait(timeout=0.2)
     data = app_sock.recv(4096)
     assert data == b"hello from backend"
 
     app_sock.close()
     channel_sock.close()
-    relay_thread.join(timeout=3.0)
+    relay_thread.join(timeout=5.0)
 
 
 # -- _tunnel_accept_loop tests --
@@ -253,21 +252,21 @@ def test_tunnel_accept_loop_forwards_connections(tmp_path: Path) -> None:
 
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
+    client.settimeout(3.0)
+    channel_remote.settimeout(3.0)
 
     client.sendall(b"test request")
-    ready.wait(timeout=0.2)
     data = channel_remote.recv(4096)
     assert data == b"test request"
 
     channel_remote.sendall(b"test response")
-    ready.wait(timeout=0.2)
     response = client.recv(4096)
     assert response == b"test response"
 
     client.close()
     channel_remote.close()
     shutdown_event.set()
-    accept_thread.join(timeout=3.0)
+    accept_thread.join(timeout=5.0)
 
 
 def test_tunnel_accept_loop_handles_channel_open_failure(tmp_path: Path) -> None:
