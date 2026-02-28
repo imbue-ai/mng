@@ -69,6 +69,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.utils.env_utils import parse_env_file
+from imbue.mng.utils.git_utils import add_safe_directory_on_remote
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
 from imbue.mng.utils.polling import wait_for
@@ -1041,12 +1042,10 @@ class Host(BaseHost, OnlineHostInterface):
                 logger.trace("Skipped git repo initialization: target already has .git")
             else:
                 with log_span("Initializing bare git repo on target"):
-                    init_cmd = f"git init --bare {shlex.quote(str(target_path / '.git'))}"
-                    if not self.is_local:
-                        init_cmd += f" && git config --global --add safe.directory {shlex.quote(str(target_path))}"
-                    result = self.execute_command(init_cmd)
+                    result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
                     if not result.success:
                         raise MngError(f"Failed to initialize git repo on target: {result.stderr}")
+                    add_safe_directory_on_remote(self, target_path)
 
             self._git_push_to_target(source_host, source_path, target_path)
 
