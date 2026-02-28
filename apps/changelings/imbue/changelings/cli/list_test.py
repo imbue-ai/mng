@@ -239,15 +239,16 @@ def test_list_empty_data_dir(tmp_path: Path) -> None:
     data_dir = tmp_path / "changelings-data"
     data_dir.mkdir()
 
-    result = _RUNNER.invoke(cli, ["list", "--data-dir", str(data_dir)])
+    result = _RUNNER.invoke(cli, ["list", "--data-dir", str(data_dir)], catch_exceptions=False)
 
     assert result.exit_code == 0
+    # logger.info writes to stderr, which CliRunner captures in output
     assert "No changelings found" in result.output
 
 
 def test_list_nonexistent_data_dir(tmp_path: Path) -> None:
     """Verify that changeling list handles nonexistent data dir gracefully."""
-    result = _RUNNER.invoke(cli, ["list", "--data-dir", str(tmp_path / "nonexistent")])
+    result = _RUNNER.invoke(cli, ["list", "--data-dir", str(tmp_path / "nonexistent")], catch_exceptions=False)
 
     assert result.exit_code == 0
     assert "No changelings found" in result.output
@@ -263,3 +264,34 @@ def test_list_json_empty(tmp_path: Path) -> None:
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data == {"changelings": []}
+
+
+def test_list_shows_agent_ids_from_directories(tmp_path: Path) -> None:
+    """Verify that changeling list discovers agent dirs and shows their IDs in the table."""
+    data_dir = tmp_path / "changelings-data"
+    data_dir.mkdir()
+
+    agent_id = AgentId()
+    (data_dir / str(agent_id)).mkdir()
+
+    result = _RUNNER.invoke(cli, ["list", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0
+    assert str(agent_id) in result.output
+    assert "No changelings found" not in result.output
+
+
+def test_list_json_includes_agent_ids_from_directories(tmp_path: Path) -> None:
+    """Verify that changeling list --json includes agents discovered from directories."""
+    data_dir = tmp_path / "changelings-data"
+    data_dir.mkdir()
+
+    agent_id = AgentId()
+    (data_dir / str(agent_id)).mkdir()
+
+    result = _RUNNER.invoke(cli, ["-q", "list", "--json", "--data-dir", str(data_dir)])
+
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data["changelings"]) == 1
+    assert data["changelings"][0]["id"] == str(agent_id)

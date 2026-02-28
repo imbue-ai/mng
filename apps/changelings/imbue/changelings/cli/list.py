@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +99,16 @@ def _get_field_value(agent: dict[str, Any], field: str) -> str:
     return str(value)
 
 
+def _index_agents_by_id(mng_agents: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Build a lookup dict from agent ID string to agent data dict."""
+    agents_by_id: dict[str, dict[str, Any]] = {}
+    for agent in mng_agents:
+        agent_id = agent.get("id")
+        if agent_id is not None:
+            agents_by_id[str(agent_id)] = agent
+    return agents_by_id
+
+
 def _build_table(
     changeling_ids: list[AgentId],
     mng_agents: list[dict[str, Any]],
@@ -109,11 +120,7 @@ def _build_table(
     the mng agent list (e.g. the agent was destroyed but the directory remains),
     fields other than "id" are left blank.
     """
-    agents_by_id: dict[str, dict[str, Any]] = {}
-    for agent in mng_agents:
-        agent_id = agent.get("id")
-        if agent_id is not None:
-            agents_by_id[str(agent_id)] = agent
+    agents_by_id = _index_agents_by_id(mng_agents)
 
     rows: list[list[str]] = []
     for cid in changeling_ids:
@@ -138,13 +145,13 @@ def _emit_human_output(
 ) -> None:
     """Print a human-readable table of changelings."""
     if not changeling_ids:
-        click.echo("No changelings found")
+        logger.info("No changelings found")
         return
 
     headers = [_HEADER_LABELS.get(f, f.upper()) for f in fields]
     rows = _build_table(changeling_ids, mng_agents, fields)
     table = tabulate(rows, headers=headers, tablefmt="plain")
-    click.echo(table)
+    logger.info("{}", table)
 
 
 def _emit_json_output(
@@ -152,11 +159,7 @@ def _emit_json_output(
     mng_agents: list[dict[str, Any]],
 ) -> None:
     """Print JSON output with changeling info."""
-    agents_by_id: dict[str, dict[str, Any]] = {}
-    for agent in mng_agents:
-        agent_id = agent.get("id")
-        if agent_id is not None:
-            agents_by_id[str(agent_id)] = agent
+    agents_by_id = _index_agents_by_id(mng_agents)
 
     changelings_data: list[dict[str, Any]] = []
     for cid in changeling_ids:
@@ -166,7 +169,9 @@ def _emit_json_output(
         else:
             changelings_data.append({"id": str(cid)})
 
-    click.echo(json.dumps({"changelings": changelings_data}, indent=2))
+    sys.stdout.write(json.dumps({"changelings": changelings_data}, indent=2))
+    sys.stdout.write("\n")
+    sys.stdout.flush()
 
 
 @click.command(name="list")

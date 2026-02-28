@@ -274,11 +274,7 @@ def _resolve_self_deploy(self_deploy: bool | None) -> SelfDeployChoice:
 def _move_to_permanent_location(temp_dir: Path, changeling_dir: Path) -> None:
     """Move the prepared repo from its temp location to the permanent changeling directory."""
     if changeling_dir.exists():
-        raise ChangelingError(
-            "A changeling directory already exists at '{}'. Remove it first or choose a different name.".format(
-                changeling_dir
-            )
-        )
+        raise ChangelingError("A changeling directory already exists at '{}'. Remove it first.".format(changeling_dir))
 
     try:
         temp_dir.rename(changeling_dir)
