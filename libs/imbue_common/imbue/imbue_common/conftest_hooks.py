@@ -254,20 +254,16 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
 
     # xdist workers should not acquire the lock - only the controller does
     if _is_xdist_worker():
-        # Use setattr to avoid type errors - pytest Session doesn't declare these attributes
         setattr(session, "start_time", time.time())  # noqa: B010
-        # Workers reuse the controller's resource guard wrappers (via env var)
-        create_resource_guard_wrappers(_GUARDED_RESOURCES)
-        return
+    else:
+        # Acquire the lock and store the handle on the session to keep it open
+        lock_handle = _acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
+        setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)  # noqa: B010
 
-    # Acquire the lock and store the handle on the session to keep it open
-    lock_handle = _acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
-    setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)  # noqa: B010
+        # Record start time AFTER acquiring the lock so wait time isn't counted
+        setattr(session, "start_time", time.time())  # noqa: B010
 
-    # Record start time AFTER acquiring the lock so wait time isn't counted
-    setattr(session, "start_time", time.time())  # noqa: B010
-
-    # Create resource guard wrappers (after the lock, before tests run)
+    # Create resource guard wrappers (workers reuse the controller's via env var)
     create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
 
