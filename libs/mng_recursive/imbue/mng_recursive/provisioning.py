@@ -15,8 +15,9 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import PluginName
+from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.deploy_utils import collect_deploy_files
-from imbue.mng_recursive.data_types import MngInstallMode
+from imbue.mng.providers.deploy_utils import resolve_mng_install_mode
 from imbue.mng_recursive.data_types import RecursivePluginConfig
 
 
@@ -66,7 +67,9 @@ def _upload_deploy_files(
 
         # Ensure parent directory exists
         parent_str = shlex.quote(str(resolved_path.parent))
-        host.execute_command(f"mkdir -p {parent_str}")
+        mkdir_result = host.execute_command(f"mkdir -p {parent_str}")
+        if not mkdir_result.success:
+            raise MngError(f"Failed to create directory {resolved_path.parent}: {mkdir_result.stderr}")
 
         # Read content and upload
         if isinstance(source, Path):
@@ -97,37 +100,6 @@ def _get_installed_mng_packages() -> list[tuple[str, str]]:
         if name is not None and version is not None and (name == "mng" or name.startswith("mng-")):
             packages.append((name, version))
     return packages
-
-
-def _detect_local_install_mode() -> MngInstallMode:
-    """Detect whether the local mng installation is editable or a package.
-
-    Returns EDITABLE if installed in development mode, PACKAGE otherwise.
-    """
-    try:
-        dist = importlib.metadata.distribution("mng")
-    except importlib.metadata.PackageNotFoundError:
-        return MngInstallMode.PACKAGE
-
-    direct_url_text = dist.read_text("direct_url.json")
-    if direct_url_text is not None:
-        direct_url = json.loads(direct_url_text)
-        if direct_url.get("dir_info", {}).get("editable", False):
-            return MngInstallMode.EDITABLE
-    return MngInstallMode.PACKAGE
-
-
-def _resolve_install_mode(mode: MngInstallMode) -> MngInstallMode:
-    """Resolve AUTO mode to a concrete install mode."""
-    match mode:
-        case MngInstallMode.AUTO:
-            resolved = _detect_local_install_mode()
-            logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
-            return resolved
-        case MngInstallMode.PACKAGE | MngInstallMode.EDITABLE | MngInstallMode.SKIP:
-            return mode
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 def _ensure_uv_available(host: OnlineHostInterface) -> None:
@@ -169,7 +141,10 @@ def _get_mng_repo_root() -> Path:
         raise MngError("mng is not installed in editable mode; cannot determine repo root") from None
 
     # Find the source directory from the editable install
-    direct_url = json.loads(direct_url_text)
+    try:
+        direct_url = json.loads(direct_url_text)
+    except (json.JSONDecodeError, AttributeError) as e:
+        raise MngError(f"Failed to parse direct_url.json for mng: {e}") from e
     url = direct_url.get("url", "")
     if url.startswith("file://"):
         source_dir = Path(url.removeprefix("file://"))
@@ -304,7 +279,7 @@ def provision_mng_on_host(
 
     plugin_config = _get_plugin_config(mng_ctx)
 
-    resolved_mode = _resolve_install_mode(plugin_config.install_mode)
+    resolved_mode = resolve_mng_install_mode(plugin_config.install_mode)
     if resolved_mode == MngInstallMode.SKIP:
         logger.debug("Skipping mng provisioning (install_mode=skip)")
         return
@@ -314,14 +289,21 @@ def provision_mng_on_host(
             # Get the remote user's home directory
             remote_home = _get_remote_home(host)
 
-            # Collect and upload deploy files
+            # Collect and upload deploy files.
+            # The collect_deploy_files call invokes get_files_for_deploy hooks from
+            # all registered plugins. These hooks may raise arbitrary exceptions
+            # (e.g. ValueError from path operations in provider backends), so we
+            # wrap this call to handle errors from third-party plugin hooks.
             repo_root = Path.cwd()
-            deploy_files = collect_deploy_files(
-                mng_ctx=mng_ctx,
-                repo_root=repo_root,
-                include_user_settings=True,
-                include_project_settings=True,
-            )
+            try:
+                deploy_files = collect_deploy_files(
+                    mng_ctx=mng_ctx,
+                    repo_root=repo_root,
+                    include_user_settings=True,
+                    include_project_settings=True,
+                )
+            except Exception as e:
+                raise MngError(f"Failed to collect deploy files: {e}") from e
 
             if deploy_files:
                 with log_span("Uploading {} deploy files to remote host", len(deploy_files)):

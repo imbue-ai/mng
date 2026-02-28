@@ -1,11 +1,65 @@
 """Shared utilities for provider get_files_for_deploy implementations."""
 
+import importlib.metadata
+import json
+from enum import auto
 from pathlib import Path
 
 from loguru import logger
 
+from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
+
+
+class MngInstallMode(UpperCaseStrEnum):
+    """Controls how mng is made available in a target environment.
+
+    Used by mng_schedule (for image building) and mng_recursive (for
+    provisioning-time injection).
+
+    AUTO: Detect automatically based on how mng is currently installed locally.
+    PACKAGE: Install from PyPI via uv tool install / pip install.
+    EDITABLE: Package the local source tree and install it in editable mode.
+    SKIP: Do not install mng (assume it is already available).
+    """
+
+    AUTO = auto()
+    PACKAGE = auto()
+    EDITABLE = auto()
+    SKIP = auto()
+
+
+def detect_mng_install_mode(package_name: str = "mng") -> MngInstallMode:
+    """Detect whether a package is installed in editable or package mode.
+
+    Checks the package's direct_url.json metadata (PEP 610) for the
+    "editable" flag. Returns EDITABLE if the package is installed in
+    development mode, PACKAGE otherwise.
+    """
+    try:
+        dist = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError:
+        return MngInstallMode.PACKAGE
+
+    direct_url_text = dist.read_text("direct_url.json")
+    if direct_url_text is not None:
+        try:
+            direct_url = json.loads(direct_url_text)
+        except (json.JSONDecodeError, AttributeError):
+            return MngInstallMode.PACKAGE
+        if direct_url.get("dir_info", {}).get("editable", False):
+            return MngInstallMode.EDITABLE
+    return MngInstallMode.PACKAGE
+
+
+def resolve_mng_install_mode(mode: MngInstallMode, package_name: str = "mng") -> MngInstallMode:
+    """Resolve AUTO mode to a concrete install mode, or pass through others."""
+    if mode == MngInstallMode.AUTO:
+        resolved = detect_mng_install_mode(package_name)
+        logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
+        return resolved
+    return mode
 
 
 def collect_provider_profile_files(

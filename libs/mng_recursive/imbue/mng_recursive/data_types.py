@@ -1,26 +1,9 @@
 """Data types for the mng_recursive plugin."""
 
-from enum import auto
-
 from pydantic import Field
 
-from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.mng.config.data_types import PluginConfig
-
-
-class MngInstallMode(UpperCaseStrEnum):
-    """Controls how mng is made available on remote hosts during provisioning.
-
-    AUTO: Detect automatically based on how mng is currently installed locally.
-    PACKAGE: Install from PyPI via uv tool install.
-    EDITABLE: Package the local source tree and install it on the remote host.
-    SKIP: Do not install mng (assume it is already available).
-    """
-
-    AUTO = auto()
-    PACKAGE = auto()
-    EDITABLE = auto()
-    SKIP = auto()
+from imbue.mng.providers.deploy_utils import MngInstallMode
 
 
 class RecursivePluginConfig(PluginConfig):

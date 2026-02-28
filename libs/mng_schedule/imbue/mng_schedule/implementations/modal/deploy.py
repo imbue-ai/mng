@@ -28,6 +28,8 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
 from imbue.mng.providers.deploy_utils import collect_deploy_files
+from imbue.mng.providers.deploy_utils import detect_mng_install_mode as _shared_detect_mng_install_mode
+from imbue.mng.providers.deploy_utils import resolve_mng_install_mode as _shared_resolve_mng_install_mode
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
@@ -181,37 +183,21 @@ def package_directory_as_tarball(source_dir: Path, dest_dir: Path) -> None:
 def detect_mng_install_mode() -> MngInstallMode:
     """Detect how mng-schedule is currently installed.
 
-    Returns EDITABLE if the package is installed in editable (development) mode,
-    PACKAGE if installed as a normal package, or raises ScheduleDeployError if
-    the package is not installed at all.
+    Delegates to the shared detect_mng_install_mode utility, but first
+    verifies that mng-schedule is installed (raising ScheduleDeployError
+    if not).
     """
     try:
-        dist = importlib.metadata.distribution("mng-schedule")
+        importlib.metadata.distribution("mng-schedule")
     except importlib.metadata.PackageNotFoundError:
         raise ScheduleDeployError("mng-schedule package is not installed. Cannot determine install mode.") from None
 
-    # Check if the package is installed in editable mode by looking for a
-    # direct_url.json with "editable": true, which is the standard way PEP 610
-    # marks editable installs.
-    direct_url_text = dist.read_text("direct_url.json")
-    if direct_url_text is not None:
-        try:
-            direct_url = json.loads(direct_url_text)
-            if direct_url.get("dir_info", {}).get("editable", False):
-                return MngInstallMode.EDITABLE
-        except (json.JSONDecodeError, AttributeError) as exc:
-            logger.debug("Could not parse direct_url.json for mng-schedule: {}", exc)
-
-    return MngInstallMode.PACKAGE
+    return _shared_detect_mng_install_mode("mng-schedule")
 
 
 def resolve_mng_install_mode(mode: MngInstallMode) -> MngInstallMode:
     """Resolve AUTO mode to a concrete install mode, or pass through others."""
-    if mode == MngInstallMode.AUTO:
-        resolved = detect_mng_install_mode()
-        logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
-        return resolved
-    return mode
+    return _shared_resolve_mng_install_mode(mode, "mng-schedule")
 
 
 def _get_mng_schedule_source_dir() -> Path:
