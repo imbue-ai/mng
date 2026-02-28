@@ -35,6 +35,6 @@ class GitCommitError(ChangelingError):
 
 
 class MngCommandError(ChangelingError):
-    """Raised when an mng CLI command fails during an update operation."""
+    """Raised when an mng CLI command fails."""
 
     ...

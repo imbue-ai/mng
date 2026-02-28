@@ -69,6 +69,11 @@ class _FakeConcurrencyGroup(ConcurrencyGroup):
     def commands_run(self) -> list[list[str]]:
         return self._commands_run
 
+    @property
+    def subcommands_run(self) -> list[str]:
+        """Extract the mng subcommand names (second element) from all recorded commands."""
+        return [cmd[1] for cmd in self._commands_run if len(cmd) > 1]
+
     def run_process_to_completion(
         self,
         command: Sequence[str],
@@ -445,7 +450,7 @@ def test_update_local_all_steps_enabled() -> None:
     assert result.did_provision is True
 
     # Verify all expected commands were called
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert "list" in subcommands
     assert "snapshot" in subcommands
     assert "stop" in subcommands
@@ -467,7 +472,7 @@ def test_update_local_skips_snapshot_when_disabled() -> None:
     )
 
     assert result.did_snapshot is False
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert "snapshot" not in subcommands
 
 
@@ -484,7 +489,7 @@ def test_update_local_skips_push_when_disabled() -> None:
     )
 
     assert result.did_push is False
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert "push" not in subcommands
 
 
@@ -501,7 +506,7 @@ def test_update_local_skips_provision_when_disabled() -> None:
     )
 
     assert result.did_provision is False
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert "provision" not in subcommands
 
 
@@ -521,27 +526,10 @@ def test_update_local_all_optional_steps_disabled() -> None:
     assert result.did_push is False
     assert result.did_provision is False
 
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert "snapshot" not in subcommands
     assert "push" not in subcommands
     assert "provision" not in subcommands
-    assert "stop" in subcommands
-    assert "start" in subcommands
-
-
-def test_update_local_stop_and_start_always_run() -> None:
-    """Verify that stop and start always execute regardless of flags."""
-    cg = _make_fake_cg()
-
-    update_local(
-        agent_name="my-agent",
-        do_snapshot=False,
-        do_push=False,
-        do_provision=False,
-        concurrency_group=cg,
-    )
-
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
     assert "stop" in subcommands
     assert "start" in subcommands
 
@@ -636,7 +624,7 @@ def test_update_local_executes_steps_in_correct_order() -> None:
     )
 
     # Extract the mng subcommands in order
-    subcommands = [cmd[1] for cmd in cg.commands_run if len(cmd) > 1]
+    subcommands = cg.subcommands_run
     assert subcommands == ["list", "snapshot", "stop", "push", "provision", "start"]
 
 
