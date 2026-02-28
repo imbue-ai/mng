@@ -1,7 +1,4 @@
 import os
-import shutil
-import stat
-import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +12,38 @@ from imbue.imbue_common.resource_guards import generate_wrapper_script
 
 # Use ubiquitous coreutils binaries so these tests run on any system.
 _TEST_RESOURCES = ["echo", "cat", "ls"]
+
+# Conftest that pytester injects into its temp directory.  It registers the
+# resource guard hooks for "echo" only, which is enough for end-to-end tests.
+_PYTESTER_CONFTEST = """\
+import os
+import pytest
+from imbue.imbue_common.resource_guards import (
+    create_resource_guard_wrappers,
+    cleanup_resource_guard_wrappers,
+    _pytest_runtest_setup,
+    _pytest_runtest_teardown,
+    _pytest_runtest_makereport,
+)
+
+# Clear inherited guard state so we create fresh wrappers for our resources.
+os.environ.pop("_PYTEST_GUARD_WRAPPER_DIR", None)
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "echo: test uses echo")
+
+def pytest_sessionstart(session):
+    create_resource_guard_wrappers(["echo"])
+
+def pytest_sessionfinish(session, exitstatus):
+    cleanup_resource_guard_wrappers()
+
+pytest_runtest_setup = _pytest_runtest_setup
+pytest_runtest_teardown = _pytest_runtest_teardown
+pytest_runtest_makereport = _pytest_runtest_makereport
+"""
+
+pytest_plugins = ["pytester"]
 
 
 @contextmanager
@@ -41,36 +70,8 @@ def _isolated_guard_state() -> Generator[None, None, None]:
                 os.environ.pop(k, None)
 
 
-@pytest.fixture()
-def wrapper(tmp_path: Path) -> Path:
-    """Create a guard wrapper for a fake resource backed by /usr/bin/true."""
-    real_true = shutil.which("true")
-    assert real_true is not None
-    path = tmp_path / "fakecmd"
-    path.write_text(generate_wrapper_script("fakecmd", real_true))
-    path.chmod(path.stat().st_mode | stat.S_IXUSR)
-    return path
-
-
-def _run_wrapper(
-    wrapper: Path,
-    *,
-    guard: str,
-    tracking_dir: Path | None = None,
-    in_call_phase: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Run a wrapper script with the given guard setting."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith("_PYTEST_GUARD")}
-    if in_call_phase:
-        env["_PYTEST_GUARD_PHASE"] = "call"
-        env["_PYTEST_GUARD_FAKECMD"] = guard
-        if tracking_dir is not None:
-            env["_PYTEST_GUARD_TRACKING_DIR"] = str(tracking_dir)
-    return subprocess.run([str(wrapper)], env=env, capture_output=True, text=True)
-
-
 # ---------------------------------------------------------------------------
-# Script generation
+# Script generation (unit tests)
 # ---------------------------------------------------------------------------
 
 
@@ -89,38 +90,79 @@ def test_generate_wrapper_script_contains_guard_check() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Wrapper behavior
+# End-to-end guard behavior (pytester)
 # ---------------------------------------------------------------------------
 
 
-def test_wrapper_blocks_unmarked_invocation(wrapper: Path) -> None:
-    """guard=block should exit 127 and print an error."""
-    result = _run_wrapper(wrapper, guard="block")
-    assert result.returncode == 127
-    assert "RESOURCE GUARD" in result.stderr
+def test_marked_test_that_calls_resource_passes(pytester: pytest.Pytester) -> None:
+    """A test with @pytest.mark.echo that calls echo should pass."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        import subprocess
+        import pytest
+
+        @pytest.mark.echo
+        def test_calls_echo():
+            subprocess.run(["echo", "hi"], check=True)
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)
 
 
-def test_wrapper_blocked_invocation_creates_tracking_file(wrapper: Path, tmp_path: Path) -> None:
-    """guard=block should create a blocked_<resource> tracking file."""
-    tracking_dir = tmp_path / "tracking"
-    tracking_dir.mkdir()
-    _run_wrapper(wrapper, guard="block", tracking_dir=tracking_dir)
-    assert (tracking_dir / "blocked_fakecmd").exists()
+def test_unmarked_test_that_calls_resource_fails(pytester: pytest.Pytester) -> None:
+    """A test without the mark that calls echo should fail."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        import subprocess
+
+        def test_calls_echo():
+            subprocess.run(["echo", "hi"], check=True)
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*without @pytest.mark.echo*"])
 
 
-def test_wrapper_allows_marked_invocation(wrapper: Path, tmp_path: Path) -> None:
-    """guard=allow should delegate and create a tracking file."""
-    tracking_dir = tmp_path / "tracking"
-    tracking_dir.mkdir()
-    result = _run_wrapper(wrapper, guard="allow", tracking_dir=tracking_dir)
-    assert result.returncode == 0
-    assert (tracking_dir / "fakecmd").exists()
+def test_unmarked_test_that_handles_guard_error_still_fails(pytester: pytest.Pytester) -> None:
+    """A test that handles the guard's exit 127 gracefully should still fail."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        import subprocess
+
+        def test_handles_error():
+            result = subprocess.run(["echo", "hi"], capture_output=True)
+            # Test "passes" by accepting non-zero exit code
+            assert result.returncode != 0
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*without @pytest.mark.echo*"])
 
 
-def test_wrapper_passes_through_outside_call_phase(wrapper: Path) -> None:
-    """Without _PYTEST_GUARD_PHASE=call, the wrapper should always delegate."""
-    result = _run_wrapper(wrapper, guard="block", in_call_phase=False)
-    assert result.returncode == 0
+def test_marked_test_that_never_calls_resource_fails(pytester: pytest.Pytester) -> None:
+    """A test with @pytest.mark.echo that never calls echo should fail (superfluous mark)."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        import pytest
+
+        @pytest.mark.echo
+        def test_never_calls_echo():
+            assert 1 + 1 == 2
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*never invoked echo*"])
+
+
+def test_unmarked_test_that_does_not_call_resource_passes(pytester: pytest.Pytester) -> None:
+    """A test with no mark and no resource call should pass."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        def test_no_echo():
+            assert 1 + 1 == 2
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)
 
 
 # ---------------------------------------------------------------------------
