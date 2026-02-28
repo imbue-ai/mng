@@ -110,6 +110,11 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
 # Docker and Modal use Python SDKs (not CLI binaries), so they are not guarded here.
 _GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
 
+
+class MissingGuardedResourceError(Exception):
+    """A guarded resource binary (tmux, rsync, unison) is not installed."""
+
+
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
 _guard_wrapper_dir: str | None = None
@@ -170,7 +175,10 @@ def _create_resource_guard_wrappers() -> None:
     for resource in _GUARDED_RESOURCES:
         real_path = shutil.which(resource)
         if real_path is None:
-            continue
+            raise MissingGuardedResourceError(
+                f"Guarded resource '{resource}' not found on PATH. "
+                f"Install {resource} or remove it from _GUARDED_RESOURCES."
+            )
 
         wrapper_path = Path(_guard_wrapper_dir) / resource
         wrapper_path.write_text(_generate_wrapper_script(resource, real_path))
