@@ -122,22 +122,32 @@ async def _forward_client_to_backend(
 ) -> None:
     """Forward messages from the client WebSocket to the backend.
 
-    Terminates via WebSocketDisconnect (client disconnects) or
-    ConnectionClosed (backend disconnects).
+    Terminates via WebSocketDisconnect (client disconnects),
+    ConnectionClosed (backend disconnects), or RuntimeError (Starlette
+    raises this when receive() is called after a disconnect was already
+    delivered).
     """
     try:
         while True:
             data = await client_websocket.receive()
+            msg_type = data.get("type", "")
+            if msg_type == "websocket.disconnect":
+                break
             if "text" in data:
                 await backend_ws.send(data["text"])
             elif "bytes" in data:
                 await backend_ws.send(data["bytes"])
             else:
-                pass
-    except WebSocketDisconnect:
-        await backend_ws.close()
+                logger.trace("Ignoring WebSocket message with no text or bytes: {}", msg_type)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
     except websockets.exceptions.ConnectionClosed:
         logger.debug("Backend WebSocket closed while forwarding client message")
+
+    try:
+        await backend_ws.close()
+    except websockets.exceptions.ConnectionClosed:
+        pass
 
 
 async def _forward_backend_to_client(
@@ -415,10 +425,21 @@ async def _handle_proxy_websocket(
     if websocket.url.query:
         ws_url += f"?{websocket.url.query}"
 
-    await websocket.accept()
+    # Forward subprotocols from the client to the backend so that
+    # protocol-specific servers (e.g. ttyd which requires "tty") work correctly.
+    client_subprotocol_header = websocket.headers.get("sec-websocket-protocol")
+    subprotocols: list[str] = []
+    if client_subprotocol_header:
+        subprotocols = [s.strip() for s in client_subprotocol_header.split(",")]
 
     try:
-        async with websockets.connect(ws_url) as backend_ws:
+        async with websockets.connect(
+            ws_url,
+            subprotocols=[websockets.Subprotocol(s) for s in subprotocols] if subprotocols else None,
+        ) as backend_ws:
+            # Accept the client connection with the subprotocol the backend agreed on
+            await websocket.accept(subprotocol=backend_ws.subprotocol)
+
             await asyncio.gather(
                 _forward_client_to_backend(
                     client_websocket=websocket,
