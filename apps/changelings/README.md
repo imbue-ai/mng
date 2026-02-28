@@ -16,8 +16,8 @@ Other than that, the design of each changeling is completely open -- you can cus
 ## Terminology
 
 - **changeling**: a persistent `mng` agent that serves a web interface and is conversational. Each changeling is identified by its `AgentId` (the standard mng agent identifier) and serves a web interface from the `mng` `Host` where it is running (possibly locally, in modal, or in a docker container).
-- **zygote**: the minimal core of a changeling agent's code (e.g. cloned from a git repo). This is the starting point from which a changeling is configured and deployed.
-- **forwarding server**: a local process that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Users access all their changelings through such gateways. There may be both a local and remote forwarding servers.
+- **zygote**: the minimal core of a changeling agent's code (e.g. cloned from a git repo and stored at `~/.changelings/<agent-name>/`). This is the starting point from which a changeling is configured and deployed.
+- **forwarding server**: a local process (started via `changeling forward`) that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Users access all their changelings through such gateways. There may be both a local and remote forwarding servers.
 
 ## Architecture
 

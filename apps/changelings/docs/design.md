@@ -22,7 +22,7 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-Each changeling has its own code repo (its zygote), cloned from a git remote. The agent should make commits there if it's ever changing anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+Each changeling has its own code repo (its zygote), cloned from a git remote and stored at `~/.changelings/<agent-name>/`. The agent should make commits there if it's ever changing anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
 
 Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
@@ -83,9 +83,8 @@ Since we can't control DNS or use subdomains, we multiplex changelings under URL
 
 # Command line interface
 
-For now, just:
-
 - `changeling deploy <git-url>` (clones a git repo and deploys a changeling from it)
+- `changeling forward` (starts the local forwarding server for accessing changelings)
 
 [future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
 

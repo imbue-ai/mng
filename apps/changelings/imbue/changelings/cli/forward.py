@@ -28,7 +28,7 @@ from imbue.changelings.forwarding_server.runner import start_forwarding_server
     default=None,
     help="Data directory for changelings state (default: ~/.changelings)",
 )
-def server(host: str, port: int, data_dir: str | None) -> None:
+def forward(host: str, port: int, data_dir: str | None) -> None:
     """Start the local forwarding server.
 
     The forwarding server handles authentication and proxies web traffic

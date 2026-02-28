@@ -1,4 +1,5 @@
 import secrets
+import shutil
 from enum import auto
 from pathlib import Path
 
@@ -15,13 +16,12 @@ from imbue.changelings.deployment.local import clone_git_repo
 from imbue.changelings.deployment.local import deploy_local
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
-from imbue.changelings.forwarding_server.runner import start_forwarding_server
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
 
-_CLONE_ID_BYTES: int = 8
+_TEMP_DIR_ID_BYTES: int = 8
 
 
 class DeploymentProvider(UpperCaseStrEnum):
@@ -127,8 +127,8 @@ def _run_deployment(
     return result
 
 
-def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPaths) -> None:
-    """Print the deployment result and start the forwarding server (blocks until interrupted)."""
+def _print_result(result: DeploymentResult) -> None:
+    """Print the deployment result and instruct the user to start the forwarding server."""
     logger.info("")
     logger.info("=" * 60)
     logger.info("Changeling deployed successfully")
@@ -142,16 +142,9 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
     logger.info("  Login URL (one-time use):")
     logger.info("  {}", result.login_url)
     logger.info("")
-    logger.info("Starting the forwarding server...")
-    logger.info("Press Ctrl+C to stop.")
+    logger.info("Start the forwarding server to access your changeling:")
+    logger.info("  changeling forward")
     logger.info("=" * 60)
-    logger.info("")
-
-    start_forwarding_server(
-        data_directory=paths.data_dir,
-        host="127.0.0.1",
-        port=DEFAULT_FORWARDING_SERVER_PORT,
-    )
 
 
 @click.command()
@@ -177,12 +170,19 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
     default=None,
     help="Whether to allow the agent to launch its own agents (skips the prompt if provided)",
 )
+@click.option(
+    "--data-dir",
+    type=click.Path(resolve_path=True),
+    default=None,
+    help="Data directory for changelings state (default: ~/.changelings)",
+)
 def deploy(
     git_url: str,
     branch: str | None,
     name: str | None,
     provider: str | None,
     self_deploy: bool | None,
+    data_dir: str | None,
 ) -> None:
     """Deploy a new changeling from a git repository.
 
@@ -199,27 +199,29 @@ def deploy(
     """
     url = GitUrl(git_url)
     git_branch = GitBranch(branch) if branch is not None else None
-    paths = ChangelingPaths(data_dir=get_default_data_dir())
+    data_directory = Path(data_dir) if data_dir else get_default_data_dir()
+    paths = ChangelingPaths(data_dir=data_directory)
 
-    # Clone into a persistent directory under ~/.changelings/clones/
-    clone_dir = paths.clones_dir / secrets.token_hex(_CLONE_ID_BYTES)
-    clone_dir.parent.mkdir(parents=True, exist_ok=True)
+    # Clone to a temporary directory first so we can read the config
+    # before committing to a final location based on the agent name
+    paths.data_dir.mkdir(parents=True, exist_ok=True)
+    temp_clone_dir = paths.data_dir / (".tmp-" + secrets.token_hex(_TEMP_DIR_ID_BYTES))
 
     logger.info("Cloning repository: {}", url)
 
     try:
-        clone_git_repo(url, clone_dir, branch=git_branch)
+        clone_git_repo(url, temp_clone_dir, branch=git_branch)
     except GitCloneError as e:
+        shutil.rmtree(temp_clone_dir, ignore_errors=True)
         raise click.ClickException(str(e)) from e
-
-    zygote_dir = clone_dir
 
     try:
-        zygote_config = load_zygote_config(zygote_dir)
+        zygote_config = load_zygote_config(temp_clone_dir)
     except ChangelingError as e:
+        shutil.rmtree(temp_clone_dir, ignore_errors=True)
         raise click.ClickException(str(e)) from e
 
-    logger.info("Deploying changeling from: {}", zygote_dir)
+    logger.info("Deploying changeling from: {}", temp_clone_dir)
     if zygote_config.description:
         logger.info("  {}", zygote_config.description)
 
@@ -238,6 +240,23 @@ def deploy(
     if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
+    # Move clone to its permanent location: ~/.changelings/<agent-name>/
+    changeling_dir = paths.changeling_dir(agent_name)
+    if changeling_dir.exists():
+        shutil.rmtree(temp_clone_dir, ignore_errors=True)
+        raise click.ClickException(
+            "A changeling directory already exists at '{}'. Remove it first or choose a different name.".format(
+                changeling_dir
+            )
+        )
+
+    try:
+        temp_clone_dir.rename(changeling_dir)
+    except OSError:
+        shutil.move(str(temp_clone_dir), str(changeling_dir))
+
+    zygote_dir = changeling_dir
+
     try:
         result = _run_deployment(
             zygote_dir=zygote_dir,
@@ -249,4 +268,4 @@ def deploy(
     except ChangelingError as e:
         raise click.ClickException(str(e)) from e
 
-    _print_result_and_start_server(result, paths)
+    _print_result(result)
