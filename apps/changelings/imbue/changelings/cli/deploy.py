@@ -1,5 +1,4 @@
 import secrets
-import sys
 from enum import auto
 from pathlib import Path
 
@@ -19,7 +18,6 @@ from imbue.changelings.errors import GitCloneError
 from imbue.changelings.forwarding_server.runner import start_forwarding_server
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
-from imbue.changelings.primitives import RepoSubPath
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
 
@@ -41,15 +39,9 @@ class SelfDeployChoice(UpperCaseStrEnum):
     NOT_NOW = auto()
 
 
-def _write_line(message: str) -> None:
-    """Write a line to stdout."""
-    sys.stdout.write(message + "\n")
-    sys.stdout.flush()
-
-
 def _prompt_agent_name(default_name: str) -> str:
     """Prompt the user for the agent name."""
-    _write_line("")
+    logger.info("")
     return click.prompt(
         "What would you like to name this agent?",
         default=default_name,
@@ -58,12 +50,12 @@ def _prompt_agent_name(default_name: str) -> str:
 
 def _prompt_provider() -> DeploymentProvider:
     """Prompt the user for where to deploy the agent."""
-    _write_line("")
-    _write_line("Where do you want to run this agent?")
-    _write_line("  [1] local  - Run on this machine")
-    _write_line("  [2] modal  - Run in the cloud (Modal)")
-    _write_line("  [3] docker - Run in a Docker container")
-    _write_line("")
+    logger.info("")
+    logger.info("Where do you want to run this agent?")
+    logger.info("  [1] local  - Run on this machine")
+    logger.info("  [2] modal  - Run in the cloud (Modal)")
+    logger.info("  [3] docker - Run in a Docker container")
+    logger.info("")
 
     choice = click.prompt(
         "Selection",
@@ -84,7 +76,7 @@ def _prompt_provider() -> DeploymentProvider:
 
 def _prompt_self_deploy() -> SelfDeployChoice:
     """Prompt the user about whether the agent can launch its own agents."""
-    _write_line("")
+    logger.info("")
     allow = click.confirm(
         "Allow this agent to launch its own agents?",
         default=False,
@@ -137,23 +129,23 @@ def _run_deployment(
 
 def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPaths) -> None:
     """Print the deployment result and start the forwarding server (blocks until interrupted)."""
-    _write_line("")
-    _write_line("=" * 60)
-    _write_line("Changeling deployed successfully")
-    _write_line("=" * 60)
-    _write_line("")
-    _write_line("  Agent name: {}".format(result.agent_name))
-    _write_line("  Agent ID:   {}".format(result.agent_id))
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("Changeling deployed successfully")
+    logger.info("=" * 60)
+    logger.info("")
+    logger.info("  Agent name: {}", result.agent_name)
+    logger.info("  Agent ID:   {}", result.agent_id)
     if result.backend_url is not None:
-        _write_line("  Backend:    {}".format(result.backend_url))
-    _write_line("")
-    _write_line("  Login URL (one-time use):")
-    _write_line("  {}".format(result.login_url))
-    _write_line("")
-    _write_line("Starting the forwarding server...")
-    _write_line("Press Ctrl+C to stop.")
-    _write_line("=" * 60)
-    _write_line("")
+        logger.info("  Backend:    {}", result.backend_url)
+    logger.info("")
+    logger.info("  Login URL (one-time use):")
+    logger.info("  {}", result.login_url)
+    logger.info("")
+    logger.info("Starting the forwarding server...")
+    logger.info("Press Ctrl+C to stop.")
+    logger.info("=" * 60)
+    logger.info("")
 
     start_forwarding_server(
         data_directory=paths.data_dir,
@@ -168,11 +160,6 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
     "--branch",
     default=None,
     help="Git branch to clone (defaults to the repository's default branch)",
-)
-@click.option(
-    "--repo-sub-path",
-    default=None,
-    help="Subdirectory within the cloned repo containing the changeling.toml",
 )
 @click.option(
     "--name",
@@ -193,7 +180,6 @@ def _print_result_and_start_server(result: DeploymentResult, paths: ChangelingPa
 def deploy(
     git_url: str,
     branch: str | None,
-    repo_sub_path: str | None,
     name: str | None,
     provider: str | None,
     self_deploy: bool | None,
@@ -201,46 +187,41 @@ def deploy(
     """Deploy a new changeling from a git repository.
 
     GIT_URL is a git URL to clone (local path, file://, https://, or ssh).
+    The repository root must contain a changeling.toml file.
 
     Example:
 
-        changeling deploy ./my-repo --repo-sub-path examples/hello-world
+        changeling deploy ./my-agent-repo
 
-        changeling deploy git@github.com:user/agents.git --branch main --repo-sub-path elena-code
+        changeling deploy git@github.com:user/my-agent.git --branch main
 
         changeling deploy https://github.com/user/my-agent.git --name my-agent --provider local
     """
     url = GitUrl(git_url)
     git_branch = GitBranch(branch) if branch is not None else None
-    sub_path = RepoSubPath(repo_sub_path) if repo_sub_path is not None else None
     paths = ChangelingPaths(data_dir=get_default_data_dir())
 
     # Clone into a persistent directory under ~/.changelings/clones/
     clone_dir = paths.clones_dir / secrets.token_hex(_CLONE_ID_BYTES)
     clone_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_line("Cloning repository: {}".format(url))
+    logger.info("Cloning repository: {}", url)
 
     try:
         clone_git_repo(url, clone_dir, branch=git_branch)
     except GitCloneError as e:
         raise click.ClickException(str(e)) from e
 
-    zygote_dir = clone_dir / str(sub_path) if sub_path is not None else clone_dir
-
-    if not zygote_dir.is_dir():
-        raise click.ClickException(
-            "Subdirectory '{}' not found in cloned repository at {}".format(sub_path, clone_dir)
-        )
+    zygote_dir = clone_dir
 
     try:
         zygote_config = load_zygote_config(zygote_dir)
     except ChangelingError as e:
         raise click.ClickException(str(e)) from e
 
-    _write_line("Deploying changeling from: {}".format(zygote_dir))
+    logger.info("Deploying changeling from: {}", zygote_dir)
     if zygote_config.description:
-        _write_line("  {}".format(zygote_config.description))
+        logger.info("  {}", zygote_config.description)
 
     agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
 

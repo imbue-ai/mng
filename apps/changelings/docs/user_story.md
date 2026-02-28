@@ -1,7 +1,7 @@
 This is the primary flow for how a user would deploy a changeling for the first time:
 
-1. User runs: `changeling deploy <git-url>` (optionally with `--repo-sub-path <path>` if the changeling.toml is in a subdirectory)
-   The git URL can be a local path, file://, https://, or ssh URL pointing to a repo containing a changeling.toml.
+1. User runs: `changeling deploy <git-url>`
+   The git URL can be a local path, file://, https://, or ssh URL pointing to a repo containing a changeling.toml at its root.
 2. (User gets through various auth flows, now has tokens -- just assume this exists for now, we'll set the right env vars)
 3. User answers some questions:
    - What do you want to name the agent? [<default from changeling.toml> | <type something>]
