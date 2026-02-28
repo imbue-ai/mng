@@ -70,6 +70,7 @@ def _exec_on_agent(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_exec_echo_on_modal(
     temp_source_dir: Path,
@@ -87,6 +88,7 @@ def test_exec_echo_on_modal(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_exec_cwd_override_on_modal(
     temp_source_dir: Path,
@@ -104,6 +106,7 @@ def test_exec_cwd_override_on_modal(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_exec_failure_propagates_exit_code_on_modal(
     temp_source_dir: Path,
@@ -120,6 +123,7 @@ def test_exec_failure_propagates_exit_code_on_modal(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_exec_json_output_on_modal(
     temp_source_dir: Path,

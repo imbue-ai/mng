@@ -34,6 +34,7 @@ def temp_source_dir(tmp_path: Path) -> Path:
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_echo_command_on_modal(
     temp_source_dir: Path,
@@ -86,6 +87,7 @@ def test_mng_create_echo_command_on_modal(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_worktree_flag_on_modal_raises_error(
     temp_source_dir: Path,
@@ -134,6 +136,7 @@ def test_mng_create_with_worktree_flag_on_modal_raises_error(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_build_args_on_modal(
     temp_source_dir: Path,
@@ -186,6 +189,7 @@ def test_mng_create_with_build_args_on_modal(
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_dockerfile_on_modal(
     temp_source_dir: Path,
@@ -252,6 +256,7 @@ RUN echo "custom-dockerfile-marker" > /dockerfile-marker.txt
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_with_failing_dockerfile_shows_build_failure(
     temp_source_dir: Path,
@@ -327,6 +332,7 @@ RUN echo "About to fail with marker: {unique_failure_marker}" && exit 1
 
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_transfers_git_repo_with_untracked_files(
     temp_git_repo: Path,
@@ -380,6 +386,7 @@ def test_mng_create_transfers_git_repo_with_untracked_files(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_mng_create_transfers_git_repo_with_new_branch(
     temp_git_repo: Path,
@@ -434,6 +441,7 @@ def _get_mng_default_dockerfile_path() -> Path:
 
 @pytest.mark.release
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(600)
 def test_mng_create_with_default_dockerfile_on_modal(
     tmp_path: Path,

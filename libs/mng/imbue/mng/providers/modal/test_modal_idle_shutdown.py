@@ -114,6 +114,7 @@ def _get_host_state(
 )
 @pytest.mark.acceptance
 @pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(300)
 def test_idle_shutdown_creates_both_initial_and_idle_snapshots(
     tmp_path: Path,
