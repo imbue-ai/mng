@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,9 +12,13 @@ from imbue.changelings.deployment.local import _generate_auth_code
 from imbue.changelings.deployment.local import _raise_if_agent_exists
 from imbue.changelings.deployment.local import _verify_mng_available
 from imbue.changelings.deployment.local import clone_git_repo
+from imbue.changelings.deployment.local import commit_files_in_repo
+from imbue.changelings.deployment.local import init_empty_git_repo
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
+from imbue.changelings.errors import GitCommitError
+from imbue.changelings.errors import GitInitError
 from imbue.changelings.primitives import GitUrl
 from imbue.changelings.testing import init_and_commit_git_repo
 from imbue.mng.primitives import AgentId
@@ -139,3 +144,72 @@ def test_clone_git_repo_raises_for_invalid_url(tmp_path: Path) -> None:
     clone_dir = tmp_path / "bad-clone"
     with pytest.raises(GitCloneError, match="git clone failed"):
         clone_git_repo(GitUrl("/nonexistent/repo/path"), clone_dir)
+
+
+# --- init_empty_git_repo tests ---
+
+
+def test_init_empty_git_repo_creates_git_directory(tmp_path: Path) -> None:
+    """Verify that init_empty_git_repo creates a .git directory."""
+    repo_dir = tmp_path / "new-repo"
+    init_empty_git_repo(repo_dir)
+
+    assert repo_dir.is_dir()
+    assert (repo_dir / ".git").is_dir()
+
+
+def test_init_empty_git_repo_creates_parent_dirs(tmp_path: Path) -> None:
+    """Verify that init_empty_git_repo creates parent directories if needed."""
+    repo_dir = tmp_path / "nested" / "dir" / "repo"
+    init_empty_git_repo(repo_dir)
+
+    assert repo_dir.is_dir()
+    assert (repo_dir / ".git").is_dir()
+
+
+def test_git_init_error_is_changeling_error() -> None:
+    err = GitInitError("test")
+    assert isinstance(err, ChangelingError)
+
+
+# --- commit_files_in_repo tests ---
+
+
+def test_commit_files_in_repo_commits_new_files(tmp_path: Path) -> None:
+    """Verify that commit_files_in_repo stages and commits files."""
+    repo_dir = tmp_path / "repo"
+    init_empty_git_repo(repo_dir)
+
+    (repo_dir / "hello.txt").write_text("hello")
+
+    committed = commit_files_in_repo(repo_dir, "test commit")
+
+    assert committed is True
+
+    # Verify the file is tracked
+    result = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+    assert "test commit" in result.stdout
+
+
+def test_commit_files_in_repo_returns_false_when_nothing_to_commit(tmp_path: Path) -> None:
+    """Verify that commit_files_in_repo returns False when there are no changes."""
+    repo_dir = tmp_path / "repo"
+    init_empty_git_repo(repo_dir)
+
+    # Create a file and commit it first
+    (repo_dir / "hello.txt").write_text("hello")
+    commit_files_in_repo(repo_dir, "first commit")
+
+    # Now try to commit again with no changes
+    committed = commit_files_in_repo(repo_dir, "empty commit")
+    assert committed is False
+
+
+def test_git_commit_error_is_changeling_error() -> None:
+    err = GitCommitError("test")
+    assert isinstance(err, ChangelingError)

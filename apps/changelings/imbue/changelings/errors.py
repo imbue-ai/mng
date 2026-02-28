@@ -20,3 +20,15 @@ class GitCloneError(ChangelingError):
     """Raised when git clone fails."""
 
     ...
+
+
+class GitInitError(ChangelingError):
+    """Raised when git init fails."""
+
+    ...
+
+
+class GitCommitError(ChangelingError):
+    """Raised when git add/commit fails."""
+
+    ...

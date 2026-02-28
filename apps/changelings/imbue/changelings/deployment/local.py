@@ -13,6 +13,8 @@ from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.errors import AgentAlreadyExistsError
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
+from imbue.changelings.errors import GitCommitError
+from imbue.changelings.errors import GitInitError
 from imbue.changelings.forwarding_server.auth import FileAuthStore
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
@@ -89,6 +91,84 @@ def clone_git_repo(git_url: GitUrl, clone_dir: Path, branch: GitBranch | None = 
         )
 
     logger.debug("Cloned repository to {}", clone_dir)
+
+
+def init_empty_git_repo(repo_dir: Path) -> None:
+    """Initialize an empty git repository at the given path.
+
+    Creates the directory if it does not exist. Raises GitInitError if git init fails.
+    """
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    logger.debug("Initializing empty git repo at {}", repo_dir)
+
+    result = subprocess.run(
+        ["git", "init"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode != 0:
+        raise GitInitError(
+            "git init failed (exit code {}):\n{}".format(
+                result.returncode,
+                result.stderr.strip() if result.stderr.strip() else result.stdout.strip(),
+            )
+        )
+
+    logger.debug("Initialized empty git repo at {}", repo_dir)
+
+
+def commit_files_in_repo(repo_dir: Path, message: str) -> bool:
+    """Stage all files and commit in the given git repo.
+
+    Returns True if a commit was created, False if there was nothing to commit.
+    Raises GitCommitError if the git operations fail unexpectedly.
+    """
+    add_result = subprocess.run(
+        ["git", "add", "."],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    if add_result.returncode != 0:
+        raise GitCommitError(
+            "git add failed (exit code {}):\n{}".format(
+                add_result.returncode,
+                add_result.stderr.strip() if add_result.stderr.strip() else add_result.stdout.strip(),
+            )
+        )
+
+    # Check if there is anything to commit
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    if not status_result.stdout.strip():
+        logger.debug("No changes to commit in {}", repo_dir)
+        return False
+
+    commit_result = subprocess.run(
+        ["git", "commit", "-m", message],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+    )
+
+    if commit_result.returncode != 0:
+        raise GitCommitError(
+            "git commit failed (exit code {}):\n{}".format(
+                commit_result.returncode,
+                commit_result.stderr.strip() if commit_result.stderr.strip() else commit_result.stdout.strip(),
+            )
+        )
+
+    logger.debug("Committed files in {}: {}", repo_dir, message)
+    return True
 
 
 def deploy_local(

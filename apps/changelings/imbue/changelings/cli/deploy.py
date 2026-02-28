@@ -2,6 +2,7 @@ import secrets
 import shutil
 from enum import auto
 from pathlib import Path
+from typing import Final
 
 import click
 from loguru import logger
@@ -9,19 +10,26 @@ from loguru import logger
 from imbue.changelings.config.data_types import ChangelingPaths
 from imbue.changelings.config.data_types import DEFAULT_FORWARDING_SERVER_PORT
 from imbue.changelings.config.data_types import get_default_data_dir
+from imbue.changelings.core.zygote import ZYGOTE_CONFIG_FILENAME
 from imbue.changelings.core.zygote import ZygoteConfig
 from imbue.changelings.core.zygote import load_zygote_config
 from imbue.changelings.deployment.local import DeploymentResult
 from imbue.changelings.deployment.local import clone_git_repo
+from imbue.changelings.deployment.local import commit_files_in_repo
 from imbue.changelings.deployment.local import deploy_local
+from imbue.changelings.deployment.local import init_empty_git_repo
 from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import GitCloneError
+from imbue.changelings.errors import GitCommitError
+from imbue.changelings.errors import GitInitError
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.enums import UpperCaseStrEnum
 
 _TEMP_DIR_ID_BYTES: int = 8
+
+_MNG_SETTINGS_REL_PATH: Final[str] = ".mng/settings.toml"
 
 
 class DeploymentProvider(UpperCaseStrEnum):
@@ -147,8 +155,103 @@ def _print_result(result: DeploymentResult) -> None:
     logger.info("=" * 60)
 
 
+def _parse_add_path(raw: str) -> tuple[Path, Path]:
+    """Parse a SRC:DEST string into (source_path, dest_path).
+
+    Raises click.BadParameter if the format is invalid or if SRC does not exist.
+    """
+    if ":" not in raw:
+        raise click.BadParameter(
+            "Invalid --add-path format '{}'. Expected SRC:DEST".format(raw),
+            param_hint="--add-path",
+        )
+
+    src_str, dest_str = raw.split(":", 1)
+    if not src_str or not dest_str:
+        raise click.BadParameter(
+            "Invalid --add-path format '{}'. Both SRC and DEST must be non-empty".format(raw),
+            param_hint="--add-path",
+        )
+
+    src = Path(src_str).resolve()
+    if not src.exists():
+        raise click.BadParameter(
+            "Source path '{}' does not exist".format(src),
+            param_hint="--add-path",
+        )
+
+    dest = Path(dest_str)
+    if dest.is_absolute():
+        raise click.BadParameter(
+            "DEST path '{}' must be relative (it is relative to the repo root)".format(dest_str),
+            param_hint="--add-path",
+        )
+
+    return src, dest
+
+
+def _copy_add_paths(add_paths: tuple[tuple[Path, Path], ...], repo_dir: Path) -> int:
+    """Copy files/directories specified by --add-path into the repo.
+
+    Returns the number of paths that were copied.
+    """
+    copied = 0
+    for src, dest in add_paths:
+        target = repo_dir / dest
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if src.is_dir():
+            shutil.copytree(str(src), str(target), dirs_exist_ok=True)
+        else:
+            shutil.copy2(str(src), str(target))
+
+        logger.debug("Copied {} -> {}", src, target)
+        copied += 1
+
+    return copied
+
+
+def _write_changeling_toml(repo_dir: Path, agent_type: str) -> None:
+    """Write a changeling.toml file with the given agent type.
+
+    Only writes the file if it does not already exist.
+    """
+    config_path = repo_dir / ZYGOTE_CONFIG_FILENAME
+    if config_path.exists():
+        logger.debug("Changeling config already exists at {}, skipping creation", config_path)
+        return
+
+    config_path.write_text('[changeling]\nname = "{}"\nagent_type = "{}"\n'.format(agent_type, agent_type))
+    logger.debug("Created {}", config_path)
+
+
+def _write_mng_settings_toml(repo_dir: Path, agent_type: str) -> None:
+    """Write .mng/settings.toml with a create template for the agent type.
+
+    Only writes the file if it does not already exist.
+    """
+    settings_path = repo_dir / _MNG_SETTINGS_REL_PATH
+    if settings_path.exists():
+        logger.debug("Settings file already exists at {}, skipping creation", settings_path)
+        return
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text('[create_templates.entrypoint]\nagent_type = "{}"\n'.format(agent_type))
+    logger.debug("Created {}", settings_path)
+
+
 @click.command()
-@click.argument("git_url")
+@click.argument("git_url", required=False, default=None)
+@click.option(
+    "--agent-type",
+    default=None,
+    help="Agent type to deploy (e.g. 'elena-code'). Alternative to providing a git URL.",
+)
+@click.option(
+    "--add-path",
+    multiple=True,
+    help="Copy SRC:DEST into the repo (repeatable). SRC is a local path, DEST is relative to repo root.",
+)
 @click.option(
     "--branch",
     default=None,
@@ -177,55 +280,75 @@ def _print_result(result: DeploymentResult) -> None:
     help="Data directory for changelings state (default: ~/.changelings)",
 )
 def deploy(
-    git_url: str,
+    git_url: str | None,
+    agent_type: str | None,
+    add_path: tuple[str, ...],
     branch: str | None,
     name: str | None,
     provider: str | None,
     self_deploy: bool | None,
     data_dir: str | None,
 ) -> None:
-    """Deploy a new changeling from a git repository.
+    """Deploy a new changeling from a git repository or agent type.
 
-    GIT_URL is a git URL to clone (local path, file://, https://, or ssh).
-    The repository root must contain a changeling.toml file.
+    GIT_URL is an optional git URL to clone (local path, file://, https://, or ssh).
+    Alternatively, use --agent-type to create a changeling without a git repository.
+
+    Either GIT_URL or --agent-type must be provided.
 
     Example:
 
         changeling deploy ./my-agent-repo
 
-        changeling deploy git@github.com:user/my-agent.git --branch main
+        changeling deploy --agent-type elena-code
 
-        changeling deploy https://github.com/user/my-agent.git --name my-agent --provider local
+        changeling deploy --agent-type elena-code --add-path ./config:config --name my-agent
+
+        changeling deploy git@github.com:user/my-agent.git --add-path ./extra:extra
     """
-    url = GitUrl(git_url)
-    git_branch = GitBranch(branch) if branch is not None else None
+    if git_url is None and agent_type is None:
+        raise click.UsageError("Either GIT_URL or --agent-type must be provided.")
+
+    # Parse --add-path args upfront so we fail early on bad input
+    parsed_add_paths = tuple(_parse_add_path(raw) for raw in add_path)
+
     data_directory = Path(data_dir) if data_dir else get_default_data_dir()
     paths = ChangelingPaths(data_dir=data_directory)
 
-    # Clone to a temporary directory first so we can read the config
-    # before committing to a final location based on the agent name
     paths.data_dir.mkdir(parents=True, exist_ok=True)
-    temp_clone_dir = paths.data_dir / (".tmp-" + secrets.token_hex(_TEMP_DIR_ID_BYTES))
-
-    logger.info("Cloning repository: {}", url)
+    temp_dir = paths.data_dir / (".tmp-" + secrets.token_hex(_TEMP_DIR_ID_BYTES))
 
     try:
-        clone_git_repo(url, temp_clone_dir, branch=git_branch)
-    except GitCloneError as e:
-        shutil.rmtree(temp_clone_dir, ignore_errors=True)
-        raise click.ClickException(str(e)) from e
-
-    try:
-        zygote_config = load_zygote_config(temp_clone_dir)
+        _prepare_repo(
+            temp_dir=temp_dir,
+            git_url=git_url,
+            agent_type=agent_type,
+            branch=branch,
+            add_paths=parsed_add_paths,
+        )
+    except (click.ClickException, click.BadParameter):
+        raise
     except ChangelingError as e:
-        shutil.rmtree(temp_clone_dir, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         raise click.ClickException(str(e)) from e
 
-    logger.info("Deploying changeling from: {}", temp_clone_dir)
+    try:
+        zygote_config = load_zygote_config(temp_dir)
+    except ChangelingError as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise click.ClickException(str(e)) from e
+
+    logger.info("Deploying changeling from: {}", temp_dir)
     if zygote_config.description:
         logger.info("  {}", zygote_config.description)
 
-    agent_name = name if name is not None else _prompt_agent_name(default_name=str(zygote_config.name))
+    # Determine agent name: --name flag, then agent_type default, then prompt
+    if name is not None:
+        agent_name = name
+    elif agent_type is not None and git_url is None:
+        agent_name = _prompt_agent_name(default_name=agent_type)
+    else:
+        agent_name = _prompt_agent_name(default_name=str(zygote_config.name))
 
     if provider is not None:
         provider_choice = DeploymentProvider(provider.upper())
@@ -240,10 +363,10 @@ def deploy(
     if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
-    # Move clone to its permanent location: ~/.changelings/<agent-name>/
+    # Move repo to its permanent location: ~/.changelings/<agent-name>/
     changeling_dir = paths.changeling_dir(agent_name)
     if changeling_dir.exists():
-        shutil.rmtree(temp_clone_dir, ignore_errors=True)
+        shutil.rmtree(temp_dir, ignore_errors=True)
         raise click.ClickException(
             "A changeling directory already exists at '{}'. Remove it first or choose a different name.".format(
                 changeling_dir
@@ -251,9 +374,9 @@ def deploy(
         )
 
     try:
-        temp_clone_dir.rename(changeling_dir)
+        temp_dir.rename(changeling_dir)
     except OSError:
-        shutil.move(str(temp_clone_dir), str(changeling_dir))
+        shutil.move(str(temp_dir), str(changeling_dir))
 
     zygote_dir = changeling_dir
 
@@ -269,3 +392,57 @@ def deploy(
         raise click.ClickException(str(e)) from e
 
     _print_result(result)
+
+
+def _prepare_repo(
+    temp_dir: Path,
+    git_url: str | None,
+    agent_type: str | None,
+    branch: str | None,
+    add_paths: tuple[tuple[Path, Path], ...],
+) -> None:
+    """Prepare the temporary repo directory by cloning or initializing.
+
+    When git_url is provided, clones the repository. Otherwise, creates an
+    empty git repo and generates changeling.toml and .mng/settings.toml.
+
+    In both cases, copies any --add-path files into the repo and commits
+    if new files were added.
+    """
+    if git_url is not None:
+        url = GitUrl(git_url)
+        git_branch = GitBranch(branch) if branch is not None else None
+
+        logger.info("Cloning repository: {}", url)
+        try:
+            clone_git_repo(url, temp_dir, branch=git_branch)
+        except GitCloneError as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise click.ClickException(str(e)) from e
+    else:
+        assert agent_type is not None
+        logger.info("Creating changeling repo for agent type: {}", agent_type)
+
+        try:
+            init_empty_git_repo(temp_dir)
+        except GitInitError as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise click.ClickException(str(e)) from e
+
+    # Copy --add-path files into the repo first, so that user-provided
+    # files take precedence over auto-generated configs
+    files_added = _copy_add_paths(add_paths, temp_dir)
+
+    # Generate config files (only if they don't already exist, so --add-path
+    # versions are preserved)
+    if agent_type is not None:
+        _write_changeling_toml(temp_dir, agent_type)
+        _write_mng_settings_toml(temp_dir, agent_type)
+
+    # Commit any new files that were added to the repo
+    if git_url is None or files_added > 0 or agent_type is not None:
+        try:
+            commit_files_in_repo(temp_dir, "Initial changeling setup")
+        except GitCommitError as e:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise click.ClickException(str(e)) from e
