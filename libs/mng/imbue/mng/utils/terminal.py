@@ -55,6 +55,29 @@ def count_visual_lines(text: str, terminal_width: int) -> int:
 
 
 @pure
+def _tokenize_ansi_text(text: str) -> list[str]:
+    """Split text into single visible characters and multi-character ANSI escape sequences."""
+    tokens: list[str] = []
+    idx = 0
+    while idx < len(text):
+        if text[idx] == "\x1b":
+            match = _ANSI_ESCAPE_PATTERN.match(text, idx)
+            if match:
+                tokens.append(match.group())
+                idx = match.end()
+                continue
+        tokens.append(text[idx])
+        idx += 1
+    return tokens
+
+
+@pure
+def _count_visible_chars(line: list[str]) -> int:
+    """Count visible (non-ANSI, non-control) characters in a line's token list."""
+    return sum(1 for token in line if len(token) == 1 and token >= " ")
+
+
+@pure
 def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
     """Insert explicit newlines so no visual line exceeds terminal_width.
 
@@ -66,34 +89,25 @@ def hard_wrap_for_terminal(text: str, terminal_width: int) -> str:
     if terminal_width <= 0:
         return text
 
-    result: list[str] = []
-    visible_col = 0
-    idx = 0
-    while idx < len(text):
-        char = text[idx]
+    lines: list[list[str]] = [[]]
 
-        if char == "\n" or char == "\r":
-            idx += 1
-            result.append(char)
-            visible_col = 0
-        elif char == "\x1b":
+    for token in _tokenize_ansi_text(text):
+        if token == "\n" or token == "\r":
+            lines[-1].append(token)
+            lines.append([])
+        elif len(token) > 1:
             # ANSI escape sequence -- pass through without advancing the column
-            match = _ANSI_ESCAPE_PATTERN.match(text, idx)
-            if match:
-                result.append(match.group())
-                idx = match.end()
-            else:
-                result.append(char)
-                idx += 1
+            lines[-1].append(token)
         else:
-            idx += 1
-            if visible_col >= terminal_width:
-                result.append("\n")
-                visible_col = 0
-            result.append(char)
-            visible_col += 1
+            lines[-1].append(token)
+            if _count_visible_chars(lines[-1]) > terminal_width:
+                # The char we just appended pushed past the terminal width;
+                # break it onto a new line.
+                lines[-1].pop()
+                lines[-1].append("\n")
+                lines.append([token])
 
-    return "".join(result)
+    return "".join("".join(line) for line in lines)
 
 
 class StderrInterceptor(MutableModel):
