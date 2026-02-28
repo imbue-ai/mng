@@ -228,8 +228,7 @@ def _pytest_runtest_makereport(
     outcome = yield
     report = outcome.get_result()
 
-    # Only check after the call phase, and only if the test passed
-    if call.when != "call" or not report.passed:
+    if call.when != "call":
         # Clean up tracking dir on the final phase (teardown)
         if call.when == "teardown":
             tracking_dir = getattr(item, "_resource_tracking_dir", None)
@@ -243,18 +242,30 @@ def _pytest_runtest_makereport(
 
     marks: set[str] = getattr(item, "_resource_marks", set())
 
+    # Check for blocked invocations regardless of pass/fail. When a guard
+    # blocks a resource inside a subprocess (e.g., mng create -> tmux), the
+    # test often fails for a downstream reason ("Agent is stopped") that
+    # obscures the real cause. Surfacing the guard violation makes it clear.
     for resource in _guarded_resources:
-        # Check for blocked invocations (test lacks mark but called the binary)
         blocked_file = Path(tracking_dir) / f"blocked_{resource}"
         if blocked_file.exists():
-            report.outcome = "failed"
-            report.longrepr = (
-                f"Test invoked '{resource}' without @pytest.mark.{resource}.\n"
+            msg = (
+                f"RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource}.\n"
                 f"Add @pytest.mark.{resource} to the test, or remove the {resource} usage."
             )
-            break
+            if report.passed:
+                report.outcome = "failed"
+                report.longrepr = msg
+            else:
+                # Append guard info to the existing failure so the root cause is visible.
+                report.longrepr = f"{report.longrepr}\n\n{msg}"
+            return
 
-        # Check for superfluous marks (test has mark but never called the binary)
+    # Superfluous mark check only matters if the test passed.
+    if not report.passed:
+        return
+
+    for resource in _guarded_resources:
         if resource in marks:
             tracking_file = Path(tracking_dir) / resource
             if not tracking_file.exists():
@@ -263,4 +274,4 @@ def _pytest_runtest_makereport(
                     f"Test marked with @pytest.mark.{resource} but never invoked {resource}.\n"
                     f"Remove the mark or ensure the test exercises {resource}."
                 )
-                break
+                return

@@ -4,6 +4,7 @@ import importlib.resources
 import json
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -360,6 +361,7 @@ def test_has_running_agent_sessions_returns_true_during_grace_period(
 
 
 @pytest.mark.tmux
+@pytest.mark.skipif(sys.platform == "darwin", reason="Script reads /proc/uptime; tmux never reached on macOS")
 def test_has_running_agent_sessions_returns_false_when_agents_exist_but_no_sessions(
     tmp_path: Path,
 ) -> None:

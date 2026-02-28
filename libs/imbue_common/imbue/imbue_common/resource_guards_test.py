@@ -146,6 +146,26 @@ def test_marked_test_that_never_calls_resource_fails(pytester: pytest.Pytester) 
     result.stdout.fnmatch_lines(["*never invoked cat*"])
 
 
+def test_blocked_resource_appended_to_failing_test(pytester: pytest.Pytester) -> None:
+    """When a test fails AND a blocked resource was invoked, both should be visible."""
+    pytester.makeconftest(_PYTESTER_CONFTEST)
+    pytester.makepyfile("""
+        import subprocess
+
+        def test_fails_after_blocked_cat():
+            subprocess.run(["cat", "/dev/null"], capture_output=True)
+            assert False, "downstream failure"
+    """)
+    result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(
+        [
+            "*downstream failure*",
+            "*RESOURCE GUARD*without @pytest.mark.cat*",
+        ]
+    )
+
+
 def test_unmarked_test_that_does_not_call_resource_passes(pytester: pytest.Pytester) -> None:
     """A test with no mark and no resource call should pass."""
     pytester.makeconftest(_PYTESTER_CONFTEST)
