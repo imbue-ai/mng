@@ -165,3 +165,21 @@ def register_live_chat_plugin():
     if "live-chat" not in llm.cli.cli.commands:
         llm_live_chat_plugin.register_commands(llm.cli.cli)
     yield
+
+
+@pytest.fixture
+def cli_runner():
+    from click.testing import CliRunner
+
+    return CliRunner()
+
+
+def invoke_live_chat(cli_runner, user_input, extra_args=None):
+    """Invoke 'llm live-chat -m mock' with the given input, appending 'quit' automatically."""
+    args = ["live-chat", "-m", "mock"] + (extra_args or [])
+    return cli_runner.invoke(
+        llm.cli.cli,
+        args,
+        input=user_input + "\nquit\n",
+        catch_exceptions=False,
+    )

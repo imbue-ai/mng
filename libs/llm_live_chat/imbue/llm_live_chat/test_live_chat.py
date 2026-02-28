@@ -6,22 +6,17 @@ import sys
 import llm.cli
 import pytest
 import sqlite_utils
-from click.testing import CliRunner
+
+from imbue.llm_live_chat.conftest import invoke_live_chat
 
 _HAS_SIGUSR1 = hasattr(signal, "SIGUSR1")
 
 
 @pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_live_chat_basic(mock_model, logs_db):
-    runner = CliRunner()
+def test_live_chat_basic(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["one world"])
     mock_model.enqueue(["one again"])
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nHi two\nquit\n",
-        catch_exceptions=False,
-    )
+    result = invoke_live_chat(cli_runner, "Hi\nHi two")
     assert result.exit_code == 0
     assert "Chatting with mock" in result.output
     assert "> Hi\none world\n" in result.output
@@ -38,24 +33,12 @@ def test_live_chat_basic(mock_model, logs_db):
 
 
 @pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_live_chat_continue(mock_model, logs_db):
-    runner = CliRunner()
-
+def test_live_chat_continue(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["first"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hi")
 
     mock_model.enqueue(["continued"])
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock", "-c"],
-        input="More\nquit\n",
-        catch_exceptions=False,
-    )
+    result = invoke_live_chat(cli_runner, "More", extra_args=["-c"])
     assert result.exit_code == 0
     assert "continued" in result.output
 
@@ -65,7 +48,7 @@ def test_live_chat_continue(mock_model, logs_db):
 
 @pytest.mark.skipif(not _HAS_SIGUSR1, reason="SIGUSR1 not available")
 @pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_live_chat_sigusr1_pending(mock_model, logs_db):
+def test_live_chat_sigusr1_pending(mock_model, logs_db, cli_runner):
     """SIGUSR1 during streaming sets _check_pending, displayed after streaming."""
     log_path = str(llm.cli.logs_db_path())
     call_count = [0]
@@ -111,41 +94,21 @@ def test_live_chat_sigusr1_pending(mock_model, logs_db):
 
     mock_model.execute = execute_inject_and_signal
 
-    runner = CliRunner()
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hello\nWorld\nquit\n",
-        catch_exceptions=False,
-    )
+    result = invoke_live_chat(cli_runner, "Hello\nWorld")
     assert result.exit_code == 0
     assert "external followup message" in result.output
     assert "> external prompt" in result.output
 
 
-def test_inject_into_conversation(mock_model, logs_db):
-    runner = CliRunner()
-
+def test_inject_into_conversation(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["hello back"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hi")
 
     conv_id = list(logs_db["conversations"].rows)[0]["id"]
 
-    result = runner.invoke(
+    result = cli_runner.invoke(
         llm.cli.cli,
-        [
-            "inject",
-            "followup from external",
-            "--cid",
-            conv_id,
-            "--prompt",
-            "system note",
-        ],
+        ["inject", "followup from external", "--cid", conv_id, "--prompt", "system note"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
@@ -159,35 +122,26 @@ def test_inject_into_conversation(mock_model, logs_db):
     assert injected["model"] == "mock"
 
 
-def test_inject_without_cid_creates_new_conversation(mock_model, logs_db):
+def test_inject_without_cid_creates_new_conversation(mock_model, logs_db, cli_runner):
     """Inject without --cid always creates a new conversation."""
-    runner = CliRunner()
-
     mock_model.enqueue(["reply"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hi")
 
-    result = runner.invoke(
+    result = cli_runner.invoke(
         llm.cli.cli,
         ["inject", "new conv message"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0
-    # Should have created a second conversation
     convs = list(logs_db["conversations"].rows)
     assert len(convs) == 2
     responses = list(logs_db["responses"].rows_where(select="response"))
     assert {"response": "new conv message"} in responses
 
 
-def test_inject_no_conversations_creates_one(logs_db):
+def test_inject_no_conversations_creates_one(logs_db, cli_runner):
     """Inject with no existing conversations creates a new one."""
-    runner = CliRunner()
-    result = runner.invoke(
+    result = cli_runner.invoke(
         llm.cli.cli,
         ["inject", "first message"],
         catch_exceptions=False,
@@ -203,42 +157,23 @@ def test_inject_no_conversations_creates_one(logs_db):
     assert responses[0]["conversation_id"] == convs[0]["id"]
 
 
-def test_inject_bad_conversation_id(mock_model, logs_db):
-    runner = CliRunner()
-
+def test_inject_bad_conversation_id(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["reply"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hi")
 
-    result = runner.invoke(llm.cli.cli, ["inject", "msg", "--cid", "nonexistent-id"])
+    result = cli_runner.invoke(llm.cli.cli, ["inject", "msg", "--cid", "nonexistent-id"])
     assert result.exit_code != 0
     assert "No conversation found" in result.output
 
 
 @pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_show_history(mock_model, logs_db):
-    runner = CliRunner()
-
+def test_show_history(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["first response"])
     mock_model.enqueue(["second response"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hello\nWorld\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hello\nWorld")
 
     mock_model.enqueue(["third response"])
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock", "-c", "--show-history"],
-        input="More\nquit\n",
-        catch_exceptions=False,
-    )
+    result = invoke_live_chat(cli_runner, "More", extra_args=["-c", "--show-history"])
     assert result.exit_code == 0
     assert "> Hello" in result.output
     assert "first response" in result.output
@@ -248,32 +183,20 @@ def test_show_history(mock_model, logs_db):
 
 
 @pytest.mark.xfail(sys.platform == "win32", reason="Expected to fail on Windows")
-def test_show_history_with_injected(mock_model, logs_db):
-    runner = CliRunner()
-
+def test_show_history_with_injected(mock_model, logs_db, cli_runner):
     mock_model.enqueue(["reply"])
-    runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock"],
-        input="Hi\nquit\n",
-        catch_exceptions=False,
-    )
+    invoke_live_chat(cli_runner, "Hi")
 
     conv_id = list(logs_db["conversations"].rows)[0]["id"]
 
-    runner.invoke(
+    cli_runner.invoke(
         llm.cli.cli,
         ["inject", "injected followup", "--cid", conv_id, "--prompt", "Agent"],
         catch_exceptions=False,
     )
 
     mock_model.enqueue(["new reply"])
-    result = runner.invoke(
-        llm.cli.cli,
-        ["live-chat", "-m", "mock", "-c", "--show-history"],
-        input="Next\nquit\n",
-        catch_exceptions=False,
-    )
+    result = invoke_live_chat(cli_runner, "Next", extra_args=["-c", "--show-history"])
     assert result.exit_code == 0
     assert "> Hi" in result.output
     assert "reply" in result.output
