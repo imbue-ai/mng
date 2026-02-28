@@ -1,6 +1,8 @@
 import json
 import os
 import tempfile
+from collections.abc import Mapping
+from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -8,7 +10,11 @@ from typing import Final
 
 import click
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.mng.primitives import AgentReference
+from imbue.mng.primitives import HostReference
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 
@@ -156,23 +162,109 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
         logger.debug("Failed to write CLI completions cache")
 
 
-def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
-    """Write agent names to the completion cache file (best-effort).
+class CachedAgentEntry(FrozenModel):
+    """Cached metadata about an agent for provider-aware lookups."""
 
-    Writes a JSON file with agent names so that shell completion can read it
-    without importing the mng config system. The cache file is written to
-    {host_dir}/.agent_completions.json.
+    name: str = Field(description="Human-readable agent name")
+    id: str = Field(description="Unique agent identifier")
+    provider: str = Field(description="Provider instance name that owns the agent's host")
+    host_name: str = Field(description="Human-readable host name")
+    host_id: str = Field(description="Unique host identifier")
+
+
+def write_agent_names_cache(
+    cache_dir: Path,
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
+) -> None:
+    """Write agent data to the completion cache file (best-effort).
+
+    Writes a JSON file with per-agent metadata (including provider) so that
+    shell completion and provider-aware lookups can read it without importing
+    the mng config system. A backward-compatible "names" key is also written
+    so that the lightweight shell completer (complete.py) continues to work.
 
     Catches OSError from cache writes so filesystem failures do not break
     the caller. Other exceptions are allowed to propagate.
     """
     try:
+        entries: list[CachedAgentEntry] = []
+        for host_ref, agent_refs in agents_by_host.items():
+            for agent_ref in agent_refs:
+                entries.append(
+                    CachedAgentEntry(
+                        name=str(agent_ref.agent_name),
+                        id=str(agent_ref.agent_id),
+                        provider=str(host_ref.provider_name),
+                        host_name=str(host_ref.host_name),
+                        host_id=str(host_ref.host_id),
+                    )
+                )
+
+        # Backward-compatible names list for the lightweight shell completer
+        names = sorted({entry.name for entry in entries})
+
         cache_data = {
-            "names": sorted(set(agent_names)),
+            "agents": [entry.model_dump() for entry in entries],
+            "names": names,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+        cache_path = cache_dir / AGENT_COMPLETIONS_CACHE_FILENAME
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write agent name completion cache")
+
+
+def read_provider_names_for_identifiers(
+    cache_dir: Path,
+    identifiers: Sequence[str],
+) -> tuple[str, ...] | None:
+    """Look up which providers own the given agent identifiers, using the cache.
+
+    Returns a tuple of provider names (always including "local") if every
+    identifier is found in the cache, or None if the cache is missing/corrupt
+    or any identifier cannot be resolved.
+    """
+    try:
+        cache_path = cache_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+        if not cache_path.is_file():
+            return None
+        raw = json.loads(cache_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    agents_list = raw.get("agents")
+    if not isinstance(agents_list, list):
+        return None
+
+    # Build lookup dicts: name -> set of providers, id -> set of providers
+    providers_by_name: dict[str, set[str]] = {}
+    providers_by_id: dict[str, set[str]] = {}
+    for entry in agents_list:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        agent_id = entry.get("id")
+        provider = entry.get("provider")
+        if not isinstance(provider, str):
+            continue
+        if isinstance(name, str):
+            providers_by_name.setdefault(name, set()).add(provider)
+        if isinstance(agent_id, str):
+            providers_by_id.setdefault(agent_id, set()).add(provider)
+
+    # Resolve each identifier against both name and id lookups
+    matched_providers: set[str] = set()
+    for identifier in identifiers:
+        name_match = providers_by_name.get(identifier)
+        id_match = providers_by_id.get(identifier)
+        if name_match is None and id_match is None:
+            return None
+        if name_match is not None:
+            matched_providers.update(name_match)
+        if id_match is not None:
+            matched_providers.update(id_match)
+
+    # Always include "local" since local filesystem operations are cheap
+    matched_providers.add("local")
+    return tuple(sorted(matched_providers))

@@ -205,8 +205,22 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
-    agent_names = [str(agent.name) for agent in result.agents]
-    write_agent_names_cache(get_completion_cache_dir(), agent_names)
+    # Build agents_by_host from results for the cache writer
+    cache_agents_by_host: dict[HostReference, list[AgentReference]] = {}
+    for agent in result.agents:
+        host_ref = HostReference(
+            host_id=agent.host.id,
+            host_name=HostName(agent.host.name),
+            provider_name=agent.host.provider_name,
+        )
+        agent_ref = AgentReference(
+            host_id=agent.host.id,
+            agent_id=agent.id,
+            agent_name=agent.name,
+            provider_name=agent.host.provider_name,
+        )
+        cache_agents_by_host.setdefault(host_ref, []).append(agent_ref)
+    write_agent_names_cache(get_completion_cache_dir(), cache_agents_by_host)
 
     return result
 
@@ -748,5 +762,9 @@ def load_all_agents_grouped_by_host(
 
         # Warn if any host names are duplicated within the same provider
         _warn_on_duplicate_host_names(agents_by_host)
+
+        # Update the completion cache when doing a full unfiltered scan
+        if provider_names is None:
+            write_agent_names_cache(get_completion_cache_dir(), agents_by_host)
 
         return (agents_by_host, providers)

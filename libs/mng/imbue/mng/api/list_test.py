@@ -55,40 +55,102 @@ def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
 # =============================================================================
 
 
+def _build_agents_by_host(
+    agents: list[tuple[str, str, str]],
+) -> dict[HostReference, list[AgentReference]]:
+    """Build an agents_by_host mapping from (agent_name, provider, host_name) tuples."""
+    result: dict[HostReference, list[AgentReference]] = {}
+    for agent_name, provider_name, host_name in agents:
+        host_id = HostId.generate()
+        host_ref = HostReference(
+            host_id=host_id,
+            host_name=HostName(host_name),
+            provider_name=ProviderInstanceName(provider_name),
+        )
+        agent_ref = AgentReference(
+            host_id=host_id,
+            agent_id=AgentId.generate(),
+            agent_name=AgentName(agent_name),
+            provider_name=ProviderInstanceName(provider_name),
+        )
+        result.setdefault(host_ref, []).append(agent_ref)
+    return result
+
+
 def test_write_agent_names_cache_writes_sorted_names(
     temp_host_dir: Path,
 ) -> None:
     """write_agent_names_cache should write sorted agent names to the cache file."""
-    write_agent_names_cache(temp_host_dir, ["beta-agent", "alpha-agent"])
+    agents_by_host = _build_agents_by_host(
+        [
+            ("beta-agent", "modal", "host-beta"),
+            ("alpha-agent", "modal", "host-alpha"),
+        ]
+    )
+    write_agent_names_cache(temp_host_dir, agents_by_host)
 
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["alpha-agent", "beta-agent"]
     assert "updated_at" in cache_data
+    assert "agents" in cache_data
+    assert len(cache_data["agents"]) == 2
 
 
 def test_write_agent_names_cache_writes_empty_list_for_no_agents(
     temp_host_dir: Path,
 ) -> None:
     """write_agent_names_cache should write an empty names list when no agents."""
-    write_agent_names_cache(temp_host_dir, [])
+    write_agent_names_cache(temp_host_dir, {})
 
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     assert cache_path.is_file()
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == []
+    assert cache_data["agents"] == []
 
 
 def test_write_agent_names_cache_deduplicates_names(
     temp_host_dir: Path,
 ) -> None:
-    """write_agent_names_cache should deduplicate agent names."""
-    write_agent_names_cache(temp_host_dir, ["same-name", "same-name"])
+    """write_agent_names_cache should deduplicate names in the names list."""
+    # Two agents with the same name on different hosts
+    host_ref_1 = HostReference(
+        host_id=HostId.generate(),
+        host_name=HostName("host-1"),
+        provider_name=ProviderInstanceName("modal"),
+    )
+    host_ref_2 = HostReference(
+        host_id=HostId.generate(),
+        host_name=HostName("host-2"),
+        provider_name=ProviderInstanceName("modal"),
+    )
+    agents_by_host: dict[HostReference, list[AgentReference]] = {
+        host_ref_1: [
+            AgentReference(
+                host_id=host_ref_1.host_id,
+                agent_id=AgentId.generate(),
+                agent_name=AgentName("same-name"),
+                provider_name=ProviderInstanceName("modal"),
+            )
+        ],
+        host_ref_2: [
+            AgentReference(
+                host_id=host_ref_2.host_id,
+                agent_id=AgentId.generate(),
+                agent_name=AgentName("same-name"),
+                provider_name=ProviderInstanceName("modal"),
+            )
+        ],
+    }
+    write_agent_names_cache(temp_host_dir, agents_by_host)
 
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
+    # But the agents list should have both entries
+    assert len(cache_data["agents"]) == 2
 
 
 # =============================================================================

@@ -12,6 +12,8 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.api.providers import get_provider_instance
+from imbue.mng.cli.completion_writer import get_completion_cache_dir
+from imbue.mng.cli.completion_writer import read_provider_names_for_identifiers
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundError
 from imbue.mng.errors import UserInputError
@@ -438,7 +440,16 @@ def find_agents_by_identifiers_or_state(
 
     Raises AgentNotFoundError if any identifier does not match an agent.
     """
-    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+    # Use the cache to narrow the provider query when looking up specific agents
+    provider_names_filter: tuple[str, ...] | None = None
+    if not filter_all and agent_identifiers:
+        cached_providers = read_provider_names_for_identifiers(get_completion_cache_dir(), agent_identifiers)
+        if cached_providers is not None:
+            provider_names_filter = cached_providers
+
+    agents_by_host, _ = load_all_agents_grouped_by_host(
+        mng_ctx, provider_names=provider_names_filter, include_destroyed=False
+    )
 
     # Collect candidate matches from the lightweight agent references
     candidates: list[AgentMatch] = []
@@ -471,6 +482,32 @@ def find_agents_by_identifiers_or_state(
                         provider_name=host_ref.provider_name,
                     )
                 )
+
+    # If we used a cache-based filter and some identifiers were not found, the
+    # cache may be stale. Retry with a full (unfiltered) provider scan.
+    if agent_identifiers and provider_names_filter is not None:
+        unmatched = set(agent_identifiers) - matched_identifiers
+        if unmatched:
+            logger.debug("Cache miss for {}, retrying with all providers", unmatched)
+            agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+            # Re-run matching against the full results
+            candidates = []
+            matched_identifiers = set()
+            for host_ref, agent_refs in agents_by_host.items():
+                for agent_ref in agent_refs:
+                    agent_name_str = str(agent_ref.agent_name)
+                    agent_id_str = str(agent_ref.agent_id)
+                    for identifier in agent_identifiers:
+                        if identifier == agent_name_str or identifier == agent_id_str:
+                            candidates.append(
+                                AgentMatch(
+                                    agent_id=agent_ref.agent_id,
+                                    agent_name=agent_ref.agent_name,
+                                    host_id=host_ref.host_id,
+                                    provider_name=host_ref.provider_name,
+                                )
+                            )
+                            matched_identifiers.add(identifier)
 
     # Verify all specified identifiers were found
     if agent_identifiers:
