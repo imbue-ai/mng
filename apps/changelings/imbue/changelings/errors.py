@@ -46,3 +46,9 @@ class MissingSettingsError(ChangelingError):
     """Raised when a changeling repo is missing .mng/settings.toml."""
 
     ...
+
+
+class MngCommandError(ChangelingError):
+    """Raised when an mng CLI command fails."""
+
+    ...

@@ -45,6 +45,7 @@ See [the forwarding server design doc](../imbue/changelings/forwarding_server/RE
 - `changeling deploy <git-url>` (clones a git repo and deploys a changeling from it)
 - `changeling deploy --agent-type <type>` (creates a changeling from scratch for the given agent type)
 - `changeling deploy ... --add-path SRC:DEST` (copies extra files into the changeling repo, works with both modes)
+- `changeling update <agent-name>` (updates an existing changeling by snapshotting, stopping, pushing new code, re-provisioning, and restarting)
 - `changeling forward` (starts the local forwarding server for accessing changelings)
 
 [future] Additional commands for managing deployed changelings (list, stop, start, destroy, logs, etc.)
