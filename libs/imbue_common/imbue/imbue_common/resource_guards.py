@@ -1,15 +1,25 @@
 """Resource guard system for enforcing pytest marks on external tool usage.
 
-Provides PATH wrapper scripts that intercept calls to guarded binaries
-during tests. During the test call phase, wrappers:
-- Block invocation if the test lacks the corresponding mark (catches missing marks)
-- Track invocation if the test has the mark (catches superfluous marks)
+Two guard mechanisms are provided:
+
+1. PATH wrapper scripts intercept calls to guarded CLI binaries (e.g. tmux,
+   rsync). During the test call phase, wrappers block or track invocations
+   based on whether the test has the corresponding mark.
+
+2. SDK monkeypatches intercept Python SDK chokepoints (e.g. Modal gRPC calls,
+   Docker HTTP requests). The monkeypatches call _enforce_sdk_guard, which
+   mirrors the wrapper logic: block unmarked usage and track marked usage.
+
+Both mechanisms use per-test tracking files so that makereport can fail tests
+that invoke a resource without the mark or carry a mark without invoking it.
 
 Usage:
-    Call create_resource_guard_wrappers(resources) during pytest_sessionstart
-    and cleanup_resource_guard_wrappers() during pytest_sessionfinish. Register
-    the three runtest hooks (pytest_runtest_setup, pytest_runtest_teardown,
-    pytest_runtest_makereport) into the conftest namespace.
+    Call create_resource_guard_wrappers(resources) and
+    create_sdk_resource_guards(sdk_resources) during pytest_sessionstart.
+    Call cleanup_sdk_resource_guards() and cleanup_resource_guard_wrappers()
+    during pytest_sessionfinish. Register the three runtest hooks
+    (pytest_runtest_setup, pytest_runtest_teardown, pytest_runtest_makereport)
+    into the conftest namespace.
 """
 
 import os
