@@ -1,49 +1,10 @@
 import json
 from pathlib import Path
 
-from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
-from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
-from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.conftest import build_agents_by_host_from_tuples
 from imbue.mng.utils.agent_cache import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.utils.agent_cache import read_provider_names_for_identifiers
 from imbue.mng.utils.agent_cache import write_agent_names_cache
-
-# =============================================================================
-# Helpers
-# =============================================================================
-
-
-def _build_agents_by_host(
-    agents: list[tuple[str, str, str]],
-) -> tuple[dict[HostReference, list[AgentReference]], dict[str, AgentId]]:
-    """Build an agents_by_host mapping from (agent_name, provider, host_name) tuples.
-
-    Returns the mapping and a dict of agent_name -> agent_id for lookup in tests.
-    """
-    result: dict[HostReference, list[AgentReference]] = {}
-    ids_by_name: dict[str, AgentId] = {}
-    for agent_name, provider_name, host_name in agents:
-        host_id = HostId.generate()
-        host_ref = HostReference(
-            host_id=host_id,
-            host_name=HostName(host_name),
-            provider_name=ProviderInstanceName(provider_name),
-        )
-        agent_id = AgentId.generate()
-        ids_by_name[agent_name] = agent_id
-        agent_ref = AgentReference(
-            host_id=host_id,
-            agent_id=agent_id,
-            agent_name=AgentName(agent_name),
-            provider_name=ProviderInstanceName(provider_name),
-        )
-        result.setdefault(host_ref, []).append(agent_ref)
-    return result, ids_by_name
-
 
 # =============================================================================
 # write_agent_names_cache format tests
@@ -53,7 +14,7 @@ def _build_agents_by_host(
 def test_write_agent_names_cache_produces_agents_and_names_keys(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
             ("my-agent", "docker", "my-docker-host"),
@@ -74,7 +35,7 @@ def test_write_agent_names_cache_produces_agents_and_names_keys(
 def test_write_agent_names_cache_agents_contain_provider_info(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("test-agent", "modal", "test-host"),
         ]
@@ -100,7 +61,7 @@ def test_write_agent_names_cache_agents_contain_provider_info(
 def test_read_provider_names_round_trip_by_name(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
             ("my-agent", "docker", "my-docker-host"),
@@ -118,7 +79,7 @@ def test_read_provider_names_round_trip_by_name(
 def test_read_provider_names_round_trip_by_id(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, ids_by_name = _build_agents_by_host(
+    agents_by_host, ids_by_name = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
             ("my-agent", "docker", "my-docker-host"),
@@ -137,7 +98,7 @@ def test_read_provider_names_round_trip_by_id(
 def test_read_provider_names_returns_union_for_multiple_identifiers(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
             ("my-agent", "docker", "my-docker-host"),
@@ -156,7 +117,7 @@ def test_read_provider_names_returns_union_for_multiple_identifiers(
 def test_read_provider_names_returns_none_for_missing_identifier(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
         ]
@@ -190,7 +151,7 @@ def test_read_provider_names_returns_none_for_corrupt_cache_file(
 def test_read_provider_names_always_includes_local(
     tmp_path: Path,
 ) -> None:
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("bench-ep-cache4", "modal", "bench-host"),
         ]
@@ -223,7 +184,7 @@ def test_read_provider_names_returns_none_when_any_identifier_missing(
     tmp_path: Path,
 ) -> None:
     """If one identifier is found but another is not, the whole result is None."""
-    agents_by_host, _ = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("found-agent", "modal", "bench-host"),
         ]

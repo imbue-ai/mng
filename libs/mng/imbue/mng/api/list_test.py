@@ -9,6 +9,7 @@ from pathlib import Path
 from loguru import logger
 
 from imbue.mng.api.list import _warn_on_duplicate_host_names
+from imbue.mng.conftest import build_agents_by_host_from_tuples
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.primitives import AgentId
@@ -55,33 +56,11 @@ def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
 # =============================================================================
 
 
-def _build_agents_by_host(
-    agents: list[tuple[str, str, str]],
-) -> dict[HostReference, list[AgentReference]]:
-    """Build an agents_by_host mapping from (agent_name, provider, host_name) tuples."""
-    result: dict[HostReference, list[AgentReference]] = {}
-    for agent_name, provider_name, host_name in agents:
-        host_id = HostId.generate()
-        host_ref = HostReference(
-            host_id=host_id,
-            host_name=HostName(host_name),
-            provider_name=ProviderInstanceName(provider_name),
-        )
-        agent_ref = AgentReference(
-            host_id=host_id,
-            agent_id=AgentId.generate(),
-            agent_name=AgentName(agent_name),
-            provider_name=ProviderInstanceName(provider_name),
-        )
-        result.setdefault(host_ref, []).append(agent_ref)
-    return result
-
-
 def test_write_agent_names_cache_writes_sorted_names(
     temp_host_dir: Path,
 ) -> None:
     """write_agent_names_cache should write sorted agent names to the cache file."""
-    agents_by_host = _build_agents_by_host(
+    agents_by_host, _ = build_agents_by_host_from_tuples(
         [
             ("beta-agent", "modal", "host-beta"),
             ("alpha-agent", "modal", "host-alpha"),
