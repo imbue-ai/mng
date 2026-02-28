@@ -12,7 +12,8 @@ from imbue.imbue_common.resource_guards import generate_wrapper_script
 _TEST_RESOURCES = ["echo", "cat", "ls"]
 
 # Conftest that pytester injects into its temp directory.  It registers the
-# resource guard hooks for "echo" only, which is enough for end-to-end tests.
+# resource guard hooks for "cat" only, which is enough for end-to-end tests.
+# cat is a good choice: `cat /dev/null` succeeds, `cat /nonexistent` fails.
 _PYTESTER_CONFTEST = """\
 import os
 import pytest
@@ -28,10 +29,10 @@ from imbue.imbue_common.resource_guards import (
 os.environ.pop("_PYTEST_GUARD_WRAPPER_DIR", None)
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "echo: test uses echo")
+    config.addinivalue_line("markers", "cat: test uses cat")
 
 def pytest_sessionstart(session):
-    create_resource_guard_wrappers(["echo"])
+    create_resource_guard_wrappers(["cat"])
 
 def pytest_sessionfinish(session, exitstatus):
     cleanup_resource_guard_wrappers()
@@ -79,77 +80,77 @@ def test_generate_wrapper_script_contains_guard_check() -> None:
 
 
 def test_marked_test_that_calls_resource_passes(pytester: pytest.Pytester) -> None:
-    """A test with @pytest.mark.echo that calls echo should pass."""
+    """A test with @pytest.mark.cat that calls cat should pass."""
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
         import subprocess
         import pytest
 
-        @pytest.mark.echo
-        def test_calls_echo():
-            subprocess.run(["echo", "hi"], check=True)
+        @pytest.mark.cat
+        def test_cat_dev_null():
+            subprocess.run(["cat", "/dev/null"], check=True)
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(passed=1)
 
 
 def test_unmarked_test_that_calls_resource_fails(pytester: pytest.Pytester) -> None:
-    """A test without the mark that calls echo should fail."""
+    """A test without the mark that calls cat should fail."""
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
         import subprocess
 
-        def test_calls_echo():
-            subprocess.run(["echo", "hi"], check=True)
+        def test_cat_dev_null():
+            subprocess.run(["cat", "/dev/null"], check=True)
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*without @pytest.mark.echo*"])
+    result.stdout.fnmatch_lines(["*without @pytest.mark.cat*"])
 
 
 def test_unmarked_test_that_handles_guard_error_still_fails(pytester: pytest.Pytester) -> None:
     """A test that expects a resource to fail should still be caught by the guard.
 
-    This simulates a realistic scenario: a test checks that a command fails
-    when given bad arguments. The guard's exit 127 satisfies the assertion,
-    so the test would silently pass without the blocked-invocation tracking.
+    This simulates a realistic scenario: a test checks that cat fails on a
+    nonexistent file. The guard's exit 127 satisfies the assertion, so the
+    test would silently pass without the blocked-invocation tracking.
     """
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
         import subprocess
 
-        def test_echo_not_available():
-            # A test verifying that echo is "not found" or "fails".
-            # Without the mark, the guard blocks echo (exit 127),
-            # which satisfies returncode != 0 -- a false pass.
-            result = subprocess.run(["echo", "hi"], capture_output=True)
-            assert result.returncode != 0, "expected echo to fail"
+        def test_cat_nonexistent_file():
+            result = subprocess.run(
+                ["cat", "/no/such/file"],
+                capture_output=True,
+            )
+            assert result.returncode != 0
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*without @pytest.mark.echo*"])
+    result.stdout.fnmatch_lines(["*without @pytest.mark.cat*"])
 
 
 def test_marked_test_that_never_calls_resource_fails(pytester: pytest.Pytester) -> None:
-    """A test with @pytest.mark.echo that never calls echo should fail (superfluous mark)."""
+    """A test with @pytest.mark.cat that never calls cat should fail (superfluous mark)."""
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
         import pytest
 
-        @pytest.mark.echo
-        def test_never_calls_echo():
+        @pytest.mark.cat
+        def test_never_calls_cat():
             assert 1 + 1 == 2
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(failed=1)
-    result.stdout.fnmatch_lines(["*never invoked echo*"])
+    result.stdout.fnmatch_lines(["*never invoked cat*"])
 
 
 def test_unmarked_test_that_does_not_call_resource_passes(pytester: pytest.Pytester) -> None:
     """A test with no mark and no resource call should pass."""
     pytester.makeconftest(_PYTESTER_CONFTEST)
     pytester.makepyfile("""
-        def test_no_echo():
+        def test_no_cat():
             assert 1 + 1 == 2
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
