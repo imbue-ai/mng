@@ -22,7 +22,6 @@ from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.primitives import AgentId
 
 _TEMP_DIR_ID_BYTES: int = 8
 
@@ -281,7 +280,8 @@ def _move_to_permanent_location(temp_dir: Path, changeling_dir: Path) -> None:
 
     try:
         temp_dir.rename(changeling_dir)
-    except OSError:
+    except OSError as e:
+        logger.debug("rename failed ({}), falling back to shutil.move", e)
         shutil.move(str(temp_dir), str(changeling_dir))
 
 
@@ -389,42 +389,29 @@ def deploy(
     if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
+    try:
+        result = _run_deployment(
+            changeling_dir=temp_dir,
+            agent_name=agent_name,
+            provider=provider_choice,
+            paths=paths,
+        )
+    except ChangelingError:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
     if provider_choice == DeploymentProvider.LOCAL:
-        # Local: move the temp dir to the permanent changeling directory
-        # before deploying, so the agent runs directly in it via --in-place.
-        # We use a pre-generated agent ID for the directory name.
-        agent_id = AgentId()
-        changeling_dir = paths.changeling_dir(agent_id)
+        # Local: the agent was created with --in-place from the temp dir.
+        # Move to the permanent changeling directory (~/.changelings/<agent-id>/).
+        # The rename preserves the running agent process on Linux.
         try:
-            _move_to_permanent_location(temp_dir, changeling_dir)
+            _move_to_permanent_location(temp_dir, paths.changeling_dir(result.agent_id))
         except ChangelingError:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
-
-        try:
-            result = _run_deployment(
-                changeling_dir=changeling_dir,
-                agent_name=agent_name,
-                provider=provider_choice,
-                paths=paths,
-            )
-        except ChangelingError:
-            shutil.rmtree(changeling_dir, ignore_errors=True)
             raise
     else:
-        # Remote: deploy from the temp dir, then clean it up.
-        # The code is copied to the remote host via --source-path.
-        try:
-            result = _run_deployment(
-                changeling_dir=temp_dir,
-                agent_name=agent_name,
-                provider=provider_choice,
-                paths=paths,
-            )
-        except ChangelingError:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise
-
+        # Remote: the code was copied to the remote host via --source-path.
+        # Clean up the temp dir.
         shutil.rmtree(temp_dir, ignore_errors=True)
 
     _print_result(result, provider_choice)

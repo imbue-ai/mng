@@ -1,12 +1,15 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from click.testing import Result
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
+from imbue.changelings.cli.deploy import _move_to_permanent_location
 from imbue.changelings.cli.deploy import _prepare_repo
+from imbue.changelings.errors import ChangelingError
 from imbue.changelings.main import cli
 from imbue.changelings.testing import init_and_commit_git_repo
 
@@ -522,3 +525,50 @@ def test_copy_add_paths_returns_count(tmp_path: Path) -> None:
     assert copied == 2
     assert (repo_dir / "a.txt").read_text() == "aaa"
     assert (repo_dir / "b.txt").read_text() == "bbb"
+
+
+# --- Tests for _move_to_permanent_location ---
+
+
+def test_move_to_permanent_location_moves_directory(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location moves the source to the target."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_text("content")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert not source.exists()
+    assert target.is_dir()
+    assert (target / "file.txt").read_text() == "content"
+
+
+def test_move_to_permanent_location_raises_when_target_exists(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location raises when the target already exists."""
+    source = tmp_path / "source"
+    source.mkdir()
+
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with pytest.raises(ChangelingError, match="already exists"):
+        _move_to_permanent_location(source, target)
+
+
+def test_move_to_permanent_location_preserves_contents(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location preserves all directory contents."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.txt").write_text("aaa")
+    sub = source / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("bbb")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert (target / "a.txt").read_text() == "aaa"
+    assert (target / "sub" / "b.txt").read_text() == "bbb"
