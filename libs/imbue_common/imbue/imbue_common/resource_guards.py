@@ -35,6 +35,9 @@ class MissingGuardedResourceError(Exception):
 
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
+# _owns_guard_wrapper_dir tracks whether this process created the directory (and is
+# therefore responsible for deleting it) vs merely reusing one inherited from a parent
+# process via the _PYTEST_GUARD_WRAPPER_DIR env var.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 
