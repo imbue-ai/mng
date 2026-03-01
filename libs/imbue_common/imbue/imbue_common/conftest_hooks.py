@@ -74,12 +74,21 @@ _registered: bool = False
 _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
-    "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
-    "tmux: marks tests that create real tmux sessions or mng agents (slow, requires tmux)",
-    "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
-    "rsync: marks tests that invoke rsync for file transfer",
-    "unison: marks tests that start a real unison file-sync process",
 ]
+
+# Additional markers registered by projects via register_marker().
+_registered_markers: list[str] = []
+
+
+def register_marker(marker_line: str) -> None:
+    """Register a pytest marker to be added during pytest_configure.
+
+    Call this from each project's conftest.py before register_conftest_hooks().
+    The marker_line format is "name: description" (same as pyproject.toml markers).
+    """
+    if marker_line not in _registered_markers:
+        _registered_markers.append(marker_line)
+
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
     # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
@@ -346,8 +355,8 @@ def _generate_output_filename(prefix: str, extension: str) -> Path:
 @pytest.hookimpl(tryfirst=True)
 def _pytest_configure(config: pytest.Config) -> None:
     """Register shared markers/filterwarnings and handle output-to-file options."""
-    # Register shared markers
-    for marker in _SHARED_MARKERS:
+    # Register shared markers and any additional markers from register_marker()
+    for marker in _SHARED_MARKERS + _registered_markers:
         config.addinivalue_line("markers", marker)
 
     # Register shared filterwarnings
