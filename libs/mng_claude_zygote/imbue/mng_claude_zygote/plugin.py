@@ -22,7 +22,7 @@ from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
 AGENT_TTYD_WINDOW_NAME = "agent"
-AGENT_TTYD_SERVER_NAME = "agent"
+AGENT_TTYD_SERVER_NAME = AGENT_TTYD_WINDOW_NAME
 
 # Bash wrapper that starts ttyd attached to the agent's own tmux session.
 # This allows users to interact with the Claude agent via a web browser.
@@ -56,7 +56,7 @@ MEMORY_LINKER_COMMAND = '$MNG_HOST_DIR/commands/memory_linker.sh "$(pwd)"'
 # Conversation ttyd: a web terminal that runs the chat script for interactive
 # conversation access via the browser.
 CHAT_TTYD_WINDOW_NAME = "chat"
-CHAT_TTYD_SERVER_NAME = "chat"
+CHAT_TTYD_SERVER_NAME = CHAT_TTYD_WINDOW_NAME
 _CHAT_TTYD_INVOCATION = "ttyd -p 0 -t disableLeaveAlert=true -W bash -c 'exec \"$MNG_HOST_DIR/commands/chat.sh\"'"
 CHAT_TTYD_COMMAND = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
 
@@ -75,7 +75,7 @@ class ClaudeZygoteConfig(ClaudeAgentConfig):
         "Enabled by default for changelings since they run in-place in their own repo.",
     )
     default_chat_model: ChatModel = Field(
-        default=ChatModel("claude-sonnet-4-6"),
+        default=ChatModel("claude-opus-4-6"),
         description="Default model for new conversation threads.",
     )
     install_llm: bool = Field(
