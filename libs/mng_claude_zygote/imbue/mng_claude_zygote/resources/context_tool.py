@@ -44,13 +44,13 @@ def _load_settings() -> dict:
 
 
 _SETTINGS = _load_settings()
-_CONTEXT = _SETTINGS.get("context", {})
+_CONTEXT = _SETTINGS.get("chat", {}).get("context", {})
 
 _MAX_CONTENT_LENGTH = _CONTEXT.get("max_content_length", 200)
-_INITIAL_TRANSCRIPT_LINES = _CONTEXT.get("initial_transcript_line_count", 10)
-_INITIAL_MESSAGES_LINES = _CONTEXT.get("initial_messages_line_count", 20)
-_INITIAL_MESSAGES_PER_CONVERSATION = _CONTEXT.get("initial_messages_per_conversation", 3)
-_INITIAL_TRIGGER_LINES = _CONTEXT.get("initial_trigger_line_count", 5)
+_MAX_TRANSCRIPT_LINES = _CONTEXT.get("max_transcript_line_count", 10)
+_MAX_MESSAGES_LINES = _CONTEXT.get("max_messages_line_count", 20)
+_MAX_MESSAGES_PER_CONVERSATION = _CONTEXT.get("max_messages_per_conversation", 3)
+_MAX_TRIGGER_LINES = _CONTEXT.get("max_trigger_line_count", 5)
 
 # State that persists between calls within the same llm live-chat session.
 # llm loads the module once via exec() and keeps function objects in memory,
@@ -170,12 +170,12 @@ def gather_context() -> str:
     # Inner monologue (from logs/claude_transcript/events.jsonl)
     transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
     if is_first_call:
-        recent = _read_tail_lines(transcript, _INITIAL_TRANSCRIPT_LINES)
+        recent = _read_tail_lines(transcript, _MAX_TRANSCRIPT_LINES)
         if recent:
             formatted = _format_events(recent)
             sections.append(f"## Recent Inner Monologue ({len(recent)} entries)\n{formatted}")
     else:
-        new_lines = _get_new_lines(transcript)
+        new_lines = _get_new_lines(transcript)[-_MAX_TRANSCRIPT_LINES:]
         if new_lines:
             formatted = _format_events(new_lines)
             sections.append(f"## New Inner Monologue ({len(new_lines)} entries)\n{formatted}")
@@ -184,7 +184,7 @@ def gather_context() -> str:
     messages_file = agent_data_dir / "logs" / "messages" / "events.jsonl"
     current_cid = os.environ.get("LLM_CONVERSATION_ID", "")
     if is_first_call:
-        recent_msgs = _read_tail_lines(messages_file, _INITIAL_MESSAGES_LINES)
+        recent_msgs = _read_tail_lines(messages_file, _MAX_MESSAGES_LINES)
         if recent_msgs:
             other_convs: dict[str, list[str]] = {}
             for line in recent_msgs:
@@ -199,11 +199,11 @@ def gather_context() -> str:
                 except json.JSONDecodeError:
                     continue
             for cid, msgs in other_convs.items():
-                recent = msgs[-_INITIAL_MESSAGES_PER_CONVERSATION:]
+                recent = msgs[-_MAX_MESSAGES_PER_CONVERSATION:]
                 formatted = _format_events(recent)
                 sections.append(f"## Conversation {cid} (last {len(recent)} messages)\n{formatted}")
     else:
-        new_msg_lines = _get_new_lines(messages_file)
+        new_msg_lines = _get_new_lines(messages_file)[-_MAX_MESSAGES_LINES:]
         if new_msg_lines:
             other_msgs = []
             for line in new_msg_lines:
@@ -221,12 +221,12 @@ def gather_context() -> str:
     for source in ("scheduled", "mng_agents", "stop", "monitor"):
         events_file = agent_data_dir / "logs" / source / "events.jsonl"
         if is_first_call:
-            recent = _read_tail_lines(events_file, _INITIAL_TRIGGER_LINES)
+            recent = _read_tail_lines(events_file, _MAX_TRIGGER_LINES)
             if recent:
                 formatted = _format_events(recent)
                 sections.append(f"## Recent {source} events ({len(recent)})\n{formatted}")
         else:
-            new_lines = _get_new_lines(events_file)
+            new_lines = _get_new_lines(events_file)[-_MAX_TRIGGER_LINES:]
             if new_lines:
                 formatted = _format_events(new_lines)
                 sections.append(f"## New {source} events ({len(new_lines)})\n{formatted}")

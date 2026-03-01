@@ -76,36 +76,24 @@ class ChangelingEvent(EventEnvelope):
 # Each section corresponds to a TOML table.
 
 
-class ChatSettings(FrozenModel):
-    """Settings for the [chat] TOML section."""
-
-    # FIXME: this should just be called "model"
-    default_model: ChatModel | None = Field(
-        default=None,
-        description="Default model for new conversation threads. "
-        "When None, falls back to ClaudeZygoteConfig.default_chat_model.",
-    )
-
-
 class ContextSettings(FrozenModel):
-    """Settings for the [context] TOML section (used by context_tool.py)."""
+    """Settings for the [chat.context] TOML section (used by context_tool.py)."""
 
-    # FIXME: all of these "initial" settings are dumb--these should be about "max", and that script should be adapted to actually use these settings as the max instead
-    initial_transcript_line_count: PositiveInt = Field(
+    max_transcript_line_count: PositiveInt = Field(
         default=PositiveInt(10),
-        description="Number of inner monologue lines to show on first context call.",
+        description="Maximum number of inner monologue lines to include in context.",
     )
-    initial_messages_line_count: PositiveInt = Field(
+    max_messages_line_count: PositiveInt = Field(
         default=PositiveInt(20),
-        description="Number of recent message lines to show on first context call.",
+        description="Maximum number of recent message lines to include in context.",
     )
-    initial_messages_per_conversation: PositiveInt = Field(
+    max_messages_per_conversation: PositiveInt = Field(
         default=PositiveInt(3),
-        description="Maximum messages to show per conversation on first context call.",
+        description="Maximum messages to show per conversation in context.",
     )
-    initial_trigger_line_count: PositiveInt = Field(
+    max_trigger_line_count: PositiveInt = Field(
         default=PositiveInt(5),
-        description="Number of trigger event lines per source on first context call.",
+        description="Maximum trigger event lines per source in context.",
     )
     max_content_length: PositiveInt = Field(
         default=PositiveInt(200),
@@ -114,7 +102,7 @@ class ContextSettings(FrozenModel):
 
 
 class ExtraContextSettings(FrozenModel):
-    """Settings for the [extra_context] TOML section (used by extra_context_tool.py)."""
+    """Settings for the [chat.extra_context] TOML section (used by extra_context_tool.py)."""
 
     max_content_length: PositiveInt = Field(
         default=PositiveInt(300),
@@ -131,6 +119,24 @@ class ExtraContextSettings(FrozenModel):
     mng_list_warn_threshold_seconds: PositiveFloat = Field(
         default=PositiveFloat(15.0),
         description="Warning threshold for mng list command (seconds).",
+    )
+
+
+class ChatSettings(FrozenModel):
+    """Settings for the [chat] TOML section."""
+
+    model: ChatModel | None = Field(
+        default=None,
+        description="Default model for new conversation threads. "
+        "When None, falls back to ClaudeZygoteConfig.default_chat_model.",
+    )
+    context: ContextSettings = Field(
+        default_factory=ContextSettings,
+        description="Context tool settings ([chat.context] section).",
+    )
+    extra_context: ExtraContextSettings = Field(
+        default_factory=ExtraContextSettings,
+        description="Extra context tool settings ([chat.extra_context] section).",
     )
 
 
@@ -190,15 +196,6 @@ class ClaudeZygoteSettings(FrozenModel):
     chat: ChatSettings = Field(
         default_factory=ChatSettings,
         description="Chat-related settings ([chat] section).",
-    )
-    # FIXME: move context and extra_context into chat settings, since that's logically what they're related to
-    context: ContextSettings = Field(
-        default_factory=ContextSettings,
-        description="Context tool settings ([context] section).",
-    )
-    extra_context: ExtraContextSettings = Field(
-        default_factory=ExtraContextSettings,
-        description="Extra context tool settings ([extra_context] section).",
     )
     watchers: WatcherSettings = Field(
         default_factory=WatcherSettings,

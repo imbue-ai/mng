@@ -41,7 +41,7 @@ def _load_settings() -> dict:
 
 
 _SETTINGS = _load_settings()
-_EXTRA = _SETTINGS.get("extra_context", {})
+_EXTRA = _SETTINGS.get("chat", {}).get("extra_context", {})
 
 _MNG_LIST_HARD_TIMEOUT = _EXTRA.get("mng_list_hard_timeout_seconds", 120)
 _MNG_LIST_WARN_THRESHOLD = _EXTRA.get("mng_list_warn_threshold_seconds", 15)

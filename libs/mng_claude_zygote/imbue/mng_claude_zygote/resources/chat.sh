@@ -55,7 +55,7 @@ import tomllib, pathlib
 p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
 try:
     s = tomllib.loads(p.read_text()) if p.exists() else {}
-    print(s.get('chat', {}).get('default_model', 'claude-opus-4-6'))
+    print(s.get('chat', {}).get('model', 'claude-opus-4-6'))
 except Exception:
     print('claude-opus-4-6')
 " 2>/dev/null || echo "claude-opus-4-6"

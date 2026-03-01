@@ -40,16 +40,16 @@ The settings are modeled by `ClaudeZygoteSettings` in `imbue.mng_claude_zygote.d
 
 ```toml
 [chat]
-default_model = "claude-opus-4-6"       # Default model for new conversation threads
+model = "claude-opus-4-6"               # Default model for new conversation threads
 
-[context]
-initial_transcript_line_count = 10      # Inner monologue lines on first context call
-initial_messages_line_count = 20        # Recent message lines on first context call
-initial_messages_per_conversation = 3   # Max messages per conversation on first call
-initial_trigger_line_count = 5          # Trigger event lines per source on first call
+[chat.context]
+max_transcript_line_count = 10          # Max inner monologue lines in context
+max_messages_line_count = 20            # Max recent message lines in context
+max_messages_per_conversation = 3       # Max messages per conversation in context
+max_trigger_line_count = 5              # Max trigger event lines per source in context
 max_content_length = 200                # Max truncated content length in context_tool
 
-[extra_context]
+[chat.extra_context]
 max_content_length = 300                # Max truncated content length in extra_context_tool
 transcript_line_count = 50              # Inner monologue lines in extended history
 mng_list_hard_timeout_seconds = 120     # Hard timeout for mng list command
