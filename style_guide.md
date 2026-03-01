@@ -1418,7 +1418,7 @@ Every JSONL line must include these envelope fields:
 
 - `timestamp`: nanosecond-precision UTC ISO 8601 (always include full precision even if the source doesn't provide it)
 - `type`: what kind of event this is (e.g. `"conversation_created"`, `"message"`, `"scheduled"`)
-- `event_id`: unique identifier for this specific event (e.g. timestamp + random hex)
+- `event_id`: unique identifier for this specific event
 - `source`: must match the folder name under `logs/` where this event is stored
 
 ## Self-describing events
@@ -1431,7 +1431,7 @@ Event log files are always append-only. Never modify or delete individual lines.
 
 ## Rotation
 
-Event files can be rotated (by date, by size) if they get too large. Rotation should preserve the file naming convention (`events.jsonl`) and archive old files with a date suffix (e.g. `events.2026-02-28.jsonl.gz`). Not all sources need rotation -- some (like conversation events) can stay small forever. Only add rotation when the file actually becomes too large.
+Event files can be rotated (by date, by size) if they get too large. Rotation should preserve the file naming convention (`events.jsonl`) and archive old files with a date suffix (e.g. `events.2026-02-28.jsonl.gz`). Not all sources should (or even can) be rotated.
 
 # Configuration
 
