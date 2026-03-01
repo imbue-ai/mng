@@ -1,12 +1,16 @@
 import asyncio
+import socket as socket_module
 from collections.abc import AsyncGenerator
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 from typing import Final
 
 import httpx
+import paramiko
 import websockets
+import websockets.asyncio.client
 from fastapi import Depends
 from fastapi import FastAPI
 from fastapi import Request
@@ -26,6 +30,9 @@ from imbue.changelings.forwarding_server.proxy import generate_bootstrap_html
 from imbue.changelings.forwarding_server.proxy import generate_service_worker_js
 from imbue.changelings.forwarding_server.proxy import rewrite_cookie_path
 from imbue.changelings.forwarding_server.proxy import rewrite_proxied_html
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelManager
+from imbue.changelings.forwarding_server.ssh_tunnel import parse_url_host_port
 from imbue.changelings.forwarding_server.templates import render_agent_servers_page
 from imbue.changelings.forwarding_server.templates import render_auth_error_page
 from imbue.changelings.forwarding_server.templates import render_landing_page
@@ -178,17 +185,24 @@ async def _managed_lifespan(
     inner_app: FastAPI,
     is_externally_managed_client: bool,
 ) -> AsyncGenerator[None, None]:
-    """Manage the httpx client lifecycle for the forwarding server."""
+    """Manage the httpx client and SSH tunnel lifecycles for the forwarding server."""
     if not is_externally_managed_client:
         inner_app.state.http_client = httpx.AsyncClient(
             follow_redirects=False,
             timeout=_PROXY_TIMEOUT_SECONDS,
         )
+    inner_app.state.ssh_http_clients: dict[str, httpx.AsyncClient] = {}
     try:
         yield
     finally:
+        for client in inner_app.state.ssh_http_clients.values():
+            await client.aclose()
+        inner_app.state.ssh_http_clients.clear()
         if not is_externally_managed_client:
             await inner_app.state.http_client.aclose()
+        tunnel_manager: SSHTunnelManager | None = inner_app.state.tunnel_manager
+        if tunnel_manager is not None:
+            tunnel_manager.cleanup()
 
 
 # -- Route handlers (module-level, using Depends for dependency injection) --
@@ -279,8 +293,13 @@ async def _forward_http_request(
     path: str,
     agent_id: str,
     server_name: str,
+    http_client: httpx.AsyncClient | None,
 ) -> httpx.Response | Response:
-    """Forward an HTTP request to the backend, returning the backend response or an error Response."""
+    """Forward an HTTP request to the backend, returning the backend response or an error Response.
+
+    When http_client is not None, uses it instead of the app's default client. This is
+    used for SSH-tunneled connections where the client is configured with UDS transport.
+    """
     proxy_url = f"{backend_url}/{path}"
     if request.url.query:
         proxy_url += f"?{request.url.query}"
@@ -290,7 +309,7 @@ async def _forward_http_request(
 
     body = await request.body()
 
-    active_http_client: httpx.AsyncClient = request.app.state.http_client
+    active_http_client = http_client or request.app.state.http_client
     try:
         return await active_http_client.request(
             method=request.method,
@@ -383,6 +402,16 @@ async def _handle_proxy_http(
     if is_navigation and not sw_cookie:
         return HTMLResponse(generate_bootstrap_html(parsed_id, parsed_server))
 
+    # Determine if this backend needs SSH tunneling (run in executor to avoid blocking event loop
+    # during SSH handshake which can take several seconds)
+    try:
+        tunnel_client = await asyncio.get_running_loop().run_in_executor(
+            None, _get_tunnel_http_client, request.app, parsed_id, backend_url, backend_resolver
+        )
+    except (SSHTunnelError, paramiko.SSHException, OSError) as e:
+        logger.debug("SSH tunnel setup failed for {} server {}: {}", agent_id, server_name, e)
+        return Response(status_code=502, content=f"SSH tunnel to remote backend failed: {e}")
+
     # Forward request to backend
     result = await _forward_http_request(
         request=request,
@@ -390,6 +419,7 @@ async def _handle_proxy_http(
         path=path,
         agent_id=agent_id,
         server_name=server_name,
+        http_client=tunnel_client,
     )
 
     # If forwarding returned an error Response directly, return it
@@ -410,6 +440,7 @@ async def _handle_proxy_websocket(
     path: str,
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
+    tunnel_manager: SSHTunnelManager | None,
 ) -> None:
     parsed_id = AgentId(agent_id)
     parsed_server = ServerName(server_name)
@@ -436,11 +467,26 @@ async def _handle_proxy_websocket(
     if client_subprotocol_header:
         subprotocols = [s.strip() for s in client_subprotocol_header.split(",")]
 
+    # Check if this backend needs SSH tunneling (run in executor to avoid blocking event loop)
     try:
-        async with websockets.connect(
-            ws_url,
-            subprotocols=[websockets.Subprotocol(s) for s in subprotocols] if subprotocols else None,
-        ) as backend_ws:
+        tunnel_socket_path = await asyncio.get_running_loop().run_in_executor(
+            None, _get_tunnel_socket_path, tunnel_manager, parsed_id, backend_url, backend_resolver
+        )
+    except (SSHTunnelError, paramiko.SSHException, OSError) as e:
+        logger.debug("SSH tunnel setup failed for WS {}/{}: {}", agent_id, server_name, e)
+        try:
+            await websocket.close(code=1011, reason="SSH tunnel to remote backend failed")
+        except RuntimeError:
+            logger.trace("WebSocket already closed when trying to send tunnel error for {}", agent_id)
+        return
+
+    try:
+        backend_ws_conn = _connect_backend_websocket(
+            ws_url=ws_url,
+            subprotocols=subprotocols,
+            tunnel_socket_path=tunnel_socket_path,
+        )
+        async with backend_ws_conn as backend_ws:
             # Accept the client connection with the subprotocol the backend agreed on
             await websocket.accept(subprotocol=backend_ws.subprotocol)
 
@@ -456,7 +502,7 @@ async def _handle_proxy_websocket(
                 ),
             )
 
-    except (ConnectionRefusedError, OSError, TimeoutError) as connection_error:
+    except (ConnectionRefusedError, OSError, TimeoutError, SSHTunnelError, paramiko.SSHException) as connection_error:
         logger.debug(
             "Backend WebSocket connection failed for {}/{}: {}",
             agent_id,
@@ -469,6 +515,86 @@ async def _handle_proxy_websocket(
             logger.trace("WebSocket already closed when trying to send error for {}", agent_id)
 
 
+def _connect_backend_websocket(
+    ws_url: str,
+    subprotocols: list[str],
+    tunnel_socket_path: Path | None,
+) -> websockets.asyncio.client.connect:
+    """Create a websockets connect context manager, optionally through an SSH tunnel.
+
+    When tunnel_socket_path is provided, connects via a Unix domain socket that
+    tunnels through SSH to the remote backend. Otherwise, connects directly.
+    """
+    ws_subprotocols = [websockets.Subprotocol(s) for s in subprotocols] if subprotocols else None
+
+    if tunnel_socket_path is not None:
+        sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
+        try:
+            sock.connect(str(tunnel_socket_path))
+            sock.setblocking(False)
+        except OSError:
+            sock.close()
+            raise
+        return websockets.connect(ws_url, subprotocols=ws_subprotocols, sock=sock)
+
+    return websockets.connect(ws_url, subprotocols=ws_subprotocols)
+
+
+# -- SSH tunnel helpers --
+
+
+def _get_tunnel_socket_path(
+    tunnel_manager: SSHTunnelManager | None,
+    agent_id: AgentId,
+    backend_url: str,
+    backend_resolver: BackendResolverInterface,
+) -> Path | None:
+    """Get the Unix socket path for tunneling to a remote backend, or None for local.
+
+    Returns None if the agent is local (no SSH info) or no tunnel manager is configured.
+    """
+    if tunnel_manager is None:
+        return None
+
+    ssh_info = backend_resolver.get_ssh_info(agent_id)
+    if ssh_info is None:
+        return None
+
+    remote_host, remote_port = parse_url_host_port(backend_url)
+    return tunnel_manager.get_tunnel_socket_path(
+        ssh_info=ssh_info,
+        remote_host=remote_host,
+        remote_port=remote_port,
+    )
+
+
+def _get_tunnel_http_client(
+    app: FastAPI,
+    agent_id: AgentId,
+    backend_url: str,
+    backend_resolver: BackendResolverInterface,
+) -> httpx.AsyncClient | None:
+    """Get an httpx client configured for SSH tunneling, or None for direct connection.
+
+    Caches httpx clients per Unix socket path for reuse across requests.
+    """
+    tunnel_manager: SSHTunnelManager | None = app.state.tunnel_manager
+    socket_path = _get_tunnel_socket_path(tunnel_manager, agent_id, backend_url, backend_resolver)
+    if socket_path is None:
+        return None
+
+    clients: dict[str, httpx.AsyncClient] = app.state.ssh_http_clients
+    key = str(socket_path)
+    if key not in clients:
+        transport = httpx.AsyncHTTPTransport(uds=key)
+        clients[key] = httpx.AsyncClient(
+            transport=transport,
+            follow_redirects=False,
+            timeout=_PROXY_TIMEOUT_SECONDS,
+        )
+    return clients[key]
+
+
 # -- App factory --
 
 
@@ -476,8 +602,13 @@ def create_forwarding_server(
     auth_store: AuthStoreInterface,
     backend_resolver: BackendResolverInterface,
     http_client: httpx.AsyncClient | None,
+    tunnel_manager: SSHTunnelManager | None = None,
 ) -> FastAPI:
-    """Create the local forwarding server FastAPI application."""
+    """Create the forwarding server FastAPI application.
+
+    When tunnel_manager is provided, the server can proxy traffic to remote agents
+    by tunneling through SSH. Without it, only local agents are reachable.
+    """
     is_externally_managed_client = http_client is not None
 
     @asynccontextmanager
@@ -489,6 +620,7 @@ def create_forwarding_server(
 
     app.state.auth_store = auth_store
     app.state.backend_resolver = backend_resolver
+    app.state.tunnel_manager = tunnel_manager
     if http_client is not None:
         app.state.http_client = http_client
 
@@ -516,6 +648,7 @@ def create_forwarding_server(
             path=path,
             auth_store=auth_store,
             backend_resolver=backend_resolver,
+            tunnel_manager=tunnel_manager,
         )
 
     return app
