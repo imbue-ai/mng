@@ -359,16 +359,20 @@ def test_chat_ttyd_command_is_parseable_as_named_command() -> None:
 # -- ClaudeZygoteAgent.provision tests --
 
 
-def _make_zygote_agent_stub(config: ClaudeZygoteConfig | None = None) -> ClaudeZygoteAgent:
+def _make_zygote_agent_stub(
+    config: ClaudeZygoteConfig | None = None,
+    agent_dir: Path = Path("/tmp/agents/agent-123"),
+) -> Any:
     """Create a ClaudeZygoteAgent-like stub with just enough state for provision().
 
     Uses MagicMock as a base to satisfy pydantic model requirements, then sets
-    the attributes that provision() actually uses.
+    the attributes that provision() actually uses. Returns Any to avoid type
+    checker issues with MagicMock attribute access.
     """
     stub = MagicMock(spec=ClaudeZygoteAgent)
     stub.agent_config = config or ClaudeZygoteConfig()
     stub.work_dir = Path("/test/work")
-    stub._get_agent_dir.return_value = Path("/tmp/agents/agent-123")
+    stub._get_agent_dir.return_value = agent_dir
     stub._get_zygote_config = ClaudeZygoteAgent._get_zygote_config.__get__(stub)
     stub.provision = ClaudeZygoteAgent.provision.__get__(stub)
     return stub
@@ -382,8 +386,7 @@ def test_provision_calls_all_provisioning_steps() -> None:
     mock_mng_ctx = MagicMock()
     agent_state_dir = Path("/tmp/agents/agent-123")
 
-    stub = _make_zygote_agent_stub(config)
-    stub._get_agent_dir.return_value = agent_state_dir
+    stub = _make_zygote_agent_stub(config, agent_dir=agent_state_dir)
 
     with (
         patch.object(ClaudeAgent, "provision") as mock_super_provision,
