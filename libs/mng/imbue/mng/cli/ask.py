@@ -290,8 +290,6 @@ class SubprocessClaudeBackend(ClaudeBackendInterface):
             allowed_tools_args += [
                 "--allowedTools",
                 "WebFetch(domain:github.com)",
-                "--allowedTools",
-                "WebFetch(domain:raw.githubusercontent.com)",
             ]
 
         with tempfile.TemporaryDirectory(prefix="mng-ask-") as tmp_dir:
