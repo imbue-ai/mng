@@ -30,6 +30,47 @@ agent_type = "elena-code"
 
 When deploying, `mng create` is invoked with `-t entrypoint` to apply this template. This is the standard mechanism for controlling which agent type a changeling uses.
 
+## Settings
+
+Changelings read per-deployment settings from `.changelings/settings.toml` in the agent work directory. This file is optional -- if it does not exist, all settings use their built-in defaults.
+
+During provisioning, the settings file is copied to `$MNG_AGENT_STATE_DIR/settings.toml` so that scripts running on the agent host can access it via the `MNG_AGENT_STATE_DIR` environment variable.
+
+The settings are modeled by `ClaudeZygoteSettings` in `imbue.mng_claude_zygote.data_types`. Available sections and their defaults:
+
+```toml
+[chat]
+model = "claude-opus-4-6"               # Default model for new conversation threads
+
+[chat.context]
+max_transcript_line_count = 10          # Max inner monologue lines in context
+max_messages_line_count = 20            # Max recent message lines in context
+max_messages_per_conversation = 3       # Max messages per conversation in context
+max_trigger_line_count = 5              # Max trigger event lines per source in context
+max_content_length = 200                # Max truncated content length in context_tool
+
+[chat.extra_context]
+max_content_length = 300                # Max truncated content length in extra_context_tool
+transcript_line_count = 50              # Inner monologue lines in extended history
+mng_list_hard_timeout_seconds = 120     # Hard timeout for mng list command
+mng_list_warn_threshold_seconds = 15    # Warning threshold for mng list command
+
+[watchers]
+conversation_poll_interval_seconds = 5  # Poll interval for conversation watcher
+event_poll_interval_seconds = 3         # Poll interval for event watcher
+watched_event_sources = ["messages", "scheduled", "mng_agents", "stop"]
+
+[provisioning]
+fs_hard_timeout_seconds = 16.0          # Hard timeout for filesystem operations
+fs_warn_threshold_seconds = 4.0         # Warning threshold for filesystem operations
+command_check_hard_timeout_seconds = 30.0
+command_check_warn_threshold_seconds = 5.0
+install_hard_timeout_seconds = 300.0    # Hard timeout for package installations
+install_warn_threshold_seconds = 60.0   # Warning threshold for package installations
+```
+
+Bash scripts read settings via python3 one-liners with fallback defaults. Python tool scripts (deployed as standalone files to the agent host) read the TOML file directly at module load time.
+
 ## Data and servers
 
 Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
