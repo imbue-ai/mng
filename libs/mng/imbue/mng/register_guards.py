@@ -101,7 +101,7 @@ def _cleanup_docker_guards() -> None:
 _GUARDED_BINARY_RESOURCES = ("tmux", "rsync", "unison")
 
 
-def register_mng_sdk_guards() -> None:
+def register_mng_guards() -> None:
     """Register all mng-specific resource guards with the infrastructure.
 
     Registers both SDK monkeypatches (Modal, Docker) and binary wrapper

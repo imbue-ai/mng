@@ -252,7 +252,7 @@ def register_sdk_guard(
 ) -> None:
     """Register an SDK guard for use by create_sdk_resource_guards.
 
-    Callers (e.g. mng's sdk_guards module) call this before
+    Callers (e.g. mng's register_guards module) call this before
     register_conftest_hooks() to push SDK-specific guard implementations
     into the infrastructure. Deduplicates by name so multiple conftest
     files can safely call the registration function.
