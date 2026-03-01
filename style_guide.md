@@ -1397,6 +1397,42 @@ def main() -> None:
 
 ```
 
+# Event logging to disk
+
+When persisting structured event data (conversations, agent actions, state transitions, etc.), always use append-only JSONL files following these conventions:
+
+## Standard directory structure
+
+Store event files at `logs/<source>/events.jsonl` where `<source>` is a static, human-readable name describing the category of events:
+- Source names should be lowercase, use underscores for multi-word names
+- Source names must NOT contain dates, IDs, or dynamically generated values
+- Source CAN be nested folders (e.g. `logs/foo/bar/events.jsonl`) with source field `"foo/bar"`, but prefer flat structure when possible
+
+## Standard event envelope
+
+Every JSONL line must include these envelope fields:
+
+```json
+{"timestamp": "2026-02-28T12:00:00.123456789Z", "type": "message", "event_id": "evt-1709...", "source": "messages", ...}
+```
+
+- `timestamp`: nanosecond-precision UTC ISO 8601 (always include full precision even if the source doesn't provide it)
+- `type`: what kind of event this is (e.g. `"conversation_created"`, `"message"`, `"scheduled"`)
+- `event_id`: unique identifier for this specific event (e.g. timestamp + random hex)
+- `source`: must match the folder name under `logs/` where this event is stored
+
+## Self-describing events
+
+Include enough context in each line to be self-describing. Every event should have a timestamp, an event type, and enough identifiers (conversation ID, agent name, source, etc.) that you could split the data in different ways later if you change your mind. This is the most important principle: if each line is self-contained, your file organization becomes a performance/convenience choice rather than a correctness one. You should never need to know the name of the file that an event came from.
+
+## Append-only semantics
+
+Event log files are always append-only. Never modify or delete individual lines. If an event needs to be "corrected", append a new event that supersedes it (e.g. a `model_changed` event rather than editing a `conversation_created` event).
+
+## Rotation
+
+Event files can be rotated (by date, by size) if they get too large. Rotation should preserve the file naming convention (`events.jsonl`) and archive old files with a date suffix (e.g. `events.2026-02-28.jsonl.gz`). Not all sources need rotation -- some (like conversation events) can stay small forever. Only add rotation when the file actually becomes too large.
+
 # Configuration
 
 Always use .toml files for configuration

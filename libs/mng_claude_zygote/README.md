@@ -12,28 +12,40 @@ They can be thought of as a sort of "higher level" agent that is made by assembl
 Fundamentally, changelings are mng agents where:
 - The primary agent (from mng's perspective) is a claude code instance *that reacts to "events"* and forms the sort of "inner dialog" of the agent
 - Users do *not* chat directly with this main "inner monolouge" agent--instead, they have conversational threads via the "llm live-chat" command-line tool, and those conversations are *exposed* to the primary agent by sending it events to react to.
-- The core "inner monologue" agent can be thought of as reacting to events. It is sent messages (by a watcher, via "mng message") whenever:
-    - one of the conversation files (<agent-data-dir>/logs/conversations/<conversation-id>.jsonl) gets appended to
-    - the rest of the events all happen based on json getting appended to <agent-data-dir>/logs/entrypoint_events.jsonl:
-        - one of the time based triggers happens ("mng schedule" can be used, via a skill, to schedule custom events at certain times, which in turn append the json data for that event to <agent-data-dir>/logs/entrypoint_events.jsonl)
-        - a sub agent (launched by this primary agent) transitions to "waiting" (happens via our own hooks--goes through a modal hook like snapshot_and_save if remote, otherwise can just call "mng messge" directly)
+- The core "inner monologue" agent can be thought of as reacting to events. It is sent messages (by a watcher, via "mng message") whenever new events appear in:
+    - `logs/messages/events.jsonl` (new conversation messages synced from the llm database)
+    - `logs/entrypoint/events.jsonl` (trigger events):
+        - one of the time based triggers happens ("mng schedule" can be used, via a skill, to schedule custom events at certain times, which in turn append the json data for that event)
+        - a sub agent (launched by this primary agent) transitions to "waiting" (happens via our own hooks--goes through a modal hook like snapshot_and_save if remote, otherwise can just call "mng message" directly)
         - the primary agent tries to stop (for the first time--before thought complete, roughly). This allows it to do a last check of whether there is anything else worth responding to before going to sleep (and considering when it ought to wake)
         - (future) a local monitor agent appends a message/reminder to its file (or calls mng message directly)
 - The primary agent is generally instructed to do everything via "mng" (because then all sub agents and work is visible / totally transparent to you)
 
-There are many important implementation details:
-- Our general data model is to use append-only jsonl files for all of our data (conversations, events, inner monologue thoughts, etc.) This makes it super easy to keep track of everything that has happened and debug.
+## Event log structure
+
+All event data uses a consistent append-only JSONL format stored under `<agent-data-dir>/logs/<source>/events.jsonl`. Every event line has a standard envelope:
+
+    {"timestamp": "...", "type": "...", "event_id": "...", "source": "<source>", ...additional fields}
+
+Event sources:
+- `logs/conversations/events.jsonl` - conversation lifecycle events (created, model changed). Each event includes `conversation_id` and `model`.
+- `logs/messages/events.jsonl` - all conversation messages across all conversations. Each event includes `conversation_id`, `role`, and `content`.
+- `logs/entrypoint/events.jsonl` - entrypoint trigger events (scheduled, sub-agent state changes, shutdown checks). Each event includes a `data` payload.
+- `logs/transcript/events.jsonl` - inner monologue transcript (written by Claude background tasks, not this plugin).
+
+Every event is self-describing: you never need to know the filename to understand the event. The file organization is a performance/convenience choice, not a correctness one.
+
+## Implementation details
+
 - The "conversation threads" or "chat threads" are simply conversation ids that are tracked by the "llm" tool (a 3rd party CLI tool that is really nice and simple--we've made a plugin for it, llm-live-chat, that enables the below "llm live-chat" and "llm inject" commands)
 - Users create new (and resume existing) conversations by calling a little "chat" command. It's just a little bash script that creates event json entries and also makes calls to "llm" so that users and agents don't need to remember the exact invocations. "chat --new" for a new chat and "chat --resume <conversation_id>" to resume. "chat" with no arguments lists all current conversation ids
 - Agents create new conversations by using their "new chat" skill, which calls "chat --new --as-agent" and passing in the message as well
-- Whenever the user (or the agent) creates a new conversation, the "chat" wrapper appends a conversation object to <agent-data-dir>/logs/conversations.jsonl (as a json dict on a single line, with keys for "id" and "model", which comes from the default in <agent-data-dir>/default_chat_model). The conversation object is created by calling "llm live-chat" with the initial message as an arg and correct flags (if it is a user message) or "llm inject" with the right args (if it is an agent message)
-- The ClaudeZygoteAgent runs a script in a tmux window that watches the database used by the "llm" tool and, whenever it changes, it looks through all conversations ids from "conversations.jsonl" and all messages for those conversation ids. It then finds any messages that have not yet been appended to their <agent-data-dir>/logs/conversations/<conversation-id>.jsonl file, and does so (in timestamp order, appends the whole json dict for the message as a single line).
-- Thus the URL to view an existing chat conversations is simply done via a special ttyd server that accepts an arg of the conversations-id, and uses that to run the correct llm invocation: "llm live-chat --show-history -c --cid <conversations_id>  -m <chat-model>" where chat-model is something like "claude-opus-4.6", and comes from the most recent entry in conversations.jsonl with this id
-- To list all conversations for this agent, we can simply look at the <agent-data-dir>/logs/conversations.jsonl file (it contains all conversations. There can be multiple entries for a single conversation id if a different model was selected, ie, it is append-only and the last value wins)
-- When invoking the "llm live-chat", we should pass in two tools: one tool for gathering context (which the system promote encourages them to run every time before responding to a new user message) and another tool for gathering extra context (if necessary for their reply)
-- The first tool gathers context for the "llm live-chat" calls by collecting any recent chat messages from across the *other* conversations, if any, as well as the most recent "inner monologue" messages (accessible via <agent-data-dir>/logs/transcript.jsonl), and any recent non-message events)
-- The second tool that gathers extra context for the "llm live-chat" calls should be able to expose current status of all mng agents (eg, by calling mng list), as well as deeper history for the inner monologue agent.
-- A simple watcher should observe <agent-data-dir>/logs/conversations/*.jsonl and <agent-data-dir>/logs/entrypoint_events.jsonl for changes, and when modified, send the next unhandled message(s) to the primary agent (via "mng message")
+- Whenever the user (or the agent) creates a new conversation, the "chat" wrapper appends a `conversation_created` event to `logs/conversations/events.jsonl` (with the standard envelope plus `conversation_id` and `model`). The conversation is started by calling "llm live-chat" (for user messages) or "llm inject" (for agent messages)
+- The ClaudeZygoteAgent runs a conversation watcher script in a tmux window that watches the llm database and, whenever it changes, syncs new messages to `logs/messages/events.jsonl` (with the standard envelope plus `conversation_id`, `role`, `content`)
+- Thus the URL to view an existing chat conversation is simply done via a special ttyd server that runs the correct llm invocation: "llm live-chat --show-history -c --cid <conversation_id> -m <chat-model>" where chat-model comes from the most recent event in `logs/conversations/events.jsonl` with that conversation_id
+- To list all conversations for this agent, we read `logs/conversations/events.jsonl` (append-only, last value per conversation_id wins)
+- When invoking "llm live-chat", we pass in two tools: one for gathering context (recent messages from other conversations, inner monologue, recent events) and another for extra context (mng agent list, deeper history)
+- A simple event watcher observes `logs/messages/events.jsonl` and `logs/entrypoint/events.jsonl` for changes, and when modified, sends the next unhandled event(s) to the primary agent (via "mng message")
 - Changeling agents are assumed to run from a specially structured git repo that contains various skills, configuration, CLAUDE.md files with prompts, and the code for any tools they have constructed for themselves.
 - The top level CLAUDE.md in the agent git repo (where it will be launched) serves as the core system prompt that is *shared* among all agents (the primary agent, any claude subagent it makes, and even any other agents created via mng with this repo as the target)
 - The primary agent CLAUDE.md should be checked in as ".changelings/entrypoint.md" and should be symlinked from the project root as "CLAUDE.local.md" when it is the agent that is running (same thing for ".changelings/entrypoint.json", which will be symlinked as ".claude/settings.local.json"). This is something that the ClaudeZygoteAgent should take care of.

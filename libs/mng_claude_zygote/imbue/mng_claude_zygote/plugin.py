@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Final
 
 from pydantic import Field
 
@@ -14,7 +15,7 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
-from imbue.mng_claude_zygote.provisioning import create_conversation_directories
+from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
@@ -22,8 +23,8 @@ from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
-AGENT_TTYD_WINDOW_NAME = "agent"
-AGENT_TTYD_SERVER_NAME = AGENT_TTYD_WINDOW_NAME
+AGENT_TTYD_WINDOW_NAME: Final[str] = "agent"
+AGENT_TTYD_SERVER_NAME: Final[str] = AGENT_TTYD_WINDOW_NAME
 
 # Bash wrapper that starts ttyd attached to the agent's own tmux session.
 # This allows users to interact with the Claude agent via a web browser.
@@ -39,22 +40,24 @@ _AGENT_TTYD_INVOCATION = (
     'ttyd -p 0 -t disableLeaveAlert=true -W bash -c \'unset TMUX && exec tmux attach -t "$1":0\' -- "$_SESSION"'
 )
 
-AGENT_TTYD_COMMAND = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)
+AGENT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_AGENT_TTYD_INVOCATION, AGENT_TTYD_SERVER_NAME)
 
 # Watcher tmux window names and commands.
 # These are run as additional tmux windows alongside the primary agent.
-CONV_WATCHER_WINDOW_NAME = "conv_watcher"
-CONV_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
+CONV_WATCHER_WINDOW_NAME: Final[str] = "conv_watcher"
+CONV_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
 
-EVENT_WATCHER_WINDOW_NAME = "events"
-EVENT_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/event_watcher.sh"
+EVENT_WATCHER_WINDOW_NAME: Final[str] = "events"
+EVENT_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/event_watcher.sh"
 
 # Conversation ttyd: a web terminal that runs the chat script for interactive
 # conversation access via the browser.
-CHAT_TTYD_WINDOW_NAME = "chat"
-CHAT_TTYD_SERVER_NAME = CHAT_TTYD_WINDOW_NAME
-_CHAT_TTYD_INVOCATION = "ttyd -p 0 -t disableLeaveAlert=true -W bash -c 'exec \"$MNG_HOST_DIR/commands/chat.sh\"'"
-CHAT_TTYD_COMMAND = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
+CHAT_TTYD_WINDOW_NAME: Final[str] = "chat"
+CHAT_TTYD_SERVER_NAME: Final[str] = CHAT_TTYD_WINDOW_NAME
+_CHAT_TTYD_INVOCATION: Final[str] = (
+    "ttyd -p 0 -t disableLeaveAlert=true -W bash -c 'exec \"$MNG_HOST_DIR/commands/chat.sh\"'"
+)
+CHAT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
 
 
 class ClaudeZygoteConfig(ClaudeAgentConfig):
@@ -94,11 +97,11 @@ class ClaudeZygoteAgent(ClaudeAgent):
     - Installs the llm toolchain (llm, llm-anthropic, llm-live-chat)
     - Creates symlinks for changeling entrypoint files
     - Provisions watcher scripts and chat utilities
-    - Sets up conversation directories and default chat model
+    - Sets up event log directories (logs/<source>/events.jsonl)
     - Symlinks .changelings/memory/ into Claude project memory
 
     Via tmux windows (injected by override_command_options):
-    - Conversation watcher (syncs llm DB to per-conversation JSONL files)
+    - Conversation watcher (syncs llm DB to logs/messages/events.jsonl)
     - Event watcher (sends new events to primary agent via mng message)
     - Chat ttyd (web terminal for conversation access)
     """
@@ -128,7 +131,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         1. llm + plugin installation
         2. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
         3. Watcher scripts and chat utilities
-        4. Conversation directory structure
+        4. Event log directory structure (logs/<source>/events.jsonl)
         5. Default chat model configuration
         6. LLM tool scripts for conversation context
         7. Memory directory symlink into Claude project
@@ -145,7 +148,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         provision_llm_tools(host)
 
         agent_state_dir = self._get_agent_dir()
-        create_conversation_directories(host, agent_state_dir)
+        create_event_log_directories(host, agent_state_dir)
         write_default_chat_model(host, agent_state_dir, config.default_chat_model)
         link_memory_directory(host, self.work_dir, config.changelings_dir_name)
 

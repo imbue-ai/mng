@@ -1,9 +1,11 @@
 #!/bin/bash
 # Chat wrapper for changeling conversations.
 #
-# Manages conversation threads backed by the `llm` CLI tool. Each conversation
-# gets a unique ID tracked in conversations.jsonl, and messages are synced to
-# per-conversation JSONL files by the conversation watcher.
+# Manages conversation threads backed by the `llm` CLI tool. Events are
+# written to the standard log structure: logs/<source>/events.jsonl
+#
+# Event sources used:
+#   logs/conversations/events.jsonl  - conversation lifecycle (created, model changed)
 #
 # Usage:
 #   chat --new [message]              Create a new conversation (user-initiated)
@@ -20,16 +22,19 @@
 set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
-CONVERSATIONS_FILE="$AGENT_DATA_DIR/logs/conversations.jsonl"
-CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
+CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 DEFAULT_MODEL_FILE="$AGENT_DATA_DIR/default_chat_model"
 LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
 LOG_FILE="${MNG_HOST_DIR}/logs/chat.log"
 
 # Nanosecond-precision UTC timestamp in ISO 8601 format.
-# Used everywhere in this plugin for consistent, high-precision timestamps.
 iso_timestamp_ns() {
     date -u +"%Y-%m-%dT%H:%M:%S.%NZ"
+}
+
+# Generate a unique event ID (timestamp-based + random hex for uniqueness)
+generate_event_id() {
+    echo "evt-$(date +%s%N)-$(head -c 4 /dev/urandom | xxd -p)"
 }
 
 # Log a message to the log file (not to stdout, since chat is interactive)
@@ -49,29 +54,23 @@ get_default_model() {
 }
 
 generate_cid() {
-    # Generate a short unique conversation ID using date + random hex
     echo "conv-$(date +%s)-$(head -c 4 /dev/urandom | xxd -p)"
 }
 
-get_updated_at() {
-    local cid="$1"
-    local conv_file="$CONVERSATIONS_DIR/$cid.jsonl"
-    if [ -f "$conv_file" ]; then
-        # Use file mtime as updated_at
-        stat -c '%Y' "$conv_file" 2>/dev/null | xargs -I{} date -u -d @{} +"%Y-%m-%dT%H:%M:%S.%NZ" 2>/dev/null || echo "?"
-    else
-        echo "?"
-    fi
-}
-
-append_conversation_record() {
+# Append a conversation_created event to logs/conversations/events.jsonl
+# Uses the standard envelope: timestamp, type, event_id, source + conversation fields
+append_conversation_event() {
     local cid="$1"
     local model="$2"
+    local event_type="${3:-conversation_created}"
     local timestamp
     timestamp=$(iso_timestamp_ns)
-    mkdir -p "$(dirname "$CONVERSATIONS_FILE")"
-    printf '{"id":"%s","model":"%s","timestamp":"%s"}\n' "$cid" "$model" "$timestamp" >> "$CONVERSATIONS_FILE"
-    log "Appended conversation record: cid=$cid model=$model timestamp=$timestamp"
+    local event_id
+    event_id=$(generate_event_id)
+    mkdir -p "$(dirname "$CONVERSATIONS_EVENTS")"
+    printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s"}\n' \
+        "$timestamp" "$event_type" "$event_id" "$cid" "$model" >> "$CONVERSATIONS_EVENTS"
+    log "Appended event: type=$event_type cid=$cid model=$model event_id=$event_id"
 }
 
 build_tool_args() {
@@ -103,10 +102,9 @@ new_conversation() {
 
     log "Creating new conversation: cid=$cid model=$model as_agent=$as_agent message_len=${#message}"
 
-    append_conversation_record "$cid" "$model"
+    append_conversation_event "$cid" "$model" "conversation_created"
 
     if [ "$as_agent" = true ]; then
-        # Agent-initiated: inject the message as an assistant response
         if [ -n "$message" ]; then
             log "Injecting agent message into conversation $cid"
             llm inject --cid "$cid" -m "$model" "$message"
@@ -114,7 +112,6 @@ new_conversation() {
         fi
         echo "$cid"
     else
-        # User-initiated: start an interactive live-chat session
         local tool_args
         tool_args=$(build_tool_args)
         log "Starting live-chat session: cid=$cid model=$model tool_args='$tool_args'"
@@ -134,9 +131,9 @@ resume_conversation() {
 
     log "Resuming conversation: cid=$cid"
 
-    # Get the model from the latest entry for this conversation
+    # Get the model from the latest event for this conversation
     local model
-    model=$(grep "\"id\":\"$cid\"" "$CONVERSATIONS_FILE" 2>/dev/null \
+    model=$(grep "\"conversation_id\":\"$cid\"" "$CONVERSATIONS_EVENTS" 2>/dev/null \
         | tail -1 \
         | jq -r '.model' 2>/dev/null \
         || get_default_model)
@@ -151,55 +148,64 @@ resume_conversation() {
 }
 
 list_conversations() {
-    if [ ! -f "$CONVERSATIONS_FILE" ]; then
+    if [ ! -f "$CONVERSATIONS_EVENTS" ]; then
         echo "No conversations yet."
         return 0
     fi
 
-    log "Listing conversations from $CONVERSATIONS_FILE"
+    log "Listing conversations from $CONVERSATIONS_EVENTS"
 
     echo "Conversations:"
     echo "=============="
-    # Show unique conversation IDs with their latest model, sorted by updated_at desc
     uv run python3 -c "
 import json, os, sys
 from pathlib import Path
 
-convs_file = '$CONVERSATIONS_FILE'
-convs_dir = '$CONVERSATIONS_DIR'
+events_file = '$CONVERSATIONS_EVENTS'
+messages_file = '${AGENT_DATA_DIR}/logs/messages/events.jsonl'
 convs = {}
 line_num = 0
-for line in open(convs_file):
+for line in open(events_file):
     line_num += 1
     line = line.strip()
     if not line:
         continue
     try:
-        record = json.loads(line)
-        convs[record['id']] = record
+        event = json.loads(line)
+        cid = event['conversation_id']
+        convs[cid] = event
     except (json.JSONDecodeError, KeyError) as e:
-        print(f'  WARNING: malformed line {line_num} in {convs_file}: {e}', file=sys.stderr)
+        print(f'  WARNING: malformed line {line_num} in {events_file}: {e}', file=sys.stderr)
         print(f'    line content: {line[:200]}', file=sys.stderr)
         continue
 
-# Add updated_at from conversation file mtimes
-for cid, record in convs.items():
-    conv_file = Path(convs_dir) / f'{cid}.jsonl'
-    if conv_file.exists():
-        mtime = conv_file.stat().st_mtime
-        from datetime import datetime, timezone
-        record['updated_at'] = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
-    else:
-        record['updated_at'] = record.get('timestamp', '?')
+# Find latest message timestamp per conversation from messages events
+updated_at = {}
+if Path(messages_file).exists():
+    for line in open(messages_file):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            cid = msg.get('conversation_id', '')
+            ts = msg.get('timestamp', '')
+            if cid and ts:
+                if cid not in updated_at or ts > updated_at[cid]:
+                    updated_at[cid] = ts
+        except (json.JSONDecodeError, KeyError):
+            continue
 
-# Sort by updated_at descending (most recent first)
+for cid, event in convs.items():
+    event['updated_at'] = updated_at.get(cid, event.get('timestamp', '?'))
+
 sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
 
-for record in sorted_convs:
-    print(f\"  {record['id']}  model={record.get('model', '?')}  created_at={record.get('timestamp', '?')}  updated_at={record.get('updated_at', '?')}\")
+for event in sorted_convs:
+    print(f\"  {event.get('conversation_id','?')}  model={event.get('model', '?')}  created_at={event.get('timestamp', '?')}  updated_at={event.get('updated_at', '?')}\")
 "
 
-    log "Listed $(wc -l < "$CONVERSATIONS_FILE" | tr -d '[:space:]') conversation records"
+    log "Listed conversations"
 }
 
 show_help() {
@@ -216,7 +222,6 @@ show_help() {
 
 log "Invoked with args: $*"
 
-# Parse top-level arguments
 case "${1:-}" in
     --new)
         shift

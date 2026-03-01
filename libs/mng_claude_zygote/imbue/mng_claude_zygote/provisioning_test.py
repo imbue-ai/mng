@@ -11,7 +11,7 @@ from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
 from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
-from imbue.mng_claude_zygote.provisioning import create_conversation_directories
+from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
@@ -130,7 +130,7 @@ def test_chat_script_invokes_llm_inject() -> None:
 
 def test_chat_script_writes_conversations_jsonl() -> None:
     content = load_zygote_resource("chat.sh")
-    assert "conversations.jsonl" in content
+    assert "conversations/events.jsonl" in content
 
 
 def test_chat_script_uses_mng_agent_state_dir() -> None:
@@ -194,9 +194,9 @@ def test_conversation_watcher_queries_sqlite() -> None:
     assert "sqlite3" in content
 
 
-def test_conversation_watcher_syncs_to_conversations_dir() -> None:
+def test_conversation_watcher_writes_to_messages_events() -> None:
     content = load_zygote_resource("conversation_watcher.sh")
-    assert "conversations" in content
+    assert "messages/events.jsonl" in content
 
 
 def test_conversation_watcher_logs_to_file() -> None:
@@ -225,14 +225,14 @@ def test_event_watcher_sends_mng_message() -> None:
     assert "mng message" in content
 
 
-def test_event_watcher_watches_conversations_dir() -> None:
+def test_event_watcher_watches_messages_events() -> None:
     content = load_zygote_resource("event_watcher.sh")
-    assert "conversations" in content
+    assert "messages/events.jsonl" in content
 
 
 def test_event_watcher_watches_entrypoint_events() -> None:
     content = load_zygote_resource("event_watcher.sh")
-    assert "entrypoint_events.jsonl" in content
+    assert "entrypoint/events.jsonl" in content
 
 
 def test_event_watcher_tracks_offsets() -> None:
@@ -451,11 +451,12 @@ def test_provision_llm_tools_writes_all_tool_files() -> None:
         assert any(tool_file in name for name in written_names), f"{tool_file} not written"
 
 
-def test_create_conversation_directories_creates_conversations_dir() -> None:
+def test_create_event_log_directories_creates_all_source_dirs() -> None:
     host = _StubHost()
-    create_conversation_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"))
+    create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"))
 
-    assert any("conversations" in c and "mkdir" in c for c in host.executed_commands)
+    for source in ("conversations", "messages", "entrypoint", "transcript"):
+        assert any(source in c and "mkdir" in c for c in host.executed_commands), f"Missing mkdir for {source}"
 
 
 def test_write_default_chat_model_writes_model_to_file() -> None:

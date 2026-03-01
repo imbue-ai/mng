@@ -4,6 +4,7 @@ import importlib.resources
 import shlex
 import time
 from pathlib import Path
+from typing import Final
 
 from loguru import logger
 
@@ -14,14 +15,14 @@ from imbue.mng_claude_zygote import resources as zygote_resources
 from imbue.mng_claude_zygote.data_types import ChatModel
 
 # Scripts to provision to $MNG_HOST_DIR/commands/
-_SCRIPT_FILES = (
+_SCRIPT_FILES: Final[tuple[str, ...]] = (
     "chat.sh",
     "conversation_watcher.sh",
     "event_watcher.sh",
 )
 
 # Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
-_LLM_TOOL_FILES = (
+_LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "context_tool.py",
     "extra_context_tool.py",
 )
@@ -29,12 +30,12 @@ _LLM_TOOL_FILES = (
 # Timeout thresholds (seconds).
 # Hard timeout = command is definitely broken if it takes this long.
 # Warn threshold = emit a warning if the command takes longer than this.
-_FS_HARD_TIMEOUT = 15.0
-_FS_WARN_THRESHOLD = 2.0
-_COMMAND_CHECK_HARD_TIMEOUT = 30.0
-_COMMAND_CHECK_WARN_THRESHOLD = 5.0
-_INSTALL_HARD_TIMEOUT = 300.0
-_INSTALL_WARN_THRESHOLD = 60.0
+_FS_HARD_TIMEOUT: Final[float] = 15.0
+_FS_WARN_THRESHOLD: Final[float] = 2.0
+_COMMAND_CHECK_HARD_TIMEOUT: Final[float] = 30.0
+_COMMAND_CHECK_WARN_THRESHOLD: Final[float] = 5.0
+_INSTALL_HARD_TIMEOUT: Final[float] = 300.0
+_INSTALL_WARN_THRESHOLD: Final[float] = 60.0
 
 
 def _execute_with_timing(
@@ -215,20 +216,24 @@ def provision_llm_tools(host: OnlineHostInterface) -> None:
             host.write_file(tool_path, tool_content.encode(), mode="0644")
 
 
-def create_conversation_directories(host: OnlineHostInterface, agent_state_dir: Path) -> None:
-    """Create the conversation log directory structure.
+def create_event_log_directories(host: OnlineHostInterface, agent_state_dir: Path) -> None:
+    """Create the event log directory structure.
 
-    Creates:
-    - <agent_state_dir>/logs/conversations/
+    Creates directories for each event source:
+    - <agent_state_dir>/logs/conversations/  (conversation lifecycle events)
+    - <agent_state_dir>/logs/messages/       (conversation messages)
+    - <agent_state_dir>/logs/entrypoint/     (entrypoint trigger events)
+    - <agent_state_dir>/logs/transcript/     (inner monologue, written by Claude background tasks)
     """
-    conversations_dir = agent_state_dir / "logs" / "conversations"
-    _execute_with_timing(
-        host,
-        f"mkdir -p {shlex.quote(str(conversations_dir))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
-        label="mkdir conversations",
-    )
+    for source in ("conversations", "messages", "entrypoint", "transcript"):
+        source_dir = agent_state_dir / "logs" / source
+        _execute_with_timing(
+            host,
+            f"mkdir -p {shlex.quote(str(source_dir))}",
+            hard_timeout=_FS_HARD_TIMEOUT,
+            warn_threshold=_FS_WARN_THRESHOLD,
+            label=f"mkdir logs/{source}",
+        )
 
 
 def write_default_chat_model(host: OnlineHostInterface, agent_state_dir: Path, model: ChatModel) -> None:
