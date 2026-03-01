@@ -1,5 +1,6 @@
 import socket
 import threading
+import time
 from pathlib import Path
 
 import paramiko
@@ -15,6 +16,27 @@ from imbue.changelings.forwarding_server.ssh_tunnel import _ssh_connection_trans
 from imbue.changelings.forwarding_server.ssh_tunnel import _tunnel_accept_loop
 from imbue.changelings.forwarding_server.ssh_tunnel import _wait_for_socket
 from imbue.changelings.forwarding_server.ssh_tunnel import parse_url_host_port
+
+
+def _connect_with_retry(sock_path: Path, timeout: float = 10.0) -> socket.socket:
+    """Connect to a Unix domain socket, retrying until the server is listening.
+
+    _wait_for_socket only checks file existence, but the server may not be
+    listening yet (race between bind and listen). This retries connect until
+    it succeeds, then returns the connected socket.
+    """
+    _wait_for_socket(sock_path, timeout=timeout)
+    poll = threading.Event()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.connect(str(sock_path))
+            return client
+        except (ConnectionRefusedError, OSError):
+            client.close()
+            poll.wait(timeout=0.05)
+    raise SSHTunnelError(f"Socket {sock_path} exists but not accepting connections after {timeout}s")
 
 
 class FakeChannelFromSocket:
@@ -243,10 +265,7 @@ def test_tunnel_accept_loop_forwards_connections(tmp_path: Path) -> None:
     )
     accept_thread.start()
 
-    _wait_for_socket(sock_path, timeout=10.0)
-
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.connect(str(sock_path))
+    client = _connect_with_retry(sock_path, timeout=10.0)
     client.settimeout(3.0)
     channel_remote.settimeout(3.0)
 
@@ -279,10 +298,7 @@ def test_tunnel_accept_loop_handles_channel_open_failure(tmp_path: Path) -> None
     )
     accept_thread.start()
 
-    _wait_for_socket(sock_path, timeout=10.0)
-
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.connect(str(sock_path))
+    client = _connect_with_retry(sock_path, timeout=10.0)
     client.settimeout(3.0)
 
     try:
