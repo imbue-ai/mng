@@ -26,18 +26,19 @@ def gather_extra_context() -> str:
     sections: list[str] = []
 
     # Current mng agent list
+    # No timeout: mng list can be slow when querying remote providers,
+    # and if the user asked for extra context they're willing to wait.
     try:
         result = subprocess.run(
             ["uv", "run", "mng", "list", "--json"],
             capture_output=True,
             text=True,
-            timeout=15,
         )
         if result.returncode == 0 and result.stdout.strip():
             sections.append(f"## Current Agents\n```\n{result.stdout.strip()}\n```")
         else:
             sections.append("## Current Agents\n(No agents or unable to retrieve)")
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError):
         sections.append("## Current Agents\n(Unable to retrieve agent list)")
 
     agent_data_dir_str = os.environ.get("MNG_AGENT_STATE_DIR", "")
