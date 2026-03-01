@@ -311,6 +311,7 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert bad_id not in ref_ids
 
 
+@pytest.mark.tmux
 def test_destroy_agent_calls_on_destroy(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -328,6 +329,7 @@ def test_destroy_agent_calls_on_destroy(
     assert not agent_dir.exists()
 
 
+@pytest.mark.tmux
 def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,

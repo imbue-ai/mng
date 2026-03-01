@@ -164,6 +164,7 @@ def test_find_agent_by_name_or_id_raises_agent_not_found_for_valid_id(temp_mng_c
         find_and_maybe_start_agent_by_name_or_id(str(nonexistent_id), agents_by_host, temp_mng_ctx, "test")
 
 
+@pytest.mark.tmux
 def test_find_agent_by_name_or_id_raises_for_multiple_matches(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
@@ -257,6 +258,7 @@ def _create_stopped_agent_with_references(
     return local_host, agent_ref, agents_by_host
 
 
+@pytest.mark.tmux
 def test_find_agent_with_skip_agent_state_check_succeeds_for_stopped_agent(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
@@ -276,6 +278,7 @@ def test_find_agent_with_skip_agent_state_check_succeeds_for_stopped_agent(
     assert found_host.id == local_host.id
 
 
+@pytest.mark.tmux
 def test_find_agent_without_skip_raises_for_stopped_agent(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
