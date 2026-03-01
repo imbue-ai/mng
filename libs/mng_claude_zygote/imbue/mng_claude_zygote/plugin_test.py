@@ -1,5 +1,6 @@
 """Unit tests for the mng_claude_zygote plugin."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -260,3 +261,123 @@ def test_memory_linker_command_references_script() -> None:
 def test_memory_linker_command_passes_work_dir() -> None:
     """Verify that memory_linker command passes the working directory."""
     assert "$(pwd)" in MEMORY_LINKER_COMMAND
+
+
+# -- ClaudeZygoteAgent._get_zygote_config tests --
+
+
+def test_get_zygote_config_raises_on_wrong_type() -> None:
+    """Verify that _get_zygote_config raises RuntimeError for non-ClaudeZygoteConfig."""
+    from unittest.mock import MagicMock
+
+    agent = MagicMock(spec=ClaudeZygoteAgent)
+    agent.agent_config = ClaudeAgentConfig()  # wrong type
+    agent._get_zygote_config = ClaudeZygoteAgent._get_zygote_config.__get__(agent)
+
+    with pytest.raises(RuntimeError, match="ClaudeZygoteAgent requires ClaudeZygoteConfig"):
+        agent._get_zygote_config()
+
+
+# -- ClaudeZygoteAgent.provision orchestration tests --
+
+
+def test_provision_calls_super_first() -> None:
+    """Verify that provision() calls super().provision() before changeling-specific steps."""
+    from unittest.mock import MagicMock
+    from unittest.mock import patch
+
+    host = MagicMock()
+    host.host_dir = Path("/tmp/test-host")
+    ok_result = MagicMock()
+    ok_result.success = True
+    ok_result.stderr = ""
+    host.execute_command.return_value = ok_result
+
+    options = MagicMock()
+    mng_ctx = MagicMock()
+
+    agent = MagicMock(spec=ClaudeZygoteAgent)
+    agent.agent_config = ClaudeZygoteConfig()
+    agent._get_zygote_config = ClaudeZygoteAgent._get_zygote_config.__get__(agent)
+    agent._get_agent_dir = MagicMock(return_value=Path("/tmp/test-host/agents/test-id"))
+    agent.work_dir = Path("/tmp/test-work")
+
+    call_order: list[str] = []
+
+    with (
+        patch.object(ClaudeAgent, "provision", side_effect=lambda *a, **kw: call_order.append("super")),
+        patch(
+            "imbue.mng_claude_zygote.plugin.install_llm_toolchain",
+            side_effect=lambda *a: call_order.append("install_llm"),
+        ),
+        patch(
+            "imbue.mng_claude_zygote.plugin.create_changeling_symlinks",
+            side_effect=lambda *a: call_order.append("symlinks"),
+        ),
+        patch(
+            "imbue.mng_claude_zygote.plugin.provision_changeling_scripts",
+            side_effect=lambda *a: call_order.append("scripts"),
+        ),
+        patch(
+            "imbue.mng_claude_zygote.plugin.provision_llm_tools",
+            side_effect=lambda *a: call_order.append("tools"),
+        ),
+        patch(
+            "imbue.mng_claude_zygote.plugin.create_conversation_directories",
+            side_effect=lambda *a: call_order.append("conv_dirs"),
+        ),
+        patch(
+            "imbue.mng_claude_zygote.plugin.write_default_chat_model",
+            side_effect=lambda *a: call_order.append("chat_model"),
+        ),
+    ):
+        ClaudeZygoteAgent.provision(agent, host, options, mng_ctx)
+
+    assert call_order[0] == "super"
+    assert "install_llm" in call_order
+    assert "symlinks" in call_order
+    assert "scripts" in call_order
+    assert "tools" in call_order
+    assert "conv_dirs" in call_order
+    assert "chat_model" in call_order
+
+
+def test_provision_skips_llm_install_when_disabled() -> None:
+    """Verify that provision() skips llm installation when install_llm is False."""
+    from unittest.mock import MagicMock
+    from unittest.mock import patch
+
+    host = MagicMock()
+    host.host_dir = Path("/tmp/test-host")
+    ok_result = MagicMock()
+    ok_result.success = True
+    ok_result.stderr = ""
+    host.execute_command.return_value = ok_result
+
+    options = MagicMock()
+    mng_ctx = MagicMock()
+
+    agent = MagicMock(spec=ClaudeZygoteAgent)
+    agent.agent_config = ClaudeZygoteConfig(install_llm=False)
+    agent._get_zygote_config = ClaudeZygoteAgent._get_zygote_config.__get__(agent)
+    agent._get_agent_dir = MagicMock(return_value=Path("/tmp/test-host/agents/test-id"))
+    agent.work_dir = Path("/tmp/test-work")
+
+    install_called = False
+
+    def track_install(*args: Any) -> None:
+        nonlocal install_called
+        install_called = True
+
+    with (
+        patch.object(ClaudeAgent, "provision"),
+        patch("imbue.mng_claude_zygote.plugin.install_llm_toolchain", side_effect=track_install),
+        patch("imbue.mng_claude_zygote.plugin.create_changeling_symlinks"),
+        patch("imbue.mng_claude_zygote.plugin.provision_changeling_scripts"),
+        patch("imbue.mng_claude_zygote.plugin.provision_llm_tools"),
+        patch("imbue.mng_claude_zygote.plugin.create_conversation_directories"),
+        patch("imbue.mng_claude_zygote.plugin.write_default_chat_model"),
+    ):
+        ClaudeZygoteAgent.provision(agent, host, options, mng_ctx)
+
+    assert not install_called

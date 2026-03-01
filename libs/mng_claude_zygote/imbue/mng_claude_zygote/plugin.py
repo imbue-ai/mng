@@ -108,10 +108,17 @@ class ClaudeZygoteAgent(ClaudeAgent):
     """
 
     def _get_zygote_config(self) -> ClaudeZygoteConfig:
-        """Get the zygote-specific config from this agent."""
-        if isinstance(self.agent_config, ClaudeZygoteConfig):
-            return self.agent_config
-        return ClaudeZygoteConfig()
+        """Get the zygote-specific config from this agent.
+
+        Raises RuntimeError if the agent config is not a ClaudeZygoteConfig,
+        which indicates a misconfiguration in the agent type registration.
+        """
+        if not isinstance(self.agent_config, ClaudeZygoteConfig):
+            raise RuntimeError(
+                f"ClaudeZygoteAgent requires ClaudeZygoteConfig, got {type(self.agent_config).__name__}. "
+                "This indicates the agent type was registered with the wrong config class."
+            )
+        return self.agent_config
 
     def provision(
         self,
