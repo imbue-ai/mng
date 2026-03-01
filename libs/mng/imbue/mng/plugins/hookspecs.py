@@ -125,18 +125,20 @@ def on_agent_state_dir_created(agent: AgentInterface, host: OnlineHostInterface)
 
 
 @hookspec
-def on_before_provisioning(agent: AgentInterface, host: OnlineHostInterface) -> None:
+def on_before_provisioning(agent: AgentInterface, host: OnlineHostInterface, mng_ctx: MngContext) -> None:
     """[experimental] Called before provisioning an agent.
 
-    This hook fires before host.provision_agent() is called during `mng create`.
+    This hook fires before host.provision_agent() is called during `mng create`
+    and `mng provision`.
     """
 
 
 @hookspec
-def on_after_provisioning(agent: AgentInterface, host: OnlineHostInterface) -> None:
+def on_after_provisioning(agent: AgentInterface, host: OnlineHostInterface, mng_ctx: MngContext) -> None:
     """[experimental] Called after provisioning an agent.
 
-    This hook fires after host.provision_agent() completes during `mng create`.
+    This hook fires after host.provision_agent() completes during `mng create`
+    and `mng provision`.
     """
 
 

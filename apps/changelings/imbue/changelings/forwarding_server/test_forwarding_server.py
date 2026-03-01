@@ -19,6 +19,9 @@ from imbue.changelings.forwarding_server.conftest import FakeMngCli
 from imbue.changelings.forwarding_server.conftest import make_agents_json
 from imbue.changelings.forwarding_server.conftest import make_server_log
 from imbue.changelings.forwarding_server.cookie_manager import get_cookie_name_for_agent
+from imbue.changelings.forwarding_server.ssh_tunnel import RemoteSSHInfo
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelError
+from imbue.changelings.forwarding_server.ssh_tunnel import SSHTunnelManager
 from imbue.changelings.primitives import OneTimeCode
 from imbue.changelings.primitives import ServerName
 from imbue.mng.primitives import AgentId
@@ -671,3 +674,92 @@ def test_mng_cli_resolver_agent_servers_page_via_mng_cli(tmp_path: Path) -> None
     assert response.status_code == 200
     assert "web" in response.text
     assert "api" in response.text
+
+
+# -- SSH tunnel error handling tests --
+
+
+class _FailingTunnelManager(SSHTunnelManager):
+    """Tunnel manager that raises SSHTunnelError on every tunnel request."""
+
+    def get_tunnel_socket_path(
+        self,
+        ssh_info: RemoteSSHInfo,
+        remote_host: str,
+        remote_port: int,
+    ) -> Path:
+        raise SSHTunnelError("SSH connection failed: test error")
+
+
+class _RemoteStaticBackendResolver(StaticBackendResolver):
+    """StaticBackendResolver that also returns SSH info for all known agents."""
+
+    ssh_info: RemoteSSHInfo
+
+    def get_ssh_info(self, agent_id: AgentId) -> RemoteSSHInfo | None:
+        if self.url_by_agent_and_server.get(str(agent_id)) is not None:
+            return self.ssh_info
+        return None
+
+
+_TEST_SSH_INFO: RemoteSSHInfo = RemoteSSHInfo(
+    user="root",
+    host="remote.example.com",
+    port=22,
+    key_path=Path("/tmp/fake_key"),
+)
+
+
+def _setup_failing_tunnel_server(
+    tmp_path: Path,
+) -> tuple[TestClient, FileAuthStore, AgentId]:
+    """Set up a forwarding server with a tunnel manager that always fails."""
+    agent_id = AgentId()
+    backend_resolver = _RemoteStaticBackendResolver(
+        url_by_agent_and_server={str(agent_id): {"web": "http://127.0.0.1:9100"}},
+        ssh_info=_TEST_SSH_INFO,
+    )
+    auth_dir = tmp_path / "auth"
+    auth_store = FileAuthStore(data_directory=auth_dir)
+
+    app = create_forwarding_server(
+        auth_store=auth_store,
+        backend_resolver=backend_resolver,
+        http_client=None,
+        tunnel_manager=_FailingTunnelManager(),
+    )
+    client = TestClient(app)
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+    return client, auth_store, agent_id
+
+
+def test_http_proxy_returns_502_when_ssh_tunnel_fails(tmp_path: Path) -> None:
+    """When SSH tunnel setup fails, the HTTP proxy should return 502 not 500."""
+    client, _, agent_id = _setup_failing_tunnel_server(tmp_path)
+    client.cookies.set(f"sw_installed_{agent_id}_web", "1")
+
+    response = client.get(f"/agents/{agent_id}/web/api/status")
+    assert response.status_code == 502
+    assert "SSH tunnel" in response.text
+
+
+def test_websocket_proxy_closes_with_1011_when_ssh_tunnel_fails(tmp_path: Path) -> None:
+    """When SSH tunnel setup fails, the WebSocket should close with code 1011."""
+    client, _, agent_id = _setup_failing_tunnel_server(tmp_path)
+
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with client.websocket_connect(f"/agents/{agent_id}/web/ws"):
+            pass
+
+    assert exc_info.value.code == 1011
+
+
+def test_http_proxy_without_tunnel_manager_works_for_local_backend(tmp_path: Path) -> None:
+    """When no tunnel_manager is provided, local backends work normally."""
+    client, auth_store, agent_id = _setup_test_server(tmp_path)
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+    client.cookies.set(f"sw_installed_{agent_id}_{DEFAULT_SERVER_NAME}", "1")
+
+    response = client.get(f"/agents/{agent_id}/{DEFAULT_SERVER_NAME}/api/status")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
