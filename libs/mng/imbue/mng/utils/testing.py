@@ -5,6 +5,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
@@ -56,6 +57,40 @@ def isolate_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
+
+
+@contextmanager
+def isolate_tmux_server(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Give a test its own isolated tmux server.
+
+    Creates a per-test TMUX_TMPDIR under /tmp so the test gets its own
+    tmux server socket. On teardown, kills the isolated server and
+    cleans up the tmpdir.
+
+    Uses /tmp directly (not pytest's tmp_path) because tmux sockets are
+    Unix domain sockets with a ~104-byte path length limit on macOS.
+    """
+    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-tmux-", dir="/tmp"))
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
+    monkeypatch.delenv("TMUX", raising=False)
+
+    yield
+
+    tmux_tmpdir_str = str(tmux_tmpdir)
+    assert tmux_tmpdir_str.startswith("/tmp/mng-tmux-"), (
+        "TMUX_TMPDIR safety check failed! Expected /tmp/mng-tmux-* path but got: {}. "
+        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server.".format(tmux_tmpdir_str)
+    )
+    socket_path = Path(tmux_tmpdir_str) / "tmux-{}".format(os.getuid()) / "default"
+    kill_env = os.environ.copy()
+    kill_env.pop("TMUX", None)
+    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
+    subprocess.run(
+        ["tmux", "-S", str(socket_path), "kill-server"],
+        capture_output=True,
+        env=kill_env,
+    )
+    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
 
 
 def assert_home_is_temp_directory() -> None:

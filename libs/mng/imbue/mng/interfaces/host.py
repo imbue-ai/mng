@@ -690,6 +690,10 @@ class CreateAgentOptions(FrozenModel):
     Combines identity, environment, git, and lifecycle options.
     """
 
+    agent_id: AgentId | None = Field(
+        default=None,
+        description="Explicit agent ID (auto-generated if not specified)",
+    )
     agent_type: AgentTypeName | None = Field(
         default=None,
         description="Type of agent to run (claude, codex, etc.)",

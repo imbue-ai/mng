@@ -15,11 +15,13 @@ Changelings are built on top of `mng` and should interact with it exclusively th
 
 # Architecture for changeling agents
 
-During deployment, a temporary repo is prepared (by cloning from a git remote, or by creating an empty git repo via `changeling deploy --agent-type`). The agent is then created via `mng create -t entrypoint` (locally, or remotely via `--in <provider>`), and the temporary repo is cleaned up. The agent should make commits in its work directory if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+For local deployments, each changeling has its own repo stored at `~/.changelings/<agent-id>/`. This repo is created by cloning from a git remote, or constructed from scratch via `changeling deploy --agent-type`. The agent runs directly in this directory (via `mng create --in-place`) and should make commits there if it changes anything. You can optionally link the code to a git remote in case you want the agent to push changes and make debugging easier.
+
+For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider> --source-path <temp-dir>`. The temporary repo is cleaned up after deployment.
 
 ## Entrypoint template
 
-The temporary repo prepared during deployment contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
+The changeling repo contains a `.mng/settings.toml` file that defines an "entrypoint" create template specifying the agent type:
 
 ```toml
 [create_templates.entrypoint]
@@ -30,7 +32,7 @@ When deploying, `mng create` is invoked with `-t entrypoint` to apply this templ
 
 ## Data and servers
 
-Changelings use space in the host volume (via the agent's work directory) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
+Changelings use space in the host volume (via the agent dir) for persistent data. The structure and format of this data is up to each individual changeling. You can optionally configure them to store their memories in git (but that is less secure, as data would leak out if synced).
 
 Changelings *must* serve web requests on one or more ports. On startup, they write JSON records to `$MNG_AGENT_STATE_DIR/logs/servers.jsonl` -- one line per server -- containing the server name and URL, e.g. `{"server": "web", "url": "http://127.0.0.1:9100"}`. An agent may write multiple records for different servers (e.g. a "web" UI server and an "api" backend server). Later entries for the same server name override earlier ones. The forwarding server reads this via `mng logs <agent-id> servers.jsonl` to discover all backends.
 

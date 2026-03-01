@@ -1430,7 +1430,7 @@ class Host(BaseHost, OnlineHostInterface):
         created_branch_name: str | None = None,
     ) -> AgentInterface:
         """Create the agent state directory and return the agent."""
-        agent_id = AgentId.generate()
+        agent_id = options.agent_id if options.agent_id is not None else AgentId.generate()
         agent_name = options.name or AgentName(f"agent-{str(agent_id)}")
         agent_type = options.agent_type or AgentTypeName("claude")
         with log_span(

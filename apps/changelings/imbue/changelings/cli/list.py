@@ -39,7 +39,6 @@ def _fetch_changeling_agents_json() -> list[dict[str, Any]]:
         with cg:
             result = cg.run_process_to_completion(
                 command=[MNG_BINARY, "list", "--label", "changeling=true", "--json", "--quiet"],
-                timeout=10.0,
                 is_checked_after=False,
             )
     except ConcurrencyExceptionGroup as e:
@@ -47,7 +46,8 @@ def _fetch_changeling_agents_json() -> list[dict[str, Any]]:
         return []
 
     if result.returncode != 0:
-        logger.warning("mng list failed: {}", result.stderr.strip())
+        error_detail = result.stderr.strip() or result.stdout.strip() or "(no output)"
+        logger.warning("mng list failed (exit code {}): {}", result.returncode, error_detail)
         return []
 
     try:

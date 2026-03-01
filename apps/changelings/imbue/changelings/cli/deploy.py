@@ -22,6 +22,7 @@ from imbue.changelings.primitives import AgentName
 from imbue.changelings.primitives import GitBranch
 from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.mng.primitives import AgentId
 
 _TEMP_DIR_ID_BYTES: int = 8
 
@@ -79,6 +80,7 @@ def _prompt_self_deploy() -> SelfDeployChoice:
 def _run_deployment(
     changeling_dir: Path,
     agent_name: AgentName,
+    agent_id: AgentId,
     provider: DeploymentProvider,
     paths: ChangelingPaths,
 ) -> DeploymentResult:
@@ -96,6 +98,7 @@ def _run_deployment(
             result = deploy_changeling(
                 changeling_dir=changeling_dir,
                 agent_name=agent_name,
+                agent_id=agent_id,
                 provider=provider,
                 paths=paths,
                 forwarding_server_port=forwarding_port,
@@ -121,15 +124,11 @@ def _print_result(result: DeploymentResult, provider: DeploymentProvider) -> Non
     logger.info("  Agent ID:   {}", result.agent_id)
     logger.info("  Provider:   {}", provider.value.lower())
     logger.info("")
-    if provider == DeploymentProvider.LOCAL:
-        logger.info("  Login URL (one-time use):")
-        logger.info("  {}", result.login_url)
-        logger.info("")
-        logger.info("Start the forwarding server to access your changeling:")
-        logger.info("  changeling forward")
-    else:
-        logger.info("Connect to your changeling:")
-        logger.info("  mng connect {}", result.agent_name)
+    logger.info("  Login URL (one-time use):")
+    logger.info("  {}", result.login_url)
+    logger.info("")
+    logger.info("Start the forwarding server to access your changeling:")
+    logger.info("  changeling forward")
     logger.info("=" * 60)
 
 
@@ -273,6 +272,18 @@ def _resolve_self_deploy(self_deploy: bool | None) -> SelfDeployChoice:
     return _prompt_self_deploy()
 
 
+def _move_to_permanent_location(temp_dir: Path, changeling_dir: Path) -> None:
+    """Move the prepared repo from its temp location to the permanent changeling directory."""
+    if changeling_dir.exists():
+        raise ChangelingError("A changeling directory already exists at '{}'. Remove it first.".format(changeling_dir))
+
+    try:
+        temp_dir.rename(changeling_dir)
+    except OSError as e:
+        logger.debug("rename failed ({}), falling back to shutil.move", e)
+        shutil.move(str(temp_dir), str(changeling_dir))
+
+
 @click.command()
 @click.argument("git_url", required=False, default=None)
 @click.option(
@@ -368,8 +379,6 @@ def deploy(
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
-    logger.info("Deploying changeling from: {}", temp_dir)
-
     agent_name = _resolve_agent_name(name, agent_type)
     provider_choice = _resolve_provider(provider)
     self_deploy_choice = _resolve_self_deploy(self_deploy)
@@ -377,21 +386,38 @@ def deploy(
     if self_deploy_choice == SelfDeployChoice.YES:
         logger.debug("Self-deploy enabled (not yet implemented)")
 
+    # Generate the agent ID upfront so we can use it for the directory
+    # name and pass it to mng create to ensure they match.
+    agent_id = AgentId()
+
+    # Move the prepared repo to the permanent changeling directory
+    # (~/.changelings/<agent-id>/) before deploying. For local, the agent
+    # runs in-place in this directory. For remote, the code is copied
+    # to the remote host and this directory is cleaned up afterwards.
+    changeling_dir = paths.changeling_dir(agent_id)
     try:
-        result = _run_deployment(
-            changeling_dir=temp_dir,
-            agent_name=agent_name,
-            provider=provider_choice,
-            paths=paths,
-        )
+        _move_to_permanent_location(temp_dir, changeling_dir)
     except ChangelingError:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
 
-    # Clean up the temp dir now that the agent is deployed.
-    # For local deployments, mng copied the source into a managed
-    # directory. For remote deployments, the code has been copied to
-    # the remote host. Either way, the temp dir is no longer needed.
-    shutil.rmtree(temp_dir, ignore_errors=True)
+    logger.info("Deploying changeling from: {}", changeling_dir)
+
+    try:
+        result = _run_deployment(
+            changeling_dir=changeling_dir,
+            agent_name=agent_name,
+            agent_id=agent_id,
+            provider=provider_choice,
+            paths=paths,
+        )
+    except ChangelingError:
+        shutil.rmtree(changeling_dir, ignore_errors=True)
+        raise
+
+    if provider_choice != DeploymentProvider.LOCAL:
+        # Remote: the code was copied to the remote host via --source-path.
+        # Clean up the local directory since it's no longer needed.
+        shutil.rmtree(changeling_dir, ignore_errors=True)
 
     _print_result(result, provider_choice)

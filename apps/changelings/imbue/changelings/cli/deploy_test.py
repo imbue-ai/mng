@@ -1,12 +1,15 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from click.testing import Result
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
+from imbue.changelings.cli.deploy import _move_to_permanent_location
 from imbue.changelings.cli.deploy import _prepare_repo
+from imbue.changelings.errors import ChangelingError
 from imbue.changelings.main import cli
 from imbue.changelings.testing import init_and_commit_git_repo
 
@@ -39,12 +42,7 @@ def _deploy_with_agent_type(
     provider: str = "local",
     input_text: str | None = None,
 ) -> Result:
-    """Invoke changeling deploy with --agent-type and standard non-interactive flags.
-
-    Deployment will fail at mng create since the test environment does not have
-    a full mng runtime. Tests using this helper should only assert on behavior
-    that occurs before the mng create step (repo preparation, prompts, etc.).
-    """
+    """Invoke changeling deploy with --agent-type and standard non-interactive flags."""
     args: list[str] = ["deploy", "--agent-type", agent_type]
 
     if name is not None:
@@ -132,15 +130,12 @@ def test_deploy_cleans_up_temp_dir_on_missing_settings(tmp_path: Path) -> None:
     assert leftover == []
 
 
-def test_deploy_cleans_up_temp_dir_on_deployment_failure(tmp_path: Path) -> None:
-    """Verify that a deployment failure cleans up the temp dir."""
+def test_deploy_cleans_up_temp_dir_after_deployment(tmp_path: Path) -> None:
+    """Verify that no .tmp- directories remain after deployment (success or failure)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
     data_dir = tmp_path / "changelings-data"
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
-
-    # Deployment will fail at mng create, but temp dir should be cleaned up
-    assert result.exit_code != 0
+    _deploy_with_git_url(tmp_path, str(repo_dir), name="my-bot", provider="local")
 
     if data_dir.exists():
         leftover = [p for p in data_dir.iterdir() if p.name.startswith(".tmp-")]
@@ -221,24 +216,20 @@ def test_deploy_all_flags_skip_all_prompts(tmp_path: Path) -> None:
 
 
 def test_deploy_accepts_modal_provider(tmp_path: Path) -> None:
-    """Verify that modal provider is accepted (deployment fails at mng create, not at provider check)."""
+    """Verify that modal provider is accepted (not rejected at provider check)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="modal")
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-modal", provider="modal")
 
-    # Should fail at mng create, NOT at provider check
-    assert result.exit_code != 0
     assert "Only local deployment is supported" not in result.output
 
 
 def test_deploy_accepts_docker_provider(tmp_path: Path) -> None:
-    """Verify that docker provider is accepted (deployment fails at mng create, not at provider check)."""
+    """Verify that docker provider is accepted (not rejected at provider check)."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot", provider="docker")
+    result = _deploy_with_git_url(tmp_path, str(repo_dir), name="test-bot-docker", provider="docker")
 
-    # Should fail at mng create, NOT at provider check
-    assert result.exit_code != 0
     assert "Only local deployment is supported" not in result.output
 
 
@@ -522,3 +513,50 @@ def test_copy_add_paths_returns_count(tmp_path: Path) -> None:
     assert copied == 2
     assert (repo_dir / "a.txt").read_text() == "aaa"
     assert (repo_dir / "b.txt").read_text() == "bbb"
+
+
+# --- Tests for _move_to_permanent_location ---
+
+
+def test_move_to_permanent_location_moves_directory(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location moves the source to the target."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "file.txt").write_text("content")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert not source.exists()
+    assert target.is_dir()
+    assert (target / "file.txt").read_text() == "content"
+
+
+def test_move_to_permanent_location_raises_when_target_exists(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location raises when the target already exists."""
+    source = tmp_path / "source"
+    source.mkdir()
+
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with pytest.raises(ChangelingError, match="already exists"):
+        _move_to_permanent_location(source, target)
+
+
+def test_move_to_permanent_location_preserves_contents(tmp_path: Path) -> None:
+    """Verify that _move_to_permanent_location preserves all directory contents."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "a.txt").write_text("aaa")
+    sub = source / "sub"
+    sub.mkdir()
+    (sub / "b.txt").write_text("bbb")
+
+    target = tmp_path / "target"
+
+    _move_to_permanent_location(source, target)
+
+    assert (target / "a.txt").read_text() == "aaa"
+    assert (target / "sub" / "b.txt").read_text() == "bbb"
