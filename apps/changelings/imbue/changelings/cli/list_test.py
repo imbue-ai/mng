@@ -1,9 +1,13 @@
+import json
 from typing import Any
 
 from click.testing import CliRunner
 
 from imbue.changelings.cli.list import _DEFAULT_DISPLAY_FIELDS
+from imbue.changelings.cli.list import _HEADER_LABELS
 from imbue.changelings.cli.list import _build_table
+from imbue.changelings.cli.list import _emit_human_output
+from imbue.changelings.cli.list import _emit_json_output
 from imbue.changelings.cli.list import _get_field_value
 from imbue.changelings.main import cli
 
@@ -52,6 +56,20 @@ def test_get_field_value_missing() -> None:
 
     assert _get_field_value(agent, "state") == ""
     assert _get_field_value(agent, "host.name") == ""
+
+
+def test_get_field_value_deeply_nested_missing() -> None:
+    """When an intermediate value is not a dict, returns empty string."""
+    agent: dict[str, Any] = {"host": "not-a-dict"}
+
+    assert _get_field_value(agent, "host.name") == ""
+
+
+def test_get_field_value_none_value() -> None:
+    """When the field value is explicitly None, returns empty string."""
+    agent: dict[str, Any] = {"name": None}
+
+    assert _get_field_value(agent, "name") == ""
 
 
 # --- _build_table tests ---
@@ -105,6 +123,66 @@ def test_build_table_shows_provider() -> None:
     assert rows[0][3] == "modal"
 
 
+# --- _emit_human_output tests ---
+
+
+def test_emit_human_output_with_agents_does_not_raise() -> None:
+    """Verify that _emit_human_output produces output without raising for agents."""
+    agents = [_make_agent_dict("agent-abc123", name="my-bot", state="RUNNING")]
+
+    _emit_human_output(agents, _DEFAULT_DISPLAY_FIELDS)
+
+
+def test_emit_human_output_with_empty_list_does_not_raise() -> None:
+    """Verify that _emit_human_output handles empty list without raising."""
+    _emit_human_output([], _DEFAULT_DISPLAY_FIELDS)
+
+
+def test_emit_human_output_uses_header_labels() -> None:
+    """Verify that the header labels mapping covers the default display fields."""
+    for field in _DEFAULT_DISPLAY_FIELDS:
+        assert field in _HEADER_LABELS
+
+
+# --- _emit_json_output tests ---
+
+
+def test_emit_json_output_produces_valid_json(capsys: Any) -> None:
+    """Verify that _emit_json_output writes valid JSON to stdout."""
+    agents = [_make_agent_dict("agent-abc123", name="my-bot")]
+
+    _emit_json_output(agents)
+
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert "changelings" in parsed
+    assert len(parsed["changelings"]) == 1
+    assert parsed["changelings"][0]["name"] == "my-bot"
+
+
+def test_emit_json_output_produces_empty_list_for_no_agents(capsys: Any) -> None:
+    """Verify that _emit_json_output produces an empty changelings list."""
+    _emit_json_output([])
+
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert parsed == {"changelings": []}
+
+
+def test_emit_json_output_multiple_agents(capsys: Any) -> None:
+    """Verify that _emit_json_output handles multiple agents."""
+    agents = [
+        _make_agent_dict("agent-aaa", name="bot-1"),
+        _make_agent_dict("agent-bbb", name="bot-2"),
+    ]
+
+    _emit_json_output(agents)
+
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)
+    assert len(parsed["changelings"]) == 2
+
+
 # --- CLI tests ---
 
 
@@ -114,3 +192,11 @@ def test_list_help() -> None:
 
     assert result.exit_code == 0
     assert "List deployed changelings" in result.output
+
+
+def test_list_json_flag_in_help() -> None:
+    """Verify that --json flag appears in list help."""
+    result = _RUNNER.invoke(cli, ["list", "--help"])
+
+    assert result.exit_code == 0
+    assert "--json" in result.output

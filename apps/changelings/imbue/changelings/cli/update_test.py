@@ -3,6 +3,8 @@ import json
 from click.testing import CliRunner
 
 from imbue.changelings.cli.update import _is_agent_remote
+from imbue.changelings.cli.update import _print_result
+from imbue.changelings.deployment.local import UpdateResult
 from imbue.changelings.main import cli
 from imbue.changelings.primitives import AgentName
 from imbue.changelings.testing import FakeConcurrencyGroup
@@ -126,3 +128,66 @@ def test_is_agent_remote_returns_false_when_agent_not_found() -> None:
     )
 
     assert _is_agent_remote(AgentName("ghost"), concurrency_group=cg) is False
+
+
+# --- _print_result tests ---
+
+
+def test_print_result_all_steps_does_not_raise() -> None:
+    """Verify _print_result does not raise when all steps were performed."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=True,
+        did_push=True,
+        did_provision=True,
+    )
+
+    _print_result(result)
+
+
+def test_print_result_minimal_steps_does_not_raise() -> None:
+    """Verify _print_result works when only stop and start were performed."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=False,
+        did_push=False,
+        did_provision=False,
+    )
+
+    _print_result(result)
+
+
+def test_print_result_snapshot_only_does_not_raise() -> None:
+    """Verify _print_result works with snapshot but no push/provision."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=True,
+        did_push=False,
+        did_provision=False,
+    )
+
+    _print_result(result)
+
+
+def test_print_result_push_only_does_not_raise() -> None:
+    """Verify _print_result works with push but no snapshot/provision."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=False,
+        did_push=True,
+        did_provision=False,
+    )
+
+    _print_result(result)
+
+
+def test_print_result_provision_only_does_not_raise() -> None:
+    """Verify _print_result works with provision but no snapshot/push."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=False,
+        did_push=False,
+        did_provision=True,
+    )
+
+    _print_result(result)
