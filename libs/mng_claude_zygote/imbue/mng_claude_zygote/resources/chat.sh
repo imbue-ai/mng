@@ -39,6 +39,8 @@ append_conversation_record() {
     local cid="$1"
     local model="$2"
     local timestamp
+    # FIXME: this format is a bit dumb for date--we should always include full precision, since these things will be able to happen fairly quickly, eg, down to ns.
+    #  when fixing this, please also go fix everywhere else in this plugin to make sure we have consistent format
     timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     mkdir -p "$(dirname "$CONVERSATIONS_FILE")"
     printf '{"id":"%s","model":"%s","timestamp":"%s"}\n' "$cid" "$model" "$timestamp" >> "$CONVERSATIONS_FILE"
@@ -99,6 +101,7 @@ resume_conversation() {
 
     # Get the model from the latest entry for this conversation
     local model
+    # FIXME: use jq here instead of python
     model=$(grep "\"id\":\"$cid\"" "$CONVERSATIONS_FILE" 2>/dev/null | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['model'])" 2>/dev/null || get_default_model)
 
     local tool_args
@@ -115,6 +118,12 @@ list_conversations() {
 
     echo "Conversations:"
     echo "=============="
+    # FIXME: add an updated_at field to the output
+    # FIXME: rename created to created_at below
+    # FIXME: sort by updated_at desc once we have that field
+    # FIXME: on error, print a user-friendly message that includes the line and indicates the file is malformed, rather than silently skipping it
+    # FIXME: don't pipe to /dev/null and silence errors, let the tracebacks through for easier debugging
+    # FIXME: run via "uv run python" since we don't know which python
     # Show unique conversation IDs with their latest model
     python3 -c "
 import json, sys
@@ -132,6 +141,9 @@ for cid, record in convs.items():
     print(f\"  {record['id']}  model={record.get('model', '?')}  created={record.get('timestamp', '?')}\")
 " 2>/dev/null || echo "  (error reading conversations)"
 }
+
+# FIXME: we should handle --help as well, and maybe the current behavior should be for calling "--list". Then we can do something slightly different for just calling "chat" on its own: run as if --list was passed, but also tell the user to run with "--help" to learn more
+#  note that you'll also want to update any calls in the rest of this plugin to use "chat --list" instead of just "chat" if you make this change
 
 # Parse top-level arguments
 case "${1:-}" in
