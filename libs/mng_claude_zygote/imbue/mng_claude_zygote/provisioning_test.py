@@ -9,9 +9,11 @@ import pytest
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
+from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_conversation_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
+from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
@@ -21,9 +23,10 @@ from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 class _StubCommandResult:
     """Concrete test double for command execution results."""
 
-    def __init__(self, *, success: bool = True, stderr: str = "") -> None:
+    def __init__(self, *, success: bool = True, stderr: str = "", stdout: str = "") -> None:
         self.success = success
         self.stderr = stderr
+        self.stdout = stdout
 
 
 class _StubHost:
@@ -49,6 +52,10 @@ class _StubHost:
         for pattern, result in self._command_results.items():
             if pattern in command:
                 return result
+        # For `cd <path> && pwd`, return the path as stdout
+        if "&& pwd" in command and "cd " in command:
+            path = command.split("cd ")[1].split(" &&")[0].strip("'\"")
+            return _StubCommandResult(stdout=path + "\n")
         return _StubCommandResult()
 
     def write_file(self, path: Path, content: bytes, mode: str = "0644") -> None:
@@ -77,12 +84,6 @@ def test_load_zygote_resource_loads_event_watcher() -> None:
     content = load_zygote_resource("event_watcher.sh")
     assert "#!/bin/bash" in content
     assert "event" in content.lower()
-
-
-def test_load_zygote_resource_loads_memory_linker() -> None:
-    content = load_zygote_resource("memory_linker.sh")
-    assert "#!/bin/bash" in content
-    assert "memory" in content.lower()
 
 
 def test_all_declared_script_files_are_loadable() -> None:
@@ -221,20 +222,53 @@ def test_extra_context_tool_calls_mng_list() -> None:
 # -- Memory linker content tests --
 
 
-def test_memory_linker_computes_expected_project_name() -> None:
-    content = load_zygote_resource("memory_linker.sh")
-    assert "compute_expected_project_name" in content
+def test_compute_claude_project_dir_name_replaces_slashes() -> None:
+    assert compute_claude_project_dir_name("/home/user/project") == "-home-user-project"
 
 
-def test_memory_linker_uses_specific_project_dir() -> None:
-    content = load_zygote_resource("memory_linker.sh")
-    assert "EXPECTED_PROJECT_DIR" in content
+def test_compute_claude_project_dir_name_replaces_dots() -> None:
+    assert compute_claude_project_dir_name("/home/user/.changelings/agent") == "-home-user--changelings-agent"
 
 
-def test_memory_linker_fails_on_merge_failure() -> None:
-    content = load_zygote_resource("memory_linker.sh")
-    assert "exit 1" in content
-    assert "rsync" in content
+def test_link_memory_directory_creates_changelings_memory_dir() -> None:
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+
+    assert any("mkdir" in c and ".changelings/memory" in c for c in host.executed_commands)
+
+
+def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> None:
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+
+    # Must use $HOME (not ~) so tilde expansion works inside quotes
+    mkdir_cmds = [c for c in host.executed_commands if "mkdir" in c and ".claude/projects" in c]
+    assert len(mkdir_cmds) == 1
+    assert "$HOME" in mkdir_cmds[0]
+    assert "-home-user--changelings-agent" in mkdir_cmds[0]
+
+
+def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+
+    ln_cmds = [c for c in host.executed_commands if "ln -sfn" in c]
+    assert len(ln_cmds) == 1
+    # Symlink target should be the changelings memory dir
+    assert ".changelings/memory" in ln_cmds[0]
+    # Symlink source should use $HOME for the Claude project dir
+    assert "$HOME/.claude/projects/" in ln_cmds[0]
+    assert "-home-user--changelings-agent" in ln_cmds[0]
+
+
+def test_link_memory_directory_does_not_use_literal_tilde() -> None:
+    """Verify that ~ is never used in paths (it doesn't expand inside single quotes)."""
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings")
+
+    for cmd in host.executed_commands:
+        if ".claude/projects" in cmd:
+            assert "~" not in cmd, f"Found literal ~ in command (won't expand in quotes): {cmd}"
 
 
 # -- Provisioning function tests (using _StubHost) --

@@ -16,6 +16,7 @@ from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_conversation_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
+from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
@@ -47,11 +48,6 @@ CONV_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
 
 EVENT_WATCHER_WINDOW_NAME = "events"
 EVENT_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/event_watcher.sh"
-
-# Memory linker: runs once in the background to link the changelings memory
-# directory into the Claude project memory directory, then exits.
-MEMORY_LINKER_WINDOW_NAME = "memory_linker"
-MEMORY_LINKER_COMMAND = '$MNG_HOST_DIR/commands/memory_linker.sh "$(pwd)"'
 
 # Conversation ttyd: a web terminal that runs the chat script for interactive
 # conversation access via the browser.
@@ -99,9 +95,9 @@ class ClaudeZygoteAgent(ClaudeAgent):
     - Creates symlinks for changeling entrypoint files
     - Provisions watcher scripts and chat utilities
     - Sets up conversation directories and default chat model
+    - Symlinks .changelings/memory/ into Claude project memory
 
     Via tmux windows (injected by override_command_options):
-    - Memory linker (links .changelings/memory/ to Claude project memory)
     - Conversation watcher (syncs llm DB to per-conversation JSONL files)
     - Event watcher (sends new events to primary agent via mng message)
     - Chat ttyd (web terminal for conversation access)
@@ -135,6 +131,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         4. Conversation directory structure
         5. Default chat model configuration
         6. LLM tool scripts for conversation context
+        7. Memory directory symlink into Claude project
         """
         super().provision(host, options, mng_ctx)
 
@@ -150,6 +147,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         agent_state_dir = self._get_agent_dir()
         create_conversation_directories(host, agent_state_dir)
         write_default_chat_model(host, agent_state_dir, config.default_chat_model)
+        link_memory_directory(host, self.work_dir, config.changelings_dir_name)
 
 
 def inject_agent_ttyd(params: dict[str, Any]) -> None:
@@ -172,7 +170,6 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
     - Agent ttyd (web terminal for the primary agent)
     - Conversation watcher (syncs llm DB to JSONL files)
     - Event watcher (sends new events to primary agent via mng message)
-    - Memory linker (links changelings memory to Claude project memory)
     - Chat ttyd (web terminal for conversation access)
     """
     inject_agent_ttyd(params)
@@ -182,7 +179,6 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
         *existing,
         f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
         f'{EVENT_WATCHER_WINDOW_NAME}="{EVENT_WATCHER_COMMAND}"',
-        f'{MEMORY_LINKER_WINDOW_NAME}="{MEMORY_LINKER_COMMAND}"',
         f'{CHAT_TTYD_WINDOW_NAME}="{CHAT_TTYD_COMMAND}"',
     )
 
@@ -206,8 +202,7 @@ def override_command_options(
 ) -> None:
     """Add changeling tmux windows when creating claude-zygote agents.
 
-    Injects: agent ttyd, conversation watcher, event watcher, memory linker,
-    and chat ttyd.
+    Injects: agent ttyd, conversation watcher, event watcher, and chat ttyd.
     """
     if command_name != "create":
         return
