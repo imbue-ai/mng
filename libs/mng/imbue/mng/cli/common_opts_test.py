@@ -1,13 +1,20 @@
 """Tests for common_opts module."""
 
+import signal
+import threading
 from typing import Any
 
 import click
 import pytest
 from click.core import ParameterSource
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.errors import ConcurrencyGroupError
 from imbue.mng.cli.common_opts import CommonCliOptions
+from imbue.mng.cli.common_opts import _SIGINT_HANDLER_NOT_INSTALLED
+from imbue.mng.cli.common_opts import _close_concurrency_group
+from imbue.mng.cli.common_opts import _install_sigint_shutdown_handler
 from imbue.mng.cli.common_opts import _process_template_escapes
 from imbue.mng.cli.common_opts import _resolve_format_flags
 from imbue.mng.cli.common_opts import _run_pre_command_scripts
@@ -431,3 +438,117 @@ def test_resolve_format_flags_json_with_explicit_format_raises() -> None:
     opts = _make_common_cli_opts(output_format="jsonl", json_flag=True)
     with pytest.raises(click.UsageError, match="mutually exclusive"):
         _resolve_format_flags(ctx, opts)
+
+
+# =============================================================================
+# Tests for _close_concurrency_group and SIGINT handler
+# =============================================================================
+
+
+def _start_and_await_failing_thread(cg: ConcurrencyGroup) -> None:
+    """Start a checked thread that fails immediately and wait for it to finish.
+
+    After this call, the CG has a recorded failure that will be reported as a
+    ConcurrencyExceptionGroup during __exit__.
+
+    We use threading.Thread.join() (the base class) instead of ObservableThread.join()
+    because the latter calls maybe_raise() which would re-raise the captured exception
+    here instead of letting the CG report it during __exit__.
+    """
+
+    def _fail() -> None:
+        raise ConcurrencyGroupError("simulated failure")
+
+    thread = cg.start_new_thread(target=_fail, name="failing-thread")
+    threading.Thread.join(thread)
+
+
+def test_close_concurrency_group_suppresses_when_shutting_down() -> None:
+    """_close_concurrency_group should suppress ConcurrencyExceptionGroup when CG is shutting down."""
+    cg = ConcurrencyGroup(name="test-sigint")
+    cg.__enter__()
+
+    _start_and_await_failing_thread(cg)
+    cg.shutdown_event.set()
+
+    # Should not raise -- the ConcurrencyExceptionGroup from the failed thread is suppressed
+    _close_concurrency_group(cg, _SIGINT_HANDLER_NOT_INSTALLED)
+
+
+def test_close_concurrency_group_raises_when_not_shutting_down() -> None:
+    """_close_concurrency_group should re-raise ConcurrencyExceptionGroup when CG is not shutting down."""
+    cg = ConcurrencyGroup(name="test-real-failure")
+    cg.__enter__()
+
+    _start_and_await_failing_thread(cg)
+
+    # Should raise because the CG is NOT shutting down -- this is a real failure
+    with pytest.raises(ConcurrencyExceptionGroup):
+        _close_concurrency_group(cg, _SIGINT_HANDLER_NOT_INSTALLED)
+
+
+def test_close_concurrency_group_restores_signal_handler() -> None:
+    """_close_concurrency_group should restore the original signal handler."""
+    original_handler = signal.getsignal(signal.SIGINT)
+
+    cg = ConcurrencyGroup(name="test-restore")
+    cg.__enter__()
+
+    saved_handler = _install_sigint_shutdown_handler(cg)
+    assert signal.getsignal(signal.SIGINT) is not original_handler
+
+    _close_concurrency_group(cg, saved_handler)
+    assert signal.getsignal(signal.SIGINT) is original_handler
+
+
+def test_close_concurrency_group_restores_signal_handler_on_exception() -> None:
+    """_close_concurrency_group should restore the signal handler even when re-raising."""
+    original_handler = signal.getsignal(signal.SIGINT)
+
+    cg = ConcurrencyGroup(name="test-restore-on-error")
+    cg.__enter__()
+
+    saved_handler = _install_sigint_shutdown_handler(cg)
+    _start_and_await_failing_thread(cg)
+
+    with pytest.raises(ConcurrencyExceptionGroup):
+        _close_concurrency_group(cg, saved_handler)
+    assert signal.getsignal(signal.SIGINT) is original_handler
+
+
+def test_install_sigint_handler_sets_shutdown_event() -> None:
+    """_install_sigint_shutdown_handler should set shutdown_event when SIGINT is received."""
+    original_handler = signal.getsignal(signal.SIGINT)
+    try:
+        cg = ConcurrencyGroup(name="test-sigint-handler")
+
+        saved_handler = _install_sigint_shutdown_handler(cg)
+        assert saved_handler is not _SIGINT_HANDLER_NOT_INSTALLED
+
+        # Simulate SIGINT by calling the installed handler directly
+        handler = signal.getsignal(signal.SIGINT)
+        assert callable(handler)
+        # The original handler raises KeyboardInterrupt, which is expected
+        try:
+            handler(signal.SIGINT, None)
+        except KeyboardInterrupt:
+            pass
+
+        assert cg.shutdown_event.is_set()
+    finally:
+        signal.signal(signal.SIGINT, original_handler)
+
+
+def test_install_sigint_handler_returns_sentinel_from_non_main_thread() -> None:
+    """_install_sigint_shutdown_handler should return sentinel when called from non-main thread."""
+    cg = ConcurrencyGroup(name="test-non-main-thread")
+    result_holder: list[Any] = []
+
+    def _install_from_thread() -> None:
+        result_holder.append(_install_sigint_shutdown_handler(cg))
+
+    thread = threading.Thread(target=_install_from_thread)
+    thread.start()
+    thread.join()
+
+    assert result_holder[0] is _SIGINT_HANDLER_NOT_INSTALLED

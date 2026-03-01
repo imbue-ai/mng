@@ -1,10 +1,14 @@
+import signal
 import string
 import sys
+import threading
 import uuid
 from collections.abc import Callable
 from concurrent.futures import Future
 from pathlib import Path
+from types import FrameType
 from typing import Any
+from typing import Final
 from typing import TypeVar
 
 import click
@@ -144,23 +148,80 @@ def add_common_options(command: TDecorated) -> TDecorated:
     return command
 
 
-def _close_concurrency_group(cg: ConcurrencyGroup) -> None:
+_SIGINT_HANDLER_NOT_INSTALLED: Final = object()
+
+# Module-level state for the active SIGINT handler. Signal handlers are inherently global
+# (one per process), so module-level state is the natural representation. We use a dict
+# so we can mutate in place without the `global` keyword.
+_sigint_handler_state: dict[str, Any] = {"shutdown_event": None, "original_handler": None}
+
+
+def _on_sigint(signum: int, frame: FrameType | None) -> None:
+    """SIGINT handler that sets the shutdown event before delegating to the original handler."""
+    shutdown_event = _sigint_handler_state["shutdown_event"]
+    original_handler = _sigint_handler_state["original_handler"]
+    if shutdown_event is not None:
+        shutdown_event.set()
+    if callable(original_handler):
+        original_handler(signum, frame)
+    else:
+        signal.default_int_handler(signum, frame)
+
+
+def _install_sigint_shutdown_handler(cg: ConcurrencyGroup) -> Any:
+    """Install a SIGINT handler that marks the CG as shutting down before raising KeyboardInterrupt.
+
+    This lets _close_concurrency_group distinguish Ctrl+C cleanup failures (safe to suppress)
+    from real failures (must propagate).
+
+    Returns the original handler so it can be restored later, or _SIGINT_HANDLER_NOT_INSTALLED
+    if installation failed (e.g. called from a non-main thread).
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return _SIGINT_HANDLER_NOT_INSTALLED
+
+    original_handler = signal.getsignal(signal.SIGINT)
+    _sigint_handler_state["shutdown_event"] = cg.shutdown_event
+    _sigint_handler_state["original_handler"] = original_handler
+    signal.signal(signal.SIGINT, _on_sigint)
+    return original_handler
+
+
+def _restore_sigint_handler(handler: Any) -> None:
+    """Restore the original SIGINT handler.
+
+    Does nothing if the handler was never installed (e.g. when not called from the main thread).
+    Silently ignores ValueError from signal.signal() if called from a non-main thread during
+    cleanup (defensive, should not happen in practice).
+    """
+    if handler is _SIGINT_HANDLER_NOT_INSTALLED:
+        return
+    try:
+        signal.signal(signal.SIGINT, handler)
+    except ValueError:
+        pass
+
+
+def _close_concurrency_group(cg: ConcurrencyGroup, original_sigint_handler: Any) -> None:
     """Clean up the top-level ConcurrencyGroup when a CLI command finishes.
 
     We explicitly pass None to __exit__ so that Click exceptions (e.g. UsageError) don't get
     wrapped in ConcurrencyExceptionGroup, which would break Click's error handling.
 
-    We also catch ConcurrencyExceptionGroup raised during cleanup. The most common case is
-    Ctrl+C: SIGINT kills child processes, and the CG reports their failures as a
-    ConcurrencyExceptionGroup. Since this runs inside Click's ctx.close(), an unhandled
-    exception here would replace the original KeyboardInterrupt and produce a long, scary
-    traceback instead of Click's clean "Aborted!" message. Real command errors are raised
-    during command execution, not during cleanup.
+    ConcurrencyExceptionGroup raised during cleanup is suppressed only when the CG is shutting
+    down (i.e. SIGINT was received). This avoids masking real failures (e.g. a background
+    process that failed unnoticed) while still producing Click's clean "Aborted!" message on
+    Ctrl+C.
     """
     try:
         cg.__exit__(None, None, None)
     except ConcurrencyExceptionGroup:
-        logger.debug("Suppressed exception during concurrency group cleanup (likely Ctrl+C)")
+        if cg.is_shutting_down():
+            logger.debug("Suppressed exception during concurrency group cleanup (Ctrl+C)")
+        else:
+            raise
+    finally:
+        _restore_sigint_handler(original_sigint_handler)
 
 
 def setup_command_context(
@@ -184,7 +245,8 @@ def setup_command_context(
     # Create a top-level ConcurrencyGroup for process management
     cg = ConcurrencyGroup(name=f"mng-{command_name}")
     cg.__enter__()
-    ctx.call_on_close(lambda: _close_concurrency_group(cg))
+    original_sigint_handler = _install_sigint_shutdown_handler(cg)
+    ctx.call_on_close(lambda: _close_concurrency_group(cg, original_sigint_handler))
 
     # Load config
     context_dir = Path(initial_opts.project_context_path) if initial_opts.project_context_path else None
