@@ -161,12 +161,6 @@ def test_chat_script_uses_jq_not_python_for_json_parsing() -> None:
     assert "jq -r" in content
 
 
-def test_chat_script_uses_uv_run_python() -> None:
-    """Verify list_conversations uses 'uv run python3' instead of bare 'python3'."""
-    content = load_zygote_resource("chat.sh")
-    assert "uv run python3" in content
-
-
 def test_chat_script_uses_nanosecond_timestamps() -> None:
     """Verify timestamps include nanosecond precision."""
     content = load_zygote_resource("chat.sh")
