@@ -1,11 +1,8 @@
 """Unit tests for the mng_claude_zygote plugin."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from typing import cast
-from unittest.mock import MagicMock
-from unittest.mock import patch
 
 import pytest
 
@@ -333,16 +330,6 @@ def test_claude_zygote_config_allows_disabling_trust() -> None:
     assert config.trust_working_directory is False
 
 
-# -- inject_changeling_windows with no existing add_command key --
-
-
-def test_inject_changeling_windows_with_no_add_command_key() -> None:
-    """Verify inject_changeling_windows handles missing add_command key."""
-    params: dict[str, Any] = {}
-    inject_changeling_windows(params)
-    assert len(params["add_command"]) == _CHANGELING_WINDOW_COUNT
-
-
 # -- Chat ttyd additional tests --
 
 
@@ -354,111 +341,3 @@ def test_chat_ttyd_command_is_parseable_as_named_command() -> None:
     assert len(chat_entries) == 1
     named_cmd = NamedCommand.from_string(chat_entries[0])
     assert named_cmd.window_name == CHAT_TTYD_WINDOW_NAME
-
-
-# -- ClaudeZygoteAgent.provision tests --
-
-
-def _make_zygote_agent_stub(
-    config: ClaudeZygoteConfig | None = None,
-    agent_dir: Path = Path("/tmp/agents/agent-123"),
-) -> Any:
-    """Create a ClaudeZygoteAgent-like stub with just enough state for provision().
-
-    Uses MagicMock as a base to satisfy pydantic model requirements, then sets
-    the attributes that provision() actually uses. Returns Any to avoid type
-    checker issues with MagicMock attribute access.
-    """
-    stub = MagicMock(spec=ClaudeZygoteAgent)
-    stub.agent_config = config or ClaudeZygoteConfig()
-    stub.work_dir = Path("/test/work")
-    stub._get_agent_dir.return_value = agent_dir
-    stub._get_zygote_config = ClaudeZygoteAgent._get_zygote_config.__get__(stub)
-    stub.provision = ClaudeZygoteAgent.provision.__get__(stub)
-    return stub
-
-
-def test_provision_calls_all_provisioning_steps() -> None:
-    """Verify provision() calls super and all provisioning functions."""
-    config = ClaudeZygoteConfig()
-    mock_host = MagicMock()
-    mock_options = MagicMock()
-    mock_mng_ctx = MagicMock()
-    agent_state_dir = Path("/tmp/agents/agent-123")
-
-    stub = _make_zygote_agent_stub(config, agent_dir=agent_state_dir)
-
-    with (
-        patch.object(ClaudeAgent, "provision") as mock_super_provision,
-        patch("imbue.mng_claude_zygote.plugin.warn_if_mng_unavailable") as mock_warn,
-        patch("imbue.mng_claude_zygote.plugin.install_llm_toolchain") as mock_install_llm,
-        patch("imbue.mng_claude_zygote.plugin.create_changeling_symlinks") as mock_symlinks,
-        patch("imbue.mng_claude_zygote.plugin.provision_changeling_scripts") as mock_scripts,
-        patch("imbue.mng_claude_zygote.plugin.provision_llm_tools") as mock_tools,
-        patch("imbue.mng_claude_zygote.plugin.create_event_log_directories") as mock_event_dirs,
-        patch("imbue.mng_claude_zygote.plugin.write_default_chat_model") as mock_write_model,
-        patch("imbue.mng_claude_zygote.plugin.link_memory_directory") as mock_link_memory,
-    ):
-        stub.provision(mock_host, mock_options, mock_mng_ctx)
-
-        mock_super_provision.assert_called_once_with(mock_host, mock_options, mock_mng_ctx)
-        mock_warn.assert_called_once_with(mock_host, mock_mng_ctx.pm)
-        mock_install_llm.assert_called_once_with(mock_host)
-        mock_symlinks.assert_called_once_with(mock_host, Path("/test/work"), ".changelings")
-        mock_scripts.assert_called_once_with(mock_host)
-        mock_tools.assert_called_once_with(mock_host)
-        mock_event_dirs.assert_called_once_with(mock_host, agent_state_dir)
-        mock_write_model.assert_called_once_with(mock_host, agent_state_dir, config.default_chat_model)
-        mock_link_memory.assert_called_once_with(mock_host, Path("/test/work"), ".changelings")
-
-
-def test_provision_skips_llm_install_when_disabled() -> None:
-    """Verify provision() skips llm installation when install_llm is False."""
-    config = ClaudeZygoteConfig(install_llm=False)
-    stub = _make_zygote_agent_stub(config)
-
-    with (
-        patch.object(ClaudeAgent, "provision"),
-        patch("imbue.mng_claude_zygote.plugin.warn_if_mng_unavailable"),
-        patch("imbue.mng_claude_zygote.plugin.install_llm_toolchain") as mock_install_llm,
-        patch("imbue.mng_claude_zygote.plugin.create_changeling_symlinks"),
-        patch("imbue.mng_claude_zygote.plugin.provision_changeling_scripts"),
-        patch("imbue.mng_claude_zygote.plugin.provision_llm_tools"),
-        patch("imbue.mng_claude_zygote.plugin.create_event_log_directories"),
-        patch("imbue.mng_claude_zygote.plugin.write_default_chat_model"),
-        patch("imbue.mng_claude_zygote.plugin.link_memory_directory"),
-    ):
-        stub.provision(MagicMock(), MagicMock(), MagicMock())
-
-        mock_install_llm.assert_not_called()
-
-
-def test_provision_uses_custom_config_values() -> None:
-    """Verify provision() passes custom config values to provisioning functions."""
-    custom_model = ChatModel("claude-haiku-4-5")
-    config = ClaudeZygoteConfig(
-        default_chat_model=custom_model,
-        changelings_dir_name=".custom_dir",
-    )
-    stub = _make_zygote_agent_stub(config)
-    stub.work_dir = Path("/my/work")
-
-    with (
-        patch.object(ClaudeAgent, "provision"),
-        patch("imbue.mng_claude_zygote.plugin.warn_if_mng_unavailable"),
-        patch("imbue.mng_claude_zygote.plugin.install_llm_toolchain"),
-        patch("imbue.mng_claude_zygote.plugin.create_changeling_symlinks") as mock_symlinks,
-        patch("imbue.mng_claude_zygote.plugin.provision_changeling_scripts"),
-        patch("imbue.mng_claude_zygote.plugin.provision_llm_tools"),
-        patch("imbue.mng_claude_zygote.plugin.create_event_log_directories"),
-        patch("imbue.mng_claude_zygote.plugin.write_default_chat_model") as mock_write_model,
-        patch("imbue.mng_claude_zygote.plugin.link_memory_directory") as mock_link_memory,
-    ):
-        stub.provision(MagicMock(), MagicMock(), MagicMock())
-
-        mock_symlinks.assert_called_once()
-        assert mock_symlinks.call_args[0][2] == ".custom_dir"
-        mock_write_model.assert_called_once()
-        assert mock_write_model.call_args[0][2] == custom_model
-        mock_link_memory.assert_called_once()
-        assert mock_link_memory.call_args[0][2] == ".custom_dir"

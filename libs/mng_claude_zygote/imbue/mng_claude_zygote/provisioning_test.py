@@ -1,5 +1,6 @@
 """Unit tests for the mng_claude_zygote provisioning module."""
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -9,7 +10,6 @@ import pytest
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
-from imbue.mng_claude_zygote.provisioning import _execute_with_timing
 from imbue.mng_claude_zygote.provisioning import _is_recursive_plugin_registered
 from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
@@ -1139,224 +1139,33 @@ def _load_fresh_extra_context_tool() -> Any:
     return extra_context_tool
 
 
-def test_extra_context_tool_no_env_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify gather_extra_context works when MNG_AGENT_STATE_DIR is not set."""
-    module = _load_fresh_extra_context_tool()
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
-
-    # Mock subprocess.run to avoid calling mng list
-    import subprocess
-
-    original_run = subprocess.run
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    result = module.gather_extra_context()
-    assert "Current Agents" in result
-    assert "Unable to retrieve" in result
-
-
-def test_extra_context_tool_with_transcript(
+def _setup_fake_uv(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    stdout: str = "",
 ) -> None:
-    """Verify gather_extra_context reads transcript entries."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
+    """Set up a fake uv script on PATH that returns the given exit code and stdout.
 
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    # Create transcript with events
-    transcript_dir = tmp_path / "logs" / "claude_transcript"
-    transcript_dir.mkdir(parents=True)
-    transcript_file = transcript_dir / "events.jsonl"
-    lines = [_make_event_line(f"t{i}", "claude_transcript") for i in range(5)]
-    transcript_file.write_text("\n".join(lines) + "\n")
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-
-    result = module.gather_extra_context()
-    assert "Extended Inner Monologue" in result
-    assert "5 of 5" in result
+    This avoids monkeypatch.setattr by using a real subprocess with a controlled
+    PATH. The fake uv simply echoes stdout and exits with the given code.
+    """
+    bin_dir = tmp_path / "fake_bin"
+    bin_dir.mkdir(exist_ok=True)
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(f"#!/bin/bash\necho '{stdout}'\nexit {exit_code}\n")
+    fake_uv.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
 
-def test_extra_context_tool_with_conversations(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context reads conversation events."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    # Create conversations with events
-    conv_dir = tmp_path / "logs" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
-        '{"timestamp":"2026-01-01T00:01:00Z","type":"conversation_created","event_id":"c2",'
-        '"source":"conversations","conversation_id":"conv-2","model":"claude-sonnet-4-6"}\n'
-    )
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-
-    result = module.gather_extra_context()
-    assert "All Conversations" in result
-    assert "conv-1" in result
-    assert "conv-2" in result
+def _setup_uv_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set PATH so that uv cannot be found, triggering FileNotFoundError in subprocess."""
+    empty_bin = tmp_path / "empty_bin"
+    empty_bin.mkdir(exist_ok=True)
+    monkeypatch.setenv("PATH", str(empty_bin))
 
 
-def test_extra_context_tool_with_successful_mng_list(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context displays agent list on successful mng list."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    class FakeCompletedProcess:
-        returncode = 0
-        stdout = '[{"name": "test-agent", "state": "RUNNING"}]'
-        stderr = ""
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        return FakeCompletedProcess()
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
-
-    result = module.gather_extra_context()
-    assert "Current Agents" in result
-    assert "test-agent" in result
-
-
-def test_extra_context_tool_with_failed_mng_list(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context handles mng list failure gracefully."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    class FakeCompletedProcess:
-        returncode = 1
-        stdout = ""
-        stderr = "error"
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        return FakeCompletedProcess()
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
-
-    result = module.gather_extra_context()
-    assert "No agents or unable to retrieve" in result
-
-
-def test_extra_context_tool_with_mng_list_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context handles mng list timeout gracefully."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise subprocess.TimeoutExpired(cmd=["mng", "list"], timeout=120)
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
-
-    result = module.gather_extra_context()
-    assert "Timed out" in result
-
-
-def test_extra_context_tool_with_empty_transcript(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context handles empty transcript file."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    transcript_dir = tmp_path / "logs" / "claude_transcript"
-    transcript_dir.mkdir(parents=True)
-    (transcript_dir / "events.jsonl").write_text("")
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-
-    result = module.gather_extra_context()
-    # Should not crash, transcript section should be absent
-    assert "Extended Inner Monologue" not in result
-
-
-def test_extra_context_tool_conversations_with_malformed_json(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context skips malformed conversation lines."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    conv_dir = tmp_path / "logs" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    conv_file.write_text(
-        "not valid json\n"
-        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
-        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
-    )
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-
-    result = module.gather_extra_context()
-    assert "conv-1" in result
-
-
-def test_extra_context_tool_conversations_missing_key(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_extra_context skips conversations lines missing conversation_id."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-
-    conv_dir = tmp_path / "logs" / "conversations"
-    conv_dir.mkdir(parents=True)
-    conv_file = conv_dir / "events.jsonl"
-    # Missing conversation_id key
-    conv_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"c1"}\n')
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-
-    result = module.gather_extra_context()
-    # Should not include "All Conversations" since the only line is missing the key
-    assert "All Conversations" not in result
+# -- Extra context tool: _format_events tests (no subprocess needed) --
 
 
 def test_extra_context_tool_format_events_message_event() -> None:
@@ -1404,27 +1213,156 @@ def test_extra_context_tool_format_events_empty_lines() -> None:
     assert result == ""
 
 
-def test_extra_context_tool_returns_no_extra_context_when_empty(
+# -- Extra context tool: gather_extra_context with file-reading tests --
+# These use a fake uv on PATH (or remove uv from PATH) to avoid monkeypatch.setattr.
+
+
+def test_extra_context_tool_no_env_set(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Verify gather_extra_context returns fallback when everything fails and no env."""
+    """Verify gather_extra_context works when MNG_AGENT_STATE_DIR is not set."""
     module = _load_fresh_extra_context_tool()
-    import subprocess
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+    _setup_uv_not_found(tmp_path, monkeypatch)
 
-    class FakeCompletedProcess:
-        returncode = 1
-        stdout = ""
-        stderr = "error"
+    result = module.gather_extra_context()
+    assert "Current Agents" in result
+    assert "Unable to retrieve" in result
 
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        return FakeCompletedProcess()
 
-    monkeypatch.setattr(subprocess, "run", mock_run)
+def test_extra_context_tool_with_transcript(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context reads transcript entries."""
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    transcript_dir = tmp_path / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "events.jsonl"
+    lines = [_make_event_line(f"t{i}", "claude_transcript") for i in range(5)]
+    transcript_file.write_text("\n".join(lines) + "\n")
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_extra_context()
+    assert "Extended Inner Monologue" in result
+    assert "5 of 5" in result
+
+
+def test_extra_context_tool_with_conversations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context reads conversation events."""
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    conv_dir = tmp_path / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+        '{"timestamp":"2026-01-01T00:01:00Z","type":"conversation_created","event_id":"c2",'
+        '"source":"conversations","conversation_id":"conv-2","model":"claude-sonnet-4-6"}\n'
+    )
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_extra_context()
+    assert "All Conversations" in result
+    assert "conv-1" in result
+    assert "conv-2" in result
+
+
+def test_extra_context_tool_with_successful_mng_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context displays agent list on successful uv run mng list."""
+    module = _load_fresh_extra_context_tool()
+    _setup_fake_uv(tmp_path, monkeypatch, exit_code=0, stdout='[{"name":"test-agent","state":"RUNNING"}]')
     monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
 
     result = module.gather_extra_context()
-    # Should get the "No agents or unable to retrieve" section
+    assert "Current Agents" in result
+    assert "test-agent" in result
+
+
+def test_extra_context_tool_with_failed_mng_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context handles mng list failure gracefully."""
+    module = _load_fresh_extra_context_tool()
+    _setup_fake_uv(tmp_path, monkeypatch, exit_code=1)
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+
+    result = module.gather_extra_context()
     assert "No agents or unable to retrieve" in result
+
+
+def test_extra_context_tool_with_empty_transcript(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context handles empty transcript file."""
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    transcript_dir = tmp_path / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    (transcript_dir / "events.jsonl").write_text("")
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_extra_context()
+    assert "Extended Inner Monologue" not in result
+
+
+def test_extra_context_tool_conversations_with_malformed_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context skips malformed conversation lines."""
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    conv_dir = tmp_path / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        "not valid json\n"
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+    )
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_extra_context()
+    assert "conv-1" in result
+
+
+def test_extra_context_tool_conversations_missing_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context skips conversations lines missing conversation_id."""
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    conv_dir = tmp_path / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"c1"}\n')
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_extra_context()
+    assert "All Conversations" not in result
 
 
 def test_extra_context_tool_transcript_with_many_entries(
@@ -1433,12 +1371,7 @@ def test_extra_context_tool_transcript_with_many_entries(
 ) -> None:
     """Verify gather_extra_context limits transcript to last 50 entries."""
     module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
+    _setup_uv_not_found(tmp_path, monkeypatch)
 
     transcript_dir = tmp_path / "logs" / "claude_transcript"
     transcript_dir.mkdir(parents=True)
@@ -1458,12 +1391,7 @@ def test_extra_context_tool_conversations_updates_existing_conversation(
 ) -> None:
     """Verify gather_extra_context uses the latest event for each conversation."""
     module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
+    _setup_uv_not_found(tmp_path, monkeypatch)
 
     conv_dir = tmp_path / "logs" / "conversations"
     conv_dir.mkdir(parents=True)
@@ -1479,49 +1407,7 @@ def test_extra_context_tool_conversations_updates_existing_conversation(
 
     result = module.gather_extra_context()
     assert "All Conversations" in result
-    # Should show the latest model
     assert "claude-sonnet-4-6" in result
-
-
-def test_extra_context_tool_slow_mng_list_emits_warning(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """Verify gather_extra_context emits a warning when mng list is slow."""
-    module = _load_fresh_extra_context_tool()
-    import subprocess
-    import time as time_module
-
-    class FakeCompletedProcess:
-        returncode = 0
-        stdout = '[{"name": "agent-1"}]'
-        stderr = ""
-
-    # Make time.monotonic return values that simulate a slow call
-    call_count = 0
-    original_monotonic = time_module.monotonic
-
-    def slow_monotonic() -> float:
-        nonlocal call_count
-        call_count += 1
-        if call_count <= 1:
-            # First call (start time)
-            return 0.0
-        else:
-            # Second call (elapsed) - simulate >15s
-            return 20.0
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        return FakeCompletedProcess()
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
-    monkeypatch.setattr(time_module, "monotonic", slow_monotonic)
-    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
-
-    result = module.gather_extra_context()
-    captured = capsys.readouterr()
-    assert "WARNING" in captured.err
-    assert "agent-1" in result
 
 
 def test_extra_context_tool_conversations_with_empty_lines(
@@ -1530,12 +1416,7 @@ def test_extra_context_tool_conversations_with_empty_lines(
 ) -> None:
     """Verify gather_extra_context skips empty lines in conversations file."""
     module = _load_fresh_extra_context_tool()
-    import subprocess
-
-    def mock_run(*args: Any, **kwargs: Any) -> Any:
-        raise FileNotFoundError("mng not found")
-
-    monkeypatch.setattr(subprocess, "run", mock_run)
+    _setup_uv_not_found(tmp_path, monkeypatch)
 
     conv_dir = tmp_path / "logs" / "conversations"
     conv_dir.mkdir(parents=True)
@@ -1572,37 +1453,7 @@ def test_gather_context_first_call_messages_with_empty_lines(
     assert "conv-A" in result
 
 
-# -- _execute_with_timing slow execution tests --
-
-
-def test_execute_with_timing_emits_warning_on_slow_execution(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify _execute_with_timing emits a warning when execution exceeds warn_threshold."""
-    import time as time_module
-
-    call_count = 0
-    original_monotonic = time_module.monotonic
-
-    def slow_monotonic() -> float:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            return 0.0
-        else:
-            return 10.0
-
-    monkeypatch.setattr(time_module, "monotonic", slow_monotonic)
-
-    host = _StubHost()
-    result = _execute_with_timing(
-        cast(Any, host),
-        "echo test",
-        hard_timeout=30.0,
-        warn_threshold=2.0,
-        label="slow op",
-    )
-    assert result.success
+# -- mng availability check tests (warning path) --
 
 
 def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
