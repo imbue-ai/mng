@@ -24,6 +24,7 @@ from imbue.changelings.primitives import GitUrl
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.primitives import AgentId
 
+# FIXME: stop making short ids
 _TEMP_DIR_ID_BYTES: int = 8
 
 _MNG_SETTINGS_REL_PATH: Final[str] = ".mng/settings.toml"
