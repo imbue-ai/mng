@@ -1,6 +1,8 @@
 from io import StringIO
 
 from imbue.mng.utils.terminal import StderrInterceptor
+from imbue.mng.utils.terminal import count_visual_lines
+from imbue.mng.utils.terminal import hard_wrap_for_terminal
 
 
 def test_interceptor_routes_writes_through_callback() -> None:
@@ -82,3 +84,105 @@ def test_interceptor_errors_from_original() -> None:
 
     interceptor = StderrInterceptor(callback=lambda s: None, original_stderr=_WithErrors())
     assert interceptor.errors == "replace"
+
+
+# =============================================================================
+# Tests for count_visual_lines
+# =============================================================================
+
+
+def test_count_visual_lines_short_line() -> None:
+    """A short line that fits in the terminal is 1 visual line."""
+    assert count_visual_lines("hello\n", terminal_width=80) == 1
+
+
+def test_count_visual_lines_wrapping_line() -> None:
+    """A line longer than terminal width wraps to multiple visual lines."""
+    assert count_visual_lines("x" * 150 + "\n", terminal_width=100) == 2
+
+
+def test_count_visual_lines_exact_width() -> None:
+    """A line exactly at terminal width occupies 1 visual line."""
+    assert count_visual_lines("x" * 100 + "\n", terminal_width=100) == 1
+
+
+def test_count_visual_lines_multiple_lines() -> None:
+    """Multiple short lines are counted individually."""
+    assert count_visual_lines("line1\nline2\n", terminal_width=80) == 2
+
+
+def test_count_visual_lines_long_and_short_mixed() -> None:
+    """Mix of wrapping and non-wrapping lines."""
+    text = "x" * 150 + "\nshort\n"
+    assert count_visual_lines(text, terminal_width=100) == 3
+
+
+def test_count_visual_lines_strips_ansi_codes() -> None:
+    """ANSI escape codes should not count toward visible length."""
+    text = "\x1b[38;5;245m" + "x" * 50 + "\x1b[0m\n"
+    assert count_visual_lines(text, terminal_width=100) == 1
+
+
+def test_count_visual_lines_long_with_ansi_codes() -> None:
+    """A visually-long line with ANSI codes should still wrap correctly."""
+    text = "\x1b[31m" + "x" * 150 + "\x1b[0m\n"
+    assert count_visual_lines(text, terminal_width=100) == 2
+
+
+def test_count_visual_lines_no_trailing_newline() -> None:
+    """Text without a trailing newline."""
+    assert count_visual_lines("hello", terminal_width=80) == 1
+
+
+def test_count_visual_lines_empty_string() -> None:
+    assert count_visual_lines("", terminal_width=80) == 0
+
+
+def test_count_visual_lines_just_newline() -> None:
+    assert count_visual_lines("\n", terminal_width=80) == 1
+
+
+# =============================================================================
+# Tests for hard_wrap_for_terminal
+# =============================================================================
+
+
+def test_hard_wrap_short_line_unchanged() -> None:
+    """A line shorter than terminal width is not modified."""
+    assert hard_wrap_for_terminal("hello\n", terminal_width=80) == "hello\n"
+
+
+def test_hard_wrap_inserts_newline_at_width() -> None:
+    """A line exceeding terminal width gets an explicit newline at the boundary."""
+    text = "x" * 150 + "\n"
+    wrapped = hard_wrap_for_terminal(text, terminal_width=100)
+    assert wrapped == "x" * 100 + "\n" + "x" * 50 + "\n"
+
+
+def test_hard_wrap_exact_width_no_extra_newline() -> None:
+    """A line exactly at terminal width does not get an extra newline."""
+    text = "x" * 100 + "\n"
+    assert hard_wrap_for_terminal(text, terminal_width=100) == text
+
+
+def test_hard_wrap_preserves_ansi_codes() -> None:
+    """ANSI escape sequences pass through without affecting column count."""
+    text = "\x1b[31m" + "x" * 50 + "\x1b[0m\n"
+    wrapped = hard_wrap_for_terminal(text, terminal_width=80)
+    # 50 visible chars < 80, so no wrapping needed
+    assert wrapped == text
+
+
+def test_hard_wrap_ansi_codes_dont_count_toward_width() -> None:
+    """Long visible content with ANSI codes wraps based on visible width only."""
+    text = "\x1b[31m" + "x" * 150 + "\x1b[0m\n"
+    wrapped = hard_wrap_for_terminal(text, terminal_width=100)
+    # The ANSI prefix is at the start, first 100 x's, then wrap, then 50 x's + reset + newline
+    assert wrapped == "\x1b[31m" + "x" * 100 + "\n" + "x" * 50 + "\x1b[0m\n"
+
+
+def test_hard_wrap_newline_count_matches_visual_lines() -> None:
+    """The newline count of hard-wrapped text equals count_visual_lines of the original."""
+    text = "WARNING: " + "x" * 200 + "\n"
+    wrapped = hard_wrap_for_terminal(text, terminal_width=120)
+    assert wrapped.count("\n") == count_visual_lines(text, terminal_width=120)

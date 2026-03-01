@@ -6,6 +6,7 @@ from datetime import timezone
 from io import StringIO
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.cli.conftest import make_test_agent_info
@@ -847,6 +848,72 @@ def test_streaming_renderer_warnings_interleaved_with_agents() -> None:
     assert warning2_pos > agent3_pos
     # Warnings should be in order
     assert warning2_pos > warning1_pos
+
+
+def test_streaming_renderer_long_wrapping_warning_uses_correct_cursor_up() -> None:
+    """A warning longer than terminal width must cursor-up by the visual line count.
+
+    This is a regression test for a bug where _warning_line_count only counted
+    explicit newlines, not terminal line wrapping. Long warnings would leave ghost
+    copies between agent rows because cursor-up did not go back far enough.
+    """
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+
+    # "WARNING: " (9 chars) + 200 "x" + "\n" = 209 visible chars.
+    # At the default 120-column terminal width, this wraps to 2 visual lines.
+    # The old code counted only the "\n" (1 line) and would emit cursor-up(1).
+    # The fix should emit cursor-up(2).
+    long_warning = "WARNING: " + "x" * 200 + "\n"
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning(long_warning)
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # cursor-up(2) = "\x1b[2A" -- must appear for the wrapping warning
+    assert "\x1b[2A" in output, "Expected cursor-up(2) for a 209-char warning at 120-column width"
+    # cursor-up(1) = "\x1b[1A" should NOT appear (that would be the buggy behavior)
+    assert "\x1b[1A" not in output
+
+
+def test_streaming_renderer_wider_resize_never_eats_agent_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the terminal gets wider, cursor-up must not overshoot into agent data.
+
+    Warnings are hard-wrapped with explicit newlines at the terminal width
+    when written. Explicit newlines never merge when the terminal gets wider,
+    so the tracked newline count is always safe. This test verifies cursor-up
+    uses the hard-wrapped count (2) even after resize to a wider terminal
+    where the raw text would only need 1 visual line.
+    """
+    # Start with a narrow terminal where the warning hard-wraps to 2 lines
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "24")
+
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+
+    # "WARNING: " (9 chars) + 150 "x" + "\n" = 159 visible chars
+    # At width 80: hard-wrapped to 2 lines. At width 200: still 2 lines
+    # (explicit \n characters don't merge).
+    warning_text = "WARNING: " + "x" * 150 + "\n"
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer.emit_warning(warning_text)
+
+    # Simulate terminal resize to a wider width
+    monkeypatch.setenv("COLUMNS", "200")
+
+    # cursor-up should be 2 (hard-wrapped newline count), not 1 (visual
+    # count at width 200 without hard-wrapping). This ensures we never
+    # overshoot into agent data.
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "\x1b[2A" in output, "Expected cursor-up(2) based on hard-wrapped newline count"
+    assert "\x1b[1A" not in output, "cursor-up(1) would overshoot on re-wrapped text"
 
 
 # =============================================================================
