@@ -62,11 +62,11 @@ class _AgentHostHookTracker:
         self.hook_data["state_dir_agent_name"] = agent.name
 
     @hookimpl
-    def on_before_provisioning(self, agent: AgentInterface, host: Any) -> None:
+    def on_before_provisioning(self, agent: AgentInterface, host: Any, mng_ctx: Any) -> None:
         self.hook_log.append("on_before_provisioning")
 
     @hookimpl
-    def on_after_provisioning(self, agent: AgentInterface, host: Any) -> None:
+    def on_after_provisioning(self, agent: AgentInterface, host: Any, mng_ctx: Any) -> None:
         self.hook_log.append("on_after_provisioning")
 
     @hookimpl

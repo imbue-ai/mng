@@ -8,10 +8,24 @@ from click.testing import Result
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
 from imbue.changelings.cli.deploy import _move_to_permanent_location
+from imbue.changelings.cli.deploy import _parse_add_path
 from imbue.changelings.cli.deploy import _prepare_repo
+from imbue.changelings.cli.deploy import _print_result
+from imbue.changelings.cli.deploy import _resolve_agent_name
+from imbue.changelings.cli.deploy import _resolve_provider
+from imbue.changelings.cli.deploy import _resolve_self_deploy
+from imbue.changelings.cli.deploy import _validate_settings_exist
+from imbue.changelings.cli.deploy import _write_mng_settings_toml
+from imbue.changelings.config.data_types import DeploymentProvider
+from imbue.changelings.config.data_types import SelfDeployChoice
+from imbue.changelings.deployment.local import DeploymentResult
 from imbue.changelings.errors import ChangelingError
+from imbue.changelings.errors import MissingSettingsError
 from imbue.changelings.main import cli
+from imbue.changelings.primitives import AgentName
+from imbue.changelings.testing import capture_loguru_messages
 from imbue.changelings.testing import init_and_commit_git_repo
+from imbue.mng.primitives import AgentId
 
 _RUNNER = CliRunner()
 
@@ -560,3 +574,224 @@ def test_move_to_permanent_location_preserves_contents(tmp_path: Path) -> None:
 
     assert (target / "a.txt").read_text() == "aaa"
     assert (target / "sub" / "b.txt").read_text() == "bbb"
+
+
+# --- Tests for _print_result ---
+
+
+def test_print_result_includes_agent_name_and_login_url() -> None:
+    """Verify _print_result shows agent name and login URL."""
+    agent_id = AgentId()
+    login_url = "http://127.0.0.1:8420/login?agent_id={}&one_time_code=yyy".format(agent_id)
+    result = DeploymentResult(
+        agent_name=AgentName("my-agent"),
+        agent_id=agent_id,
+        login_url=login_url,
+    )
+
+    with capture_loguru_messages() as messages:
+        _print_result(result, DeploymentProvider.LOCAL)
+
+    combined = "".join(messages)
+    assert "my-agent" in combined
+    assert login_url in combined
+    assert "local" in combined
+
+
+def test_print_result_shows_provider_name() -> None:
+    """Verify _print_result shows the correct provider name."""
+    result = DeploymentResult(
+        agent_name=AgentName("my-agent"),
+        agent_id=AgentId(),
+        login_url="http://127.0.0.1:8420/login?agent_id=xxx&one_time_code=yyy",
+    )
+
+    with capture_loguru_messages() as messages:
+        _print_result(result, DeploymentProvider.MODAL)
+
+    combined = "".join(messages)
+    assert "modal" in combined
+
+
+# --- Tests for _resolve_* functions ---
+
+
+def test_resolve_agent_name_with_explicit_name() -> None:
+    """Verify _resolve_agent_name uses the provided name when given."""
+    name = _resolve_agent_name("my-bot", "elena-code")
+
+    assert name == "my-bot"
+
+
+def test_resolve_provider_with_explicit_provider() -> None:
+    """Verify _resolve_provider returns the explicit value without prompting."""
+    assert _resolve_provider("local") == DeploymentProvider.LOCAL
+    assert _resolve_provider("modal") == DeploymentProvider.MODAL
+    assert _resolve_provider("docker") == DeploymentProvider.DOCKER
+
+
+def test_resolve_self_deploy_with_explicit_true() -> None:
+    """Verify _resolve_self_deploy returns YES when True is passed."""
+    assert _resolve_self_deploy(True) == SelfDeployChoice.YES
+
+
+def test_resolve_self_deploy_with_explicit_false() -> None:
+    """Verify _resolve_self_deploy returns NOT_NOW when False is passed."""
+    assert _resolve_self_deploy(False) == SelfDeployChoice.NOT_NOW
+
+
+# --- Tests for _validate_settings_exist ---
+
+
+def test_validate_settings_exist_raises_for_missing_settings(tmp_path: Path) -> None:
+    """Verify _validate_settings_exist raises when settings.toml is missing."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+
+    with pytest.raises(MissingSettingsError, match="settings.toml"):
+        _validate_settings_exist(repo_dir)
+
+
+def test_validate_settings_exist_passes_when_present(tmp_path: Path) -> None:
+    """Verify _validate_settings_exist does not raise when settings.toml exists."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    settings_dir = repo_dir / ".mng"
+    settings_dir.mkdir(parents=True)
+    (settings_dir / "settings.toml").write_text("[create_templates.entrypoint]\n")
+
+    _validate_settings_exist(repo_dir)
+
+
+# --- Tests for _write_mng_settings_toml ---
+
+
+def test_write_mng_settings_toml_creates_file(tmp_path: Path) -> None:
+    """Verify _write_mng_settings_toml creates the settings file."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+
+    _write_mng_settings_toml(repo_dir, "elena-code")
+
+    settings_path = repo_dir / _MNG_SETTINGS_REL_PATH
+    assert settings_path.exists()
+    content = settings_path.read_text()
+    assert 'agent_type = "elena-code"' in content
+
+
+def test_write_mng_settings_toml_does_not_overwrite(tmp_path: Path) -> None:
+    """Verify _write_mng_settings_toml skips if file already exists."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    settings_path = repo_dir / _MNG_SETTINGS_REL_PATH
+    settings_path.parent.mkdir(parents=True)
+    settings_path.write_text("existing content")
+
+    _write_mng_settings_toml(repo_dir, "elena-code")
+
+    assert settings_path.read_text() == "existing content"
+
+
+# --- Tests for _parse_add_path ---
+
+
+def test_parse_add_path_valid_file(tmp_path: Path) -> None:
+    """Verify _parse_add_path parses a valid SRC:DEST pair."""
+    src_file = tmp_path / "source.txt"
+    src_file.write_text("content")
+
+    src, dest = _parse_add_path("{}:dest.txt".format(src_file))
+
+    assert src == src_file
+    assert dest == Path("dest.txt")
+
+
+def test_parse_add_path_no_colon() -> None:
+    """Verify _parse_add_path raises for missing colon."""
+    with pytest.raises(Exception, match="SRC:DEST"):
+        _parse_add_path("no-colon-here")
+
+
+def test_parse_add_path_empty_src() -> None:
+    """Verify _parse_add_path raises for empty SRC."""
+    with pytest.raises(Exception, match="non-empty"):
+        _parse_add_path(":dest.txt")
+
+
+def test_parse_add_path_empty_dest() -> None:
+    """Verify _parse_add_path raises for empty DEST."""
+    with pytest.raises(Exception, match="non-empty"):
+        _parse_add_path("/some/path:")
+
+
+def test_parse_add_path_nonexistent_source() -> None:
+    """Verify _parse_add_path raises for nonexistent source."""
+    with pytest.raises(Exception, match="does not exist"):
+        _parse_add_path("/nonexistent/source:dest.txt")
+
+
+def test_parse_add_path_absolute_dest(tmp_path: Path) -> None:
+    """Verify _parse_add_path raises for absolute DEST."""
+    src_file = tmp_path / "source.txt"
+    src_file.write_text("content")
+
+    with pytest.raises(Exception, match="must be relative"):
+        _parse_add_path("{}:/absolute/dest.txt".format(src_file))
+
+
+# --- Tests for deploy with self-deploy enabled ---
+
+
+def test_deploy_with_self_deploy_flag(tmp_path: Path) -> None:
+    """Verify --self-deploy flag is accepted and skips the self-deploy prompt."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _RUNNER.invoke(
+        cli,
+        [
+            "deploy",
+            str(repo_dir),
+            "--name",
+            "my-bot",
+            "--provider",
+            "local",
+            "--self-deploy",
+            *_data_dir_args(tmp_path),
+        ],
+    )
+
+    assert "launch its own agents" not in result.output
+
+
+# --- Tests for deploy prompt interaction via CLI ---
+
+
+@pytest.mark.parametrize("provider_input", ["2", "3"])
+def test_deploy_provider_prompt_accepts_selection(
+    tmp_path: Path,
+    provider_input: str,
+) -> None:
+    """Verify interactive provider selection proceeds to deployment."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _RUNNER.invoke(
+        cli,
+        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
+        input="test-bot\n{}\nN\n".format(provider_input),
+    )
+
+    assert "Where do you want to run" in result.output
+    assert "Deploying changeling from" in result.output
+
+
+def test_deploy_self_deploy_yes_via_interactive_input(tmp_path: Path) -> None:
+    """Verify that interactive input 'y' for self-deploy is accepted."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
+
+    result = _RUNNER.invoke(
+        cli,
+        ["deploy", str(repo_dir), "--provider", "local", *_data_dir_args(tmp_path)],
+        input="test-bot\ny\n",
+    )
+
+    assert "launch its own agents" in result.output

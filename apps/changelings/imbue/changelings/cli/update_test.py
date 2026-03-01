@@ -1,11 +1,15 @@
 import json
 
+import pytest
 from click.testing import CliRunner
 
 from imbue.changelings.cli.update import _is_agent_remote
+from imbue.changelings.cli.update import _print_result
+from imbue.changelings.deployment.local import UpdateResult
 from imbue.changelings.main import cli
 from imbue.changelings.primitives import AgentName
 from imbue.changelings.testing import FakeConcurrencyGroup
+from imbue.changelings.testing import capture_loguru_messages
 from imbue.changelings.testing import make_fake_concurrency_group
 from imbue.changelings.testing import make_finished_process
 
@@ -126,3 +130,43 @@ def test_is_agent_remote_returns_false_when_agent_not_found() -> None:
     )
 
     assert _is_agent_remote(AgentName("ghost"), concurrency_group=cg) is False
+
+
+# --- _print_result tests ---
+
+
+@pytest.mark.parametrize(
+    "did_snapshot, did_push, did_provision",
+    [
+        (True, True, True),
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+    ],
+)
+def test_print_result_includes_agent_name_and_steps(
+    did_snapshot: bool,
+    did_push: bool,
+    did_provision: bool,
+) -> None:
+    """Verify _print_result outputs agent name and completed steps."""
+    result = UpdateResult(
+        agent_name=AgentName("my-agent"),
+        did_snapshot=did_snapshot,
+        did_push=did_push,
+        did_provision=did_provision,
+    )
+
+    with capture_loguru_messages() as messages:
+        _print_result(result)
+
+    combined = "".join(messages)
+    assert "my-agent" in combined
+    assert "updated successfully" in combined.lower()
+    if did_snapshot:
+        assert "snapshot" in combined.lower()
+    if did_push:
+        assert "push" in combined.lower()
+    if did_provision:
+        assert "provision" in combined.lower()
