@@ -187,31 +187,36 @@ _MNG_REPO_URL: Final[str] = "https://github.com/imbue-ai/mng"
 def _find_mng_source_directory() -> Path | None:
     """Find the mng project directory by walking up from this file.
 
-    Returns the project root (containing docs/ and imbue/mng/) or None if not
-    found (e.g. when installed from a wheel without source).
+    Returns the project root (containing imbue/mng/) or None if not found.
+    Only requires the Python source tree to exist; docs/ may or may not be
+    present (the CLI docs are already injected from the help metadata registry).
     """
     candidate = Path(__file__).resolve().parents[3]
-    if (candidate / "docs").is_dir() and (candidate / "imbue" / "mng").is_dir():
+    if (candidate / "imbue" / "mng").is_dir():
         return candidate
     return None
 
 
-@pure
 def _build_source_access_context(source_directory: Path) -> str:
     """Build system prompt section describing available source code access."""
-    return (
-        "\n\n# Source Code Access\n\n"
-        f"The mng source code is available on disk at: {source_directory}\n"
-        "You can use the Read, Glob, and Grep tools to explore it when answering questions.\n\n"
-        "Key directories:\n"
-        f"- {source_directory}/docs/ - User-facing documentation (markdown)\n"
-        f"- {source_directory}/imbue/mng/ - Python source code\n"
-        f"- {source_directory}/imbue/mng/cli/ - CLI command implementations\n"
-        f"- {source_directory}/imbue/mng/agents/ - Agent type implementations\n"
-        f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n"
-        f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n"
-        f"- {source_directory}/imbue/mng/config/ - Configuration handling\n"
-    )
+    parts = [
+        "\n\n# Source Code Access\n\n",
+        f"The mng source code is available on disk at: {source_directory}\n",
+        "You can use the Read, Glob, and Grep tools to explore it when answering questions.\n\n",
+        "Key directories:\n",
+    ]
+    is_docs_present = (source_directory / "docs").is_dir()
+    if is_docs_present:
+        parts.append(f"- {source_directory}/docs/ - User-facing documentation (markdown)\n")
+    parts += [
+        f"- {source_directory}/imbue/mng/ - Python source code\n",
+        f"- {source_directory}/imbue/mng/cli/ - CLI command implementations\n",
+        f"- {source_directory}/imbue/mng/agents/ - Agent type implementations\n",
+        f"- {source_directory}/imbue/mng/providers/ - Provider backends (docker, modal, local)\n",
+        f"- {source_directory}/imbue/mng/plugins/ - Plugin system\n",
+        f"- {source_directory}/imbue/mng/config/ - Configuration handling\n",
+    ]
+    return "".join(parts)
 
 
 @pure

@@ -238,19 +238,19 @@ def test_no_query_json_output(
 
 
 def test_find_mng_source_directory_returns_valid_path() -> None:
-    """When running from source, should find the project directory with docs/ and imbue/mng/."""
+    """When running from source, should find the project directory with imbue/mng/."""
     source_dir = _find_mng_source_directory()
     assert source_dir is not None
-    assert (source_dir / "docs").is_dir()
     assert (source_dir / "imbue" / "mng").is_dir()
 
 
 def test_build_source_access_context_includes_source_directory_and_key_paths() -> None:
     context = _build_source_access_context(Path("/fake/mng/project"))
     assert "/fake/mng/project" in context
-    assert "docs/" in context
     assert "imbue/mng/" in context
     assert "Read" in context
+    # docs/ line is only included when the directory exists on disk
+    assert "docs/" not in context
 
 
 def test_ask_system_prompt_includes_source_access_context(
