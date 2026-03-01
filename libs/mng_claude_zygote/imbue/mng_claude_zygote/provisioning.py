@@ -182,15 +182,15 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
     # Create the changelings memory directory
     host.execute_command(f"mkdir -p {shlex.quote(str(changelings_memory))}", timeout_seconds=5.0)
 
-    # Create the Claude project directory and symlink memory into it
-    project_dir = Path("~/.claude/projects") / project_dir_name
-    memory_link = project_dir / "memory"
+    # Create the Claude project directory and symlink memory into it.
+    # Use $HOME instead of ~ because ~ is not expanded inside single quotes
+    # (which shlex.quote produces), but $HOME expands in double quotes.
+    quoted_project_dir_name = shlex.quote(project_dir_name)
+    project_dir_shell = f'"$HOME/.claude/projects/"{quoted_project_dir_name}'
+    memory_link_shell = f'"$HOME/.claude/projects/"{quoted_project_dir_name}/memory'
 
-    cmd = (
-        f"mkdir -p {shlex.quote(str(project_dir))} && "
-        f"ln -sfn {shlex.quote(str(changelings_memory))} {shlex.quote(str(memory_link))}"
-    )
-    with log_span("Linking memory: {} -> {}", memory_link, changelings_memory):
+    cmd = f"mkdir -p {project_dir_shell} && ln -sfn {shlex.quote(str(changelings_memory))} {memory_link_shell}"
+    with log_span("Linking memory: $HOME/.claude/projects/{}/memory -> {}", project_dir_name, changelings_memory):
         result = host.execute_command(cmd, timeout_seconds=5.0)
         if not result.success:
             raise RuntimeError(f"Failed to link memory directory: {result.stderr}")

@@ -230,12 +230,45 @@ def test_compute_claude_project_dir_name_replaces_dots() -> None:
     assert compute_claude_project_dir_name("/home/user/.changelings/agent") == "-home-user--changelings-agent"
 
 
-def test_link_memory_directory_creates_symlink() -> None:
+def test_link_memory_directory_creates_changelings_memory_dir() -> None:
     host = _StubHost()
     link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
 
-    assert any("mkdir" in c and "memory" in c for c in host.executed_commands)
-    assert any("ln -sfn" in c for c in host.executed_commands)
+    assert any("mkdir" in c and ".changelings/memory" in c for c in host.executed_commands)
+
+
+def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> None:
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+
+    # Must use $HOME (not ~) so tilde expansion works inside quotes
+    mkdir_cmds = [c for c in host.executed_commands if "mkdir" in c and ".claude/projects" in c]
+    assert len(mkdir_cmds) == 1
+    assert "$HOME" in mkdir_cmds[0]
+    assert "-home-user--changelings-agent" in mkdir_cmds[0]
+
+
+def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+
+    ln_cmds = [c for c in host.executed_commands if "ln -sfn" in c]
+    assert len(ln_cmds) == 1
+    # Symlink target should be the changelings memory dir
+    assert ".changelings/memory" in ln_cmds[0]
+    # Symlink source should use $HOME for the Claude project dir
+    assert "$HOME/.claude/projects/" in ln_cmds[0]
+    assert "-home-user--changelings-agent" in ln_cmds[0]
+
+
+def test_link_memory_directory_does_not_use_literal_tilde() -> None:
+    """Verify that ~ is never used in paths (it doesn't expand inside single quotes)."""
+    host = _StubHost()
+    link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings")
+
+    for cmd in host.executed_commands:
+        if ".claude/projects" in cmd:
+            assert "~" not in cmd, f"Found literal ~ in command (won't expand in quotes): {cmd}"
 
 
 # -- Provisioning function tests (using _StubHost) --

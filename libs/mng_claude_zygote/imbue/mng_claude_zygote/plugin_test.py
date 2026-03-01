@@ -92,7 +92,7 @@ def test_claude_zygote_config_has_changelings_dir_name() -> None:
 
 
 def test_adds_all_changeling_windows(zygote_create_params: dict[str, Any]) -> None:
-    """Verify that the plugin adds all 5 changeling windows."""
+    """Verify that the plugin adds all 4 changeling windows."""
     assert len(zygote_create_params["add_command"]) == _CHANGELING_WINDOW_COUNT
 
 
@@ -169,7 +169,7 @@ def test_inject_agent_ttyd_preserves_existing() -> None:
 
 
 def test_inject_changeling_windows_adds_all_windows() -> None:
-    """Verify that inject_changeling_windows adds all 5 windows."""
+    """Verify that inject_changeling_windows adds all 4 windows."""
     params: dict[str, Any] = {}
     inject_changeling_windows(params)
     assert len(params["add_command"]) == _CHANGELING_WINDOW_COUNT
