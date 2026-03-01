@@ -541,25 +541,22 @@ def _load_fresh_context_tool(name: str) -> Any:
     return context_tool
 
 
-def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_path: Path) -> None:
+def test_context_tool_gather_context_returns_no_context_when_env_not_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context returns a message when MNG_AGENT_STATE_DIR is not set."""
-    import os
-
     module = _load_fresh_context_tool("context_tool_test_module")
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
 
-    old_val = os.environ.pop("MNG_AGENT_STATE_DIR", None)
-    try:
-        result = module.gather_context()
-        assert "No agent data directory" in result
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+    result = module.gather_context()
+    assert "No agent data directory" in result
 
 
-def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_path: Path) -> None:
+def test_context_tool_gather_context_returns_no_new_context_on_second_call(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context returns incremental results on subsequent calls."""
-    import os
-
     # Set up a minimal agent data dir with one scheduled event
     logs_dir = tmp_path / "logs" / "scheduled"
     logs_dir.mkdir(parents=True)
@@ -567,22 +564,15 @@ def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_p
     events_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"e1","source":"scheduled"}\n')
 
     module = _load_fresh_context_tool("context_tool_incremental_test")
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
 
-    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
-    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
-    try:
-        # First call: should return the event
-        first_result = module.gather_context()
-        assert "scheduled" in first_result.lower()
+    # First call: should return the event
+    first_result = module.gather_context()
+    assert "scheduled" in first_result.lower()
 
-        # Second call with no new events: should report no new context
-        second_result = module.gather_context()
-        assert "No new context" in second_result
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
-        else:
-            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+    # Second call with no new events: should report no new context
+    second_result = module.gather_context()
+    assert "No new context" in second_result
 
 
 def _make_event_line(event_id: str, source: str = "test") -> str:
@@ -727,10 +717,11 @@ def _make_data_event(event_id: str, source: str, data: str = '{"key":"val"}') ->
     )
 
 
-def test_gather_context_first_call_shows_transcript_and_triggers(tmp_path: Path) -> None:
+def test_gather_context_first_call_shows_transcript_and_triggers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context returns transcript and trigger events on first call."""
-    import os
-
     module = _load_fresh_context_tool("gc_transcript")
 
     # Set up transcript
@@ -745,23 +736,18 @@ def test_gather_context_first_call_shows_transcript_and_triggers(tmp_path: Path)
     monitor_file = monitor_dir / "events.jsonl"
     monitor_file.write_text(_make_data_event("m1", "monitor") + "\n")
 
-    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
-    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
-    try:
-        result = module.gather_context()
-        assert "Inner Monologue" in result
-        assert "monitor" in result.lower()
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
-        else:
-            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_context()
+    assert "Inner Monologue" in result
+    assert "monitor" in result.lower()
 
 
-def test_gather_context_first_call_groups_messages_by_conversation(tmp_path: Path) -> None:
+def test_gather_context_first_call_groups_messages_by_conversation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context groups messages by conversation on first call."""
-    import os
-
     module = _load_fresh_context_tool("gc_messages")
 
     msgs_dir = tmp_path / "logs" / "messages"
@@ -774,29 +760,19 @@ def test_gather_context_first_call_groups_messages_by_conversation(tmp_path: Pat
     ]
     msgs_file.write_text("\n".join(lines) + "\n")
 
-    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
-    old_cid = os.environ.get("LLM_CONVERSATION_ID")
-    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
-    os.environ["LLM_CONVERSATION_ID"] = "my-convo"
-    try:
-        result = module.gather_context()
-        assert "conv-A" in result
-        assert "conv-B" in result
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
-        else:
-            os.environ.pop("MNG_AGENT_STATE_DIR", None)
-        if old_cid is not None:
-            os.environ["LLM_CONVERSATION_ID"] = old_cid
-        else:
-            os.environ.pop("LLM_CONVERSATION_ID", None)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
+
+    result = module.gather_context()
+    assert "conv-A" in result
+    assert "conv-B" in result
 
 
-def test_gather_context_incremental_returns_new_trigger_events(tmp_path: Path) -> None:
+def test_gather_context_incremental_returns_new_trigger_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context returns new trigger events on subsequent calls."""
-    import os
-
     module = _load_fresh_context_tool("gc_incremental_triggers")
 
     sched_dir = tmp_path / "logs" / "scheduled"
@@ -804,30 +780,25 @@ def test_gather_context_incremental_returns_new_trigger_events(tmp_path: Path) -
     events_file = sched_dir / "events.jsonl"
     events_file.write_text(_make_event_line("s1", "scheduled") + "\n")
 
-    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
-    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
-    try:
-        first = module.gather_context()
-        assert "scheduled" in first.lower()
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
 
-        # Append new event
-        with events_file.open("a") as fh:
-            fh.write(_make_event_line("s2", "scheduled") + "\n")
+    first = module.gather_context()
+    assert "scheduled" in first.lower()
 
-        second = module.gather_context()
-        assert "New scheduled events" in second
-        assert "s2" in second
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
-        else:
-            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+    # Append new event
+    with events_file.open("a") as fh:
+        fh.write(_make_event_line("s2", "scheduled") + "\n")
+
+    second = module.gather_context()
+    assert "New scheduled events" in second
+    assert "s2" in second
 
 
-def test_gather_context_incremental_returns_new_messages_from_other_conversations(tmp_path: Path) -> None:
+def test_gather_context_incremental_returns_new_messages_from_other_conversations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Verify gather_context returns new messages from other conversations incrementally."""
-    import os
-
     module = _load_fresh_context_tool("gc_incremental_msgs")
 
     msgs_dir = tmp_path / "logs" / "messages"
@@ -835,32 +806,21 @@ def test_gather_context_incremental_returns_new_messages_from_other_conversation
     msgs_file = msgs_dir / "events.jsonl"
     msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
 
-    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
-    old_cid = os.environ.get("LLM_CONVERSATION_ID")
-    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
-    os.environ["LLM_CONVERSATION_ID"] = "my-convo"
-    try:
-        module.gather_context()
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
 
-        # Append new message from another conversation
-        with msgs_file.open("a") as fh:
-            fh.write(_make_message_line("m2", "other-conv", "assistant", "new reply") + "\n")
+    module.gather_context()
 
-        second = module.gather_context()
-        assert "New messages from other conversations" in second
-        assert "new reply" in second
-    finally:
-        if old_val is not None:
-            os.environ["MNG_AGENT_STATE_DIR"] = old_val
-        else:
-            os.environ.pop("MNG_AGENT_STATE_DIR", None)
-        if old_cid is not None:
-            os.environ["LLM_CONVERSATION_ID"] = old_cid
-        else:
-            os.environ.pop("LLM_CONVERSATION_ID", None)
+    # Append new message from another conversation
+    with msgs_file.open("a") as fh:
+        fh.write(_make_message_line("m2", "other-conv", "assistant", "new reply") + "\n")
+
+    second = module.gather_context()
+    assert "New messages from other conversations" in second
+    assert "new reply" in second
 
 
-def test_format_events_handles_data_events(tmp_path: Path) -> None:
+def test_format_events_handles_data_events() -> None:
     """Verify _format_events formats data-bearing events correctly."""
     module = _load_fresh_context_tool("fmt_data")
 
