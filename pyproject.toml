@@ -152,6 +152,10 @@ omit = [
     # Tutor TUI is interactive and should not have automated tests
     "libs/mng_tutor/imbue/mng_tutor/tui.py",
     "libs/mng_tutor/imbue/mng_tutor/cli.py",
+    # Standalone scripts deployed to agent hosts via --functions; loaded via exec()
+    # so normal import-based coverage cannot track them (tested via importlib in unit tests)
+    "libs/mng_claude_zygote/imbue/mng_claude_zygote/resources/context_tool.py",
+    "libs/mng_claude_zygote/imbue/mng_claude_zygote/resources/extra_context_tool.py",
     # don't bother with anything in scripts
     "scripts/*",
 ]
