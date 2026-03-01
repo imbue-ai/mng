@@ -43,7 +43,7 @@ _DEFAULT_WORK_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (("CLAUDE.md", "CL
 # Default skill files written to .claude/skills/<name>/SKILL.md if missing.
 # Each entry is a skill directory name under defaults/skills/.
 _DEFAULT_SKILL_DIRS: Final[tuple[str, ...]] = (
-    "new-chat",
+    "send-message-to-user",
     "list-conversations",
 )
 

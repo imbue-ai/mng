@@ -1436,10 +1436,10 @@ def test_default_entrypoint_json_is_valid_json() -> None:
 
 
 def test_default_new_chat_skill_has_frontmatter_and_references_chat_script() -> None:
-    """Verify the new-chat skill has YAML frontmatter and references the chat.sh script."""
-    content = load_zygote_resource("defaults/skills/new-chat/SKILL.md")
+    """Verify the send-message-to-user skill has YAML frontmatter and references the chat.sh script."""
+    content = load_zygote_resource("defaults/skills/send-message-to-user/SKILL.md")
     assert content.startswith("---")
-    assert "name: new-chat" in content
+    assert "name: send-message-to-user" in content
     assert "description:" in content
     assert "chat.sh" in content
     assert "--new" in content
@@ -1469,7 +1469,7 @@ def test_provision_default_content_writes_missing_files() -> None:
     assert any("CLAUDE.md" in p for p in written_paths)
     assert any("entrypoint.md" in p for p in written_paths)
     assert any("entrypoint.json" in p for p in written_paths)
-    assert any("new-chat/SKILL.md" in p for p in written_paths)
+    assert any("send-message-to-user/SKILL.md" in p for p in written_paths)
     assert any("list-conversations/SKILL.md" in p for p in written_paths)
 
 

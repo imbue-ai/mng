@@ -1,7 +1,18 @@
 ---
-name: new-chat
+name: send-message-to-user
 description: Start a new conversation thread with a user or inject an agent-initiated message. Use when you need to respond to a user or proactively start a conversation.
 ---
+
+
+## Conversations
+
+Conversations are managed via the `chat` script:
+
+- `$MNG_HOST_DIR/commands/chat.sh --new "message"` - start a new conversation
+- `$MNG_HOST_DIR/commands/chat.sh --resume <id>` - resume an existing conversation
+- `$MNG_HOST_DIR/commands/chat.sh --list` - list all conversations
+
+
 
 # Starting a New Conversation
 
