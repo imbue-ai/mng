@@ -12,13 +12,12 @@ They can be thought of as a sort of "higher level" agent that is made by assembl
 Fundamentally, changelings are mng agents where:
 - The primary agent (from mng's perspective) is a claude code instance *that reacts to "events"* and forms the sort of "inner dialog" of the agent
 - Users do *not* chat directly with this main "inner monolouge" agent--instead, they have conversational threads via the "llm live-chat" command-line tool, and those conversations are *exposed* to the primary agent by sending it events to react to.
-- The core "inner monologue" agent can be thought of as reacting to events. It is sent messages (by a watcher, via "mng message") whenever new events appear in:
-    - `logs/messages/events.jsonl` (new conversation messages synced from the llm database)
-    - `logs/entrypoint/events.jsonl` (trigger events):
-        - one of the time based triggers happens ("mng schedule" can be used, via a skill, to schedule custom events at certain times, which in turn append the json data for that event)
-        - a sub agent (launched by this primary agent) transitions to "waiting" (happens via our own hooks--goes through a modal hook like snapshot_and_save if remote, otherwise can just call "mng message" directly)
-        - the primary agent tries to stop (for the first time--before thought complete, roughly). This allows it to do a last check of whether there is anything else worth responding to before going to sleep (and considering when it ought to wake)
-        - (future) a local monitor agent appends a message/reminder to its file (or calls mng message directly)
+- The core "inner monologue" agent can be thought of as reacting to events. It is sent messages (by a watcher, via "mng message") whenever new events appear in the event streams. For example:
+    - `logs/messages/events.jsonl`: new conversation messages synced from the llm database (we'll need to filter out any where the source was the primary agent, since it obviously should not be notified for its own messages)
+    - `logs/scheduled/events.jsonl`: one of the time based triggers happens ("mng schedule" can be used, via a skill, to schedule custom events at certain times, which in turn append the json data for that event)
+    - `logs/mng_agents/events.jsonl`: a sub agent (launched by this primary agent) transitions to "waiting" (happens via our own hooks--goes through a modal hook like snapshot_and_save if remote, otherwise can just create directly)
+    - `logs/stop/events.jsonl`: the primary agent tries to stop (for the first time--before thought complete, roughly). This allows it to do a last check of whether there is anything else worth responding to before going to sleep (and considering when it ought to wake)
+    - `logs/monitor/events.jsonl`: (future) a local monitor agent appends a message/reminder to its file
 - The primary agent is generally instructed to do everything via "mng" (because then all sub agents and work is visible / totally transparent to you)
 
 ## Event log structure
@@ -48,7 +47,7 @@ Every event is self-describing: you never need to know the filename to understan
 - Thus the URL to view an existing chat conversation is simply done via a special ttyd server that runs the correct llm invocation: "llm live-chat --show-history -c --cid <conversation_id> -m <chat-model>" where chat-model comes from the most recent event in `logs/conversations/events.jsonl` with that conversation_id
 - To list all conversations for this agent, we read `logs/conversations/events.jsonl` (append-only, last value per conversation_id wins)
 - When invoking "llm live-chat", we pass in two tools: one for gathering context (recent messages from other conversations, inner monologue, recent events) and another for extra context (mng agent list, deeper history)
-- A simple event watcher observes `logs/messages/events.jsonl` and `logs/entrypoint/events.jsonl` for changes, and when modified, sends the next unhandled event(s) to the primary agent (via "mng message")
+- A simple event watcher observes the event streams (`logs/messages/events.jsonl`, `logs/scheduled/events.jsonl`, `logs/mng_agents/events.jsonl`, `logs/stop/events.jsonl`) for changes, and when modified, sends the next unhandled event(s) to the primary agent (via "mng message")
 - Changeling agents are assumed to run from a specially structured git repo that contains various skills, configuration, CLAUDE.md files with prompts, and the code for any tools they have constructed for themselves.
 - The top level CLAUDE.md in the agent git repo (where it will be launched) serves as the core system prompt that is *shared* among all agents (the primary agent, any claude subagent it makes, and even any other agents created via mng with this repo as the target)
 - The primary agent CLAUDE.md should be checked in as ".changelings/entrypoint.md" and should be symlinked from the project root as "CLAUDE.local.md" when it is the agent that is running (same thing for ".changelings/entrypoint.json", which will be symlinked as ".claude/settings.local.json"). This is something that the ClaudeZygoteAgent should take care of.

@@ -6,7 +6,9 @@
 #
 # Watched sources:
 #   logs/messages/events.jsonl     - conversation messages
-#   logs/entrypoint/events.jsonl   - entrypoint triggers (scheduled, sub-agent, etc.)
+#   logs/scheduled/events.jsonl    - scheduled trigger events
+#   logs/mng_agents/events.jsonl   - agent state transitions
+#   logs/stop/events.jsonl         - agent stop events
 #
 # Each event in these files includes the standard envelope (timestamp, type,
 # event_id, source) so the watcher can format meaningful messages.
@@ -23,8 +25,9 @@ set -euo pipefail
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 AGENT_NAME="${MNG_AGENT_NAME:?MNG_AGENT_NAME must be set}"
 HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
-MESSAGES_EVENTS="$AGENT_DATA_DIR/logs/messages/events.jsonl"
-ENTRYPOINT_EVENTS="$AGENT_DATA_DIR/logs/entrypoint/events.jsonl"
+# All event sources the watcher monitors for new events
+LOGS_DIR="$AGENT_DATA_DIR/logs"
+WATCHED_SOURCES=("messages" "scheduled" "mng_agents" "stop")
 OFFSETS_DIR="$AGENT_DATA_DIR/logs/.event_offsets"
 LOG_FILE="$HOST_DIR/logs/event_watcher.log"
 POLL_INTERVAL=3
@@ -99,15 +102,12 @@ $new_lines"
 }
 
 check_all_sources() {
-    # Check messages events (conversation messages synced from llm DB)
-    if [ -f "$MESSAGES_EVENTS" ]; then
-        check_and_send_new_events "$MESSAGES_EVENTS"
-    fi
-
-    # Check entrypoint events (scheduled triggers, sub-agent state changes, etc.)
-    if [ -f "$ENTRYPOINT_EVENTS" ]; then
-        check_and_send_new_events "$ENTRYPOINT_EVENTS"
-    fi
+    for source in "${WATCHED_SOURCES[@]}"; do
+        local events_file="$LOGS_DIR/$source/events.jsonl"
+        if [ -f "$events_file" ]; then
+            check_and_send_new_events "$events_file"
+        fi
+    done
 }
 
 main() {
@@ -116,8 +116,7 @@ main() {
     log "Event watcher started"
     log "  Agent data dir: $AGENT_DATA_DIR"
     log "  Agent name: $AGENT_NAME"
-    log "  Messages events: $MESSAGES_EVENTS"
-    log "  Entrypoint events: $ENTRYPOINT_EVENTS"
+    log "  Watched sources: ${WATCHED_SOURCES[*]}"
     log "  Offsets dir: $OFFSETS_DIR"
     log "  Log file: $LOG_FILE"
     log "  Poll interval: ${POLL_INTERVAL}s"
@@ -126,9 +125,9 @@ main() {
         log "Using inotifywait for file watching"
         while true; do
             local watch_dirs=()
-            # Watch parent directories of event files
-            watch_dirs+=("$(dirname "$MESSAGES_EVENTS")")
-            watch_dirs+=("$(dirname "$ENTRYPOINT_EVENTS")")
+            for source in "${WATCHED_SOURCES[@]}"; do
+                watch_dirs+=("$LOGS_DIR/$source")
+            done
 
             log_debug "Waiting for file changes in: ${watch_dirs[*]}"
             inotifywait -q -r -t "$POLL_INTERVAL" -e modify,create "${watch_dirs[@]}" 2>/dev/null || true

@@ -26,8 +26,8 @@ def gather_context() -> str:
 
     Returns a formatted string containing:
     - Recent messages from other active conversations (from logs/messages/events.jsonl)
-    - Recent inner monologue entries (from logs/transcript/events.jsonl)
-    - Recent entrypoint events (from logs/entrypoint/events.jsonl)
+    - Recent inner monologue entries (from logs/claude_transcript/events.jsonl)
+    - Recent scheduled events (from logs/scheduled/events.jsonl)
 
     Call this at the start of each conversation turn for situational awareness.
     """
@@ -42,8 +42,8 @@ def gather_context() -> str:
 
     sections: list[str] = []
 
-    # Recent inner monologue (last INNER_MONOLOGUE_LINE_COUNT entries from logs/transcript/events.jsonl)
-    transcript = agent_data_dir / "logs" / "transcript" / "events.jsonl"
+    # Recent inner monologue (last INNER_MONOLOGUE_LINE_COUNT entries from logs/claude_transcript/events.jsonl)
+    transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
     if transcript.exists():
         try:
             lines = transcript.read_text().strip().split("\n")
@@ -80,8 +80,8 @@ def gather_context() -> str:
         except OSError:
             pass
 
-    # Recent entrypoint events (last 5 from logs/entrypoint/events.jsonl)
-    events_file = agent_data_dir / "logs" / "entrypoint" / "events.jsonl"
+    # Recent scheduled events (last 5 from logs/scheduled/events.jsonl)
+    events_file = agent_data_dir / "logs" / "scheduled" / "events.jsonl"
     if events_file.exists():
         try:
             lines = events_file.read_text().strip().split("\n")

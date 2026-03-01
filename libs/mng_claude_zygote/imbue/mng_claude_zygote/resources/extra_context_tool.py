@@ -63,8 +63,8 @@ def gather_extra_context() -> str:
     if agent_data_dir_str:
         agent_data_dir = Path(agent_data_dir_str)
 
-        # Extended inner monologue (last 50 from logs/transcript/events.jsonl)
-        transcript = agent_data_dir / "logs" / "transcript" / "events.jsonl"
+        # Extended inner monologue (last 50 from logs/claude_transcript/events.jsonl)
+        transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
         if transcript.exists():
             try:
                 lines = transcript.read_text().strip().split("\n")

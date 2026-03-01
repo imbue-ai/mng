@@ -230,9 +230,19 @@ def test_event_watcher_watches_messages_events() -> None:
     assert "messages/events.jsonl" in content
 
 
-def test_event_watcher_watches_entrypoint_events() -> None:
+def test_event_watcher_watches_scheduled_events() -> None:
     content = load_zygote_resource("event_watcher.sh")
-    assert "entrypoint/events.jsonl" in content
+    assert "scheduled" in content
+
+
+def test_event_watcher_watches_mng_agents_events() -> None:
+    content = load_zygote_resource("event_watcher.sh")
+    assert "mng_agents" in content
+
+
+def test_event_watcher_watches_stop_events() -> None:
+    content = load_zygote_resource("event_watcher.sh")
+    assert "stop" in content
 
 
 def test_event_watcher_tracks_offsets() -> None:
@@ -455,7 +465,7 @@ def test_create_event_log_directories_creates_all_source_dirs() -> None:
     host = _StubHost()
     create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"))
 
-    for source in ("conversations", "messages", "entrypoint", "transcript"):
+    for source in ("conversations", "messages", "scheduled", "mng_agents", "stop", "monitor", "claude_transcript"):
         assert any(source in c and "mkdir" in c for c in host.executed_commands), f"Missing mkdir for {source}"
 
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 from typing import Final
 
-from imbue.imbue_common.frozen_model import FrozenModel
+from imbue.imbue_common.event_envelope import EventEnvelope
+from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.primitives import NonEmptyStr
 
 
@@ -13,29 +14,6 @@ class ConversationId(NonEmptyStr):
 
 class ChatModel(NonEmptyStr):
     """Model name used for chat conversations (e.g. 'claude-sonnet-4-6')."""
-
-
-class IsoTimestamp(NonEmptyStr):
-    """An ISO 8601 formatted timestamp string with nanosecond precision.
-
-    Example: '2026-02-28T00:00:00.123456789Z'
-    """
-
-
-class EventType(NonEmptyStr):
-    """Type of an event (e.g. 'conversation_created', 'message', 'scheduled')."""
-
-
-class EventSource(NonEmptyStr):
-    """Source identifier for an event, matching the log folder name.
-
-    Must match the folder under logs/ where the event is stored.
-    Examples: 'conversations', 'messages', 'entrypoint'
-    """
-
-
-class EventId(NonEmptyStr):
-    """Unique identifier for an event (typically timestamp + random hex)."""
 
 
 class MessageRole(NonEmptyStr):
@@ -48,27 +26,24 @@ class MessageRole(NonEmptyStr):
 
 SOURCE_CONVERSATIONS: Final[EventSource] = EventSource("conversations")
 SOURCE_MESSAGES: Final[EventSource] = EventSource("messages")
-SOURCE_ENTRYPOINT: Final[EventSource] = EventSource("entrypoint")
-SOURCE_TRANSCRIPT: Final[EventSource] = EventSource("transcript")
+SOURCE_SCHEDULED: Final[EventSource] = EventSource("scheduled")
+SOURCE_MNG_AGENTS: Final[EventSource] = EventSource("mng_agents")
+SOURCE_STOP: Final[EventSource] = EventSource("stop")
+SOURCE_MONITOR: Final[EventSource] = EventSource("monitor")
+SOURCE_CLAUDE_TRANSCRIPT: Final[EventSource] = EventSource("claude_transcript")
 
 
-class ConversationEvent(FrozenModel):
+class ConversationEvent(EventEnvelope):
     """An event in logs/conversations/events.jsonl tracking conversation lifecycle.
 
     Emitted when a conversation is created or its model is changed.
-    Every event includes the standard envelope fields (timestamp, type,
-    event_id, source) plus conversation-specific fields.
     """
 
-    timestamp: IsoTimestamp
-    type: EventType
-    event_id: EventId
-    source: EventSource
     conversation_id: ConversationId
     model: ChatModel
 
 
-class MessageEvent(FrozenModel):
+class MessageEvent(EventEnvelope):
     """An event in logs/messages/events.jsonl recording a conversation message.
 
     Each event represents a single user or assistant message. All messages
@@ -76,24 +51,16 @@ class MessageEvent(FrozenModel):
     identifying which conversation the message belongs to.
     """
 
-    timestamp: IsoTimestamp
-    type: EventType
-    event_id: EventId
-    source: EventSource
     conversation_id: ConversationId
     role: MessageRole
     content: str
 
 
-class EntrypointEvent(FrozenModel):
-    """An event in logs/entrypoint/events.jsonl that triggers the inner monologue.
+class ChangelingEvent(EventEnvelope):
+    """A generic event with a data payload, used for sources like scheduled,
+    mng_agents, stop, and monitor.
 
-    Event types include time-based triggers, sub-agent state changes,
-    and shutdown checks. The data field carries event-type-specific payload.
+    The data field carries event-type-specific payload.
     """
 
-    timestamp: IsoTimestamp
-    type: EventType
-    event_id: EventId
-    source: EventSource
     data: dict[str, Any] = {}

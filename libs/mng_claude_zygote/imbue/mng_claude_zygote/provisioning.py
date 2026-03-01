@@ -220,12 +220,15 @@ def create_event_log_directories(host: OnlineHostInterface, agent_state_dir: Pat
     """Create the event log directory structure.
 
     Creates directories for each event source:
-    - <agent_state_dir>/logs/conversations/  (conversation lifecycle events)
-    - <agent_state_dir>/logs/messages/       (conversation messages)
-    - <agent_state_dir>/logs/entrypoint/     (entrypoint trigger events)
-    - <agent_state_dir>/logs/transcript/     (inner monologue, written by Claude background tasks)
+    - logs/conversations/     conversation lifecycle events
+    - logs/messages/          conversation messages
+    - logs/scheduled/         scheduled trigger events
+    - logs/mng_agents/        agent state transitions
+    - logs/stop/              agent stop events
+    - logs/monitor/           (future) monitor agent events
+    - logs/claude_transcript/ inner monologue (written by Claude background tasks)
     """
-    for source in ("conversations", "messages", "entrypoint", "transcript"):
+    for source in ("conversations", "messages", "scheduled", "mng_agents", "stop", "monitor", "claude_transcript"):
         source_dir = agent_state_dir / "logs" / source
         _execute_with_timing(
             host,
