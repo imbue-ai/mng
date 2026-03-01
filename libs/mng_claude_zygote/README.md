@@ -30,8 +30,11 @@ All event data uses a consistent append-only JSONL format stored under `<agent-d
 Event sources:
 - `logs/conversations/events.jsonl` - conversation lifecycle events (created, model changed). Each event includes `conversation_id` and `model`.
 - `logs/messages/events.jsonl` - all conversation messages across all conversations. Each event includes `conversation_id`, `role`, and `content`.
-- `logs/entrypoint/events.jsonl` - entrypoint trigger events (scheduled, sub-agent state changes, shutdown checks). Each event includes a `data` payload.
-- `logs/transcript/events.jsonl` - inner monologue transcript (written by Claude background tasks, not this plugin).
+- `logs/scheduled/events.jsonl`: Each event corresponds to a scheduled trigger that the primary agent should react to. The event data includes the name of the trigger and any relevant metadata.
+- `logs/mng_agents/events.jsonl`: all relevant agent state transitions (eg, when they become blocked, crash, finish, etc). Each event includes the agent_id, the new state, and any relevant metadata about the transition (eg, error message if it crashed)
+- `logs/stop/events.jsonl`: for detecting when this agent tried to stop the first time
+- `logs/monitor/events.jsonl`: (future) for injecting metacognitive thoughts or reminders from a local monitor agent
+- `logs/claude_transcript/events.jsonl` - inner monologue transcript (written by Claude background tasks, not this plugin).
 
 Every event is self-describing: you never need to know the filename to understand the event. The file organization is a performance/convenience choice, not a correctness one.
 
