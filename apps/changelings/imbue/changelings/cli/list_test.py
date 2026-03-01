@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 from click.testing import CliRunner
-from loguru import logger
 
 from imbue.changelings.cli.list import _DEFAULT_DISPLAY_FIELDS
 from imbue.changelings.cli.list import _HEADER_LABELS
@@ -11,6 +10,7 @@ from imbue.changelings.cli.list import _emit_human_output
 from imbue.changelings.cli.list import _emit_json_output
 from imbue.changelings.cli.list import _get_field_value
 from imbue.changelings.main import cli
+from imbue.changelings.testing import capture_loguru_messages
 
 _RUNNER = CliRunner()
 
@@ -131,12 +131,8 @@ def test_emit_human_output_with_agents_includes_agent_name() -> None:
     """Verify that _emit_human_output includes the agent name in output."""
     agents = [_make_agent_dict("agent-abc123", name="my-bot", state="RUNNING")]
 
-    messages: list[str] = []
-    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
+    with capture_loguru_messages() as messages:
         _emit_human_output(agents, _DEFAULT_DISPLAY_FIELDS)
-    finally:
-        logger.remove(handler_id)
 
     combined = "".join(messages)
     assert "my-bot" in combined
@@ -144,12 +140,8 @@ def test_emit_human_output_with_agents_includes_agent_name() -> None:
 
 def test_emit_human_output_with_empty_list_shows_no_changelings() -> None:
     """Verify that _emit_human_output shows 'No changelings found' for empty list."""
-    messages: list[str] = []
-    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
+    with capture_loguru_messages() as messages:
         _emit_human_output([], _DEFAULT_DISPLAY_FIELDS)
-    finally:
-        logger.remove(handler_id)
 
     combined = "".join(messages)
     assert "No changelings found" in combined

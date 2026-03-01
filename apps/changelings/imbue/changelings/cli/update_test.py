@@ -2,7 +2,6 @@ import json
 
 import pytest
 from click.testing import CliRunner
-from loguru import logger
 
 from imbue.changelings.cli.update import _is_agent_remote
 from imbue.changelings.cli.update import _print_result
@@ -10,6 +9,7 @@ from imbue.changelings.deployment.local import UpdateResult
 from imbue.changelings.main import cli
 from imbue.changelings.primitives import AgentName
 from imbue.changelings.testing import FakeConcurrencyGroup
+from imbue.changelings.testing import capture_loguru_messages
 from imbue.changelings.testing import make_fake_concurrency_group
 from imbue.changelings.testing import make_finished_process
 
@@ -158,12 +158,8 @@ def test_print_result_includes_agent_name_and_steps(
         did_provision=did_provision,
     )
 
-    messages: list[str] = []
-    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
+    with capture_loguru_messages() as messages:
         _print_result(result)
-    finally:
-        logger.remove(handler_id)
 
     combined = "".join(messages)
     assert "my-agent" in combined

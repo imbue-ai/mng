@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 from click.testing import Result
-from loguru import logger
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
@@ -24,6 +23,7 @@ from imbue.changelings.errors import ChangelingError
 from imbue.changelings.errors import MissingSettingsError
 from imbue.changelings.main import cli
 from imbue.changelings.primitives import AgentName
+from imbue.changelings.testing import capture_loguru_messages
 from imbue.changelings.testing import init_and_commit_git_repo
 from imbue.mng.primitives import AgentId
 
@@ -589,12 +589,8 @@ def test_print_result_includes_agent_name_and_login_url() -> None:
         login_url=login_url,
     )
 
-    messages: list[str] = []
-    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
+    with capture_loguru_messages() as messages:
         _print_result(result, DeploymentProvider.LOCAL)
-    finally:
-        logger.remove(handler_id)
 
     combined = "".join(messages)
     assert "my-agent" in combined
@@ -610,12 +606,8 @@ def test_print_result_shows_provider_name() -> None:
         login_url="http://127.0.0.1:8420/login?agent_id=xxx&one_time_code=yyy",
     )
 
-    messages: list[str] = []
-    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
-    try:
+    with capture_loguru_messages() as messages:
         _print_result(result, DeploymentProvider.MODAL)
-    finally:
-        logger.remove(handler_id)
 
     combined = "".join(messages)
     assert "modal" in combined
