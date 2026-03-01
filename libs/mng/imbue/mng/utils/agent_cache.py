@@ -14,7 +14,6 @@ from pydantic import Field
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import HostReference
-from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.utils.file_utils import atomic_write
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
@@ -89,15 +88,15 @@ def write_agent_names_cache(
         logger.debug("Failed to write agent name completion cache")
 
 
-def read_provider_names_for_identifiers(
+def resolve_identifiers_from_cache(
     cache_dir: Path,
     identifiers: Sequence[str],
-) -> tuple[str, ...] | None:
-    """Look up which providers own the given agent identifiers, using the cache.
+) -> list[CachedAgentEntry] | None:
+    """Look up cached agent entries matching the given identifiers (by name or ID).
 
-    Returns a tuple of provider names (always including "local") if every
-    identifier is found in the cache, or None if the cache is missing/corrupt
-    or any identifier cannot be resolved.
+    Returns a list of CachedAgentEntry objects if every identifier is found in
+    the cache, or None if the cache is missing/corrupt or any identifier cannot
+    be resolved.
     """
     try:
         cache_path = cache_dir / AGENT_COMPLETIONS_CACHE_FILENAME
@@ -111,34 +110,29 @@ def read_provider_names_for_identifiers(
     if not isinstance(agents_list, list):
         return None
 
-    # Build lookup dicts: name -> set of providers, id -> set of providers
-    providers_by_name: dict[str, set[str]] = {}
-    providers_by_id: dict[str, set[str]] = {}
-    for entry in agents_list:
-        if not isinstance(entry, dict):
+    # Build lookup dicts: name -> list of entries, id -> list of entries
+    entries_by_name: dict[str, list[CachedAgentEntry]] = {}
+    entries_by_id: dict[str, list[CachedAgentEntry]] = {}
+    for raw_entry in agents_list:
+        if not isinstance(raw_entry, dict):
             continue
-        name = entry.get("name")
-        agent_id = entry.get("id")
-        provider = entry.get("provider")
-        if not isinstance(provider, str):
+        try:
+            entry = CachedAgentEntry.model_validate(raw_entry)
+        except ValueError:
             continue
-        if isinstance(name, str):
-            providers_by_name.setdefault(name, set()).add(provider)
-        if isinstance(agent_id, str):
-            providers_by_id.setdefault(agent_id, set()).add(provider)
+        entries_by_name.setdefault(entry.name, []).append(entry)
+        entries_by_id.setdefault(entry.id, []).append(entry)
 
     # Resolve each identifier against both name and id lookups
-    matched_providers: set[str] = set()
+    matched_entries: list[CachedAgentEntry] = []
     for identifier in identifiers:
-        name_match = providers_by_name.get(identifier)
-        id_match = providers_by_id.get(identifier)
-        if name_match is None and id_match is None:
+        name_matches = entries_by_name.get(identifier)
+        id_matches = entries_by_id.get(identifier)
+        if name_matches is None and id_matches is None:
             return None
-        if name_match is not None:
-            matched_providers.update(name_match)
-        if id_match is not None:
-            matched_providers.update(id_match)
+        if name_matches is not None:
+            matched_entries.extend(name_matches)
+        if id_matches is not None:
+            matched_entries.extend(id_matches)
 
-    # Always include the local provider since local filesystem operations are cheap
-    matched_providers.add(str(LOCAL_PROVIDER_NAME))
-    return tuple(sorted(matched_providers))
+    return matched_entries

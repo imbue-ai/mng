@@ -10,7 +10,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.agent_cache import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.utils.agent_cache import read_provider_names_for_identifiers
+from imbue.mng.utils.agent_cache import resolve_identifiers_from_cache
 from imbue.mng.utils.agent_cache import write_agent_names_cache
 
 # =============================================================================
@@ -116,11 +116,11 @@ def test_write_agent_names_cache_deduplicates_names(
 
 
 # =============================================================================
-# read_provider_names_for_identifiers tests
+# resolve_identifiers_from_cache tests
 # =============================================================================
 
 
-def test_read_provider_names_round_trip_by_name(
+def test_resolve_identifiers_from_cache_round_trip_by_name(
     tmp_path: Path,
 ) -> None:
     agents_by_host, _ = build_agents_by_host_from_tuples(
@@ -131,14 +131,16 @@ def test_read_provider_names_round_trip_by_name(
     )
     write_agent_names_cache(tmp_path, agents_by_host)
 
-    result = read_provider_names_for_identifiers(tmp_path, ["bench-ep-cache4"])
+    result = resolve_identifiers_from_cache(tmp_path, ["bench-ep-cache4"])
 
     assert result is not None
-    assert "modal" in result
-    assert "local" in result
+    assert len(result) == 1
+    assert result[0].name == "bench-ep-cache4"
+    assert result[0].provider == "modal"
+    assert result[0].host_name == "bench-host"
 
 
-def test_read_provider_names_round_trip_by_id(
+def test_resolve_identifiers_from_cache_round_trip_by_id(
     tmp_path: Path,
 ) -> None:
     agents_by_host, ids_by_name = build_agents_by_host_from_tuples(
@@ -150,14 +152,15 @@ def test_read_provider_names_round_trip_by_id(
     write_agent_names_cache(tmp_path, agents_by_host)
 
     agent_id = str(ids_by_name["my-agent"])
-    result = read_provider_names_for_identifiers(tmp_path, [agent_id])
+    result = resolve_identifiers_from_cache(tmp_path, [agent_id])
 
     assert result is not None
-    assert "docker" in result
-    assert "local" in result
+    assert len(result) == 1
+    assert result[0].name == "my-agent"
+    assert result[0].provider == "docker"
 
 
-def test_read_provider_names_returns_union_for_multiple_identifiers(
+def test_resolve_identifiers_from_cache_returns_entries_for_multiple_identifiers(
     tmp_path: Path,
 ) -> None:
     agents_by_host, _ = build_agents_by_host_from_tuples(
@@ -168,15 +171,15 @@ def test_read_provider_names_returns_union_for_multiple_identifiers(
     )
     write_agent_names_cache(tmp_path, agents_by_host)
 
-    result = read_provider_names_for_identifiers(tmp_path, ["bench-ep-cache4", "my-agent"])
+    result = resolve_identifiers_from_cache(tmp_path, ["bench-ep-cache4", "my-agent"])
 
     assert result is not None
-    assert "modal" in result
-    assert "docker" in result
-    assert "local" in result
+    assert len(result) == 2
+    providers = {entry.provider for entry in result}
+    assert providers == {"modal", "docker"}
 
 
-def test_read_provider_names_returns_none_for_missing_identifier(
+def test_resolve_identifiers_from_cache_returns_none_for_missing_identifier(
     tmp_path: Path,
 ) -> None:
     agents_by_host, _ = build_agents_by_host_from_tuples(
@@ -186,47 +189,31 @@ def test_read_provider_names_returns_none_for_missing_identifier(
     )
     write_agent_names_cache(tmp_path, agents_by_host)
 
-    result = read_provider_names_for_identifiers(tmp_path, ["nonexistent-agent"])
+    result = resolve_identifiers_from_cache(tmp_path, ["nonexistent-agent"])
 
     assert result is None
 
 
-def test_read_provider_names_returns_none_when_cache_file_missing(
+def test_resolve_identifiers_from_cache_returns_none_when_cache_file_missing(
     tmp_path: Path,
 ) -> None:
-    result = read_provider_names_for_identifiers(tmp_path, ["some-agent"])
+    result = resolve_identifiers_from_cache(tmp_path, ["some-agent"])
 
     assert result is None
 
 
-def test_read_provider_names_returns_none_for_corrupt_cache_file(
+def test_resolve_identifiers_from_cache_returns_none_for_corrupt_cache_file(
     tmp_path: Path,
 ) -> None:
     cache_path = tmp_path / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_path.write_text("not valid json {{{")
 
-    result = read_provider_names_for_identifiers(tmp_path, ["some-agent"])
+    result = resolve_identifiers_from_cache(tmp_path, ["some-agent"])
 
     assert result is None
 
 
-def test_read_provider_names_always_includes_local(
-    tmp_path: Path,
-) -> None:
-    agents_by_host, _ = build_agents_by_host_from_tuples(
-        [
-            ("bench-ep-cache4", "modal", "bench-host"),
-        ]
-    )
-    write_agent_names_cache(tmp_path, agents_by_host)
-
-    result = read_provider_names_for_identifiers(tmp_path, ["bench-ep-cache4"])
-
-    assert result is not None
-    assert "local" in result
-
-
-def test_read_provider_names_returns_none_when_agents_key_missing(
+def test_resolve_identifiers_from_cache_returns_none_when_agents_key_missing(
     tmp_path: Path,
 ) -> None:
     """Cache without the 'agents' key (old format) should return None."""
@@ -237,12 +224,12 @@ def test_read_provider_names_returns_none_when_agents_key_missing(
     }
     cache_path.write_text(json.dumps(cache_data))
 
-    result = read_provider_names_for_identifiers(tmp_path, ["bench-ep-cache4"])
+    result = resolve_identifiers_from_cache(tmp_path, ["bench-ep-cache4"])
 
     assert result is None
 
 
-def test_read_provider_names_returns_none_when_any_identifier_missing(
+def test_resolve_identifiers_from_cache_returns_none_when_any_identifier_missing(
     tmp_path: Path,
 ) -> None:
     """If one identifier is found but another is not, the whole result is None."""
@@ -253,6 +240,6 @@ def test_read_provider_names_returns_none_when_any_identifier_missing(
     )
     write_agent_names_cache(tmp_path, agents_by_host)
 
-    result = read_provider_names_for_identifiers(tmp_path, ["found-agent", "missing-agent"])
+    result = resolve_identifiers_from_cache(tmp_path, ["found-agent", "missing-agent"])
 
     assert result is None

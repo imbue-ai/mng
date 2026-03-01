@@ -30,8 +30,9 @@ from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
+from imbue.mng.utils.agent_cache import CachedAgentEntry
 from imbue.mng.utils.agent_cache import get_completion_cache_dir
-from imbue.mng.utils.agent_cache import read_provider_names_for_identifiers
+from imbue.mng.utils.agent_cache import resolve_identifiers_from_cache
 
 
 class ParsedSourceLocation(FrozenModel):
@@ -425,6 +426,16 @@ class AgentMatch(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
+@pure
+def _cached_entry_to_agent_match(entry: CachedAgentEntry) -> AgentMatch:
+    return AgentMatch(
+        agent_id=AgentId(entry.id),
+        agent_name=AgentName(entry.name),
+        host_id=HostId(entry.host_id),
+        provider_name=ProviderInstanceName(entry.provider),
+    )
+
+
 class _MatchResult(FrozenModel):
     """Result of matching agent identifiers against loaded agent references."""
 
@@ -490,27 +501,17 @@ def find_agents_by_identifiers_or_state(
 
     Raises AgentNotFoundError if any identifier does not match an agent.
     """
-    # Use the cache to narrow the provider query when looking up specific agents
-    provider_names_filter: tuple[str, ...] | None = None
-    if not filter_all and agent_identifiers:
-        cached_providers = read_provider_names_for_identifiers(get_completion_cache_dir(), agent_identifiers)
-        if cached_providers is not None:
-            provider_names_filter = cached_providers
+    # Fast path: resolve specific identifiers directly from the cache when no
+    # state filtering is needed. This skips all provider queries entirely.
+    if not filter_all and agent_identifiers and target_state is None:
+        cached_entries = resolve_identifiers_from_cache(get_completion_cache_dir(), agent_identifiers)
+        if cached_entries is not None:
+            return [_cached_entry_to_agent_match(entry) for entry in cached_entries]
 
-    agents_by_host, _ = load_all_agents_grouped_by_host(
-        mng_ctx, provider_names=provider_names_filter, include_destroyed=False
-    )
+    # Full scan path: query providers for agent references
+    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
 
     match_result = _match_agents_by_identifiers_or_all(agents_by_host, agent_identifiers, filter_all)
-
-    # If we used a cache-based filter and some identifiers were not found, the
-    # cache may be stale. Retry with a full (unfiltered) provider scan.
-    if agent_identifiers and provider_names_filter is not None:
-        unmatched = set(agent_identifiers) - match_result.matched_identifiers
-        if unmatched:
-            logger.debug("Cache miss for {}, retrying with all providers", unmatched)
-            agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
-            match_result = _match_agents_by_identifiers_or_all(agents_by_host, agent_identifiers, filter_all)
 
     # Verify all specified identifiers were found
     if agent_identifiers:
