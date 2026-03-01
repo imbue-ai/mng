@@ -14,6 +14,6 @@ from imbue.mng.utils.logging import suppress_warnings
 # Suppress some pointless warnings from other library's loggers
 suppress_warnings()
 
-# Register Modal/Docker SDK guards, then the common conftest hooks
+# Register mng-specific resource guards (SDK + binary), then the common conftest hooks
 register_mng_sdk_guards()
 register_conftest_hooks(globals())

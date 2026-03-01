@@ -5,6 +5,7 @@ from modal._grpc_client import UnaryStreamWrapper
 from modal._grpc_client import UnaryUnaryWrapper
 
 from imbue.imbue_common.resource_guards import enforce_sdk_guard
+from imbue.imbue_common.resource_guards import register_resource_guard
 from imbue.imbue_common.resource_guards import register_sdk_guard
 
 # Each guard pair manages its own originals dict so install/cleanup are symmetric.
@@ -97,11 +98,18 @@ def _cleanup_docker_guards() -> None:
     _docker_originals.clear()
 
 
-def register_mng_sdk_guards() -> None:
-    """Register Modal and Docker SDK guards with the resource guard infrastructure.
+_GUARDED_BINARY_RESOURCES = ("tmux", "rsync", "unison")
 
-    Safe to call multiple times; register_sdk_guard deduplicates by name.
+
+def register_mng_sdk_guards() -> None:
+    """Register all mng-specific resource guards with the infrastructure.
+
+    Registers both SDK monkeypatches (Modal, Docker) and binary wrapper
+    guards (tmux, rsync, unison). Safe to call multiple times; both
+    register_sdk_guard and register_resource_guard deduplicate by name.
     Call this before register_conftest_hooks() in each conftest.py.
     """
     register_sdk_guard("modal", _install_modal_guards, _cleanup_modal_guards)
     register_sdk_guard("docker", _install_docker_guards, _cleanup_docker_guards)
+    for resource in _GUARDED_BINARY_RESOURCES:
+        register_resource_guard(resource)
