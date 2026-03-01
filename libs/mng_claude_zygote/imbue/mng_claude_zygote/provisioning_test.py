@@ -526,19 +526,25 @@ def test_is_recursive_plugin_registered_returns_false_when_absent() -> None:
 # -- context_tool incremental behavior tests --
 
 
-def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_path: Path) -> None:
-    """Verify gather_context returns a message when MNG_AGENT_STATE_DIR is not set."""
+def _load_fresh_context_tool(name: str) -> Any:
+    """Load a fresh instance of context_tool.py with clean state."""
     import importlib
 
     spec = importlib.util.spec_from_file_location(
-        "context_tool_test_module",
+        name,
         Path(__file__).parent / "resources" / "context_tool.py",
     )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
 
+
+def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_path: Path) -> None:
+    """Verify gather_context returns a message when MNG_AGENT_STATE_DIR is not set."""
     import os
+
+    module = _load_fresh_context_tool("context_tool_test_module")
 
     old_val = os.environ.pop("MNG_AGENT_STATE_DIR", None)
     try:
@@ -551,7 +557,6 @@ def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_pat
 
 def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_path: Path) -> None:
     """Verify gather_context returns incremental results on subsequent calls."""
-    import importlib
     import os
 
     # Set up a minimal agent data dir with one scheduled event
@@ -560,14 +565,7 @@ def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_p
     events_file = logs_dir / "events.jsonl"
     events_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"e1","source":"scheduled"}\n')
 
-    # Load a fresh module instance (to get clean _last_file_sizes state)
-    spec = importlib.util.spec_from_file_location(
-        "context_tool_incremental_test",
-        Path(__file__).parent / "resources" / "context_tool.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _load_fresh_context_tool("context_tool_incremental_test")
 
     old_val = os.environ.get("MNG_AGENT_STATE_DIR")
     os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
@@ -584,20 +582,6 @@ def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_p
             os.environ["MNG_AGENT_STATE_DIR"] = old_val
         else:
             os.environ.pop("MNG_AGENT_STATE_DIR", None)
-
-
-def _load_fresh_context_tool(name: str) -> Any:
-    """Load a fresh instance of context_tool.py with clean state."""
-    import importlib
-
-    spec = importlib.util.spec_from_file_location(
-        name,
-        Path(__file__).parent / "resources" / "context_tool.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _make_event_line(event_id: str, source: str = "test") -> str:
