@@ -24,10 +24,14 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import LogLevel
+from imbue.mng.providers.deploy_utils import MngInstallMode
+from imbue.mng.providers.deploy_utils import collect_deploy_files
+from imbue.mng.providers.deploy_utils import detect_mng_install_mode as _shared_detect_mng_install_mode
+from imbue.mng.providers.deploy_utils import resolve_mng_install_mode as _shared_resolve_mng_install_mode
 from imbue.mng.providers.modal.instance import ModalProviderInstance
-from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ModalScheduleCreationRecord
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import VerifyMode
@@ -179,37 +183,21 @@ def package_directory_as_tarball(source_dir: Path, dest_dir: Path) -> None:
 def detect_mng_install_mode() -> MngInstallMode:
     """Detect how mng-schedule is currently installed.
 
-    Returns EDITABLE if the package is installed in editable (development) mode,
-    PACKAGE if installed as a normal package, or raises ScheduleDeployError if
-    the package is not installed at all.
+    Delegates to the shared detect_mng_install_mode utility, but first
+    verifies that mng-schedule is installed (raising ScheduleDeployError
+    if not).
     """
     try:
-        dist = importlib.metadata.distribution("mng-schedule")
+        importlib.metadata.distribution("mng-schedule")
     except importlib.metadata.PackageNotFoundError:
         raise ScheduleDeployError("mng-schedule package is not installed. Cannot determine install mode.") from None
 
-    # Check if the package is installed in editable mode by looking for a
-    # direct_url.json with "editable": true, which is the standard way PEP 610
-    # marks editable installs.
-    direct_url_text = dist.read_text("direct_url.json")
-    if direct_url_text is not None:
-        try:
-            direct_url = json.loads(direct_url_text)
-            if direct_url.get("dir_info", {}).get("editable", False):
-                return MngInstallMode.EDITABLE
-        except (json.JSONDecodeError, AttributeError) as exc:
-            logger.debug("Could not parse direct_url.json for mng-schedule: {}", exc)
-
-    return MngInstallMode.PACKAGE
+    return _shared_detect_mng_install_mode("mng-schedule")
 
 
 def resolve_mng_install_mode(mode: MngInstallMode) -> MngInstallMode:
     """Resolve AUTO mode to a concrete install mode, or pass through others."""
-    if mode == MngInstallMode.AUTO:
-        resolved = detect_mng_install_mode()
-        logger.info("Auto-detected mng install mode: {}", resolved.value.lower())
-        return resolved
-    return mode
+    return _shared_resolve_mng_install_mode(mode, "mng-schedule")
 
 
 def _get_mng_schedule_source_dir() -> Path:
@@ -364,31 +352,19 @@ def _collect_deploy_files(
 ) -> dict[Path, Path | str]:
     """Collect all files for deployment by calling the get_files_for_deploy hook.
 
-    Destination paths must either start with "~" (user home files) or be
-    relative paths (project files copied to the image WORKDIR).  Absolute
-    paths that do not start with "~" are rejected.
+    Delegates to the shared collect_deploy_files utility in core mng.
+    Catches MngError (from absolute path validation) and re-raises as
+    ScheduleDeployError for backward compatibility.
     """
-    all_results: list[dict[Path, Path | str]] = mng_ctx.pm.hook.get_files_for_deploy(
-        mng_ctx=mng_ctx,
-        include_user_settings=include_user_settings,
-        include_project_settings=include_project_settings,
-        repo_root=repo_root,
-    )
-    merged: dict[Path, Path | str] = {}
-    for result in all_results:
-        for dest_path, source in result.items():
-            dest_str = str(dest_path)
-            if dest_str.startswith("/"):
-                raise ScheduleDeployError(
-                    f"Deploy file destination path must be relative or start with '~', got: {dest_path}"
-                )
-            if dest_path in merged:
-                logger.warning(
-                    "Deploy file collision: {} registered by multiple plugins, overwriting previous value",
-                    dest_path,
-                )
-            merged[dest_path] = source
-    return merged
+    try:
+        return collect_deploy_files(
+            mng_ctx=mng_ctx,
+            repo_root=repo_root,
+            include_user_settings=include_user_settings,
+            include_project_settings=include_project_settings,
+        )
+    except MngError as e:
+        raise ScheduleDeployError(str(e)) from e
 
 
 def stage_deploy_files(
