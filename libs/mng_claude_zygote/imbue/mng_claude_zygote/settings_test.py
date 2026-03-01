@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Any
 from typing import cast
 
+from imbue.mng_claude_zygote.conftest import StubCommandResult
+from imbue.mng_claude_zygote.conftest import StubHost
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.data_types import ChatSettings
 from imbue.mng_claude_zygote.data_types import ClaudeZygoteSettings
@@ -14,52 +16,13 @@ from imbue.mng_claude_zygote.data_types import WatcherSettings
 from imbue.mng_claude_zygote.settings import load_settings_from_host
 from imbue.mng_claude_zygote.settings import provision_settings_file
 
-
-class _StubCommandResult:
-    """Concrete test double for command execution results."""
-
-    def __init__(self, *, success: bool = True, stderr: str = "", stdout: str = "") -> None:
-        self.success = success
-        self.stderr = stderr
-        self.stdout = stdout
-
-
-class _StubHost:
-    """Concrete test double for OnlineHostInterface that records operations."""
-
-    def __init__(
-        self,
-        command_results: dict[str, _StubCommandResult] | None = None,
-        text_file_contents: dict[str, str] | None = None,
-    ) -> None:
-        self.executed_commands: list[str] = []
-        self.written_text_files: list[tuple[Path, str]] = []
-        self._command_results = command_results or {}
-        self._text_file_contents = text_file_contents or {}
-
-    def execute_command(self, command: str, **kwargs: Any) -> _StubCommandResult:
-        self.executed_commands.append(command)
-        for pattern, result in self._command_results.items():
-            if pattern in command:
-                return result
-        return _StubCommandResult()
-
-    def read_text_file(self, path: Path) -> str:
-        for pattern, content in self._text_file_contents.items():
-            if pattern in str(path):
-                return content
-        raise FileNotFoundError(f"No stub content for {path}")
-
-    def write_text_file(self, path: Path, content: str) -> None:
-        self.written_text_files.append((path, content))
-
-
 # -- ClaudeZygoteSettings default tests --
 
 
-def test_settings_default_chat_model() -> None:
+def test_settings_default_chat_model_is_none() -> None:
+    """Default chat model is None (falls back to ClaudeZygoteConfig.default_chat_model)."""
     settings = ClaudeZygoteSettings()
-    assert settings.chat.default_model == ChatModel("claude-opus-4-6")
+    assert settings.chat.default_model is None
 
 
 def test_settings_default_context_values() -> None:
@@ -154,31 +117,31 @@ def test_provisioning_settings_is_frozen() -> None:
 
 
 def test_load_settings_returns_defaults_when_file_missing() -> None:
-    host = _StubHost(command_results={"test -f": _StubCommandResult(success=False)})
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
     settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
     assert settings == ClaudeZygoteSettings()
 
 
 def test_load_settings_parses_toml_from_host() -> None:
     toml_content = '[chat]\ndefault_model = "claude-sonnet-4-6"\n'
-    host = _StubHost(text_file_contents={"settings.toml": toml_content})
+    host = StubHost(text_file_contents={"settings.toml": toml_content})
     settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
     assert settings.chat.default_model == ChatModel("claude-sonnet-4-6")
 
 
 def test_load_settings_returns_defaults_on_invalid_toml() -> None:
-    host = _StubHost(text_file_contents={"settings.toml": "not valid toml {{{"})
+    host = StubHost(text_file_contents={"settings.toml": "not valid toml {{{"})
     settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
     assert settings == ClaudeZygoteSettings()
 
 
 def test_load_settings_returns_defaults_on_read_failure() -> None:
     # Host says file exists but read_text_file raises
-    host = _StubHost()
+    host = StubHost()
     settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
     # File check passes (default success), but read_text_file raises FileNotFoundError
     # which is caught. Defaults returned.
-    assert settings.chat.default_model == ChatModel("claude-opus-4-6")
+    assert settings.chat.default_model is None
 
 
 # -- provision_settings_file tests --
@@ -186,7 +149,7 @@ def test_load_settings_returns_defaults_on_read_failure() -> None:
 
 def test_provision_settings_file_copies_when_exists() -> None:
     toml_content = '[chat]\ndefault_model = "claude-sonnet-4-6"\n'
-    host = _StubHost(text_file_contents={"settings.toml": toml_content})
+    host = StubHost(text_file_contents={"settings.toml": toml_content})
     provision_settings_file(cast(Any, host), Path("/work"), ".changelings", Path("/state"))
 
     assert len(host.written_text_files) == 1
@@ -196,7 +159,7 @@ def test_provision_settings_file_copies_when_exists() -> None:
 
 
 def test_provision_settings_file_skips_when_missing() -> None:
-    host = _StubHost(command_results={"test -f": _StubCommandResult(success=False)})
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
     provision_settings_file(cast(Any, host), Path("/work"), ".changelings", Path("/state"))
 
     assert len(host.written_text_files) == 0

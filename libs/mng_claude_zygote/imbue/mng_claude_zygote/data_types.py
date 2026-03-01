@@ -79,9 +79,10 @@ class ChangelingEvent(EventEnvelope):
 class ChatSettings(FrozenModel):
     """Settings for the [chat] TOML section."""
 
-    default_model: ChatModel = Field(
-        default=ChatModel("claude-opus-4-6"),
-        description="Default model for new conversation threads.",
+    default_model: ChatModel | None = Field(
+        default=None,
+        description="Default model for new conversation threads. "
+        "When None, falls back to ClaudeZygoteConfig.default_chat_model.",
     )
 
 

@@ -26,7 +26,11 @@ _TAIL_CHUNK_SIZE = 8192
 
 
 def _load_settings() -> dict:
-    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml."""
+    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml.
+
+    NOTE: This function is intentionally duplicated in extra_context_tool.py.
+    These files are deployed as standalone scripts and cannot share imports.
+    """
     try:
         import tomllib
     except ImportError:

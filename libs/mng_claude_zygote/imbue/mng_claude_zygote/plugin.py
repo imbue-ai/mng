@@ -163,7 +163,9 @@ class ClaudeZygoteAgent(ClaudeAgent):
 
         # Use default_chat_model from settings.toml if present,
         # otherwise fall back to the agent type config value.
-        chat_model = settings.chat.default_model
+        chat_model = (
+            settings.chat.default_model if settings.chat.default_model is not None else config.default_chat_model
+        )
         write_default_chat_model(host, agent_state_dir, chat_model)
 
         link_memory_directory(host, self.work_dir, config.changelings_dir_name, provisioning)

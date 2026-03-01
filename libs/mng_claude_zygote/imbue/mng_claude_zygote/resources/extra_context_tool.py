@@ -23,7 +23,11 @@ from pathlib import Path
 
 
 def _load_settings() -> dict:
-    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml."""
+    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml.
+
+    NOTE: This function is intentionally duplicated in context_tool.py.
+    These files are deployed as standalone scripts and cannot share imports.
+    """
     try:
         import tomllib
     except ImportError:

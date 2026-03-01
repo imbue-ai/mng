@@ -7,6 +7,8 @@ from typing import cast
 
 import pytest
 
+from imbue.mng_claude_zygote.conftest import StubCommandResult
+from imbue.mng_claude_zygote.conftest import StubHost
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.data_types import ProvisioningSettings
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
@@ -24,51 +26,6 @@ from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
-
-
-class _StubCommandResult:
-    """Concrete test double for command execution results."""
-
-    def __init__(self, *, success: bool = True, stderr: str = "", stdout: str = "") -> None:
-        self.success = success
-        self.stderr = stderr
-        self.stdout = stdout
-
-
-class _StubHost:
-    """Concrete test double for OnlineHostInterface that records operations.
-
-    Records all execute_command calls and write_file/write_text_file calls
-    for assertion in tests.
-    """
-
-    def __init__(
-        self,
-        host_dir: Path = Path("/tmp/mng-test/host"),
-        command_results: dict[str, _StubCommandResult] | None = None,
-    ) -> None:
-        self.host_dir = host_dir
-        self.executed_commands: list[str] = []
-        self.written_files: list[tuple[Path, bytes, str]] = []
-        self.written_text_files: list[tuple[Path, str]] = []
-        self._command_results = command_results or {}
-
-    def execute_command(self, command: str, **kwargs: Any) -> _StubCommandResult:
-        self.executed_commands.append(command)
-        for pattern, result in self._command_results.items():
-            if pattern in command:
-                return result
-        # For `cd <path> && pwd`, return the path as stdout
-        if "&& pwd" in command and "cd " in command:
-            path = command.split("cd ")[1].split(" &&")[0].strip("'\"")
-            return _StubCommandResult(stdout=path + "\n")
-        return _StubCommandResult()
-
-    def write_file(self, path: Path, content: bytes, mode: str = "0644") -> None:
-        self.written_files.append((path, content, mode))
-
-    def write_text_file(self, path: Path, content: str) -> None:
-        self.written_text_files.append((path, content))
 
 
 # -- Resource loading tests --
@@ -309,7 +266,7 @@ def test_compute_claude_project_dir_name_replaces_dots() -> None:
 
 
 def test_link_memory_directory_creates_changelings_memory_dir() -> None:
-    host = _StubHost()
+    host = StubHost()
     link_memory_directory(
         cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
     )
@@ -318,7 +275,7 @@ def test_link_memory_directory_creates_changelings_memory_dir() -> None:
 
 
 def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> None:
-    host = _StubHost()
+    host = StubHost()
     link_memory_directory(
         cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
     )
@@ -331,7 +288,7 @@ def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> Non
 
 
 def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
-    host = _StubHost()
+    host = StubHost()
     link_memory_directory(
         cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
     )
@@ -347,7 +304,7 @@ def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
 
 def test_link_memory_directory_does_not_use_literal_tilde() -> None:
     """Verify that ~ is never used in paths (it doesn't expand inside single quotes)."""
-    host = _StubHost()
+    host = StubHost()
     link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings", _DEFAULT_PROVISIONING)
 
     for cmd in host.executed_commands:
@@ -359,7 +316,7 @@ def test_link_memory_directory_does_not_use_literal_tilde() -> None:
 
 
 def test_install_llm_toolchain_skips_when_already_present() -> None:
-    host = _StubHost()
+    host = StubHost()
     install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("command -v llm" in c for c in host.executed_commands)
@@ -367,31 +324,31 @@ def test_install_llm_toolchain_skips_when_already_present() -> None:
 
 
 def test_install_llm_toolchain_installs_when_missing() -> None:
-    host = _StubHost(command_results={"command -v llm": _StubCommandResult(success=False)})
+    host = StubHost(command_results={"command -v llm": StubCommandResult(success=False)})
     install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("uv tool install llm" in c for c in host.executed_commands)
 
 
 def test_install_llm_toolchain_installs_anthropic_plugin() -> None:
-    host = _StubHost()
+    host = StubHost()
     install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("llm install llm-anthropic" in c for c in host.executed_commands)
 
 
 def test_install_llm_toolchain_installs_live_chat_plugin() -> None:
-    host = _StubHost()
+    host = StubHost()
     install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("llm install llm-live-chat" in c for c in host.executed_commands)
 
 
 def test_install_llm_toolchain_raises_on_llm_install_failure() -> None:
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "command -v llm": _StubCommandResult(success=False),
-            "uv tool install llm": _StubCommandResult(success=False, stderr="install failed"),
+            "command -v llm": StubCommandResult(success=False),
+            "uv tool install llm": StubCommandResult(success=False, stderr="install failed"),
         }
     )
     with pytest.raises(RuntimeError, match="Failed to install llm"):
@@ -399,43 +356,43 @@ def test_install_llm_toolchain_raises_on_llm_install_failure() -> None:
 
 
 def test_install_llm_toolchain_raises_on_plugin_install_failure() -> None:
-    host = _StubHost(
-        command_results={"llm install llm-anthropic": _StubCommandResult(success=False, stderr="plugin failed")}
+    host = StubHost(
+        command_results={"llm install llm-anthropic": StubCommandResult(success=False, stderr="plugin failed")}
     )
     with pytest.raises(RuntimeError, match="Failed to install llm-anthropic"):
         install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
 
 def test_create_changeling_symlinks_checks_entrypoint_md() -> None:
-    host = _StubHost()
+    host = StubHost()
     create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("entrypoint.md" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_checks_entrypoint_json() -> None:
-    host = _StubHost()
+    host = StubHost()
     create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("entrypoint.json" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_creates_claude_local_md() -> None:
-    host = _StubHost()
+    host = StubHost()
     create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("ln -sf" in c and "CLAUDE.local.md" in c for c in host.executed_commands)
 
 
 def test_provision_changeling_scripts_creates_commands_dir() -> None:
-    host = _StubHost()
+    host = StubHost()
     provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "commands" in c for c in host.executed_commands)
 
 
 def test_provision_changeling_scripts_writes_all_scripts() -> None:
-    host = _StubHost()
+    host = StubHost()
     provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
@@ -444,7 +401,7 @@ def test_provision_changeling_scripts_writes_all_scripts() -> None:
 
 
 def test_provision_changeling_scripts_uses_executable_mode() -> None:
-    host = _StubHost()
+    host = StubHost()
     provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     for _, _, mode in host.written_files:
@@ -452,14 +409,14 @@ def test_provision_changeling_scripts_uses_executable_mode() -> None:
 
 
 def test_provision_llm_tools_creates_tools_dir() -> None:
-    host = _StubHost()
+    host = StubHost()
     provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "llm_tools" in c for c in host.executed_commands)
 
 
 def test_provision_llm_tools_writes_all_tool_files() -> None:
-    host = _StubHost()
+    host = StubHost()
     provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
@@ -468,7 +425,7 @@ def test_provision_llm_tools_writes_all_tool_files() -> None:
 
 
 def test_create_event_log_directories_creates_all_source_dirs() -> None:
-    host = _StubHost()
+    host = StubHost()
     create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     for source in ("conversations", "messages", "scheduled", "mng_agents", "stop", "monitor", "claude_transcript"):
@@ -476,7 +433,7 @@ def test_create_event_log_directories_creates_all_source_dirs() -> None:
 
 
 def test_write_default_chat_model_writes_model_to_file() -> None:
-    host = _StubHost()
+    host = StubHost()
     write_default_chat_model(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), ChatModel("claude-sonnet-4-6"))
 
     assert len(host.written_text_files) == 1
@@ -499,7 +456,7 @@ def _make_fake_pm(plugins: list[tuple[str, object]]) -> Any:
 
 
 def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
-    host = _StubHost()
+    host = StubHost()
     host.is_local = True  # type: ignore[attr-defined]
 
     warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]), _DEFAULT_PROVISIONING)
@@ -508,7 +465,7 @@ def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
 
 
 def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> None:
-    host = _StubHost()
+    host = StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
     warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("recursive_mng", object())]), _DEFAULT_PROVISIONING)
@@ -517,7 +474,7 @@ def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> Non
 
 
 def test_warn_if_mng_unavailable_checks_on_remote_without_recursive() -> None:
-    host = _StubHost()
+    host = StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
     warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("some_other_plugin", object())]), _DEFAULT_PROVISIONING)
@@ -1073,9 +1030,9 @@ def test_get_new_lines_returns_empty_when_only_incomplete_data_appended(
 
 def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
     """Verify symlinks are not created when target file doesn't exist."""
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "test -f": _StubCommandResult(success=False),
+            "test -f": StubCommandResult(success=False),
         }
     )
     create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
@@ -1086,9 +1043,9 @@ def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
 
 def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
     """Verify RuntimeError when symlink creation fails."""
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "ln -sf": _StubCommandResult(success=False, stderr="permission denied"),
+            "ln -sf": StubCommandResult(success=False, stderr="permission denied"),
         }
     )
     with pytest.raises(RuntimeError, match="Failed to create symlink"):
@@ -1097,9 +1054,9 @@ def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
 
 def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> None:
     """Verify RuntimeError when llm-live-chat plugin installation fails."""
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "llm install llm-live-chat": _StubCommandResult(success=False, stderr="live-chat failed"),
+            "llm install llm-live-chat": StubCommandResult(success=False, stderr="live-chat failed"),
         }
     )
     with pytest.raises(RuntimeError, match="Failed to install llm-live-chat"):
@@ -1108,9 +1065,9 @@ def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> N
 
 def test_link_memory_directory_raises_on_resolve_failure() -> None:
     """Verify RuntimeError when work_dir resolution fails."""
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "&& pwd": _StubCommandResult(success=False, stderr="no such dir"),
+            "&& pwd": StubCommandResult(success=False, stderr="no such dir"),
         }
     )
     with pytest.raises(RuntimeError, match="Failed to resolve absolute path"):
@@ -1119,9 +1076,9 @@ def test_link_memory_directory_raises_on_resolve_failure() -> None:
 
 def test_link_memory_directory_raises_on_link_failure() -> None:
     """Verify RuntimeError when memory symlink creation fails."""
-    host = _StubHost(
+    host = StubHost(
         command_results={
-            "ln -sfn": _StubCommandResult(success=False, stderr="link failed"),
+            "ln -sfn": StubCommandResult(success=False, stderr="link failed"),
         }
     )
     with pytest.raises(RuntimeError, match="Failed to link memory directory"):
@@ -1130,7 +1087,7 @@ def test_link_memory_directory_raises_on_link_failure() -> None:
 
 def test_provision_llm_tools_uses_correct_mode() -> None:
     """Verify LLM tool files are written with 0644 mode."""
-    host = _StubHost()
+    host = StubHost()
     provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     for _, _, mode in host.written_files:
@@ -1139,7 +1096,7 @@ def test_provision_llm_tools_uses_correct_mode() -> None:
 
 def test_write_default_chat_model_includes_newline() -> None:
     """Verify written model content ends with newline."""
-    host = _StubHost()
+    host = StubHost()
     write_default_chat_model(cast(Any, host), Path("/tmp/agent"), ChatModel("claude-haiku-4-5"))
 
     assert len(host.written_text_files) == 1
@@ -1400,8 +1357,8 @@ def test_gather_context_first_call_messages_with_empty_lines(
 
 def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
     """Verify warn_if_mng_unavailable checks for mng on remote host when not found."""
-    host = _StubHost(
-        command_results={"command -v mng": _StubCommandResult(success=False)},
+    host = StubHost(
+        command_results={"command -v mng": StubCommandResult(success=False)},
     )
     host.is_local = False  # type: ignore[attr-defined]
 
