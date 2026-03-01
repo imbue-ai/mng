@@ -29,6 +29,23 @@ _LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "extra_context_tool.py",
 )
 
+# Default content files written to the changelings directory if missing.
+# Tuples of (resource path under defaults/, target path relative to changelings dir).
+_DEFAULT_CHANGELINGS_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (
+    ("entrypoint.md", "entrypoint.md"),
+    ("entrypoint.json", "entrypoint.json"),
+)
+
+# Default content files written to the work directory root if missing.
+# Tuples of (resource path under defaults/, target path relative to work dir).
+_DEFAULT_WORK_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (("CLAUDE.md", "CLAUDE.md"),)
+
+# Default command/skill files written to .claude/commands/ if missing.
+_DEFAULT_COMMAND_FILES: Final[tuple[str, ...]] = (
+    "new-chat.md",
+    "list-conversations.md",
+)
+
 
 def _execute_with_timing(
     host: OnlineHostInterface,
@@ -57,6 +74,71 @@ def load_zygote_resource(filename: str) -> str:
     resource_files = importlib.resources.files(zygote_resources)
     resource_path = resource_files.joinpath(filename)
     return resource_path.read_text()
+
+
+def _write_default_if_missing(
+    host: OnlineHostInterface,
+    target_path: Path,
+    resource_path: str,
+    settings: ProvisioningSettings,
+) -> None:
+    """Write a default resource file to the host if the target doesn't already exist."""
+    check = _execute_with_timing(
+        host,
+        f"test -f {shlex.quote(str(target_path))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="file check",
+    )
+    if check.success:
+        logger.debug("Default file already exists, skipping: {}", target_path)
+        return
+
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(target_path.parent))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="mkdir",
+    )
+
+    content = load_zygote_resource(resource_path)
+    with log_span("Writing default content: {}", target_path):
+        host.write_text_file(target_path, content)
+
+
+def provision_default_content(
+    host: OnlineHostInterface,
+    work_dir: Path,
+    changelings_dir_name: str,
+    settings: ProvisioningSettings,
+) -> None:
+    """Write default content files to the work directory if they don't already exist.
+
+    Populates sensible defaults for:
+    - CLAUDE.md (shared project instructions for all agents)
+    - <changelings_dir>/entrypoint.md (primary agent inner monologue prompt)
+    - <changelings_dir>/entrypoint.json (primary agent Claude settings)
+    - .claude/commands/*.md (slash command skills)
+
+    Only writes files that are missing -- existing files are never overwritten.
+    This allows fresh deployments to work out of the box while preserving
+    any customizations the user has already made.
+    """
+    changelings_dir = work_dir / changelings_dir_name
+
+    for resource_name, relative_path in _DEFAULT_CHANGELINGS_DIR_FILES:
+        target_path = changelings_dir / relative_path
+        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
+
+    for resource_name, relative_path in _DEFAULT_WORK_DIR_FILES:
+        target_path = work_dir / relative_path
+        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
+
+    commands_dir = work_dir / ".claude" / "commands"
+    for command_file in _DEFAULT_COMMAND_FILES:
+        target_path = commands_dir / command_file
+        _write_default_if_missing(host, target_path, f"defaults/commands/{command_file}", settings)
 
 
 def install_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:

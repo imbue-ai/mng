@@ -1381,3 +1381,125 @@ def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
 
     # Verify the mng availability check was executed
     assert any("command -v mng" in c for c in host.executed_commands)
+
+
+# -- Default content provisioning tests --
+
+
+def test_all_default_changeling_files_are_loadable() -> None:
+    """Verify all declared default changeling files can be loaded from resources."""
+    from imbue.mng_claude_zygote.provisioning import _DEFAULT_CHANGELINGS_DIR_FILES
+
+    for resource_name, _ in _DEFAULT_CHANGELINGS_DIR_FILES:
+        content = load_zygote_resource(f"defaults/{resource_name}")
+        assert content, f"defaults/{resource_name} is empty"
+
+
+def test_all_default_work_dir_files_are_loadable() -> None:
+    """Verify all declared default work dir files can be loaded from resources."""
+    from imbue.mng_claude_zygote.provisioning import _DEFAULT_WORK_DIR_FILES
+
+    for resource_name, _ in _DEFAULT_WORK_DIR_FILES:
+        content = load_zygote_resource(f"defaults/{resource_name}")
+        assert content, f"defaults/{resource_name} is empty"
+
+
+def test_all_default_command_files_are_loadable() -> None:
+    """Verify all declared default command files can be loaded from resources."""
+    from imbue.mng_claude_zygote.provisioning import _DEFAULT_COMMAND_FILES
+
+    for command_file in _DEFAULT_COMMAND_FILES:
+        content = load_zygote_resource(f"defaults/commands/{command_file}")
+        assert content, f"defaults/commands/{command_file} is empty"
+
+
+def test_default_claude_md_mentions_mng() -> None:
+    """Verify the default CLAUDE.md references mng for agent management."""
+    content = load_zygote_resource("defaults/CLAUDE.md")
+    assert "mng" in content
+
+
+def test_default_entrypoint_md_describes_event_processing() -> None:
+    """Verify the default entrypoint.md describes the event processing role."""
+    content = load_zygote_resource("defaults/entrypoint.md")
+    assert "event" in content.lower()
+    assert "messages" in content
+
+
+def test_default_entrypoint_json_is_valid_json() -> None:
+    """Verify the default entrypoint.json is valid JSON."""
+    import json
+
+    content = load_zygote_resource("defaults/entrypoint.json")
+    parsed = json.loads(content)
+    assert "permissions" in parsed
+
+
+def test_default_new_chat_command_references_chat_script() -> None:
+    """Verify the new-chat command references the chat.sh script."""
+    content = load_zygote_resource("defaults/commands/new-chat.md")
+    assert "chat.sh" in content
+    assert "--new" in content
+    assert "--as-agent" in content
+
+
+def test_default_list_conversations_command_references_chat_script() -> None:
+    """Verify the list-conversations command references chat.sh --list."""
+    content = load_zygote_resource("defaults/commands/list-conversations.md")
+    assert "chat.sh" in content
+    assert "--list" in content
+
+
+def test_provision_default_content_writes_missing_files() -> None:
+    """Verify provision_default_content writes all default files when none exist."""
+    from imbue.mng_claude_zygote.provisioning import provision_default_content
+
+    host = StubHost(
+        command_results={"test -f": StubCommandResult(success=False)},
+    )
+    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+
+    written_paths = [str(path) for path, _ in host.written_text_files]
+    assert any("CLAUDE.md" in p for p in written_paths)
+    assert any("entrypoint.md" in p for p in written_paths)
+    assert any("entrypoint.json" in p for p in written_paths)
+    assert any("new-chat.md" in p for p in written_paths)
+    assert any("list-conversations.md" in p for p in written_paths)
+
+
+def test_provision_default_content_skips_existing_files() -> None:
+    """Verify provision_default_content does not overwrite existing files."""
+    from imbue.mng_claude_zygote.provisioning import provision_default_content
+
+    # test -f returns success (file exists) by default in StubHost
+    host = StubHost()
+    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+
+    assert len(host.written_text_files) == 0
+
+
+def test_provision_default_content_creates_parent_directories() -> None:
+    """Verify provision_default_content creates parent directories for missing files."""
+    from imbue.mng_claude_zygote.provisioning import provision_default_content
+
+    host = StubHost(
+        command_results={"test -f": StubCommandResult(success=False)},
+    )
+    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+
+    mkdir_cmds = [c for c in host.executed_commands if "mkdir -p" in c]
+    assert len(mkdir_cmds) > 0
+
+
+def test_provision_default_content_uses_custom_changelings_dir() -> None:
+    """Verify provision_default_content respects a custom changelings directory name."""
+    from imbue.mng_claude_zygote.provisioning import provision_default_content
+
+    host = StubHost(
+        command_results={"test -f": StubCommandResult(success=False)},
+    )
+    provision_default_content(cast(Any, host), Path("/test/work"), ".custom_dir", _DEFAULT_PROVISIONING)
+
+    written_paths = [str(path) for path, _ in host.written_text_files]
+    assert any(".custom_dir/entrypoint.md" in p for p in written_paths)
+    assert any(".custom_dir/entrypoint.json" in p for p in written_paths)

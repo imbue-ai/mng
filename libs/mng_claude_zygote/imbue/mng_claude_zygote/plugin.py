@@ -19,6 +19,7 @@ from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
+from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
@@ -133,13 +134,14 @@ class ClaudeZygoteAgent(ClaudeAgent):
         Extends ClaudeAgent provisioning with:
         1. Settings loading from .changelings/settings.toml
         2. llm + plugin installation
-        3. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
-        4. Watcher scripts and chat utilities
-        5. Event log directory structure (logs/<source>/events.jsonl)
-        6. Default chat model configuration
-        7. LLM tool scripts for conversation context
-        8. Memory directory symlink into Claude project
-        9. Settings file provisioned to agent state dir for script access
+        3. Default content (CLAUDE.md, entrypoint files, skills) if missing
+        4. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
+        5. Watcher scripts and chat utilities
+        6. Event log directory structure (logs/<source>/events.jsonl)
+        7. Default chat model configuration
+        8. LLM tool scripts for conversation context
+        9. Memory directory symlink into Claude project
+        10. Settings file provisioned to agent state dir for script access
         """
         super().provision(host, options, mng_ctx)
 
@@ -154,6 +156,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         if config.install_llm:
             install_llm_toolchain(host, provisioning)
 
+        provision_default_content(host, self.work_dir, config.changelings_dir_name, provisioning)
         create_changeling_symlinks(host, self.work_dir, config.changelings_dir_name, provisioning)
         provision_changeling_scripts(host, provisioning)
         provision_llm_tools(host, provisioning)
