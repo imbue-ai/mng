@@ -5,9 +5,9 @@ import pytest
 
 import imbue.imbue_common.resource_guards as rg
 from imbue.imbue_common.resource_guards import ResourceGuardViolation
-from imbue.imbue_common.resource_guards import _enforce_sdk_guard
 from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
+from imbue.imbue_common.resource_guards import enforce_sdk_guard
 from imbue.imbue_common.resource_guards import generate_wrapper_script
 
 # Use ubiquitous coreutils binaries so these tests run on any system.
@@ -203,7 +203,7 @@ def test_create_and_cleanup_round_trip(isolated_guard_state: None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SDK guard: _enforce_sdk_guard (unit tests)
+# SDK guard: enforce_sdk_guard (unit tests)
 # ---------------------------------------------------------------------------
 
 
@@ -216,7 +216,7 @@ def test_enforce_sdk_guard_blocks_when_unmarked(
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
     with pytest.raises(ResourceGuardViolation, match="without @pytest.mark.mysdk"):
-        _enforce_sdk_guard("mysdk")
+        enforce_sdk_guard("mysdk")
 
     assert (tmp_path / "blocked_mysdk").exists()
 
@@ -229,7 +229,7 @@ def test_enforce_sdk_guard_allows_when_marked(
     monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "allow")
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
-    _enforce_sdk_guard("mysdk")
+    enforce_sdk_guard("mysdk")
 
     assert (tmp_path / "mysdk").exists()
 
@@ -242,7 +242,7 @@ def test_enforce_sdk_guard_skips_outside_call_phase(
     monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "block")
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
-    _enforce_sdk_guard("mysdk")
+    enforce_sdk_guard("mysdk")
 
     assert not (tmp_path / "blocked_mysdk").exists()
     assert not (tmp_path / "mysdk").exists()
@@ -256,7 +256,7 @@ def test_enforce_sdk_guard_skips_when_no_phase_set(
     monkeypatch.setenv("_PYTEST_GUARD_MYSDK", "block")
     monkeypatch.setenv("_PYTEST_GUARD_TRACKING_DIR", str(tmp_path))
 
-    _enforce_sdk_guard("mysdk")
+    enforce_sdk_guard("mysdk")
 
     assert not (tmp_path / "blocked_mysdk").exists()
 
@@ -267,7 +267,7 @@ def test_enforce_sdk_guard_skips_when_no_phase_set(
 
 # Conftest for SDK guard pytester tests. Uses create_resource_guard_wrappers([])
 # to initialize the guard infrastructure, then adds an SDK resource. Tests trigger
-# the guard by calling _enforce_sdk_guard directly (no real SDK needed).
+# the guard by calling enforce_sdk_guard directly (no real SDK needed).
 _PYTESTER_SDK_CONFTEST = """\
 import os
 import pytest
@@ -309,11 +309,11 @@ def test_sdk_marked_test_that_triggers_guard_passes(pytester: pytest.Pytester) -
     pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
     pytester.makepyfile("""
         import pytest
-        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+        from imbue.imbue_common.resource_guards import enforce_sdk_guard
 
         @pytest.mark.test_sdk
         def test_sdk_call():
-            _enforce_sdk_guard("test_sdk")
+            enforce_sdk_guard("test_sdk")
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(passed=1)
@@ -323,10 +323,10 @@ def test_sdk_unmarked_test_that_triggers_guard_fails(pytester: pytest.Pytester) 
     """A test without the SDK mark that triggers the guard should fail."""
     pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
     pytester.makepyfile("""
-        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+        from imbue.imbue_common.resource_guards import enforce_sdk_guard
 
         def test_sdk_call():
-            _enforce_sdk_guard("test_sdk")
+            enforce_sdk_guard("test_sdk")
     """)
     result = pytester.runpytest_subprocess("-n0", "--no-header", "-p", "no:cacheprovider")
     result.assert_outcomes(failed=1)
@@ -344,11 +344,11 @@ def test_sdk_unmarked_test_that_catches_guard_error_still_fails(
     pytester.makeconftest(_PYTESTER_SDK_CONFTEST)
     pytester.makepyfile("""
         from imbue.imbue_common.resource_guards import ResourceGuardViolation
-        from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+        from imbue.imbue_common.resource_guards import enforce_sdk_guard
 
         def test_sdk_catches_error():
             try:
-                _enforce_sdk_guard("test_sdk")
+                enforce_sdk_guard("test_sdk")
             except ResourceGuardViolation:
                 pass
     """)

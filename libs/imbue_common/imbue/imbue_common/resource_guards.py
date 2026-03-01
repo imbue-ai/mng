@@ -9,7 +9,7 @@ Two guard mechanisms are provided:
 2. SDK monkeypatches intercept Python SDK chokepoints. SDK-specific guards
    are registered via register_sdk_guard() before session start, then
    installed by create_sdk_resource_guards(). The monkeypatches call
-   _enforce_sdk_guard, which mirrors the wrapper logic: block unmarked
+   enforce_sdk_guard, which mirrors the wrapper logic: block unmarked
    usage and track marked usage.
 
 Both mechanisms use per-test tracking files so that makereport can fail tests
@@ -206,7 +206,7 @@ def cleanup_resource_guard_wrappers() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _enforce_sdk_guard(resource: str) -> None:
+def enforce_sdk_guard(resource: str) -> None:
     """Check SDK resource guard env vars and enforce/track usage.
 
     Mirrors the bash wrapper logic for binary guards, but called from Python.

@@ -1,9 +1,46 @@
-from imbue.imbue_common.resource_guards import _enforce_sdk_guard
+from typing import Any
+
+from docker.api.client import APIClient
+from modal._grpc_client import UnaryStreamWrapper
+from modal._grpc_client import UnaryUnaryWrapper
+
+from imbue.imbue_common.resource_guards import enforce_sdk_guard
 from imbue.imbue_common.resource_guards import register_sdk_guard
 
 # Each guard pair manages its own originals dict so install/cleanup are symmetric.
-_modal_originals: dict[str, object] = {}
-_docker_originals: dict[str, object] = {}
+# Typed as Any because the values are method references with heterogeneous signatures.
+_modal_originals: dict[str, Any] = {}
+_docker_originals: dict[str, Any] = {}
+
+
+# ---------------------------------------------------------------------------
+# Module-level guard functions (looked up from originals dicts at call time)
+# ---------------------------------------------------------------------------
+
+
+# async is required here because the original methods are async
+async def _guarded_modal_unary_call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    enforce_sdk_guard("modal")
+    original = _modal_originals["unary_call"]
+    return await original(self, *args, **kwargs)
+
+
+async def _guarded_modal_unary_stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    enforce_sdk_guard("modal")
+    original = _modal_originals["unary_stream"]
+    async for response in original(self, *args, **kwargs):
+        yield response
+
+
+def _guarded_docker_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    enforce_sdk_guard("docker")
+    original = _docker_originals["send_original_resolved"]
+    return original(self, *args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Install / cleanup
+# ---------------------------------------------------------------------------
 
 
 def _install_modal_guards() -> None:
@@ -12,38 +49,15 @@ def _install_modal_guards() -> None:
     Patches UnaryUnaryWrapper.__call__ and UnaryStreamWrapper.unary_stream,
     which are the entry points for all Modal unary and streaming RPC calls.
     """
-    try:
-        from modal._grpc_client import UnaryStreamWrapper
-        from modal._grpc_client import UnaryUnaryWrapper
-    except ImportError:
-        return
+    _modal_originals["unary_call"] = UnaryUnaryWrapper.__call__
+    _modal_originals["unary_stream"] = UnaryStreamWrapper.unary_stream
 
-    original_call = UnaryUnaryWrapper.__call__
-    original_stream = UnaryStreamWrapper.unary_stream
-    _modal_originals["unary_call"] = original_call
-    _modal_originals["unary_stream"] = original_stream
-
-    # async is required here because the original methods are async
-    async def guarded_unary_call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("modal")
-        return await original_call(self, *args, **kwargs)
-
-    async def guarded_unary_stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("modal")
-        async for response in original_stream(self, *args, **kwargs):
-            yield response
-
-    UnaryUnaryWrapper.__call__ = guarded_unary_call  # type: ignore[assignment]
-    UnaryStreamWrapper.unary_stream = guarded_unary_stream  # type: ignore[assignment]
+    UnaryUnaryWrapper.__call__ = _guarded_modal_unary_call  # type: ignore[assignment]
+    UnaryStreamWrapper.unary_stream = _guarded_modal_unary_stream  # type: ignore[assignment]
 
 
 def _cleanup_modal_guards() -> None:
     if "unary_call" not in _modal_originals:
-        return
-    try:
-        from modal._grpc_client import UnaryStreamWrapper
-        from modal._grpc_client import UnaryUnaryWrapper
-    except ImportError:
         return
 
     UnaryUnaryWrapper.__call__ = _modal_originals["unary_call"]  # type: ignore[assignment]
@@ -58,36 +72,28 @@ def _install_docker_guards() -> None:
     so that all Docker HTTP requests are guarded without affecting other
     requests.Session usage.
     """
-    try:
-        from docker.api.client import APIClient
-    except ImportError:
-        return
-
     # Capture whatever send() APIClient currently resolves to (via MRO).
-    original_send = APIClient.send
+    _docker_originals["send_original_resolved"] = APIClient.send
     _docker_originals["send_existed"] = "send" in APIClient.__dict__
     if "send" in APIClient.__dict__:
         _docker_originals["send_original"] = APIClient.__dict__["send"]
 
-    def guarded_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("docker")
-        return original_send(self, *args, **kwargs)
-
-    APIClient.send = guarded_send  # type: ignore[method-assign]
+    APIClient.send = _guarded_docker_send  # type: ignore[method-assign]
 
 
 def _cleanup_docker_guards() -> None:
     if "send_existed" not in _docker_originals:
         return
-    try:
-        from docker.api.client import APIClient
-    except ImportError:
-        return
 
     if _docker_originals["send_existed"]:
         APIClient.send = _docker_originals["send_original"]  # type: ignore[method-assign]
     elif "send" in APIClient.__dict__:
+        # No send was defined directly on APIClient before we patched it;
+        # remove our shadow so MRO resolution goes back to the parent class.
         del APIClient.send  # type: ignore[misc]
+    else:
+        # Our shadow was already removed (e.g. by another cleanup path).
+        pass
     _docker_originals.clear()
 
 
