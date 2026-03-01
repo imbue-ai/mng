@@ -527,17 +527,18 @@ def test_is_recursive_plugin_registered_returns_false_when_absent() -> None:
 
 
 def _load_fresh_context_tool(name: str) -> Any:
-    """Load a fresh instance of context_tool.py with clean state."""
+    """Import context_tool as a proper package module and reset its state.
+
+    Uses a real package import (so coverage can track execution) and
+    importlib.reload to reinitialize module-level state like _last_file_sizes.
+    The ``name`` parameter is accepted for backward-compatibility but unused.
+    """
     import importlib
 
-    spec = importlib.util.spec_from_file_location(
-        name,
-        Path(__file__).parent / "resources" / "context_tool.py",
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from imbue.mng_claude_zygote.resources import context_tool
+
+    importlib.reload(context_tool)
+    return context_tool
 
 
 def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_path: Path) -> None:
@@ -709,3 +710,161 @@ def test_get_new_lines_returns_empty_when_no_new_data(tmp_path: Path) -> None:
 
     result = module._get_new_lines(f)
     assert result == []
+
+
+def _make_message_line(event_id: str, cid: str, role: str = "user", content: str = "hello") -> str:
+    return (
+        f'{{"timestamp":"2026-01-01T00:00:00Z","type":"message",'
+        f'"event_id":"{event_id}","source":"messages",'
+        f'"conversation_id":"{cid}","role":"{role}","content":"{content}"}}'
+    )
+
+
+def _make_data_event(event_id: str, source: str, data: str = '{"key":"val"}') -> str:
+    return (
+        f'{{"timestamp":"2026-01-01T00:00:00Z","type":"trigger",'
+        f'"event_id":"{event_id}","source":"{source}","data":{data}}}'
+    )
+
+
+def test_gather_context_first_call_shows_transcript_and_triggers(tmp_path: Path) -> None:
+    """Verify gather_context returns transcript and trigger events on first call."""
+    import os
+
+    module = _load_fresh_context_tool("gc_transcript")
+
+    # Set up transcript
+    transcript_dir = tmp_path / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "events.jsonl"
+    transcript_file.write_text(_make_event_line("t1", "claude_transcript") + "\n")
+
+    # Set up monitor events
+    monitor_dir = tmp_path / "logs" / "monitor"
+    monitor_dir.mkdir(parents=True)
+    monitor_file = monitor_dir / "events.jsonl"
+    monitor_file.write_text(_make_data_event("m1", "monitor") + "\n")
+
+    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
+    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
+    try:
+        result = module.gather_context()
+        assert "Inner Monologue" in result
+        assert "monitor" in result.lower()
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+        else:
+            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+
+
+def test_gather_context_first_call_groups_messages_by_conversation(tmp_path: Path) -> None:
+    """Verify gather_context groups messages by conversation on first call."""
+    import os
+
+    module = _load_fresh_context_tool("gc_messages")
+
+    msgs_dir = tmp_path / "logs" / "messages"
+    msgs_dir.mkdir(parents=True)
+    msgs_file = msgs_dir / "events.jsonl"
+    lines = [
+        _make_message_line("m1", "conv-A", "user", "hello A"),
+        _make_message_line("m2", "conv-B", "user", "hello B"),
+        _make_message_line("m3", "conv-A", "assistant", "reply A"),
+    ]
+    msgs_file.write_text("\n".join(lines) + "\n")
+
+    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
+    old_cid = os.environ.get("LLM_CONVERSATION_ID")
+    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
+    os.environ["LLM_CONVERSATION_ID"] = "my-convo"
+    try:
+        result = module.gather_context()
+        assert "conv-A" in result
+        assert "conv-B" in result
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+        else:
+            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+        if old_cid is not None:
+            os.environ["LLM_CONVERSATION_ID"] = old_cid
+        else:
+            os.environ.pop("LLM_CONVERSATION_ID", None)
+
+
+def test_gather_context_incremental_returns_new_trigger_events(tmp_path: Path) -> None:
+    """Verify gather_context returns new trigger events on subsequent calls."""
+    import os
+
+    module = _load_fresh_context_tool("gc_incremental_triggers")
+
+    sched_dir = tmp_path / "logs" / "scheduled"
+    sched_dir.mkdir(parents=True)
+    events_file = sched_dir / "events.jsonl"
+    events_file.write_text(_make_event_line("s1", "scheduled") + "\n")
+
+    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
+    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
+    try:
+        first = module.gather_context()
+        assert "scheduled" in first.lower()
+
+        # Append new event
+        with events_file.open("a") as fh:
+            fh.write(_make_event_line("s2", "scheduled") + "\n")
+
+        second = module.gather_context()
+        assert "New scheduled events" in second
+        assert "s2" in second
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+        else:
+            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+
+
+def test_gather_context_incremental_returns_new_messages_from_other_conversations(tmp_path: Path) -> None:
+    """Verify gather_context returns new messages from other conversations incrementally."""
+    import os
+
+    module = _load_fresh_context_tool("gc_incremental_msgs")
+
+    msgs_dir = tmp_path / "logs" / "messages"
+    msgs_dir.mkdir(parents=True)
+    msgs_file = msgs_dir / "events.jsonl"
+    msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
+
+    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
+    old_cid = os.environ.get("LLM_CONVERSATION_ID")
+    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
+    os.environ["LLM_CONVERSATION_ID"] = "my-convo"
+    try:
+        module.gather_context()
+
+        # Append new message from another conversation
+        with msgs_file.open("a") as fh:
+            fh.write(_make_message_line("m2", "other-conv", "assistant", "new reply") + "\n")
+
+        second = module.gather_context()
+        assert "New messages from other conversations" in second
+        assert "new reply" in second
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+        else:
+            os.environ.pop("MNG_AGENT_STATE_DIR", None)
+        if old_cid is not None:
+            os.environ["LLM_CONVERSATION_ID"] = old_cid
+        else:
+            os.environ.pop("LLM_CONVERSATION_ID", None)
+
+
+def test_format_events_handles_data_events(tmp_path: Path) -> None:
+    """Verify _format_events formats data-bearing events correctly."""
+    module = _load_fresh_context_tool("fmt_data")
+
+    lines = [_make_data_event("d1", "monitor")]
+    result = module._format_events(lines)
+    assert "[trigger]" in result
+    assert "key" in result
