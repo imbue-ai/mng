@@ -8,6 +8,7 @@ from pathlib import Path
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
+from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_zygote import resources as zygote_resources
 from imbue.mng_claude_zygote.data_types import ChatModel
@@ -43,16 +44,15 @@ def _execute_with_timing(
     hard_timeout: float,
     warn_threshold: float,
     label: str,
-    **kwargs: object,
-) -> object:
+) -> CommandResult:
     """Execute a host command with two-threshold timeout monitoring.
 
-    Uses hard_timeout as the actual timeout. If the command succeeds but
-    takes longer than warn_threshold, emits a warning so we can notice
-    degradation before it becomes an outright failure.
+    Uses hard_timeout as the actual timeout. If the command takes longer
+    than warn_threshold, emits a warning so we can notice degradation
+    before it becomes an outright failure.
     """
     start = time.monotonic()
-    result = host.execute_command(cmd, timeout_seconds=hard_timeout, **kwargs)  # type: ignore[arg-type]
+    result = host.execute_command(cmd, timeout_seconds=hard_timeout)
     elapsed = time.monotonic() - start
     if elapsed > warn_threshold:
         logger.warning("{} took {:.1f}s (expected <{:.0f}s): {}", label, elapsed, warn_threshold, cmd)
@@ -81,7 +81,7 @@ def install_llm_toolchain(host: OnlineHostInterface) -> None:
             warn_threshold=_COMMAND_CHECK_WARN_THRESHOLD,
             label="llm check",
         )
-        if check_result.success:  # type: ignore[union-attr]
+        if check_result.success:
             # llm is installed, just ensure plugins are present
             _install_llm_plugins(host)
             return
@@ -94,8 +94,8 @@ def install_llm_toolchain(host: OnlineHostInterface) -> None:
             warn_threshold=_INSTALL_WARN_THRESHOLD,
             label="llm install",
         )
-        if not result.success:  # type: ignore[union-attr]
-            raise RuntimeError(f"Failed to install llm: {result.stderr}")  # type: ignore[union-attr]
+        if not result.success:
+            raise RuntimeError(f"Failed to install llm: {result.stderr}")
 
         _install_llm_plugins(host)
 
@@ -111,8 +111,8 @@ def _install_llm_plugins(host: OnlineHostInterface) -> None:
                 warn_threshold=_INSTALL_WARN_THRESHOLD,
                 label=f"llm plugin install ({plugin_name})",
             )
-            if not result.success:  # type: ignore[union-attr]
-                raise RuntimeError(f"Failed to install {plugin_name}: {result.stderr}")  # type: ignore[union-attr]
+            if not result.success:
+                raise RuntimeError(f"Failed to install {plugin_name}: {result.stderr}")
 
 
 def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:
@@ -146,7 +146,7 @@ def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path,
         warn_threshold=_FS_WARN_THRESHOLD,
         label="file check",
     )
-    if not check.success:  # type: ignore[union-attr]
+    if not check.success:
         return
 
     # Ensure parent directory exists
@@ -168,8 +168,8 @@ def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path,
             warn_threshold=_FS_WARN_THRESHOLD,
             label="symlink",
         )
-        if not result.success:  # type: ignore[union-attr]
-            raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")  # type: ignore[union-attr]
+        if not result.success:
+            raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
 
 
 def provision_changeling_scripts(host: OnlineHostInterface) -> None:
@@ -266,10 +266,9 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
         warn_threshold=_FS_WARN_THRESHOLD,
         label="resolve work_dir",
     )
-    if not abs_result.success:  # type: ignore[union-attr]
-        raise RuntimeError(f"Failed to resolve absolute path of {work_dir}: {abs_result.stderr}")  # type: ignore[union-attr]
-    abs_work_dir = abs_result.stdout.strip()  # type: ignore[union-attr]
-
+    if not abs_result.success:
+        raise RuntimeError(f"Failed to resolve absolute path of {work_dir}: {abs_result.stderr}")
+    abs_work_dir = abs_result.stdout.strip()
     project_dir_name = compute_claude_project_dir_name(abs_work_dir)
 
     # Create the changelings memory directory
@@ -297,5 +296,5 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
             warn_threshold=_FS_WARN_THRESHOLD,
             label="link memory",
         )
-        if not result.success:  # type: ignore[union-attr]
-            raise RuntimeError(f"Failed to link memory directory: {result.stderr}")  # type: ignore[union-attr]
+        if not result.success:
+            raise RuntimeError(f"Failed to link memory directory: {result.stderr}")

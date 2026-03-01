@@ -461,8 +461,9 @@ import time
 from loguru import logger
 
 # For host commands:
+cmd = "mkdir -p /some/path"
 start = time.monotonic()
-result = host.execute_command("mkdir -p /some/path", timeout_seconds=15.0)
+result = host.execute_command(cmd, timeout_seconds=15.0)
 elapsed = time.monotonic() - start
 if elapsed > 2.0:
     logger.warning("mkdir took {:.1f}s (expected <2s): {}", elapsed, cmd)
