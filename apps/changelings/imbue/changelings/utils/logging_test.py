@@ -1,5 +1,7 @@
+from collections.abc import Generator
 from typing import Any
 
+import pytest
 from loguru import logger
 
 from imbue.changelings.utils.logging import ConsoleLogLevel
@@ -83,6 +85,15 @@ def test_format_user_message_trace_includes_message_placeholder() -> None:
     assert "{message}" in result
 
 
+@pytest.fixture()
+def _isolated_logger() -> Generator[None, None, None]:
+    """Remove all loguru handlers before and after each test to isolate logger state."""
+    logger.remove()
+    yield
+    logger.remove()
+
+
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_none_suppresses_output(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.NONE)
 
@@ -92,6 +103,7 @@ def test_setup_logging_none_suppresses_output(capfd: Any) -> None:
     assert "suppressed-marker-82734" not in captured.err
 
 
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_info_shows_info_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.INFO)
 
@@ -101,6 +113,7 @@ def test_setup_logging_info_shows_info_messages(capfd: Any) -> None:
     assert "info-marker-91827" in captured.err
 
 
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_debug_shows_debug_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.DEBUG)
 
@@ -110,6 +123,7 @@ def test_setup_logging_debug_shows_debug_messages(capfd: Any) -> None:
     assert "debug-marker-73829" in captured.err
 
 
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_trace_shows_trace_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.TRACE)
 
@@ -119,6 +133,7 @@ def test_setup_logging_trace_shows_trace_messages(capfd: Any) -> None:
     assert "trace-marker-28374" in captured.err
 
 
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_warn_shows_warning_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.WARN)
 
@@ -128,6 +143,7 @@ def test_setup_logging_warn_shows_warning_messages(capfd: Any) -> None:
     assert "warn-marker-92837" in captured.err
 
 
+@pytest.mark.usefixtures("_isolated_logger")
 def test_setup_logging_error_shows_error_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.ERROR)
 

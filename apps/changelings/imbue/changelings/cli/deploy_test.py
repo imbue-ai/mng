@@ -766,30 +766,29 @@ def test_deploy_with_self_deploy_flag(tmp_path: Path) -> None:
 # --- Tests for deploy prompt interaction via CLI ---
 
 
-def test_deploy_provider_prompt_modal_via_interactive_input(tmp_path: Path) -> None:
-    """Verify that interactive input '2' selects modal provider."""
+@pytest.mark.parametrize(
+    "provider_input, expected_provider_value",
+    [
+        ("2", "modal"),
+        ("3", "docker"),
+    ],
+)
+def test_deploy_provider_prompt_accepts_selection(
+    tmp_path: Path,
+    provider_input: str,
+    expected_provider_value: str,
+) -> None:
+    """Verify interactive provider selection reaches deployment with the chosen provider."""
     repo_dir = _create_git_repo_with_settings(tmp_path)
 
     result = _RUNNER.invoke(
         cli,
         ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n2\nN\n",
+        input="test-bot\n{}\nN\n".format(provider_input),
     )
 
     assert "Where do you want to run" in result.output
-
-
-def test_deploy_provider_prompt_docker_via_interactive_input(tmp_path: Path) -> None:
-    """Verify that interactive input '3' selects docker provider."""
-    repo_dir = _create_git_repo_with_settings(tmp_path)
-
-    result = _RUNNER.invoke(
-        cli,
-        ["deploy", str(repo_dir), *_data_dir_args(tmp_path)],
-        input="test-bot\n3\nN\n",
-    )
-
-    assert "Where do you want to run" in result.output
+    assert "Deploying changeling from" in result.output
 
 
 def test_deploy_self_deploy_yes_via_interactive_input(tmp_path: Path) -> None:
