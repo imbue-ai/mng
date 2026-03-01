@@ -864,48 +864,63 @@ def test_chat_script_empty_model_file_falls_back_to_settings(chat_env: ChatScrip
 
 
 @pytest.mark.timeout(30)
-def test_chat_script_resume_uses_grep_fixed_string(chat_env: ChatScriptEnv) -> None:
-    """Verify that resume_conversation correctly finds the model for a conversation.
+def test_chat_script_grep_finds_correct_model_for_conversation(chat_env: ChatScriptEnv) -> None:
+    """Verify that the grep-based model lookup in resume_conversation finds the right model.
 
-    Regression test: resume_conversation() uses plain `grep` without `-F` to
-    search for conversation IDs in the events file. While generated CIDs
-    (conv-<timestamp>-<hex>) don't contain regex metacharacters in practice,
-    using plain grep is fragile. This test verifies the lookup works for
-    normal conversation IDs.
+    resume_conversation() uses `grep -F` to find the model for a conversation ID
+    in the events file. This test exercises that grep command directly to verify
+    it returns the correct model when multiple conversations exist.
+
+    Events are written using the same printf format that chat.sh's
+    append_conversation_event uses (no spaces after colons/commas), since
+    the grep pattern must match this exact format.
     """
     chat_env.set_default_model("claude-sonnet-4-6")
 
-    # Create two conversations with different models
-    conv1 = json.dumps(
-        {
-            "timestamp": "2025-01-15T10:00:00.000Z",
-            "type": "conversation_created",
-            "event_id": "evt-1",
-            "source": "conversations",
-            "conversation_id": "conv-111-aabb",
-            "model": "claude-sonnet-4-6",
-        }
-    )
-    conv2 = json.dumps(
-        {
-            "timestamp": "2025-01-15T11:00:00.000Z",
-            "type": "conversation_created",
-            "event_id": "evt-2",
-            "source": "conversations",
-            "conversation_id": "conv-222-ccdd",
-            "model": "claude-haiku-4-5",
-        }
-    )
-    events_file = chat_env.conversations_dir / "events.jsonl"
-    events_file.write_text(f"{conv1}\n{conv2}\n")
+    # Create two conversations using the actual chat.sh script
+    # so events are written in the exact format grep expects
+    result1 = chat_env.run("--new", "--as-agent")
+    assert result1.returncode == 0
+    cid1 = result1.stdout.strip()
 
-    # Verify --list shows both conversations with correct models
-    result = chat_env.run("--list")
-    assert result.returncode == 0
-    assert "conv-111-aabb" in result.stdout
-    assert "conv-222-ccdd" in result.stdout
-    assert "claude-sonnet-4-6" in result.stdout
-    assert "claude-haiku-4-5" in result.stdout
+    # Manually append a second conversation event with a different model
+    # using the same printf format that chat.sh uses (no spaces)
+    events_file = chat_env.conversations_dir / "events.jsonl"
+    cid2 = "conv-222-ccdd"
+    with events_file.open("a") as f:
+        f.write(
+            f'{{"timestamp":"2025-01-15T11:00:00.000Z","type":"conversation_created",'
+            f'"event_id":"evt-2","source":"conversations",'
+            f'"conversation_id":"{cid2}","model":"claude-haiku-4-5"}}\n'
+        )
+
+    # Run the same grep -F | jq command that resume_conversation() uses
+    grep_result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'grep -F \'"conversation_id":"{cid2}"\' "{events_file}" | tail -1 | jq -r .model',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert grep_result.returncode == 0
+    assert grep_result.stdout.strip() == "claude-haiku-4-5"
+
+    # Also verify that looking up the first CID finds the right model
+    grep_result2 = subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'grep -F \'"conversation_id":"{cid1}"\' "{events_file}" | tail -1 | jq -r .model',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert grep_result2.returncode == 0
+    assert grep_result2.stdout.strip() == "claude-sonnet-4-6"
 
 
 @pytest.mark.timeout(30)
@@ -922,15 +937,14 @@ def test_chat_script_new_as_agent_with_message_writes_event_without_llm(
     chat_env.set_default_model("claude-sonnet-4-6")
 
     # This will fail at the `llm inject` call since llm is not installed,
-    # but the conversation event should already be appended.
-    result = chat_env.run("--new", "--as-agent", "hello from test")
+    # but the conversation event should already be appended because
+    # append_conversation_event runs before the llm inject call.
+    chat_env.run("--new", "--as-agent", "hello from test")
 
-    # The script fails because llm is not installed
-    # but the conversation event should still have been written
     events_file = chat_env.conversations_dir / "events.jsonl"
-    if events_file.exists():
-        content = events_file.read_text().strip()
-        if content:
-            event = json.loads(content.split("\n")[-1])
-            assert event["type"] == "conversation_created"
-            assert event["model"] == "claude-sonnet-4-6"
+    assert events_file.exists(), "conversation event should be written even when llm inject fails"
+    content = events_file.read_text().strip()
+    assert content, "events.jsonl should not be empty"
+    event = json.loads(content.split("\n")[-1])
+    assert event["type"] == "conversation_created"
+    assert event["model"] == "claude-sonnet-4-6"
