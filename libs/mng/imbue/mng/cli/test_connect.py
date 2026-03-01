@@ -13,7 +13,6 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.model_update import to_update
-from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.cli.connect import AgentSelectorState
 from imbue.mng.cli.connect import ConnectCliOptions
 from imbue.mng.cli.connect import SelectorInputHandler
@@ -31,10 +30,9 @@ from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.main import cli
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
-from imbue.mng.utils.testing import cleanup_tmux_session
-from imbue.mng.utils.testing import create_test_agent_via_cli
-from imbue.mng.utils.testing import tmux_session_cleanup
-from imbue.mng.utils.testing import tmux_session_exists
+from imbue.mng.testing import cleanup_tmux_session
+from imbue.mng.testing import make_test_agent_info
+from imbue.mng.testing import tmux_session_exists
 
 # =============================================================================
 # CLI-level integration tests for connect command
@@ -64,31 +62,25 @@ def test_connect_no_agent_found(
 
 def test_connect_cli_invokes_tmux_attach_for_named_agent(
     cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mng_test_prefix: str,
+    create_test_agent,
     plugin_manager: pluggy.PluginManager,
     intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
     """Test the full connect CLI path: argument parsing -> agent resolution -> tmux attach."""
     agent_name = f"test-connect-cli-tmux-{int(time.time())}"
-    session_name = f"{mng_test_prefix}{agent_name}"
+    session_name = create_test_agent(agent_name, "sleep 493827")
 
-    with tmux_session_cleanup(session_name):
-        create_test_agent_via_cli(
-            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd="sleep 493827"
-        )
+    result = cli_runner.invoke(
+        connect,
+        [agent_name],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, f"Connect failed with output: {result.output}"
 
-        result = cli_runner.invoke(
-            connect,
-            [agent_name],
-            obj=plugin_manager,
-            catch_exceptions=False,
-        )
-        assert result.exit_code == 0, f"Connect failed with output: {result.output}"
-
-        # Verify the CLI resolved the agent and called tmux attach with the right session
-        assert len(intercepted_execvp_calls) == 1
-        assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
+    # Verify the CLI resolved the agent and called tmux attach with the right session
+    assert len(intercepted_execvp_calls) == 1
+    assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_name])
 
 
 def test_connect_via_cli_group(
@@ -245,8 +237,7 @@ def test_connect_no_start_raises_error_for_stopped_agent(
 
 def test_connect_cli_non_interactive_selects_most_recent_agent(
     cli_runner: CliRunner,
-    temp_work_dir: Path,
-    mng_test_prefix: str,
+    create_test_agent,
     plugin_manager: pluggy.PluginManager,
     intercepted_execvp_calls: list[tuple[str, list[str]]],
 ) -> None:
@@ -258,29 +249,21 @@ def test_connect_cli_non_interactive_selects_most_recent_agent(
     """
     agent_name_old = f"test-connect-old-{int(time.time())}"
     agent_name_new = f"test-connect-new-{int(time.time())}"
-    session_old = f"{mng_test_prefix}{agent_name_old}"
-    session_new = f"{mng_test_prefix}{agent_name_new}"
+    create_test_agent(agent_name_old, "sleep 192837")
+    session_new = create_test_agent(agent_name_new, "sleep 283746")
 
-    with tmux_session_cleanup(session_old), tmux_session_cleanup(session_new):
-        create_test_agent_via_cli(
-            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name_old, agent_cmd="sleep 192837"
-        )
-        create_test_agent_via_cli(
-            cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name_new, agent_cmd="sleep 283746"
-        )
+    cli_runner.invoke(
+        connect,
+        [],
+        obj=plugin_manager,
+        catch_exceptions=False,
+        # Providing input="" makes stdin non-tty, triggering the non-interactive path
+        input="",
+    )
 
-        cli_runner.invoke(
-            connect,
-            [],
-            obj=plugin_manager,
-            catch_exceptions=False,
-            # Providing input="" makes stdin non-tty, triggering the non-interactive path
-            input="",
-        )
-
-        # Verify the CLI selected the most recently created agent
-        assert len(intercepted_execvp_calls) == 1
-        assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_new])
+    # Verify the CLI selected the most recently created agent
+    assert len(intercepted_execvp_calls) == 1
+    assert intercepted_execvp_calls[0] == ("tmux", ["tmux", "attach", "-t", session_new])
 
 
 # =============================================================================

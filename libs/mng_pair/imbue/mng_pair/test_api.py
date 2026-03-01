@@ -5,9 +5,9 @@ from typing import cast
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.api.test_fixtures import FakeAgent
-from imbue.mng.api.test_fixtures import FakeHost
-from imbue.mng.api.test_fixtures import SyncTestContext
+from imbue.mng.api.testing import FakeAgent
+from imbue.mng.api.testing import FakeHost
+from imbue.mng.api.testing import SyncTestContext
 from imbue.mng.errors import BinaryNotInstalledError
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.agent import AgentInterface
@@ -15,9 +15,9 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ConflictMode
 from imbue.mng.primitives import SyncDirection
 from imbue.mng.primitives import UncommittedChangesMode
+from imbue.mng.testing import init_git_repo_with_config
+from imbue.mng.testing import run_git_command
 from imbue.mng.utils.polling import wait_for
-from imbue.mng.utils.testing import init_git_repo_with_config
-from imbue.mng.utils.testing import run_git_command
 from imbue.mng_pair.api import UnisonSyncer
 from imbue.mng_pair.api import determine_git_sync_actions
 from imbue.mng_pair.api import pair_files
