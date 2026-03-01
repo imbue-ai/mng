@@ -938,101 +938,98 @@ def test_gather_context_incremental_new_inner_monologue(
     assert "t2" in second
 
 
-def test_gather_context_first_call_handles_json_decode_error_in_messages(
+class _GatherContextMessageEnv:
+    """Test environment for gather_context message tests.
+
+    Provides a freshly loaded context_tool module, a messages events.jsonl file path,
+    and pre-configured MNG_AGENT_STATE_DIR and LLM_CONVERSATION_ID env vars.
+    """
+
+    def __init__(self, module: Any, msgs_file: Path) -> None:
+        self.module = module
+        self.msgs_file = msgs_file
+
+
+@pytest.fixture()
+def gather_context_msg_env(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify gather_context skips malformed message lines on first call."""
-    module = _load_fresh_context_tool("gc_json_err_msgs")
+) -> _GatherContextMessageEnv:
+    """Set up a fresh context_tool module with a messages directory and conversation env vars."""
+    module = _load_fresh_context_tool("gc_msg_env")
 
     msgs_dir = tmp_path / "logs" / "messages"
     msgs_dir.mkdir(parents=True)
     msgs_file = msgs_dir / "events.jsonl"
-    msgs_file.write_text("not valid json\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n")
 
     monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
     monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
 
-    result = module.gather_context()
+    return _GatherContextMessageEnv(module=module, msgs_file=msgs_file)
+
+
+def test_gather_context_first_call_handles_json_decode_error_in_messages(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context skips malformed message lines on first call."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text("not valid json\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n")
+
+    result = env.module.gather_context()
     assert "conv-A" in result
 
 
 def test_gather_context_first_call_filters_own_conversation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    gather_context_msg_env: _GatherContextMessageEnv,
 ) -> None:
     """Verify gather_context excludes messages from the current conversation."""
-    module = _load_fresh_context_tool("gc_filter_own")
-
-    msgs_dir = tmp_path / "logs" / "messages"
-    msgs_dir.mkdir(parents=True)
-    msgs_file = msgs_dir / "events.jsonl"
-    msgs_file.write_text(
+    env = gather_context_msg_env
+    env.msgs_file.write_text(
         _make_message_line("m1", "my-convo", "user", "my own message")
         + "\n"
         + _make_message_line("m2", "other-convo", "user", "other message")
         + "\n"
     )
 
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
-
-    result = module.gather_context()
+    result = env.module.gather_context()
     assert "other-convo" in result
     assert "my-convo" not in result or "my own message" not in result
 
 
 def test_gather_context_incremental_handles_json_decode_error_in_new_messages(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    gather_context_msg_env: _GatherContextMessageEnv,
 ) -> None:
     """Verify gather_context skips malformed lines in incremental message reading."""
-    module = _load_fresh_context_tool("gc_inc_json_err")
-
-    msgs_dir = tmp_path / "logs" / "messages"
-    msgs_dir.mkdir(parents=True)
-    msgs_file = msgs_dir / "events.jsonl"
-    msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
+    env = gather_context_msg_env
+    env.msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
 
     # First call
-    module.gather_context()
+    env.module.gather_context()
 
     # Append a malformed line and a valid line
-    with msgs_file.open("a") as fh:
+    with env.msgs_file.open("a") as fh:
         fh.write("not valid json\n")
         fh.write(_make_message_line("m2", "other-conv", "assistant", "valid reply") + "\n")
 
-    second = module.gather_context()
+    second = env.module.gather_context()
     assert "valid reply" in second
 
 
 def test_gather_context_incremental_filters_own_conversation_messages(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    gather_context_msg_env: _GatherContextMessageEnv,
 ) -> None:
     """Verify gather_context incremental excludes own conversation messages."""
-    module = _load_fresh_context_tool("gc_inc_filter_own")
-
-    msgs_dir = tmp_path / "logs" / "messages"
-    msgs_dir.mkdir(parents=True)
-    msgs_file = msgs_dir / "events.jsonl"
-    msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
+    env = gather_context_msg_env
+    env.msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
 
     # First call
-    module.gather_context()
+    env.module.gather_context()
 
     # Append messages from own conversation only
-    with msgs_file.open("a") as fh:
+    with env.msgs_file.open("a") as fh:
         fh.write(_make_message_line("m2", "my-convo", "user", "own msg") + "\n")
 
-    second = module.gather_context()
-    # Only own-conversation messages were added, so no new messages section
+    second = env.module.gather_context()
     assert "No new context" in second
 
 
@@ -1379,21 +1376,13 @@ def test_extra_context_tool_conversations_with_empty_lines(extra_context_env: tu
 
 
 def test_gather_context_first_call_messages_with_empty_lines(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    gather_context_msg_env: _GatherContextMessageEnv,
 ) -> None:
     """Verify gather_context skips empty lines when parsing messages on first call."""
-    module = _load_fresh_context_tool("gc_empty_msg_lines")
+    env = gather_context_msg_env
+    env.msgs_file.write_text("\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n" + "\n")
 
-    msgs_dir = tmp_path / "logs" / "messages"
-    msgs_dir.mkdir(parents=True)
-    msgs_file = msgs_dir / "events.jsonl"
-    msgs_file.write_text("\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n" + "\n")
-
-    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
-    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
-
-    result = module.gather_context()
+    result = env.module.gather_context()
     assert "conv-A" in result
 
 
