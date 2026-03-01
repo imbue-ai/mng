@@ -75,7 +75,7 @@ def test_claude_zygote_config_overrides_base_trust_default() -> None:
 
 def test_claude_zygote_config_has_default_chat_model() -> None:
     config = ClaudeZygoteConfig()
-    assert config.default_chat_model == ChatModel("claude-sonnet-4-6")
+    assert config.default_chat_model == ChatModel("claude-opus-4-6")
 
 
 def test_claude_zygote_config_has_install_llm_default() -> None:

@@ -144,6 +144,41 @@ def test_chat_script_passes_llm_tool_functions() -> None:
     assert "llm_tools" in content
 
 
+def test_chat_script_supports_list_flag() -> None:
+    content = load_zygote_resource("chat.sh")
+    assert "--list" in content
+
+
+def test_chat_script_supports_help_flag() -> None:
+    content = load_zygote_resource("chat.sh")
+    assert "--help" in content
+
+
+def test_chat_script_uses_jq_not_python_for_json_parsing() -> None:
+    """Verify resume uses jq instead of python for single-value JSON extraction."""
+    content = load_zygote_resource("chat.sh")
+    # resume_conversation should use jq
+    assert "jq -r" in content
+
+
+def test_chat_script_uses_uv_run_python() -> None:
+    """Verify list_conversations uses 'uv run python3' instead of bare 'python3'."""
+    content = load_zygote_resource("chat.sh")
+    assert "uv run python3" in content
+
+
+def test_chat_script_uses_nanosecond_timestamps() -> None:
+    """Verify timestamps include nanosecond precision."""
+    content = load_zygote_resource("chat.sh")
+    assert "%N" in content
+
+
+def test_chat_script_reports_malformed_lines() -> None:
+    """Verify list_conversations reports malformed lines instead of silently skipping."""
+    content = load_zygote_resource("chat.sh")
+    assert "WARNING" in content or "malformed" in content
+
+
 # -- Conversation watcher content tests --
 
 

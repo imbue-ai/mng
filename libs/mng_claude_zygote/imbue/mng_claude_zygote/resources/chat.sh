@@ -9,7 +9,9 @@
 #   chat --new [message]              Create a new conversation (user-initiated)
 #   chat --new --as-agent [message]   Create a new conversation (agent-initiated)
 #   chat --resume <cid>              Resume an existing conversation
-#   chat                             List all conversations
+#   chat --list                      List all conversations
+#   chat --help                      Show usage information
+#   chat                             List conversations and show help hint
 #
 # Environment:
 #   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
@@ -19,14 +21,21 @@ set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 CONVERSATIONS_FILE="$AGENT_DATA_DIR/logs/conversations.jsonl"
+CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
 DEFAULT_MODEL_FILE="$AGENT_DATA_DIR/default_chat_model"
 LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
 
+# Nanosecond-precision UTC timestamp in ISO 8601 format.
+# Used everywhere in this plugin for consistent, high-precision timestamps.
+iso_timestamp_ns() {
+    date -u +"%Y-%m-%dT%H:%M:%S.%NZ"
+}
+
 get_default_model() {
     if [ -f "$DEFAULT_MODEL_FILE" ]; then
-        cat "$DEFAULT_MODEL_FILE" | tr -d '[:space:]'
+        tr -d '[:space:]' < "$DEFAULT_MODEL_FILE"
     else
-        echo "claude-sonnet-4-6"
+        echo "claude-opus-4-6"
     fi
 }
 
@@ -35,13 +44,22 @@ generate_cid() {
     echo "conv-$(date +%s)-$(head -c 4 /dev/urandom | xxd -p)"
 }
 
+get_updated_at() {
+    local cid="$1"
+    local conv_file="$CONVERSATIONS_DIR/$cid.jsonl"
+    if [ -f "$conv_file" ]; then
+        # Use file mtime as updated_at
+        stat -c '%Y' "$conv_file" 2>/dev/null | xargs -I{} date -u -d @{} +"%Y-%m-%dT%H:%M:%S.%NZ" 2>/dev/null || echo "?"
+    else
+        echo "?"
+    fi
+}
+
 append_conversation_record() {
     local cid="$1"
     local model="$2"
     local timestamp
-    # FIXME: this format is a bit dumb for date--we should always include full precision, since these things will be able to happen fairly quickly, eg, down to ns.
-    #  when fixing this, please also go fix everywhere else in this plugin to make sure we have consistent format
-    timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    timestamp=$(iso_timestamp_ns)
     mkdir -p "$(dirname "$CONVERSATIONS_FILE")"
     printf '{"id":"%s","model":"%s","timestamp":"%s"}\n' "$cid" "$model" "$timestamp" >> "$CONVERSATIONS_FILE"
 }
@@ -101,8 +119,10 @@ resume_conversation() {
 
     # Get the model from the latest entry for this conversation
     local model
-    # FIXME: use jq here instead of python
-    model=$(grep "\"id\":\"$cid\"" "$CONVERSATIONS_FILE" 2>/dev/null | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['model'])" 2>/dev/null || get_default_model)
+    model=$(grep "\"id\":\"$cid\"" "$CONVERSATIONS_FILE" 2>/dev/null \
+        | tail -1 \
+        | jq -r '.model' 2>/dev/null \
+        || get_default_model)
 
     local tool_args
     tool_args=$(build_tool_args)
@@ -118,32 +138,57 @@ list_conversations() {
 
     echo "Conversations:"
     echo "=============="
-    # FIXME: add an updated_at field to the output
-    # FIXME: rename created to created_at below
-    # FIXME: sort by updated_at desc once we have that field
-    # FIXME: on error, print a user-friendly message that includes the line and indicates the file is malformed, rather than silently skipping it
-    # FIXME: don't pipe to /dev/null and silence errors, let the tracebacks through for easier debugging
-    # FIXME: run via "uv run python" since we don't know which python
-    # Show unique conversation IDs with their latest model
-    python3 -c "
-import json, sys
+    # Show unique conversation IDs with their latest model, sorted by updated_at desc
+    uv run python3 -c "
+import json, os, sys
+from pathlib import Path
+
+convs_file = '$CONVERSATIONS_FILE'
+convs_dir = '$CONVERSATIONS_DIR'
 convs = {}
-for line in open('$CONVERSATIONS_FILE'):
+line_num = 0
+for line in open(convs_file):
+    line_num += 1
     line = line.strip()
     if not line:
         continue
     try:
         record = json.loads(line)
         convs[record['id']] = record
-    except (json.JSONDecodeError, KeyError):
+    except (json.JSONDecodeError, KeyError) as e:
+        print(f'  WARNING: malformed line {line_num} in {convs_file}: {e}', file=sys.stderr)
+        print(f'    line content: {line[:200]}', file=sys.stderr)
         continue
+
+# Add updated_at from conversation file mtimes
 for cid, record in convs.items():
-    print(f\"  {record['id']}  model={record.get('model', '?')}  created={record.get('timestamp', '?')}\")
-" 2>/dev/null || echo "  (error reading conversations)"
+    conv_file = Path(convs_dir) / f'{cid}.jsonl'
+    if conv_file.exists():
+        mtime = conv_file.stat().st_mtime
+        from datetime import datetime, timezone
+        record['updated_at'] = datetime.fromtimestamp(mtime, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    else:
+        record['updated_at'] = record.get('timestamp', '?')
+
+# Sort by updated_at descending (most recent first)
+sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
+
+for record in sorted_convs:
+    print(f\"  {record['id']}  model={record.get('model', '?')}  created_at={record.get('timestamp', '?')}  updated_at={record.get('updated_at', '?')}\")
+"
 }
 
-# FIXME: we should handle --help as well, and maybe the current behavior should be for calling "--list". Then we can do something slightly different for just calling "chat" on its own: run as if --list was passed, but also tell the user to run with "--help" to learn more
-#  note that you'll also want to update any calls in the rest of this plugin to use "chat --list" instead of just "chat" if you make this change
+show_help() {
+    echo "chat - manage changeling conversations"
+    echo ""
+    echo "Usage:"
+    echo "  chat --new [--as-agent] [message]   Create a new conversation"
+    echo "  chat --resume <conversation-id>     Resume an existing conversation"
+    echo "  chat --list                         List all conversations"
+    echo "  chat --help                         Show this help message"
+    echo ""
+    echo "With no arguments, lists conversations (same as --list)."
+}
 
 # Parse top-level arguments
 case "${1:-}" in
@@ -159,11 +204,20 @@ case "${1:-}" in
         fi
         resume_conversation "$@"
         ;;
-    "")
+    --list)
         list_conversations
         ;;
+    --help|-h)
+        show_help
+        ;;
+    "")
+        list_conversations
+        echo ""
+        echo "Run 'chat --help' for more options."
+        ;;
     *)
-        echo "Usage: chat [--new [--as-agent] [message]] [--resume <cid>]" >&2
+        echo "Unknown option: $1" >&2
+        echo "Run 'chat --help' for usage information." >&2
         exit 1
         ;;
 esac
