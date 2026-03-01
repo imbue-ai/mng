@@ -467,6 +467,30 @@ def ask(ctx: click.Context, **kwargs: Any) -> None:
         ctx.exit(1)
 
 
+def _run_ask_query(
+    backend: ClaudeBackendInterface,
+    query_string: str,
+    *,
+    execute: bool,
+    allow_web: bool,
+    output_format: OutputFormat,
+) -> None:
+    """Run a query against the claude backend and handle the response."""
+    system_prompt = _build_ask_context()
+    source_dir = _find_mng_source_directory()
+    if source_dir is not None:
+        system_prompt += _build_source_access_context(source_dir)
+    if allow_web:
+        system_prompt += _build_web_access_context()
+    chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
+
+    if execute:
+        response = _accumulate_chunks(chunks)
+        _execute_response(response=response, output_format=output_format)
+    else:
+        _stream_or_accumulate_response(chunks=chunks, output_format=output_format)
+
+
 def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
     """Implementation of ask command (extracted for exception handling)."""
     _mng_ctx, output_opts, opts = setup_command_context(
@@ -486,20 +510,13 @@ def _ask_impl(ctx: click.Context, **kwargs: Any) -> None:
     emit_info("Thinking...", output_opts.output_format)
 
     backend = SubprocessClaudeBackend(is_web_access_enabled=opts.allow_web)
-    system_prompt = _build_ask_context()
-    source_dir = _find_mng_source_directory()
-    if source_dir is not None:
-        system_prompt += _build_source_access_context(source_dir)
-    if opts.allow_web:
-        system_prompt += _build_web_access_context()
-    chunks = backend.query(prompt=query_string, system_prompt=system_prompt)
-
-    if opts.execute:
-        # Accumulate all chunks for execute mode (don't stream to user)
-        response = _accumulate_chunks(chunks)
-        _execute_response(response=response, output_format=output_opts.output_format)
-    else:
-        _stream_or_accumulate_response(chunks=chunks, output_format=output_opts.output_format)
+    _run_ask_query(
+        backend=backend,
+        query_string=query_string,
+        execute=opts.execute,
+        allow_web=opts.allow_web,
+        output_format=output_opts.output_format,
+    )
 
 
 def _stream_or_accumulate_response(chunks: Iterator[str], output_format: OutputFormat) -> None:

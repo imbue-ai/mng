@@ -6,7 +6,6 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
-import imbue.mng.cli.ask as ask_module
 from imbue.mng.cli.ask import ClaudeBackendInterface
 from imbue.mng.cli.ask import _build_ask_context
 from imbue.mng.cli.ask import _build_source_access_context
@@ -14,6 +13,7 @@ from imbue.mng.cli.ask import _build_web_access_context
 from imbue.mng.cli.ask import _execute_response
 from imbue.mng.cli.ask import _extract_text_delta
 from imbue.mng.cli.ask import _find_mng_source_directory
+from imbue.mng.cli.ask import _run_ask_query
 from imbue.mng.cli.ask import ask
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import OutputFormat
@@ -42,11 +42,9 @@ class FakeClaudeError(ClaudeBackendInterface):
 
 
 @pytest.fixture
-def fake_claude(monkeypatch: pytest.MonkeyPatch) -> FakeClaude:
-    """Provide a FakeClaude backend and monkeypatch it into the ask module."""
-    backend = FakeClaude()
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
-    return backend
+def fake_claude() -> FakeClaude:
+    """Provide a FakeClaude backend for direct use with _run_ask_query."""
+    return FakeClaude()
 
 
 def test_build_ask_context_contains_mng_docs() -> None:
@@ -70,49 +68,60 @@ def test_no_query_shows_command_summary(
 
 def test_ask_passes_query_to_claude(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The full query (with prefix) should be passed to the claude backend."""
+    """The query should be passed to the claude backend."""
     fake_claude.responses.append("mng create my-agent")
 
-    result = cli_runner.invoke(
-        ask, ["how", "do", "I", "create", "an", "agent?"], obj=plugin_manager, catch_exceptions=False
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="how do I create an agent?",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
     )
 
-    assert result.exit_code == 0
-    assert "mng create my-agent" in result.output
     assert len(fake_claude.queries) == 1
     assert "how do I create an agent?" in fake_claude.queries[0]
+    captured = capsys.readouterr()
+    assert "mng create my-agent" in captured.out
 
 
 def test_ask_json_output(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake_claude.responses.append("mng list")
 
-    result = cli_runner.invoke(ask, ["--format", "json", "list", "agents"], obj=plugin_manager, catch_exceptions=False)
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="list agents",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.JSON,
+    )
 
-    assert result.exit_code == 0
-    assert '"response": "mng list"' in result.output
+    captured = capsys.readouterr()
+    assert '"response": "mng list"' in captured.out
 
 
 def test_ask_jsonl_output(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     fake_claude.responses.append("mng list")
 
-    result = cli_runner.invoke(
-        ask, ["--format", "jsonl", "list", "agents"], obj=plugin_manager, catch_exceptions=False
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="list agents",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.JSONL,
     )
 
-    assert result.exit_code == 0
-    assert '"event": "response"' in result.output
-    assert '"response": "mng list"' in result.output
+    captured = capsys.readouterr()
+    assert '"event": "response"' in captured.out
+    assert '"response": "mng list"' in captured.out
 
 
 @pytest.mark.parametrize(
@@ -125,35 +134,40 @@ def test_ask_jsonl_output(
         ),
     ],
 )
-def test_ask_claude_error_shows_message(
+def test_ask_claude_error_raises(
     error_message: str,
     expected_substring: str,
-    monkeypatch: pytest.MonkeyPatch,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """When the claude backend raises an error, it should be displayed to the user."""
+    """When the claude backend raises an error, it should propagate as MngError."""
     backend = FakeClaudeError(error_message=error_message)
-    monkeypatch.setattr(ask_module, "SubprocessClaudeBackend", lambda **_kwargs: backend)
 
-    result = cli_runner.invoke(ask, ["test"], obj=plugin_manager, catch_exceptions=True)
-
-    assert result.exit_code != 0
-    assert expected_substring in result.output
+    with pytest.raises(MngError, match=expected_substring):
+        _run_ask_query(
+            backend=backend,
+            query_string="test",
+            execute=False,
+            allow_web=False,
+            output_format=OutputFormat.HUMAN,
+        )
 
 
 def test_ask_human_streams_output(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """HUMAN format should output the streamed response text."""
     fake_claude.responses.append("Use mng create")
 
-    result = cli_runner.invoke(ask, ["how", "to", "create?"], obj=plugin_manager, catch_exceptions=False)
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="how to create?",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
 
-    assert result.exit_code == 0
-    assert "Use mng create" in result.output
+    captured = capsys.readouterr()
+    assert "Use mng create" in captured.out
 
 
 def test_extract_text_delta_valid_event() -> None:
@@ -255,13 +269,17 @@ def test_build_source_access_context_includes_source_directory_and_key_paths() -
 
 def test_ask_system_prompt_includes_source_access_context(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
     """The system prompt passed to claude should include source code access info."""
     fake_claude.responses.append("mng list")
 
-    cli_runner.invoke(ask, ["list", "agents"], obj=plugin_manager, catch_exceptions=False)
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="list agents",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
 
     assert len(fake_claude.system_prompts) == 1
     system_prompt = fake_claude.system_prompts[0]
@@ -277,13 +295,17 @@ def test_build_web_access_context_includes_repo_url() -> None:
 
 def test_ask_without_allow_web_does_not_include_web_context(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Without --allow-web, the system prompt should not include web access info."""
+    """Without allow_web, the system prompt should not include web access info."""
     fake_claude.responses.append("mng list")
 
-    cli_runner.invoke(ask, ["list", "agents"], obj=plugin_manager, catch_exceptions=False)
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="list agents",
+        execute=False,
+        allow_web=False,
+        output_format=OutputFormat.HUMAN,
+    )
 
     assert len(fake_claude.system_prompts) == 1
     assert "Web Access" not in fake_claude.system_prompts[0]
@@ -291,14 +313,16 @@ def test_ask_without_allow_web_does_not_include_web_context(
 
 def test_ask_with_allow_web_includes_web_context(
     fake_claude: FakeClaude,
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """With --allow-web, the system prompt should include web access info."""
+    """With allow_web, the system prompt should include web access info."""
     fake_claude.responses.append("mng list")
 
-    cli_runner.invoke(
-        ask, ["--allow-web", "list", "agents"], obj=plugin_manager, catch_exceptions=False
+    _run_ask_query(
+        backend=fake_claude,
+        query_string="list agents",
+        execute=False,
+        allow_web=True,
+        output_format=OutputFormat.HUMAN,
     )
 
     assert len(fake_claude.system_prompts) == 1
