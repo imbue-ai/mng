@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from typing import Final
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
@@ -45,10 +46,10 @@ class MessageRole(NonEmptyStr):
 # These constants define the source names and corresponding log paths.
 # Each source writes to logs/<SOURCE>/events.jsonl.
 
-SOURCE_CONVERSATIONS = EventSource("conversations")
-SOURCE_MESSAGES = EventSource("messages")
-SOURCE_ENTRYPOINT = EventSource("entrypoint")
-SOURCE_TRANSCRIPT = EventSource("transcript")
+SOURCE_CONVERSATIONS: Final[EventSource] = EventSource("conversations")
+SOURCE_MESSAGES: Final[EventSource] = EventSource("messages")
+SOURCE_ENTRYPOINT: Final[EventSource] = EventSource("entrypoint")
+SOURCE_TRANSCRIPT: Final[EventSource] = EventSource("transcript")
 
 
 class ConversationEvent(FrozenModel):

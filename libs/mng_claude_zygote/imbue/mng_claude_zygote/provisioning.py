@@ -4,6 +4,7 @@ import importlib.resources
 import shlex
 import time
 from pathlib import Path
+from typing import Final
 
 from loguru import logger
 
@@ -14,14 +15,14 @@ from imbue.mng_claude_zygote import resources as zygote_resources
 from imbue.mng_claude_zygote.data_types import ChatModel
 
 # Scripts to provision to $MNG_HOST_DIR/commands/
-_SCRIPT_FILES = (
+_SCRIPT_FILES: Final[tuple[str, ...]] = (
     "chat.sh",
     "conversation_watcher.sh",
     "event_watcher.sh",
 )
 
 # Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
-_LLM_TOOL_FILES = (
+_LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "context_tool.py",
     "extra_context_tool.py",
 )
@@ -29,12 +30,12 @@ _LLM_TOOL_FILES = (
 # Timeout thresholds (seconds).
 # Hard timeout = command is definitely broken if it takes this long.
 # Warn threshold = emit a warning if the command takes longer than this.
-_FS_HARD_TIMEOUT = 15.0
-_FS_WARN_THRESHOLD = 2.0
-_COMMAND_CHECK_HARD_TIMEOUT = 30.0
-_COMMAND_CHECK_WARN_THRESHOLD = 5.0
-_INSTALL_HARD_TIMEOUT = 300.0
-_INSTALL_WARN_THRESHOLD = 60.0
+_FS_HARD_TIMEOUT: Final[float] = 15.0
+_FS_WARN_THRESHOLD: Final[float] = 2.0
+_COMMAND_CHECK_HARD_TIMEOUT: Final[float] = 30.0
+_COMMAND_CHECK_WARN_THRESHOLD: Final[float] = 5.0
+_INSTALL_HARD_TIMEOUT: Final[float] = 300.0
+_INSTALL_WARN_THRESHOLD: Final[float] = 60.0
 
 
 def _execute_with_timing(

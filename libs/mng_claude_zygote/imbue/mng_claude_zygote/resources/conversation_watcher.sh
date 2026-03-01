@@ -150,14 +150,22 @@ sync_conversation() {
     echo "$new_messages" >> "$MESSAGES_EVENTS"
 
     local new_last_ts
+    local ts_stderr
+    ts_stderr=$(mktemp)
     new_last_ts=$(sqlite3 "$db_path" "
         SELECT MAX(datetime_utc) FROM responses
         WHERE conversation_id = '${cid}'
         ${ts_filter};
-    " 2>/dev/null || echo "")
+    " 2>"$ts_stderr" || true)
+    if [ -s "$ts_stderr" ]; then
+        log "WARNING: sqlite3 MAX(datetime_utc) error for $cid: $(cat "$ts_stderr")"
+    fi
+    rm -f "$ts_stderr"
     if [ -n "$new_last_ts" ]; then
         echo "$new_last_ts" > "$state_file"
         log_debug "Updated sync state for $cid: last_ts=$new_last_ts"
+    else
+        log "WARNING: could not determine latest timestamp for $cid, sync state not updated (may cause duplicates on next cycle)"
     fi
 }
 
