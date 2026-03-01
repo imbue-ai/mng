@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import importlib.resources
 import shlex
+import time
 from pathlib import Path
+
+from loguru import logger
 
 from imbue.imbue_common.logging import log_span
 from imbue.mng.interfaces.host import OnlineHostInterface
@@ -22,6 +25,39 @@ _LLM_TOOL_FILES = (
     "extra_context_tool.py",
 )
 
+# Timeout thresholds (seconds).
+# Hard timeout = command is definitely broken if it takes this long.
+# Warn threshold = emit a warning if the command takes longer than this.
+_FS_HARD_TIMEOUT = 15.0
+_FS_WARN_THRESHOLD = 2.0
+_COMMAND_CHECK_HARD_TIMEOUT = 30.0
+_COMMAND_CHECK_WARN_THRESHOLD = 5.0
+_INSTALL_HARD_TIMEOUT = 300.0
+_INSTALL_WARN_THRESHOLD = 60.0
+
+
+def _execute_with_timing(
+    host: OnlineHostInterface,
+    cmd: str,
+    *,
+    hard_timeout: float,
+    warn_threshold: float,
+    label: str,
+    **kwargs: object,
+) -> object:
+    """Execute a host command with two-threshold timeout monitoring.
+
+    Uses hard_timeout as the actual timeout. If the command succeeds but
+    takes longer than warn_threshold, emits a warning so we can notice
+    degradation before it becomes an outright failure.
+    """
+    start = time.monotonic()
+    result = host.execute_command(cmd, timeout_seconds=hard_timeout, **kwargs)  # type: ignore[arg-type]
+    elapsed = time.monotonic() - start
+    if elapsed > warn_threshold:
+        logger.warning("{} took {:.1f}s (expected <{:.0f}s): {}", label, elapsed, warn_threshold, cmd)
+    return result
+
 
 def load_zygote_resource(filename: str) -> str:
     """Load a resource file from the mng_claude_zygote resources package."""
@@ -38,16 +74,28 @@ def install_llm_toolchain(host: OnlineHostInterface) -> None:
     """
     with log_span("Installing llm toolchain"):
         # Check if llm is already installed
-        check_result = host.execute_command("command -v llm", timeout_seconds=10.0)
-        if check_result.success:
+        check_result = _execute_with_timing(
+            host,
+            "command -v llm",
+            hard_timeout=_COMMAND_CHECK_HARD_TIMEOUT,
+            warn_threshold=_COMMAND_CHECK_WARN_THRESHOLD,
+            label="llm check",
+        )
+        if check_result.success:  # type: ignore[union-attr]
             # llm is installed, just ensure plugins are present
             _install_llm_plugins(host)
             return
 
         # Install llm via uv tool
-        result = host.execute_command("uv tool install llm", timeout_seconds=120.0)
-        if not result.success:
-            raise RuntimeError(f"Failed to install llm: {result.stderr}")
+        result = _execute_with_timing(
+            host,
+            "uv tool install llm",
+            hard_timeout=_INSTALL_HARD_TIMEOUT,
+            warn_threshold=_INSTALL_WARN_THRESHOLD,
+            label="llm install",
+        )
+        if not result.success:  # type: ignore[union-attr]
+            raise RuntimeError(f"Failed to install llm: {result.stderr}")  # type: ignore[union-attr]
 
         _install_llm_plugins(host)
 
@@ -56,9 +104,15 @@ def _install_llm_plugins(host: OnlineHostInterface) -> None:
     """Install llm-anthropic and llm-live-chat plugins."""
     for plugin_name in ("llm-anthropic", "llm-live-chat"):
         with log_span("Installing llm plugin: {}", plugin_name):
-            result = host.execute_command(f"llm install {plugin_name}", timeout_seconds=120.0)
-            if not result.success:
-                raise RuntimeError(f"Failed to install {plugin_name}: {result.stderr}")
+            result = _execute_with_timing(
+                host,
+                f"llm install {plugin_name}",
+                hard_timeout=_INSTALL_HARD_TIMEOUT,
+                warn_threshold=_INSTALL_WARN_THRESHOLD,
+                label=f"llm plugin install ({plugin_name})",
+            )
+            if not result.success:  # type: ignore[union-attr]
+                raise RuntimeError(f"Failed to install {plugin_name}: {result.stderr}")  # type: ignore[union-attr]
 
 
 def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:
@@ -85,19 +139,37 @@ def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, change
 
 def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path, target_path: Path) -> None:
     """Create a symlink at link_path pointing to target_path, if target exists."""
-    check = host.execute_command(f"test -f {shlex.quote(str(target_path))}", timeout_seconds=5.0)
-    if not check.success:
+    check = _execute_with_timing(
+        host,
+        f"test -f {shlex.quote(str(target_path))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="file check",
+    )
+    if not check.success:  # type: ignore[union-attr]
         return
 
     # Ensure parent directory exists
-    host.execute_command(f"mkdir -p {shlex.quote(str(link_path.parent))}", timeout_seconds=5.0)
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(link_path.parent))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="mkdir",
+    )
 
     # Create symlink (force to overwrite existing)
     cmd = f"ln -sf {shlex.quote(str(target_path))} {shlex.quote(str(link_path))}"
     with log_span("Creating symlink: {} -> {}", link_path, target_path):
-        result = host.execute_command(cmd, timeout_seconds=5.0)
-        if not result.success:
-            raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
+        result = _execute_with_timing(
+            host,
+            cmd,
+            hard_timeout=_FS_HARD_TIMEOUT,
+            warn_threshold=_FS_WARN_THRESHOLD,
+            label="symlink",
+        )
+        if not result.success:  # type: ignore[union-attr]
+            raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")  # type: ignore[union-attr]
 
 
 def provision_changeling_scripts(host: OnlineHostInterface) -> None:
@@ -106,7 +178,13 @@ def provision_changeling_scripts(host: OnlineHostInterface) -> None:
     Scripts are loaded from the resources package and written with execute permission.
     """
     commands_dir = host.host_dir / "commands"
-    host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(commands_dir))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="mkdir commands",
+    )
 
     for script_name in _SCRIPT_FILES:
         script_content = load_zygote_resource(script_name)
@@ -122,7 +200,13 @@ def provision_llm_tools(host: OnlineHostInterface) -> None:
     conversation agents access to changeling context.
     """
     tools_dir = host.host_dir / "commands" / "llm_tools"
-    host.execute_command(f"mkdir -p {shlex.quote(str(tools_dir))}", timeout_seconds=5.0)
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(tools_dir))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="mkdir llm_tools",
+    )
 
     for tool_file in _LLM_TOOL_FILES:
         tool_content = load_zygote_resource(tool_file)
@@ -138,7 +222,13 @@ def create_conversation_directories(host: OnlineHostInterface, agent_state_dir: 
     - <agent_state_dir>/logs/conversations/
     """
     conversations_dir = agent_state_dir / "logs" / "conversations"
-    host.execute_command(f"mkdir -p {shlex.quote(str(conversations_dir))}", timeout_seconds=5.0)
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(conversations_dir))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="mkdir conversations",
+    )
 
 
 def write_default_chat_model(host: OnlineHostInterface, agent_state_dir: Path, model: ChatModel) -> None:
@@ -169,18 +259,27 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
     changelings_memory = work_dir / changelings_dir_name / "memory"
 
     # Get the absolute path of work_dir on the host
-    abs_result = host.execute_command(
+    abs_result = _execute_with_timing(
+        host,
         f"cd {shlex.quote(str(work_dir))} && pwd",
-        timeout_seconds=5.0,
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="resolve work_dir",
     )
-    if not abs_result.success:
-        raise RuntimeError(f"Failed to resolve absolute path of {work_dir}: {abs_result.stderr}")
-    abs_work_dir = abs_result.stdout.strip()
+    if not abs_result.success:  # type: ignore[union-attr]
+        raise RuntimeError(f"Failed to resolve absolute path of {work_dir}: {abs_result.stderr}")  # type: ignore[union-attr]
+    abs_work_dir = abs_result.stdout.strip()  # type: ignore[union-attr]
 
     project_dir_name = compute_claude_project_dir_name(abs_work_dir)
 
     # Create the changelings memory directory
-    host.execute_command(f"mkdir -p {shlex.quote(str(changelings_memory))}", timeout_seconds=5.0)
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(changelings_memory))}",
+        hard_timeout=_FS_HARD_TIMEOUT,
+        warn_threshold=_FS_WARN_THRESHOLD,
+        label="mkdir changelings memory",
+    )
 
     # Create the Claude project directory and symlink memory into it.
     # Use $HOME instead of ~ because ~ is not expanded inside single quotes
@@ -191,6 +290,12 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
 
     cmd = f"mkdir -p {project_dir_shell} && ln -sfn {shlex.quote(str(changelings_memory))} {memory_link_shell}"
     with log_span("Linking memory: $HOME/.claude/projects/{}/memory -> {}", project_dir_name, changelings_memory):
-        result = host.execute_command(cmd, timeout_seconds=5.0)
-        if not result.success:
-            raise RuntimeError(f"Failed to link memory directory: {result.stderr}")
+        result = _execute_with_timing(
+            host,
+            cmd,
+            hard_timeout=_FS_HARD_TIMEOUT,
+            warn_threshold=_FS_WARN_THRESHOLD,
+            label="link memory",
+        )
+        if not result.success:  # type: ignore[union-attr]
+            raise RuntimeError(f"Failed to link memory directory: {result.stderr}")  # type: ignore[union-attr]

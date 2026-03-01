@@ -10,7 +10,15 @@ the system state, agent status, or extended history.
 import json
 import os
 import subprocess
+import sys
+import time
 from pathlib import Path
+
+# Timeout thresholds for mng list.
+# Hard timeout: definitely broken if it takes this long.
+# Warn threshold: emit a warning if it takes longer than this.
+_MNG_LIST_HARD_TIMEOUT = 120
+_MNG_LIST_WARN_THRESHOLD = 15
 
 
 def gather_extra_context() -> str:
@@ -26,18 +34,26 @@ def gather_extra_context() -> str:
     sections: list[str] = []
 
     # Current mng agent list
-    # No timeout: mng list can be slow when querying remote providers,
-    # and if the user asked for extra context they're willing to wait.
     try:
+        start = time.monotonic()
         result = subprocess.run(
             ["uv", "run", "mng", "list", "--json"],
             capture_output=True,
             text=True,
+            timeout=_MNG_LIST_HARD_TIMEOUT,
         )
+        elapsed = time.monotonic() - start
+        if elapsed > _MNG_LIST_WARN_THRESHOLD:
+            print(
+                f"WARNING: mng list took {elapsed:.1f}s (expected <{_MNG_LIST_WARN_THRESHOLD}s)",
+                file=sys.stderr,
+            )
         if result.returncode == 0 and result.stdout.strip():
             sections.append(f"## Current Agents\n```\n{result.stdout.strip()}\n```")
         else:
             sections.append("## Current Agents\n(No agents or unable to retrieve)")
+    except subprocess.TimeoutExpired:
+        sections.append(f"## Current Agents\n(Timed out after {_MNG_LIST_HARD_TIMEOUT}s -- mng list may be hanging)")
     except (FileNotFoundError, OSError):
         sections.append("## Current Agents\n(Unable to retrieve agent list)")
 
