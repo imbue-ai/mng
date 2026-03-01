@@ -8,6 +8,7 @@ from typing import Any
 from typing import Callable
 from typing import Final
 from typing import Mapping
+from typing import NoReturn
 from typing import Sequence
 from uuid import uuid4
 
@@ -239,8 +240,13 @@ class BaseAgent(AgentInterface):
         could be interpreted as a literal newline instead of a submit action.
 
         Subclasses can enable this by overriding uses_marker_based_send_message().
+
+        Before sending, runs preflight checks (e.g., dialog detection) that
+        subclasses can customize by overriding _preflight_send_message().
         """
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
+            self._preflight_send_message(self.session_name)
+
             if self.uses_marker_based_send_message():
                 self._send_message_with_marker(self.session_name, message)
             else:
@@ -267,6 +273,18 @@ class BaseAgent(AgentInterface):
         Returns None by default (no TUI readiness check). Subclasses can override.
         """
         return None
+
+    def _preflight_send_message(self, session_name: str) -> None:
+        """Run preflight checks before sending a message.
+
+        Called at the start of send_message. Default is a no-op.
+        Subclasses can override to perform checks (e.g., dialog detection)
+        and raise an appropriate error to abort the send.
+        """
+
+    def _raise_send_timeout(self, session_name: str, timeout_reason: str) -> NoReturn:
+        """Raise a SendMessageError for a send timeout."""
+        raise SendMessageError(str(self.name), timeout_reason)
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
@@ -418,8 +436,8 @@ class BaseAgent(AgentInterface):
                 lambda: self._check_pane_contains(session_name, marker),
                 timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
             ):
-                raise SendMessageError(
-                    str(self.name),
+                self._raise_send_timeout(
+                    session_name,
                     f"Timeout waiting for message marker to appear (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
                 )
 
@@ -439,8 +457,8 @@ class BaseAgent(AgentInterface):
             lambda: self._check_marker_removed_and_contains(session_name, marker, expected_ending),
             timeout=_SEND_MESSAGE_TIMEOUT_SECONDS,
         ):
-            raise SendMessageError(
-                str(self.name),
+            self._raise_send_timeout(
+                session_name,
                 f"Timeout waiting for message to be ready for submission (waited {_SEND_MESSAGE_TIMEOUT_SECONDS:.1f}s)",
             )
         logger.trace("Verified marker removed and expected content visible in pane")
@@ -474,8 +492,8 @@ class BaseAgent(AgentInterface):
         else:
             logger.error("TUI send enter and wait timeout -- failed to capture remote pane content")
 
-        raise SendMessageError(
-            str(self.name),
+        self._raise_send_timeout(
+            session_name,
             f"Timeout waiting for message submission signal (waited {_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS}s)",
         )
 
