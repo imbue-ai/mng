@@ -1,8 +1,12 @@
 from collections.abc import Callable
+from collections.abc import Generator
 from collections.abc import Mapping
 from collections.abc import Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Final
+
+from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.event_utils import ReadOnlyEvent
@@ -107,6 +111,22 @@ class FakeConcurrencyGroup(ConcurrencyGroup):
 
         # Default: success
         return make_finished_process(command=tuple(cmd_list))
+
+
+@contextmanager
+def capture_loguru_messages() -> Generator[list[str], None, None]:
+    """Context manager that captures loguru messages into a list.
+
+    Adds a temporary loguru handler that appends all messages to a list,
+    and removes it on exit. Yields the list so callers can assert on
+    the captured output after calling functions that log via loguru.
+    """
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="TRACE")
+    try:
+        yield messages
+    finally:
+        logger.remove(handler_id)
 
 
 def make_fake_concurrency_group(
