@@ -15,6 +15,8 @@ from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng.providers.modal.volume import ModalVolume
 from imbue.mng.utils.polling import wait_for
 
+pytestmark = [pytest.mark.modal]
+
 # Placeholder for the agent parameter in on_agent_created calls.
 # The method doesn't use the agent, but the type signature requires AgentInterface.
 _UNUSED_AGENT: AgentInterface = None  # ty: ignore[invalid-assignment]

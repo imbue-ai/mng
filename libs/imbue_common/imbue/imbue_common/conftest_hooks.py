@@ -6,6 +6,7 @@ Provides common test infrastructure:
 - xdist parallelism override (configurable via PYTEST_NUMPROCESSES env var)
 - Output file redirection (slow tests report, coverage report)
 - Shared pytest defaults (markers, filterwarnings, CLI args, coverage report config)
+- Resource mark enforcement (ensures tests are correctly marked for external tool usage)
 
 Environment variables:
 - PYTEST_NUMPROCESSES: Override the number of xdist workers (default: 4, set in
@@ -40,6 +41,14 @@ from uuid import uuid4
 import pytest
 from coverage.exceptions import CoverageException
 
+from imbue.imbue_common.resource_guards import _pytest_runtest_makereport
+from imbue.imbue_common.resource_guards import _pytest_runtest_setup
+from imbue.imbue_common.resource_guards import _pytest_runtest_teardown
+from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
+from imbue.imbue_common.resource_guards import cleanup_sdk_resource_guards
+from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
+from imbue.imbue_common.resource_guards import create_sdk_resource_guards
+
 # Directory for test output files (slow tests, coverage summaries).
 # Relative to wherever pytest is invoked from.
 _TEST_OUTPUTS_DIR: Final[Path] = Path(".test_output")
@@ -68,6 +77,10 @@ _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
     "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
+    "tmux: marks tests that create real tmux sessions or mng agents (slow, requires tmux)",
+    "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
+    "rsync: marks tests that invoke rsync for file transfer",
+    "unison: marks tests that start a real unison file-sync process",
 ]
 
 _SHARED_FILTER_WARNINGS: Final[list[str]] = [
@@ -238,16 +251,20 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
 
     # xdist workers should not acquire the lock - only the controller does
     if _is_xdist_worker():
-        # Use setattr to avoid type errors - pytest Session doesn't declare these attributes
         setattr(session, "start_time", time.time())  # noqa: B010
-        return
+    else:
+        # Acquire the lock and store the handle on the session to keep it open
+        lock_handle = _acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
+        setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)  # noqa: B010
 
-    # Acquire the lock and store the handle on the session to keep it open
-    lock_handle = _acquire_global_test_lock(lock_path=_GLOBAL_TEST_LOCK_PATH)
-    setattr(session, _SESSION_LOCK_HANDLE_ATTR, lock_handle)  # noqa: B010
+        # Record start time AFTER acquiring the lock so wait time isn't counted
+        setattr(session, "start_time", time.time())  # noqa: B010
 
-    # Record start time AFTER acquiring the lock so wait time isn't counted
-    setattr(session, "start_time", time.time())  # noqa: B010
+    # Create resource guard wrappers (workers reuse the controller's via env var).
+    create_resource_guard_wrappers()
+
+    # Install SDK-level guards (each process patches independently, no shared state)
+    create_sdk_resource_guards()
 
 
 @pytest.hookimpl(trylast=True)
@@ -257,6 +274,10 @@ def _pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     Prints per-test durations before checking the limit so that timing data
     is always visible in CI output, even when the suite exceeds the limit.
     """
+    # Clean up resource guard wrappers
+    cleanup_sdk_resource_guards()
+    cleanup_resource_guard_wrappers()
+
     # Print test durations before checking the time limit, so they are
     # visible in the CI output even when pytest.exit() aborts the session.
     terminalreporter = session.config.pluginmanager.get_plugin("terminalreporter")
@@ -604,5 +625,8 @@ def register_conftest_hooks(namespace: dict) -> None:
     namespace["pytest_configure"] = _pytest_configure
     namespace["pytest_collection_finish"] = _pytest_collection_finish
     namespace["pytest_terminal_summary"] = _pytest_terminal_summary
+    namespace["pytest_runtest_setup"] = _pytest_runtest_setup
+    namespace["pytest_runtest_teardown"] = _pytest_runtest_teardown
+    namespace["pytest_runtest_makereport"] = _pytest_runtest_makereport
     # Register the JUnit test ID fixture (with public name for pytest discovery)
     namespace["set_junit_test_id"] = _set_junit_test_id

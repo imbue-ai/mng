@@ -23,6 +23,8 @@ from imbue.mng.providers.modal.routes.deployment import deploy_function
 from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import get_short_random_string
 
+pytestmark = [pytest.mark.modal]
+
 # =============================================================================
 # Acceptance tests (require Modal network access)
 # =============================================================================
