@@ -1,35 +1,14 @@
 import json
-import os
-import tempfile
-from datetime import datetime
-from datetime import timezone
-from pathlib import Path
 from typing import Final
 
 import click
 from loguru import logger
 
+from imbue.mng.utils.agent_cache import get_completion_cache_dir
 from imbue.mng.utils.click_utils import detect_alias_to_canonical
 from imbue.mng.utils.file_utils import atomic_write
 
-AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
 COMMAND_COMPLETIONS_CACHE_FILENAME: Final[str] = ".command_completions.json"
-
-
-def get_completion_cache_dir() -> Path:
-    """Return the directory used for completion cache files.
-
-    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
-    system temp directory namespaced by uid to avoid collisions between users.
-    The directory is created if it does not exist.
-    """
-    env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
-    if env_dir:
-        cache_dir = Path(env_dir)
-    else:
-        cache_dir = Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir
 
 
 # Commands whose positional arguments should complete against agent names.
@@ -154,25 +133,3 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write CLI completions cache")
-
-
-def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
-    """Write agent names to the completion cache file (best-effort).
-
-    Writes a JSON file with agent names so that shell completion can read it
-    without importing the mng config system. The cache file is written to
-    {host_dir}/.agent_completions.json.
-
-    Catches OSError from cache writes so filesystem failures do not break
-    the caller. Other exceptions are allowed to propagate.
-    """
-    try:
-        cache_data = {
-            "names": sorted(set(agent_names)),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        cache_path = host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-        atomic_write(cache_path, json.dumps(cache_data))
-    except OSError:
-        logger.debug("Failed to write agent name completion cache")

@@ -25,6 +25,12 @@ from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.plugins import hookspecs
+from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import AgentReference
+from imbue.mng.primitives import HostId
+from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -81,6 +87,39 @@ def _remove_deprecated_urwid_module_aliases() -> None:
 # We use SimpleFocusListWalker to ensure urwid is fully loaded first.
 _ = SimpleFocusListWalker
 _remove_deprecated_urwid_module_aliases()
+
+
+# =============================================================================
+# Shared test helpers
+# =============================================================================
+
+
+def build_agents_by_host_from_tuples(
+    agents: list[tuple[str, str, str]],
+) -> tuple[dict[HostReference, list[AgentReference]], dict[str, AgentId]]:
+    """Build an agents_by_host mapping from (agent_name, provider, host_name) tuples.
+
+    Returns the mapping and a dict of agent_name -> agent_id for lookup in tests.
+    """
+    result: dict[HostReference, list[AgentReference]] = {}
+    ids_by_name: dict[str, AgentId] = {}
+    for agent_name, provider_name, host_name in agents:
+        host_id = HostId.generate()
+        host_ref = HostReference(
+            host_id=host_id,
+            host_name=HostName(host_name),
+            provider_name=ProviderInstanceName(provider_name),
+        )
+        agent_id = AgentId.generate()
+        ids_by_name[agent_name] = agent_id
+        agent_ref = AgentReference(
+            host_id=host_id,
+            agent_id=agent_id,
+            agent_name=AgentName(agent_name),
+            provider_name=ProviderInstanceName(provider_name),
+        )
+        result.setdefault(host_ref, []).append(agent_ref)
+    return result, ids_by_name
 
 
 # Track test IDs used by this worker/process for cleanup verification.

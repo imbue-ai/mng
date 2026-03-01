@@ -22,8 +22,6 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
-from imbue.mng.cli.completion_writer import get_completion_cache_dir
-from imbue.mng.cli.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import HostAuthenticationError
@@ -49,6 +47,8 @@ from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
+from imbue.mng.utils.agent_cache import get_completion_cache_dir
+from imbue.mng.utils.agent_cache import write_agent_names_cache
 from imbue.mng.utils.cel_utils import apply_cel_filters_to_context
 from imbue.mng.utils.cel_utils import compile_cel_filters
 
@@ -204,9 +204,6 @@ def list_agents(
         result.errors.append(error_info)
         if on_error:
             on_error(error_info)
-
-    agent_names = [str(agent.name) for agent in result.agents]
-    write_agent_names_cache(get_completion_cache_dir(), agent_names)
 
     return result
 
@@ -748,5 +745,12 @@ def load_all_agents_grouped_by_host(
 
         # Warn if any host names are duplicated within the same provider
         _warn_on_duplicate_host_names(agents_by_host)
+
+        # Update the completion cache on any full unfiltered scan. Scans with
+        # include_destroyed=False may miss agents on stopped Modal hosts, but a
+        # partial cache is better than none -- the fallback in
+        # find_agents_by_identifiers_or_state handles misses correctly.
+        if provider_names is None:
+            write_agent_names_cache(get_completion_cache_dir(), agents_by_host)
 
         return (agents_by_host, providers)

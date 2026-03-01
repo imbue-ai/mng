@@ -30,6 +30,9 @@ from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
+from imbue.mng.utils.agent_cache import AgentSummaryUntyped
+from imbue.mng.utils.agent_cache import get_completion_cache_dir
+from imbue.mng.utils.agent_cache import resolve_identifiers_from_cache
 
 
 class ParsedSourceLocation(FrozenModel):
@@ -414,7 +417,7 @@ def find_and_maybe_start_agent_by_name_or_id(
     return agent, host
 
 
-class AgentMatch(FrozenModel):
+class AgentSummary(FrozenModel):
     """Information about an agent that matched a search query."""
 
     agent_id: AgentId = Field(description="Unique identifier for the matched agent")
@@ -423,32 +426,37 @@ class AgentMatch(FrozenModel):
     provider_name: ProviderInstanceName = Field(description="Name of the provider instance that owns the host")
 
 
-def find_agents_by_identifiers_or_state(
+@pure
+def _untyped_to_agent_summary(entry: AgentSummaryUntyped) -> AgentSummary:
+    return AgentSummary(
+        agent_id=AgentId(entry.id),
+        agent_name=AgentName(entry.name),
+        host_id=HostId(entry.host_id),
+        provider_name=ProviderInstanceName(entry.provider),
+    )
+
+
+class _MatchResult(FrozenModel):
+    """Result of matching agent identifiers against loaded agent references."""
+
+    candidates: tuple[AgentSummary, ...] = Field(description="Agents that matched")
+    matched_identifiers: frozenset[str] = Field(description="Identifiers that were successfully resolved")
+
+
+@pure
+def _match_agents_by_identifiers_or_all(
+    agents_by_host: Mapping[HostReference, Sequence[AgentReference]],
     agent_identifiers: Sequence[str],
-    filter_all: bool,
-    target_state: AgentLifecycleState | None,
-    mng_ctx: MngContext,
-) -> list[AgentMatch]:
-    """Find agents matching identifiers or a target lifecycle state.
-
-    When filter_all is True, returns all agents in the target_state
-    (or all agents if target_state is None).
-    When filter_all is False, returns agents matching the given identifiers
-    (by name or ID).
-
-    Raises AgentNotFoundError if any identifier does not match an agent.
-    """
-    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
-
-    # Collect candidate matches from the lightweight agent references
-    candidates: list[AgentMatch] = []
+    is_filter_all: bool,
+) -> _MatchResult:
+    """Match agent references against identifiers or collect all agents."""
+    candidates: list[AgentSummary] = []
     matched_identifiers: set[str] = set()
 
     for host_ref, agent_refs in agents_by_host.items():
         for agent_ref in agent_refs:
             should_include: bool
-            if filter_all:
-                # State filtering is deferred below when target_state is set
+            if is_filter_all:
                 should_include = True
             elif agent_identifiers:
                 agent_name_str = str(agent_ref.agent_name)
@@ -464,7 +472,7 @@ def find_agents_by_identifiers_or_state(
 
             if should_include:
                 candidates.append(
-                    AgentMatch(
+                    AgentSummary(
                         agent_id=agent_ref.agent_id,
                         agent_name=agent_ref.agent_name,
                         host_id=host_ref.host_id,
@@ -472,12 +480,47 @@ def find_agents_by_identifiers_or_state(
                     )
                 )
 
+    return _MatchResult(
+        candidates=tuple(candidates),
+        matched_identifiers=frozenset(matched_identifiers),
+    )
+
+
+def find_agents_by_identifiers_or_state(
+    agent_identifiers: Sequence[str],
+    filter_all: bool,
+    target_state: AgentLifecycleState | None,
+    mng_ctx: MngContext,
+) -> list[AgentSummary]:
+    """Find agents matching identifiers or a target lifecycle state.
+
+    When filter_all is True, returns all agents in the target_state
+    (or all agents if target_state is None).
+    When filter_all is False, returns agents matching the given identifiers
+    (by name or ID).
+
+    Raises AgentNotFoundError if any identifier does not match an agent.
+    """
+    # Fast path: resolve specific identifiers directly from the cache when no
+    # state filtering is needed. This skips all provider queries entirely.
+    if not filter_all and agent_identifiers and target_state is None:
+        cached_entries = resolve_identifiers_from_cache(get_completion_cache_dir(), agent_identifiers)
+        if cached_entries is not None:
+            return [_untyped_to_agent_summary(entry) for entry in cached_entries]
+
+    # Full scan path: query providers for agent references
+    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+
+    match_result = _match_agents_by_identifiers_or_all(agents_by_host, agent_identifiers, filter_all)
+
     # Verify all specified identifiers were found
     if agent_identifiers:
-        unmatched_identifiers = set(agent_identifiers) - matched_identifiers
+        unmatched_identifiers = set(agent_identifiers) - match_result.matched_identifiers
         if unmatched_identifiers:
             unmatched_list = ", ".join(sorted(unmatched_identifiers))
             raise AgentNotFoundError(f"No agent(s) found matching: {unmatched_list}")
+
+    candidates = list(match_result.candidates)
 
     # If no state filtering is needed, return the candidates directly
     if not filter_all or target_state is None:
@@ -485,7 +528,7 @@ def find_agents_by_identifiers_or_state(
 
     # State filtering: go online to each host and check lifecycle state.
     # Agents on offline hosts are treated as STOPPED.
-    matches: list[AgentMatch] = []
+    matches: list[AgentSummary] = []
     candidates_by_host = group_agents_by_host(candidates)
     for host_key, agent_list in candidates_by_host.items():
         host_id_str, _ = host_key.split(":", 1)
@@ -508,13 +551,13 @@ def find_agents_by_identifiers_or_state(
 
 
 @pure
-def group_agents_by_host(agents: Sequence[AgentMatch]) -> dict[str, list[AgentMatch]]:
-    """Group a list of AgentMatch objects by their host.
+def group_agents_by_host(agents: Sequence[AgentSummary]) -> dict[str, list[AgentSummary]]:
+    """Group a list of AgentSummary objects by their host.
 
     Returns a dictionary where keys are "{host_id}:{provider_name}" and
-    values are lists of AgentMatch objects on that host.
+    values are lists of AgentSummary objects on that host.
     """
-    agents_by_host: dict[str, list[AgentMatch]] = {}
+    agents_by_host: dict[str, list[AgentSummary]] = {}
     for match in agents:
         key = f"{match.host_id}:{match.provider_name}"
         if key not in agents_by_host:
