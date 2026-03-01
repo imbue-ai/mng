@@ -39,11 +39,18 @@ def test_concurrency_group_shortly_waits_for_threads_to_finish() -> None:
 
 
 def test_concurrency_group_shortly_waits_for_processes_to_finish(tmp_path: Path) -> None:
+    signal_file = tmp_path / "go"
+    # Each process polls for the signal file, then exits.
+    poll_cmd = f"while [ ! -f {signal_file} ]; do sleep 0.01; done"
     with ConcurrencyGroup(name="outer") as cg:
-        process1 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)])
-        process2 = cg.run_process_in_background(["sleep", str(SMALL_SLEEP)])
+        process1 = cg.run_process_in_background(["bash", "-c", poll_cmd])
+        process2 = cg.run_process_in_background(["bash", "-c", poll_cmd])
+        # Processes are blocked waiting for signal file -- guaranteed still running.
         assert process1.poll() is None
         assert process2.poll() is None
+        # Signal the processes to exit.
+        signal_file.write_text("done")
+    # ConcurrencyGroup.__exit__ waits for processes to finish.
     assert process1.poll() is not None
     assert process2.poll() is not None
 

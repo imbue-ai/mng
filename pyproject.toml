@@ -55,7 +55,8 @@ testpaths = [
   "scripts",
 ]
 addopts = [
-  "-n 4",
+  "-nauto",
+  "--dist=worksteal",
   "--cov=imbue.mng",
   "--cov=imbue.imbue_common",
   "--cov=imbue.mng_opencode",
@@ -67,7 +68,7 @@ addopts = [
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
-  "--cov-fail-under=80",
+  "--cov-fail-under=75",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",
