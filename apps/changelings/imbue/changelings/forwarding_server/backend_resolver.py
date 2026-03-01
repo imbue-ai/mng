@@ -3,6 +3,7 @@ import time
 from abc import ABC
 from abc import abstractmethod
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Final
 
 from loguru import logger
@@ -10,6 +11,7 @@ from pydantic import Field
 from pydantic import PrivateAttr
 
 from imbue.changelings.config.data_types import MNG_BINARY
+from imbue.changelings.forwarding_server.ssh_tunnel import RemoteSSHInfo
 from imbue.changelings.primitives import ServerName
 from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -53,6 +55,14 @@ class BackendResolverInterface(MutableModel, ABC):
     @abstractmethod
     def list_servers_for_agent(self, agent_id: AgentId) -> tuple[ServerName, ...]:
         """Return all known server names for an agent, sorted alphabetically."""
+
+    def get_ssh_info(self, agent_id: AgentId) -> RemoteSSHInfo | None:
+        """Return SSH connection info for the agent's host, or None for local agents.
+
+        Default implementation returns None (all agents treated as local).
+        Subclasses that discover remote agents should override this.
+        """
+        return None
 
 
 class StaticBackendResolver(BackendResolverInterface):
@@ -140,6 +150,90 @@ class SubprocessMngCli(MngCliInterface):
         return result.stdout
 
 
+# -- Parsing helpers (must be defined before MngCliBackendResolver) --
+
+
+class _ParsedAgentsResult(FrozenModel):
+    """Result of parsing mng list --json output."""
+
+    agent_ids: tuple[AgentId, ...] = Field(default=(), description="All discovered agent IDs")
+    ssh_info_by_agent_id: Mapping[str, RemoteSSHInfo] = Field(
+        default_factory=dict,
+        description="SSH info keyed by agent ID string, only for remote agents",
+    )
+
+
+def _parse_agents_from_json(json_output: str | None) -> _ParsedAgentsResult:
+    """Parse agent IDs and SSH info from mng list --json output.
+
+    Returns both agent IDs and a mapping of agent ID -> RemoteSSHInfo for agents
+    that have SSH connection info (i.e., are running on remote hosts).
+    """
+    if json_output is None:
+        return _ParsedAgentsResult()
+    try:
+        data = json.loads(json_output)
+    except json.JSONDecodeError as e:
+        logger.warning("Failed to parse mng list output: {}", e)
+        return _ParsedAgentsResult()
+
+    agents = data.get("agents", [])
+    agent_ids: list[AgentId] = []
+    ssh_info_by_id: dict[str, RemoteSSHInfo] = {}
+
+    for agent in agents:
+        agent_id_str = agent.get("id")
+        if agent_id_str is None:
+            continue
+        agent_ids.append(AgentId(agent_id_str))
+
+        host = agent.get("host")
+        if host is None:
+            continue
+        ssh = host.get("ssh")
+        if ssh is None:
+            continue
+
+        try:
+            ssh_info = RemoteSSHInfo(
+                user=ssh["user"],
+                host=ssh["host"],
+                port=ssh["port"],
+                key_path=Path(ssh["key_path"]),
+            )
+            ssh_info_by_id[agent_id_str] = ssh_info
+        except (KeyError, ValueError) as e:
+            logger.warning("Failed to parse SSH info for agent {}: {}", agent_id_str, e)
+
+    return _ParsedAgentsResult(
+        agent_ids=tuple(agent_ids),
+        ssh_info_by_agent_id=ssh_info_by_id,
+    )
+
+
+def _parse_agent_ids_from_json(json_output: str | None) -> tuple[AgentId, ...]:
+    """Parse agent IDs from mng list --json output, discarding SSH info."""
+    return _parse_agents_from_json(json_output).agent_ids
+
+
+def _parse_server_log_records(text: str) -> list[ServerLogRecord]:
+    """Parse JSONL text into server log records, skipping invalid lines."""
+    records: list[ServerLogRecord] = []
+    for line in text.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+            records.append(ServerLogRecord.model_validate(raw))
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("Skipping invalid server log record: {}", e)
+    return records
+
+
+# -- MngCliBackendResolver --
+
+
 class MngCliBackendResolver(BackendResolverInterface):
     """Resolves backend URLs by calling mng CLI commands.
 
@@ -149,6 +243,10 @@ class MngCliBackendResolver(BackendResolverInterface):
 
     Each agent may have multiple servers listed in servers.jsonl (one per line).
     Later entries for the same server name override earlier ones.
+
+    Also parses SSH info from `mng list --json` output to identify which agents
+    are running on remote hosts. This info is used by the forwarding server to
+    set up SSH tunnels for proxying traffic to remote backends.
     """
 
     mng_cli: MngCliInterface = Field(
@@ -157,7 +255,7 @@ class MngCliBackendResolver(BackendResolverInterface):
     )
 
     _server_cache: dict[str, tuple[float, dict[str, str]]] = PrivateAttr(default_factory=dict)
-    _ids_cache: tuple[float, tuple[AgentId, ...]] | None = PrivateAttr(default=None)
+    _agents_cache: tuple[float, _ParsedAgentsResult] | None = PrivateAttr(default=None)
 
     def _resolve_servers(self, agent_id: AgentId) -> dict[str, str]:
         """Get a mapping of server_name -> URL for an agent, using cache."""
@@ -178,6 +276,18 @@ class MngCliBackendResolver(BackendResolverInterface):
         self._server_cache[str(agent_id)] = (now, servers)
         return servers
 
+    def _get_agents_result(self) -> _ParsedAgentsResult:
+        """Get cached parsed agents result, refreshing if stale."""
+        now = time.monotonic()
+        if self._agents_cache is not None:
+            cache_time, cached = self._agents_cache
+            if (now - cache_time) < _CACHE_TTL_SECONDS:
+                return cached
+
+        result = _parse_agents_from_json(self.mng_cli.list_agents_json())
+        self._agents_cache = (now, result)
+        return result
+
     def get_backend_url(self, agent_id: AgentId, server_name: ServerName) -> str | None:
         servers = self._resolve_servers(agent_id)
         return servers.get(str(server_name))
@@ -187,40 +297,8 @@ class MngCliBackendResolver(BackendResolverInterface):
         return tuple(ServerName(name) for name in sorted(servers.keys()))
 
     def list_known_agent_ids(self) -> tuple[AgentId, ...]:
-        now = time.monotonic()
-        if self._ids_cache is not None:
-            cache_time, cached_ids = self._ids_cache
-            if (now - cache_time) < _CACHE_TTL_SECONDS:
-                return cached_ids
+        return self._get_agents_result().agent_ids
 
-        ids = _parse_agent_ids_from_json(self.mng_cli.list_agents_json())
-        self._ids_cache = (now, ids)
-        return ids
-
-
-def _parse_agent_ids_from_json(json_output: str | None) -> tuple[AgentId, ...]:
-    """Parse agent IDs from mng list --json output."""
-    if json_output is None:
-        return ()
-    try:
-        data = json.loads(json_output)
-    except json.JSONDecodeError as e:
-        logger.warning("Failed to parse mng list output: {}", e)
-        return ()
-    agents = data.get("agents", [])
-    return tuple(AgentId(agent["id"]) for agent in agents if "id" in agent)
-
-
-def _parse_server_log_records(text: str) -> list[ServerLogRecord]:
-    """Parse JSONL text into server log records, skipping invalid lines."""
-    records: list[ServerLogRecord] = []
-    for line in text.strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            raw = json.loads(line)
-            records.append(ServerLogRecord.model_validate(raw))
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Skipping invalid server log record: {}", e)
-    return records
+    def get_ssh_info(self, agent_id: AgentId) -> RemoteSSHInfo | None:
+        """Return SSH info for the agent's host, or None for local agents."""
+        return self._get_agents_result().ssh_info_by_agent_id.get(str(agent_id))

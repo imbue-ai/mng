@@ -16,13 +16,13 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.deploy_utils import MngInstallMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.instance import ModalProviderInstance
 from imbue.mng_schedule.cli.group import add_trigger_options
 from imbue.mng_schedule.cli.group import resolve_positional_name
 from imbue.mng_schedule.cli.group import schedule
 from imbue.mng_schedule.cli.options import ScheduleAddCliOptions
-from imbue.mng_schedule.data_types import MngInstallMode
 from imbue.mng_schedule.data_types import ScheduleTriggerDefinition
 from imbue.mng_schedule.data_types import ScheduledMngCommand
 from imbue.mng_schedule.data_types import VerifyMode
