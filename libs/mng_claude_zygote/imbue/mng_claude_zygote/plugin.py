@@ -42,6 +42,11 @@ CONV_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
 EVENT_WATCHER_WINDOW_NAME = "events"
 EVENT_WATCHER_COMMAND = "$MNG_HOST_DIR/commands/event_watcher.sh"
 
+# Memory linker: runs once in the background to link the changelings memory
+# directory into the Claude project memory directory, then exits.
+MEMORY_LINKER_WINDOW_NAME = "memory_linker"
+MEMORY_LINKER_COMMAND = '$MNG_HOST_DIR/commands/memory_linker.sh "$(pwd)"'
+
 # Conversation ttyd: a web terminal that runs the chat script for interactive
 # conversation access via the browser.
 CHAT_TTYD_WINDOW_NAME = "chat"
@@ -82,11 +87,18 @@ class ClaudeZygoteAgent(ClaudeAgent):
 
     Inherits all Claude Code functionality (session management, provisioning,
     TUI interaction, etc.) and extends it with changeling-specific setup:
+
+    During provisioning:
     - Installs the llm toolchain (llm, llm-anthropic, llm-live-chat)
     - Creates symlinks for changeling entrypoint files
     - Provisions watcher scripts and chat utilities
     - Sets up conversation directories and default chat model
-    - Links memory directories for shared project memory
+
+    Via tmux windows (injected by override_command_options):
+    - Memory linker (links .changelings/memory/ to Claude project memory)
+    - Conversation watcher (syncs llm DB to per-conversation JSONL files)
+    - Event watcher (sends new events to primary agent via mng message)
+    - Chat ttyd (web terminal for conversation access)
     """
 
     def _get_zygote_config(self) -> ClaudeZygoteConfig:
@@ -154,6 +166,7 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
     - Agent ttyd (web terminal for the primary agent)
     - Conversation watcher (syncs llm DB to JSONL files)
     - Event watcher (sends new events to primary agent via mng message)
+    - Memory linker (links changelings memory to Claude project memory)
     - Chat ttyd (web terminal for conversation access)
     """
     inject_agent_ttyd(params)
@@ -163,6 +176,7 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
         *existing,
         f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
         f'{EVENT_WATCHER_WINDOW_NAME}="{EVENT_WATCHER_COMMAND}"',
+        f'{MEMORY_LINKER_WINDOW_NAME}="{MEMORY_LINKER_COMMAND}"',
         f'{CHAT_TTYD_WINDOW_NAME}="{CHAT_TTYD_COMMAND}"',
     )
 

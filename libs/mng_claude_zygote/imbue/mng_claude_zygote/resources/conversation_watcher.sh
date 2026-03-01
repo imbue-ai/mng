@@ -72,29 +72,21 @@ sync_conversation() {
 
     # Query the llm database for new messages after last_id
     # The responses table has: id, prompt, response, conversation_id, model, datetime_utc
-    local query
+    local id_filter=""
     if [ -n "$last_id" ]; then
-        query="SELECT json_object(
-            'role', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN 'user' ELSE 'assistant' END,
-            'content', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN prompt ELSE response_json END,
-            'timestamp', datetime_utc,
-            'conversation_id', conversation_id,
-            'response_id', id
-        ) FROM responses
-        WHERE conversation_id = '${cid}'
-        AND id > '${last_id}'
-        ORDER BY datetime_utc ASC;"
-    else
-        query="SELECT json_object(
-            'role', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN 'user' ELSE 'assistant' END,
-            'content', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN prompt ELSE response_json END,
-            'timestamp', datetime_utc,
-            'conversation_id', conversation_id,
-            'response_id', id
-        ) FROM responses
-        WHERE conversation_id = '${cid}'
-        ORDER BY datetime_utc ASC;"
+        id_filter="AND id > '${last_id}'"
     fi
+
+    local query="SELECT json_object(
+        'role', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN 'user' ELSE 'assistant' END,
+        'content', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN prompt ELSE response END,
+        'timestamp', datetime_utc,
+        'conversation_id', conversation_id,
+        'response_id', id
+    ) FROM responses
+    WHERE conversation_id = '${cid}'
+    ${id_filter}
+    ORDER BY datetime_utc ASC;"
 
     local new_messages
     new_messages=$(sqlite3 "$db_path" "$query" 2>/dev/null || echo "")

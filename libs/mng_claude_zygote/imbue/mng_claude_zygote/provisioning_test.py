@@ -1,8 +1,15 @@
 """Unit tests for the mng_claude_zygote provisioning module."""
 
+from pathlib import Path
+from unittest.mock import MagicMock
+
+from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
+from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
+from imbue.mng_claude_zygote.provisioning import create_conversation_directories
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
+from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 
 
 class TestLoadZygoteResource:
@@ -160,3 +167,90 @@ class TestLlmToolContent:
         content = load_zygote_resource("extra_context_tool.py")
         assert "mng" in content
         assert "list" in content
+
+
+class TestMemoryLinkerContent:
+    def test_computes_expected_project_name(self) -> None:
+        """Verify that memory_linker.sh computes the project dir name from work_dir."""
+        content = load_zygote_resource("memory_linker.sh")
+        assert "compute_expected_project_name" in content
+
+    def test_uses_specific_project_dir(self) -> None:
+        """Verify that memory_linker.sh looks for a specific project directory, not any."""
+        content = load_zygote_resource("memory_linker.sh")
+        assert "EXPECTED_PROJECT_DIR" in content
+
+    def test_fails_on_merge_failure(self) -> None:
+        """Verify that memory_linker.sh fails if merge of existing memory fails."""
+        content = load_zygote_resource("memory_linker.sh")
+        assert "exit 1" in content
+        # Should NOT have '|| true' after rsync/cp that could lose data
+        assert "rsync" in content
+
+
+def _make_mock_host() -> MagicMock:
+    """Create a mock OnlineHostInterface for testing provisioning functions."""
+    host = MagicMock()
+    # Make execute_command return success by default
+    result = MagicMock()
+    result.success = True
+    result.stderr = ""
+    host.execute_command.return_value = result
+    host.host_dir = Path("/tmp/mng-test/host")
+    return host
+
+
+class TestCreateChangelingSymlinks:
+    def test_checks_entrypoint_md_exists(self) -> None:
+        """Verify that create_changeling_symlinks checks if entrypoint.md exists."""
+        host = _make_mock_host()
+        work_dir = Path("/test/work")
+        create_changeling_symlinks(host, work_dir, ".changelings")
+
+        # Should have called execute_command with test -f for entrypoint.md
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("entrypoint.md" in c for c in calls)
+
+    def test_checks_entrypoint_json_exists(self) -> None:
+        """Verify that create_changeling_symlinks checks if entrypoint.json exists."""
+        host = _make_mock_host()
+        work_dir = Path("/test/work")
+        create_changeling_symlinks(host, work_dir, ".changelings")
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("entrypoint.json" in c for c in calls)
+
+    def test_creates_symlink_for_claude_local_md(self) -> None:
+        """Verify that create_changeling_symlinks creates CLAUDE.local.md symlink."""
+        host = _make_mock_host()
+        work_dir = Path("/test/work")
+        create_changeling_symlinks(host, work_dir, ".changelings")
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("ln -sf" in c and "CLAUDE.local.md" in c for c in calls)
+
+
+class TestCreateConversationDirectories:
+    def test_creates_conversations_dir(self) -> None:
+        """Verify that create_conversation_directories creates the logs/conversations/ dir."""
+        host = _make_mock_host()
+        agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
+        create_conversation_directories(host, agent_state_dir)
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("conversations" in c and "mkdir" in c for c in calls)
+
+
+class TestWriteDefaultChatModel:
+    def test_writes_model_to_file(self) -> None:
+        """Verify that write_default_chat_model writes the model name."""
+        host = _make_mock_host()
+        agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
+        model = ChatModel("claude-sonnet-4-6")
+
+        write_default_chat_model(host, agent_state_dir, model)
+
+        host.write_text_file.assert_called_once()
+        call_args = host.write_text_file.call_args
+        assert "claude-sonnet-4-6" in call_args[0][1]
+        assert str(call_args[0][0]).endswith("default_chat_model")

@@ -18,6 +18,8 @@ from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteConfig
 from imbue.mng_claude_zygote.plugin import EVENT_WATCHER_COMMAND
 from imbue.mng_claude_zygote.plugin import EVENT_WATCHER_WINDOW_NAME
+from imbue.mng_claude_zygote.plugin import MEMORY_LINKER_COMMAND
+from imbue.mng_claude_zygote.plugin import MEMORY_LINKER_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import inject_agent_ttyd
 from imbue.mng_claude_zygote.plugin import inject_changeling_windows
 from imbue.mng_claude_zygote.plugin import override_command_options
@@ -89,7 +91,7 @@ def test_adds_changeling_windows_for_claude_zygote_type() -> None:
     )
 
     # Should have 4 windows: agent ttyd, conv_watcher, events, chat ttyd
-    assert len(params["add_command"]) == 4
+    assert len(params["add_command"]) == 5
 
 
 def test_adds_agent_ttyd_for_claude_zygote_type() -> None:
@@ -160,7 +162,7 @@ def test_adds_changeling_windows_for_positional_agent_type() -> None:
         params=params,
     )
 
-    assert len(params["add_command"]) == 4
+    assert len(params["add_command"]) == 5
 
 
 def test_does_not_modify_non_create_commands() -> None:
@@ -215,8 +217,8 @@ def test_preserves_existing_add_commands() -> None:
         params=params,
     )
 
-    # 1 existing + 4 new = 5
-    assert len(params["add_command"]) == 5
+    # 1 existing + 5 new = 6
+    assert len(params["add_command"]) == 6
     assert params["add_command"][0] == 'monitor="htop"'
 
 
@@ -251,7 +253,7 @@ def test_inject_changeling_windows_adds_all_windows() -> None:
 
     inject_changeling_windows(params)
 
-    assert len(params["add_command"]) == 4
+    assert len(params["add_command"]) == 5
 
 
 def test_inject_changeling_windows_preserves_existing() -> None:
@@ -260,7 +262,8 @@ def test_inject_changeling_windows_preserves_existing() -> None:
 
     inject_changeling_windows(params)
 
-    assert len(params["add_command"]) == 5
+    # 1 existing + 5 new windows = 6
+    assert len(params["add_command"]) == 6
     assert params["add_command"][0] == 'foo="bar"'
 
 
@@ -341,3 +344,23 @@ def test_conv_watcher_command_references_script() -> None:
 def test_event_watcher_command_references_script() -> None:
     """Verify that the event watcher command references the correct script."""
     assert "event_watcher.sh" in EVENT_WATCHER_COMMAND
+
+
+def test_memory_linker_command_references_script() -> None:
+    """Verify that the memory linker command references the correct script."""
+    assert "memory_linker.sh" in MEMORY_LINKER_COMMAND
+
+
+def test_adds_memory_linker_window() -> None:
+    """Verify that memory linker window is injected."""
+    params: dict[str, Any] = {"add_command": (), "agent_type": "claude-zygote"}
+
+    override_command_options(
+        command_name="create",
+        command_class=_DummyCommandClass,
+        params=params,
+    )
+
+    linker_entries = [c for c in params["add_command"] if MEMORY_LINKER_WINDOW_NAME in c]
+    assert len(linker_entries) == 1
+    assert MEMORY_LINKER_COMMAND in linker_entries[0]
