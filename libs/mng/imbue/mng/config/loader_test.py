@@ -1,11 +1,13 @@
 """Tests for config loader."""
 
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
 import click
 import pluggy
 import pytest
+from loguru import logger
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import CommandDefaults
@@ -37,6 +39,16 @@ from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import load_all_registries
 
 hookimpl = pluggy.HookimplMarker("mng")
+
+
+@pytest.fixture()
+def log_warnings() -> Generator[list[str], None, None]:
+    """Capture loguru warning messages for assertion in tests."""
+    messages: list[str] = []
+    handler_id = logger.add(lambda msg: messages.append(msg.record["message"]), level="WARNING", format="{message}")
+    yield messages
+    logger.remove(handler_id)
+
 
 # =============================================================================
 # Tests for _parse_command_env_vars
@@ -238,11 +250,13 @@ def test_parse_providers_raises_on_unknown_backend() -> None:
         _parse_providers(raw, disabled_plugins=frozenset())
 
 
-def test_parse_providers_raises_on_unknown_fields() -> None:
-    """_parse_providers should raise ConfigParseError for unknown fields."""
+def test_parse_providers_warns_on_unknown_fields(log_warnings: list[str]) -> None:
+    """_parse_providers should warn about unknown fields and strip them."""
     raw = {"my-local": {"backend": "local", "typo_field": "value"}}
-    with pytest.raises(ConfigParseError, match="Unknown fields in providers.my-local.*typo_field"):
-        _parse_providers(raw, disabled_plugins=frozenset())
+    result = _parse_providers(raw, disabled_plugins=frozenset())
+    assert ProviderInstanceName("my-local") in result
+    assert "typo_field" not in raw["my-local"]
+    assert any("typo_field" in msg and "providers.my-local" in msg for msg in log_warnings)
 
 
 def test_parse_providers_skips_disabled_plugin() -> None:
@@ -303,11 +317,14 @@ def test_parse_agent_types_handles_empty_dict() -> None:
     assert result == {}
 
 
-def test_parse_agent_types_raises_on_unknown_fields() -> None:
-    """_parse_agent_types should raise ConfigParseError for unknown fields."""
+def test_parse_agent_types_warns_on_unknown_fields(log_warnings: list[str]) -> None:
+    """_parse_agent_types should warn about unknown fields and strip them."""
     raw = {"claude": {"cli_args": "--verbose", "bogus_option": True}}
-    with pytest.raises(ConfigParseError, match="Unknown fields in agent_types.claude.*bogus_option"):
-        _parse_agent_types(raw)
+    result = _parse_agent_types(raw)
+    assert AgentTypeName("claude") in result
+    assert result[AgentTypeName("claude")].cli_args == ("--verbose",)
+    assert "bogus_option" not in raw["claude"]
+    assert any("bogus_option" in msg and "agent_types.claude" in msg for msg in log_warnings)
 
 
 # =============================================================================
@@ -329,11 +346,14 @@ def test_parse_plugins_handles_empty_dict() -> None:
     assert result == {}
 
 
-def test_parse_plugins_raises_on_unknown_fields() -> None:
-    """_parse_plugins should raise ConfigParseError for unknown fields."""
+def test_parse_plugins_warns_on_unknown_fields(log_warnings: list[str]) -> None:
+    """_parse_plugins should warn about unknown fields and strip them."""
     raw = {"my-plugin": {"enabled": True, "nonexistent_setting": "abc"}}
-    with pytest.raises(ConfigParseError, match="Unknown fields in plugins.my-plugin.*nonexistent_setting"):
-        _parse_plugins(raw)
+    result = _parse_plugins(raw)
+    assert PluginName("my-plugin") in result
+    assert result[PluginName("my-plugin")].enabled is True
+    assert "nonexistent_setting" not in raw["my-plugin"]
+    assert any("nonexistent_setting" in msg and "plugins.my-plugin" in msg for msg in log_warnings)
 
 
 # =============================================================================
@@ -409,11 +429,13 @@ def test_parse_logging_config_handles_empty_dict() -> None:
     assert isinstance(result, LoggingConfig)
 
 
-def test_parse_logging_config_raises_on_unknown_fields() -> None:
-    """_parse_logging_config should raise ConfigParseError for unknown fields."""
+def test_parse_logging_config_warns_on_unknown_fields(log_warnings: list[str]) -> None:
+    """_parse_logging_config should warn about unknown fields and strip them."""
     raw = {"file_level": "DEBUG", "unknown_log_option": 42}
-    with pytest.raises(ConfigParseError, match="Unknown fields in logging.*unknown_log_option"):
-        _parse_logging_config(raw)
+    result = _parse_logging_config(raw)
+    assert isinstance(result, LoggingConfig)
+    assert "unknown_log_option" not in raw
+    assert any("unknown_log_option" in msg for msg in log_warnings)
 
 
 # =============================================================================
@@ -522,20 +544,38 @@ def test_parse_config_handles_empty_config() -> None:
     assert result.logging is None
 
 
-def test_parse_config_raises_on_unknown_top_level_field() -> None:
-    """parse_config should raise ConfigParseError for unknown top-level fields."""
+def test_parse_config_warns_on_unknown_top_level_field(log_warnings: list[str]) -> None:
+    """parse_config should warn about unknown top-level fields and still return a valid config."""
+    raw = {"prefix": "test-", "nonexistent_top_level": "value"}
+    result = parse_config(raw, disabled_plugins=frozenset())
+    assert result.prefix == "test-"
+    assert any("nonexistent_top_level" in msg for msg in log_warnings)
+
+
+def test_parse_config_raises_on_unknown_top_level_field_in_strict_mode() -> None:
+    """parse_config with strict=True should raise ConfigParseError for unknown top-level fields."""
     raw = {"prefix": "test-", "nonexistent_top_level": "value"}
     with pytest.raises(ConfigParseError, match="Unknown configuration fields.*nonexistent_top_level"):
-        parse_config(raw, disabled_plugins=frozenset())
+        parse_config(raw, disabled_plugins=frozenset(), strict=True)
 
 
-def test_parse_config_raises_on_unknown_nested_field() -> None:
-    """parse_config should raise ConfigParseError for unknown fields in nested config sections."""
+def test_parse_config_warns_on_unknown_nested_field(log_warnings: list[str]) -> None:
+    """parse_config should warn about unknown fields in nested config sections."""
+    raw = {
+        "logging": {"file_level": "DEBUG", "bad_field": True},
+    }
+    result = parse_config(raw, disabled_plugins=frozenset())
+    assert result.logging is not None
+    assert any("bad_field" in msg for msg in log_warnings)
+
+
+def test_parse_config_raises_on_unknown_nested_field_in_strict_mode() -> None:
+    """parse_config with strict=True should raise ConfigParseError for unknown nested fields."""
     raw = {
         "logging": {"file_level": "DEBUG", "bad_field": True},
     }
     with pytest.raises(ConfigParseError, match="Unknown fields in logging.*bad_field"):
-        parse_config(raw, disabled_plugins=frozenset())
+        parse_config(raw, disabled_plugins=frozenset(), strict=True)
 
 
 def test_parse_config_parses_default_destroyed_host_persisted_seconds() -> None:
