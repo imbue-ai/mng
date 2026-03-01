@@ -271,7 +271,7 @@ def test_enforce_sdk_guard_skips_when_no_phase_set(
 # SDK guard: end-to-end behavior (pytester)
 # ---------------------------------------------------------------------------
 
-# Conftest for SDK guard pytester tests. Uses create_resource_guard_wrappers([])
+# Conftest for SDK guard pytester tests. Uses create_resource_guard_wrappers()
 # to initialize the guard infrastructure, then adds an SDK resource. Tests trigger
 # the guard by calling enforce_sdk_guard directly (no real SDK needed).
 _PYTESTER_SDK_CONFTEST = """\
@@ -297,7 +297,7 @@ def pytest_configure(config):
 register_sdk_guard("test_sdk", lambda: None, lambda: None)
 
 def pytest_sessionstart(session):
-    create_resource_guard_wrappers([])
+    create_resource_guard_wrappers()
     create_sdk_resource_guards()
 
 def pytest_sessionfinish(session, exitstatus):
