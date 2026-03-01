@@ -53,7 +53,7 @@ get_conversation_ids() {
     if [ ! -f "$CONVERSATIONS_EVENTS" ]; then
         return
     fi
-    python3 -c "
+    uv run python3 -c "
 import json, sys
 seen = set()
 for line in open('$CONVERSATIONS_EVENTS'):
