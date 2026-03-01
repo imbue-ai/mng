@@ -7,6 +7,7 @@ import imbue.imbue_common.resource_guards as rg
 from imbue.imbue_common.resource_guards import cleanup_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import create_resource_guard_wrappers
 from imbue.imbue_common.resource_guards import generate_wrapper_script
+from imbue.imbue_common.resource_guards import register_resource_guard
 
 # Use ubiquitous coreutils binaries so these tests run on any system.
 _TEST_RESOURCES = ["echo", "cat", "ls"]
@@ -18,6 +19,7 @@ _PYTESTER_CONFTEST = """\
 import os
 import pytest
 from imbue.imbue_common.resource_guards import (
+    register_resource_guard,
     create_resource_guard_wrappers,
     cleanup_resource_guard_wrappers,
     _pytest_runtest_setup,
@@ -28,11 +30,13 @@ from imbue.imbue_common.resource_guards import (
 # Clear inherited guard state so we create fresh wrappers for our resources.
 os.environ.pop("_PYTEST_GUARD_WRAPPER_DIR", None)
 
+register_resource_guard("cat")
+
 def pytest_configure(config):
     config.addinivalue_line("markers", "cat: test uses cat")
 
 def pytest_sessionstart(session):
-    create_resource_guard_wrappers(["cat"])
+    create_resource_guard_wrappers()
 
 def pytest_sessionfinish(session, exitstatus):
     cleanup_resource_guard_wrappers()
@@ -184,7 +188,9 @@ def test_unmarked_test_that_does_not_call_resource_passes(pytester: pytest.Pytes
 
 def test_create_and_cleanup_round_trip(isolated_guard_state: None) -> None:
     """create_resource_guard_wrappers modifies PATH; cleanup restores it."""
-    create_resource_guard_wrappers(_TEST_RESOURCES)
+    for resource in _TEST_RESOURCES:
+        register_resource_guard(resource)
+    create_resource_guard_wrappers()
 
     assert rg._guard_wrapper_dir is not None
     wrapper_dir = rg._guard_wrapper_dir

@@ -29,12 +29,26 @@ import pytest
 # process via the _PYTEST_GUARD_WRAPPER_DIR env var.
 # _session_env_patcher is the patch.dict that manages PATH and _PYTEST_GUARD_WRAPPER_DIR;
 # stopping it automatically restores PATH to its original value.
-# _guarded_resources is the list of resource names passed to create_resource_guard_wrappers;
-# the hooks read from it so callers control which resources are guarded.
+# _guarded_resources is populated by register_resource_guard() calls from each
+# project's conftest.py; create_resource_guard_wrappers reads from it at session start.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
 _guarded_resources: list[str] = []
+
+
+def register_resource_guard(name: str) -> None:
+    """Register a binary to be guarded by PATH wrapper scripts.
+
+    Call this from each project's conftest.py before register_conftest_hooks().
+    The resource name must correspond to both a binary on PATH and a pytest
+    mark name (e.g., register_resource_guard("tmux") guards the tmux binary
+    and enforces @pytest.mark.tmux).
+
+    Duplicate registrations are ignored.
+    """
+    if name not in _guarded_resources:
+        _guarded_resources.append(name)
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -103,11 +117,12 @@ exit 127
 """
 
 
-def create_resource_guard_wrappers(resources: list[str]) -> None:
+def create_resource_guard_wrappers() -> None:
     """Create wrapper scripts for guarded resources and prepend to PATH.
 
     Each wrapper intercepts calls to the corresponding binary and enforces
-    that the test has the appropriate pytest mark.
+    that the test has the appropriate pytest mark. The list of resources
+    comes from prior register_resource_guard() calls.
 
     For xdist: the controller creates the wrappers and modifies PATH. Workers
     inherit the modified PATH and wrapper directory via environment variables.
@@ -116,9 +131,7 @@ def create_resource_guard_wrappers(resources: list[str]) -> None:
     Uses patch.dict to manage PATH and _PYTEST_GUARD_WRAPPER_DIR so that
     cleanup_resource_guard_wrappers can restore everything by calling .stop().
     """
-    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher, _guarded_resources
-
-    _guarded_resources = list(resources)
+    global _guard_wrapper_dir, _owns_guard_wrapper_dir, _session_env_patcher
 
     # If wrappers already exist (e.g., inherited from xdist controller), reuse them.
     existing_dir = os.environ.get("_PYTEST_GUARD_WRAPPER_DIR")
