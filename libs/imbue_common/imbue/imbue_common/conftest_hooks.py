@@ -75,8 +75,8 @@ _SHARED_MARKERS: Final[list[str]] = [
     "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
     "release: marks tests as being required for release (but not for merging PRs)",
     "docker: marks tests that require a running Docker daemon. Filter with -m 'not docker' if Docker is unavailable",
-    "tmux: marks tests that create real tmux sessions or mng agents (slow, requires tmux)",
-    "modal: marks tests that connect to the Modal cloud service (requires credentials and network)",
+    "tmux: marks tests that create real tmux sessions or mng agents",
+    "modal: marks tests that connect to the Modal cloud service",
     "rsync: marks tests that invoke rsync for file transfer",
     "unison: marks tests that start a real unison file-sync process",
 ]
