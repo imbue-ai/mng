@@ -5,6 +5,10 @@ deeper context information beyond what gather_context() returns.
 
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from logs/<source>/events.jsonl.
+
+NOTE: _format_events() is duplicated in context_tool.py because these
+files are deployed as standalone scripts to the agent host via --functions,
+where they cannot import from each other or from the mng_claude_zygote package.
 """
 
 import json
@@ -16,6 +20,7 @@ from pathlib import Path
 
 _MNG_LIST_HARD_TIMEOUT = 120
 _MNG_LIST_WARN_THRESHOLD = 15
+_MAX_CONTENT_LENGTH = 300
 
 
 def gather_extra_context() -> str:
@@ -102,7 +107,11 @@ def gather_extra_context() -> str:
 
 
 def _format_events(lines: list[str]) -> str:
-    """Format event JSONL lines into a readable summary."""
+    """Format event JSONL lines into a readable summary.
+
+    NOTE: This function is intentionally duplicated in context_tool.py.
+    These files are deployed as standalone scripts and cannot share imports.
+    """
     formatted_parts: list[str] = []
     for line in lines:
         line = line.strip()
@@ -113,12 +122,15 @@ def _format_events(lines: list[str]) -> str:
             event_type = event.get("type", "?")
             ts = event.get("timestamp", "?")
             if "role" in event and "content" in event:
-                content = str(event["content"])[:300]
-                formatted_parts.append(f"  [{ts}] [{event.get('role', '?')}] {content}")
+                content = str(event["content"])[:_MAX_CONTENT_LENGTH]
+                cid = event.get("conversation_id", "?")
+                formatted_parts.append(f"  [{ts}] [{event.get('role', '?')}@{cid}] {content}")
             elif "data" in event:
-                formatted_parts.append(f"  [{ts}] [{event_type}] {json.dumps(event.get('data', {}))[:300]}")
+                formatted_parts.append(
+                    f"  [{ts}] [{event_type}] {json.dumps(event.get('data', {}))[:_MAX_CONTENT_LENGTH]}"
+                )
             else:
-                formatted_parts.append(f"  [{ts}] [{event_type}] {line[:300]}")
+                formatted_parts.append(f"  [{ts}] [{event_type}] {line[:_MAX_CONTENT_LENGTH]}")
         except json.JSONDecodeError:
-            formatted_parts.append(f"  {line[:300]}")
+            formatted_parts.append(f"  {line[:_MAX_CONTENT_LENGTH]}")
     return "\n".join(formatted_parts)
