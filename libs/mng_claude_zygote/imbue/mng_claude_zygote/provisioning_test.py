@@ -1,5 +1,6 @@
 """Unit tests for the mng_claude_zygote provisioning module."""
 
+import os
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -820,11 +821,583 @@ def test_gather_context_incremental_returns_new_messages_from_other_conversation
     assert "new reply" in second
 
 
-def test_format_events_handles_data_events() -> None:
+def _load_format_events_module(module_name: str) -> Any:
+    """Load the _format_events function from either context_tool or extra_context_tool."""
+    if module_name == "context_tool":
+        return _load_fresh_context_tool("fmt_shared")
+    else:
+        return _load_fresh_extra_context_tool()
+
+
+@pytest.mark.parametrize("module_name", ["context_tool", "extra_context_tool"])
+def test_format_events_handles_data_events(module_name: str) -> None:
     """Verify _format_events formats data-bearing events correctly."""
-    module = _load_fresh_context_tool("fmt_data")
+    module = _load_format_events_module(module_name)
 
     lines = [_make_data_event("d1", "monitor")]
     result = module._format_events(lines)
     assert "[trigger]" in result
     assert "key" in result
+
+
+@pytest.mark.parametrize("module_name", ["context_tool", "extra_context_tool"])
+def test_format_events_handles_plain_events(module_name: str) -> None:
+    """Verify _format_events formats events without role/content or data."""
+    module = _load_format_events_module(module_name)
+
+    line = '{"timestamp":"2026-01-01T00:00:00Z","type":"heartbeat","event_id":"h1","source":"monitor"}'
+    result = module._format_events([line])
+    assert "[heartbeat]" in result
+
+
+@pytest.mark.parametrize("module_name", ["context_tool", "extra_context_tool"])
+def test_format_events_handles_malformed_json(module_name: str) -> None:
+    """Verify _format_events gracefully handles unparseable JSON lines."""
+    module = _load_format_events_module(module_name)
+
+    result = module._format_events(["not valid json at all"])
+    assert "not valid json" in result
+
+
+@pytest.mark.parametrize("module_name", ["context_tool", "extra_context_tool"])
+def test_format_events_skips_empty_lines(module_name: str) -> None:
+    """Verify _format_events skips empty/whitespace-only lines."""
+    module = _load_format_events_module(module_name)
+
+    result = module._format_events(["", "   ", _make_event_line("e1")])
+    assert "e1" in result
+    lines = [line for line in result.split("\n") if line.strip()]
+    assert len(lines) == 1
+
+
+@pytest.mark.parametrize("module_name", ["context_tool", "extra_context_tool"])
+def test_format_events_handles_message_event(module_name: str) -> None:
+    """Verify _format_events formats message events correctly."""
+    module = _load_format_events_module(module_name)
+
+    line = _make_message_line("m1", "conv-1", "user", "hello world")
+    result = module._format_events([line])
+    assert "user" in result
+    assert "conv-1" in result
+    assert "hello world" in result
+
+
+def test_gather_context_returns_no_context_when_dir_does_not_exist(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_context handles a non-existent agent data directory."""
+    module = _load_fresh_context_tool("gc_no_dir")
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path / "nonexistent"))
+
+    result = module.gather_context()
+    assert "does not exist" in result
+
+
+def test_gather_context_first_call_returns_no_context_when_all_empty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_context returns 'No context available' when all source dirs are empty."""
+    module = _load_fresh_context_tool("gc_all_empty")
+    # Create all the log directories but leave them empty (no events.jsonl files)
+    for source in ("claude_transcript", "messages", "scheduled", "mng_agents", "stop", "monitor"):
+        (tmp_path / "logs" / source).mkdir(parents=True)
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    result = module.gather_context()
+    assert "No context available" in result
+
+
+def test_gather_context_incremental_new_inner_monologue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_context returns new inner monologue entries on subsequent calls."""
+    module = _load_fresh_context_tool("gc_inc_monologue")
+
+    transcript_dir = tmp_path / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "events.jsonl"
+    transcript_file.write_text(_make_event_line("t1", "claude_transcript") + "\n")
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+
+    # First call: consumes existing event
+    first = module.gather_context()
+    assert "Inner Monologue" in first
+
+    # Append new transcript entry
+    with transcript_file.open("a") as fh:
+        fh.write(_make_event_line("t2", "claude_transcript") + "\n")
+
+    # Second call: should report new inner monologue
+    second = module.gather_context()
+    assert "New Inner Monologue" in second
+    assert "t2" in second
+
+
+class _GatherContextMessageEnv:
+    """Test environment for gather_context message tests.
+
+    Provides a freshly loaded context_tool module, a messages events.jsonl file path,
+    and pre-configured MNG_AGENT_STATE_DIR and LLM_CONVERSATION_ID env vars.
+    """
+
+    def __init__(self, module: Any, msgs_file: Path) -> None:
+        self.module = module
+        self.msgs_file = msgs_file
+
+
+@pytest.fixture()
+def gather_context_msg_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> _GatherContextMessageEnv:
+    """Set up a fresh context_tool module with a messages directory and conversation env vars."""
+    module = _load_fresh_context_tool("gc_msg_env")
+
+    msgs_dir = tmp_path / "logs" / "messages"
+    msgs_dir.mkdir(parents=True)
+    msgs_file = msgs_dir / "events.jsonl"
+
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+    monkeypatch.setenv("LLM_CONVERSATION_ID", "my-convo")
+
+    return _GatherContextMessageEnv(module=module, msgs_file=msgs_file)
+
+
+def test_gather_context_first_call_handles_json_decode_error_in_messages(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context skips malformed message lines on first call."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text("not valid json\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n")
+
+    result = env.module.gather_context()
+    assert "conv-A" in result
+
+
+def test_gather_context_first_call_filters_own_conversation(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context excludes messages from the current conversation."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text(
+        _make_message_line("m1", "my-convo", "user", "my own message")
+        + "\n"
+        + _make_message_line("m2", "other-convo", "user", "other message")
+        + "\n"
+    )
+
+    result = env.module.gather_context()
+    assert "other-convo" in result
+    assert "my-convo" not in result or "my own message" not in result
+
+
+def test_gather_context_incremental_handles_json_decode_error_in_new_messages(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context skips malformed lines in incremental message reading."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
+
+    # First call
+    env.module.gather_context()
+
+    # Append a malformed line and a valid line
+    with env.msgs_file.open("a") as fh:
+        fh.write("not valid json\n")
+        fh.write(_make_message_line("m2", "other-conv", "assistant", "valid reply") + "\n")
+
+    second = env.module.gather_context()
+    assert "valid reply" in second
+
+
+def test_gather_context_incremental_filters_own_conversation_messages(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context incremental excludes own conversation messages."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text(_make_message_line("m1", "other-conv") + "\n")
+
+    # First call
+    env.module.gather_context()
+
+    # Append messages from own conversation only
+    with env.msgs_file.open("a") as fh:
+        fh.write(_make_message_line("m2", "my-convo", "user", "own msg") + "\n")
+
+    second = env.module.gather_context()
+    assert "No new context" in second
+
+
+def test_get_new_lines_returns_empty_for_nonexistent_file(tmp_path: Path) -> None:
+    """Verify _get_new_lines returns empty for a file that doesn't exist."""
+    module = _load_fresh_context_tool("new_lines_nonexistent")
+    result = module._get_new_lines(tmp_path / "nonexistent.jsonl")
+    assert result == []
+
+
+def test_get_new_lines_returns_empty_when_only_incomplete_data_appended(
+    tmp_path: Path,
+) -> None:
+    """Verify _get_new_lines returns empty when new data has no newline."""
+    module = _load_fresh_context_tool("new_lines_only_incomplete")
+    f = tmp_path / "events.jsonl"
+    f.write_text(_make_event_line("e1") + "\n")
+
+    # Prime offset
+    module._read_tail_lines(f, 5)
+
+    # Append data without a newline
+    with f.open("a") as fh:
+        fh.write("incomplete no newline")
+
+    result = module._get_new_lines(f)
+    assert result == []
+
+
+# -- Provisioning error path tests --
+
+
+def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
+    """Verify symlinks are not created when target file doesn't exist."""
+    host = _StubHost(
+        command_results={
+            "test -f": _StubCommandResult(success=False),
+        }
+    )
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+
+    # No symlink commands should have been executed
+    assert not any("ln -sf" in c for c in host.executed_commands)
+
+
+def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
+    """Verify RuntimeError when symlink creation fails."""
+    host = _StubHost(
+        command_results={
+            "ln -sf": _StubCommandResult(success=False, stderr="permission denied"),
+        }
+    )
+    with pytest.raises(RuntimeError, match="Failed to create symlink"):
+        create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+
+
+def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> None:
+    """Verify RuntimeError when llm-live-chat plugin installation fails."""
+    host = _StubHost(
+        command_results={
+            "llm install llm-live-chat": _StubCommandResult(success=False, stderr="live-chat failed"),
+        }
+    )
+    with pytest.raises(RuntimeError, match="Failed to install llm-live-chat"):
+        install_llm_toolchain(cast(Any, host))
+
+
+def test_link_memory_directory_raises_on_resolve_failure() -> None:
+    """Verify RuntimeError when work_dir resolution fails."""
+    host = _StubHost(
+        command_results={
+            "&& pwd": _StubCommandResult(success=False, stderr="no such dir"),
+        }
+    )
+    with pytest.raises(RuntimeError, match="Failed to resolve absolute path"):
+        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings")
+
+
+def test_link_memory_directory_raises_on_link_failure() -> None:
+    """Verify RuntimeError when memory symlink creation fails."""
+    host = _StubHost(
+        command_results={
+            "ln -sfn": _StubCommandResult(success=False, stderr="link failed"),
+        }
+    )
+    with pytest.raises(RuntimeError, match="Failed to link memory directory"):
+        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings")
+
+
+def test_provision_llm_tools_uses_correct_mode() -> None:
+    """Verify LLM tool files are written with 0644 mode."""
+    host = _StubHost()
+    provision_llm_tools(cast(Any, host))
+
+    for _, _, mode in host.written_files:
+        assert mode == "0644"
+
+
+def test_write_default_chat_model_includes_newline() -> None:
+    """Verify written model content ends with newline."""
+    host = _StubHost()
+    write_default_chat_model(cast(Any, host), Path("/tmp/agent"), ChatModel("claude-haiku-4-5"))
+
+    assert len(host.written_text_files) == 1
+    _, content = host.written_text_files[0]
+    assert content.endswith("\n")
+
+
+def test_compute_claude_project_dir_name_simple_path() -> None:
+    assert compute_claude_project_dir_name("/tmp/foo") == "-tmp-foo"
+
+
+def test_compute_claude_project_dir_name_no_dots_or_slashes() -> None:
+    assert compute_claude_project_dir_name("simple") == "simple"
+
+
+# -- Extra context tool tests --
+
+
+def _load_fresh_extra_context_tool() -> Any:
+    """Import extra_context_tool as a proper package module and reset its state."""
+    import importlib
+
+    from imbue.mng_claude_zygote.resources import extra_context_tool
+
+    importlib.reload(extra_context_tool)
+    return extra_context_tool
+
+
+def _setup_fake_uv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    exit_code: int,
+    stdout: str = "",
+) -> None:
+    """Set up a fake uv script on PATH that returns the given exit code and stdout.
+
+    This avoids monkeypatch.setattr by using a real subprocess with a controlled
+    PATH. The fake uv simply echoes stdout and exits with the given code.
+    """
+    bin_dir = tmp_path / "fake_bin"
+    bin_dir.mkdir(exist_ok=True)
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(f"#!/bin/bash\necho '{stdout}'\nexit {exit_code}\n")
+    fake_uv.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
+
+
+def _setup_uv_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Set PATH so that uv cannot be found, triggering FileNotFoundError in subprocess."""
+    empty_bin = tmp_path / "empty_bin"
+    empty_bin.mkdir(exist_ok=True)
+    monkeypatch.setenv("PATH", str(empty_bin))
+
+
+@pytest.fixture()
+def extra_context_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Any, Path]:
+    """Set up a fresh extra_context_tool module with uv not found and MNG_AGENT_STATE_DIR set.
+
+    Returns the loaded module and the tmp_path (used as agent data directory).
+    """
+    module = _load_fresh_extra_context_tool()
+    _setup_uv_not_found(tmp_path, monkeypatch)
+    monkeypatch.setenv("MNG_AGENT_STATE_DIR", str(tmp_path))
+    return module, tmp_path
+
+
+# -- Extra context tool: gather_extra_context with file-reading tests --
+# These use a fake uv on PATH (or remove uv from PATH) to avoid monkeypatch.setattr.
+
+
+def test_extra_context_tool_no_env_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context works when MNG_AGENT_STATE_DIR is not set."""
+    module = _load_fresh_extra_context_tool()
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+    _setup_uv_not_found(tmp_path, monkeypatch)
+
+    result = module.gather_extra_context()
+    assert "Current Agents" in result
+    assert "Unable to retrieve" in result
+
+
+def test_extra_context_tool_with_transcript(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context reads transcript entries."""
+    module, data_dir = extra_context_env
+
+    transcript_dir = data_dir / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "events.jsonl"
+    lines = [_make_event_line(f"t{i}", "claude_transcript") for i in range(5)]
+    transcript_file.write_text("\n".join(lines) + "\n")
+
+    result = module.gather_extra_context()
+    assert "Extended Inner Monologue" in result
+    assert "5 of 5" in result
+
+
+def test_extra_context_tool_with_conversations(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context reads conversation events."""
+    module, data_dir = extra_context_env
+
+    conv_dir = data_dir / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+        '{"timestamp":"2026-01-01T00:01:00Z","type":"conversation_created","event_id":"c2",'
+        '"source":"conversations","conversation_id":"conv-2","model":"claude-sonnet-4-6"}\n'
+    )
+
+    result = module.gather_extra_context()
+    assert "All Conversations" in result
+    assert "conv-1" in result
+    assert "conv-2" in result
+
+
+def test_extra_context_tool_with_successful_mng_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context displays agent list on successful uv run mng list."""
+    module = _load_fresh_extra_context_tool()
+    _setup_fake_uv(tmp_path, monkeypatch, exit_code=0, stdout='[{"name":"test-agent","state":"RUNNING"}]')
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+
+    result = module.gather_extra_context()
+    assert "Current Agents" in result
+    assert "test-agent" in result
+
+
+def test_extra_context_tool_with_failed_mng_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify gather_extra_context handles mng list failure gracefully."""
+    module = _load_fresh_extra_context_tool()
+    _setup_fake_uv(tmp_path, monkeypatch, exit_code=1)
+    monkeypatch.delenv("MNG_AGENT_STATE_DIR", raising=False)
+
+    result = module.gather_extra_context()
+    assert "No agents or unable to retrieve" in result
+
+
+def test_extra_context_tool_with_empty_transcript(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context handles empty transcript file."""
+    module, data_dir = extra_context_env
+
+    transcript_dir = data_dir / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    (transcript_dir / "events.jsonl").write_text("")
+
+    result = module.gather_extra_context()
+    assert "Extended Inner Monologue" not in result
+
+
+def test_extra_context_tool_conversations_with_malformed_json(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context skips malformed conversation lines."""
+    module, data_dir = extra_context_env
+
+    conv_dir = data_dir / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        "not valid json\n"
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+    )
+
+    result = module.gather_extra_context()
+    assert "conv-1" in result
+
+
+def test_extra_context_tool_conversations_missing_key(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context skips conversations lines missing conversation_id."""
+    module, data_dir = extra_context_env
+
+    conv_dir = data_dir / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"c1"}\n')
+
+    result = module.gather_extra_context()
+    assert "All Conversations" not in result
+
+
+def test_extra_context_tool_transcript_with_many_entries(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context limits transcript to last 50 entries."""
+    module, data_dir = extra_context_env
+
+    transcript_dir = data_dir / "logs" / "claude_transcript"
+    transcript_dir.mkdir(parents=True)
+    transcript_file = transcript_dir / "events.jsonl"
+    lines = [_make_event_line(f"t{i}", "claude_transcript") for i in range(100)]
+    transcript_file.write_text("\n".join(lines) + "\n")
+
+    result = module.gather_extra_context()
+    assert "last 50 of 100" in result
+
+
+def test_extra_context_tool_conversations_updates_existing_conversation(
+    extra_context_env: tuple[Any, Path],
+) -> None:
+    """Verify gather_extra_context uses the latest event for each conversation."""
+    module, data_dir = extra_context_env
+
+    conv_dir = data_dir / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+        '{"timestamp":"2026-01-01T00:01:00Z","type":"model_changed","event_id":"c2",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-sonnet-4-6"}\n'
+    )
+
+    result = module.gather_extra_context()
+    assert "All Conversations" in result
+    assert "claude-sonnet-4-6" in result
+
+
+def test_extra_context_tool_conversations_with_empty_lines(extra_context_env: tuple[Any, Path]) -> None:
+    """Verify gather_extra_context skips empty lines in conversations file."""
+    module, data_dir = extra_context_env
+
+    conv_dir = data_dir / "logs" / "conversations"
+    conv_dir.mkdir(parents=True)
+    conv_file = conv_dir / "events.jsonl"
+    conv_file.write_text(
+        "\n"
+        '{"timestamp":"2026-01-01T00:00:00Z","type":"conversation_created","event_id":"c1",'
+        '"source":"conversations","conversation_id":"conv-1","model":"claude-opus-4-6"}\n'
+        "\n"
+    )
+
+    result = module.gather_extra_context()
+    assert "conv-1" in result
+
+
+def test_gather_context_first_call_messages_with_empty_lines(
+    gather_context_msg_env: _GatherContextMessageEnv,
+) -> None:
+    """Verify gather_context skips empty lines when parsing messages on first call."""
+    env = gather_context_msg_env
+    env.msgs_file.write_text("\n" + _make_message_line("m1", "conv-A", "user", "hello") + "\n" + "\n")
+
+    result = env.module.gather_context()
+    assert "conv-A" in result
+
+
+# -- mng availability check tests (warning path) --
+
+
+def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
+    """Verify warn_if_mng_unavailable checks for mng on remote host when not found."""
+    host = _StubHost(
+        command_results={"command -v mng": _StubCommandResult(success=False)},
+    )
+    host.is_local = False  # type: ignore[attr-defined]
+
+    # Should not raise, just warn
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]))
+
+    # Verify the mng availability check was executed
+    assert any("command -v mng" in c for c in host.executed_commands)

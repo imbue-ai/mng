@@ -656,6 +656,7 @@ def deploy_schedule(
 
     Raises ScheduleDeployError if any step fails.
     """
+    # FIXME: we really should have a source repo path in the CLI that is passed through into here (not just assuming it is the current directory), eg, these defaults should happen at a higher level
     # Resolve the project root directory.
     # In full-copy mode, fall back to cwd if not in a git repo.
     if is_full_copy:
@@ -682,11 +683,13 @@ def deploy_schedule(
     # --- Resolve and package the target repo ---
     target_repo_dir: Path | None = deploy_build_path / "target_repo"
 
+    # FIXME: obviously full copy should be the default, please adjust CLI, docs, and code to account for that
     if is_full_copy:
         # Full-copy mode: skip the incremental caching and branch-push validation.
         # If in a git repo, export at current HEAD (excludes gitignored files like
         # venvs and node_modules). Otherwise, tar the whole directory.
         if maybe_git_root is not None:
+            # FIXME: we should just complain for now (raise an exception) if the git repo is not completely clean (no uncommitted or untracked changes)
             head_hash = resolve_git_ref("HEAD", cwd=repo_root)
             trigger = trigger.model_copy(update={"git_image_hash": head_hash})
             logger.info("Full-copy from git repo at HEAD ({})", head_hash)
@@ -697,7 +700,7 @@ def deploy_schedule(
             with log_span("Packaging project directory (full copy)"):
                 package_directory_as_tarball(repo_root, target_repo_dir)
     else:
-        # Incremental mode (default): resolve commit hash and package via git.
+        # Incremental mode: resolve commit hash and package via git.
         commit_hash = resolve_commit_hash_for_deploy(repo_root / ".mng" / "image_commit_hash", repo_root)
         trigger = trigger.model_copy(update={"git_image_hash": commit_hash})
         logger.info("Using commit {} for target repo packaging", commit_hash)
@@ -814,6 +817,7 @@ def deploy_schedule(
 
     logger.info("Schedule '{}' deployed to Modal app '{}'", trigger.name, app_name)
 
+    # FIXME: split this verification logic out and up a layer, this function is already more complicated than necessary
     # Post-deploy verification (must happen while temp dir is still alive)
     if verify_mode != VerifyMode.NONE:
         is_finish = verify_mode == VerifyMode.FULL
