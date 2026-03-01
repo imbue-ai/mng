@@ -104,50 +104,26 @@ def test_setup_logging_none_suppresses_output(capfd: Any) -> None:
 
 
 @pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_info_shows_info_messages(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.INFO)
+@pytest.mark.parametrize(
+    "level, loguru_level, marker",
+    [
+        (ConsoleLogLevel.INFO, "INFO", "info-marker-91827"),
+        (ConsoleLogLevel.DEBUG, "DEBUG", "debug-marker-73829"),
+        (ConsoleLogLevel.TRACE, "TRACE", "trace-marker-28374"),
+        (ConsoleLogLevel.WARN, "WARNING", "warn-marker-92837"),
+        (ConsoleLogLevel.ERROR, "ERROR", "error-marker-83729"),
+    ],
+)
+def test_setup_logging_shows_messages_at_configured_level(
+    level: ConsoleLogLevel,
+    loguru_level: str,
+    marker: str,
+    capfd: Any,
+) -> None:
+    """Verify that setup_logging configures loguru to emit messages at the given level."""
+    setup_logging(level)
 
-    logger.info("info-marker-91827")
-
-    captured = capfd.readouterr()
-    assert "info-marker-91827" in captured.err
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_debug_shows_debug_messages(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.DEBUG)
-
-    logger.debug("debug-marker-73829")
-
-    captured = capfd.readouterr()
-    assert "debug-marker-73829" in captured.err
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_trace_shows_trace_messages(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.TRACE)
-
-    logger.trace("trace-marker-28374")
+    logger.log(loguru_level, marker)
 
     captured = capfd.readouterr()
-    assert "trace-marker-28374" in captured.err
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_warn_shows_warning_messages(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.WARN)
-
-    logger.warning("warn-marker-92837")
-
-    captured = capfd.readouterr()
-    assert "warn-marker-92837" in captured.err
-
-
-@pytest.mark.usefixtures("_isolated_logger")
-def test_setup_logging_error_shows_error_messages(capfd: Any) -> None:
-    setup_logging(ConsoleLogLevel.ERROR)
-
-    logger.error("error-marker-83729")
-
-    captured = capfd.readouterr()
-    assert "error-marker-83729" in captured.err
+    assert marker in captured.err
