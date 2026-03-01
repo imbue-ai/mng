@@ -2,6 +2,7 @@ import json
 
 import pytest
 from click.testing import CliRunner
+from loguru import logger
 
 from imbue.changelings.cli.update import _is_agent_remote
 from imbue.changelings.cli.update import _print_result
@@ -144,12 +145,12 @@ def test_is_agent_remote_returns_false_when_agent_not_found() -> None:
         (False, False, True),
     ],
 )
-def test_print_result_does_not_raise(
+def test_print_result_includes_agent_name_and_steps(
     did_snapshot: bool,
     did_push: bool,
     did_provision: bool,
 ) -> None:
-    """Verify _print_result does not raise for any combination of steps."""
+    """Verify _print_result outputs agent name and completed steps."""
     result = UpdateResult(
         agent_name=AgentName("my-agent"),
         did_snapshot=did_snapshot,
@@ -157,4 +158,19 @@ def test_print_result_does_not_raise(
         did_provision=did_provision,
     )
 
-    _print_result(result)
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        _print_result(result)
+    finally:
+        logger.remove(handler_id)
+
+    combined = "".join(messages)
+    assert "my-agent" in combined
+    assert "updated successfully" in combined.lower()
+    if did_snapshot:
+        assert "snapshot" in combined.lower()
+    if did_push:
+        assert "push" in combined.lower()
+    if did_provision:
+        assert "provision" in combined.lower()

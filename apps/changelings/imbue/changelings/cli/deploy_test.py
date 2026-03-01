@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 from click.testing import Result
+from loguru import logger
 
 from imbue.changelings.cli.deploy import _MNG_SETTINGS_REL_PATH
 from imbue.changelings.cli.deploy import _copy_add_paths
@@ -578,26 +579,46 @@ def test_move_to_permanent_location_preserves_contents(tmp_path: Path) -> None:
 # --- Tests for _print_result ---
 
 
-def test_print_result_does_not_raise() -> None:
-    """Verify _print_result runs without error."""
+def test_print_result_includes_agent_name_and_login_url() -> None:
+    """Verify _print_result shows agent name and login URL."""
+    agent_id = AgentId()
+    login_url = "http://127.0.0.1:8420/login?agent_id={}&one_time_code=yyy".format(agent_id)
+    result = DeploymentResult(
+        agent_name=AgentName("my-agent"),
+        agent_id=agent_id,
+        login_url=login_url,
+    )
+
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        _print_result(result, DeploymentProvider.LOCAL)
+    finally:
+        logger.remove(handler_id)
+
+    combined = "".join(messages)
+    assert "my-agent" in combined
+    assert login_url in combined
+    assert "local" in combined
+
+
+def test_print_result_shows_provider_name() -> None:
+    """Verify _print_result shows the correct provider name."""
     result = DeploymentResult(
         agent_name=AgentName("my-agent"),
         agent_id=AgentId(),
         login_url="http://127.0.0.1:8420/login?agent_id=xxx&one_time_code=yyy",
     )
 
-    _print_result(result, DeploymentProvider.LOCAL)
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        _print_result(result, DeploymentProvider.MODAL)
+    finally:
+        logger.remove(handler_id)
 
-
-def test_print_result_modal_provider() -> None:
-    """Verify _print_result runs for modal provider."""
-    result = DeploymentResult(
-        agent_name=AgentName("my-agent"),
-        agent_id=AgentId(),
-        login_url="http://127.0.0.1:8420/login?agent_id=xxx&one_time_code=yyy",
-    )
-
-    _print_result(result, DeploymentProvider.MODAL)
+    combined = "".join(messages)
+    assert "modal" in combined
 
 
 # --- Tests for _resolve_* functions ---

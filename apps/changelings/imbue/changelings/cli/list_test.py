@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from click.testing import CliRunner
+from loguru import logger
 
 from imbue.changelings.cli.list import _DEFAULT_DISPLAY_FIELDS
 from imbue.changelings.cli.list import _HEADER_LABELS
@@ -126,16 +127,32 @@ def test_build_table_shows_provider() -> None:
 # --- _emit_human_output tests ---
 
 
-def test_emit_human_output_with_agents_does_not_raise() -> None:
-    """Verify that _emit_human_output produces output without raising for agents."""
+def test_emit_human_output_with_agents_includes_agent_name() -> None:
+    """Verify that _emit_human_output includes the agent name in output."""
     agents = [_make_agent_dict("agent-abc123", name="my-bot", state="RUNNING")]
 
-    _emit_human_output(agents, _DEFAULT_DISPLAY_FIELDS)
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        _emit_human_output(agents, _DEFAULT_DISPLAY_FIELDS)
+    finally:
+        logger.remove(handler_id)
+
+    combined = "".join(messages)
+    assert "my-bot" in combined
 
 
-def test_emit_human_output_with_empty_list_does_not_raise() -> None:
-    """Verify that _emit_human_output handles empty list without raising."""
-    _emit_human_output([], _DEFAULT_DISPLAY_FIELDS)
+def test_emit_human_output_with_empty_list_shows_no_changelings() -> None:
+    """Verify that _emit_human_output shows 'No changelings found' for empty list."""
+    messages: list[str] = []
+    handler_id = logger.add(lambda m: messages.append(str(m)), level="INFO")
+    try:
+        _emit_human_output([], _DEFAULT_DISPLAY_FIELDS)
+    finally:
+        logger.remove(handler_id)
+
+    combined = "".join(messages)
+    assert "No changelings found" in combined
 
 
 def test_default_display_fields_have_header_labels() -> None:

@@ -1,3 +1,5 @@
+from typing import Any
+
 from loguru import logger
 
 from imbue.changelings.utils.logging import ConsoleLogLevel
@@ -81,37 +83,55 @@ def test_format_user_message_trace_includes_message_placeholder() -> None:
     assert "{message}" in result
 
 
-def test_setup_logging_none_removes_all_handlers() -> None:
+def test_setup_logging_none_suppresses_output(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.NONE)
 
-    logger.info("This should not appear")
+    logger.info("suppressed-marker-82734")
+
+    captured = capfd.readouterr()
+    assert "suppressed-marker-82734" not in captured.err
 
 
-def test_setup_logging_info_configures_handler() -> None:
+def test_setup_logging_info_shows_info_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.INFO)
 
-    logger.info("This should appear")
+    logger.info("info-marker-91827")
+
+    captured = capfd.readouterr()
+    assert "info-marker-91827" in captured.err
 
 
-def test_setup_logging_debug_configures_handler() -> None:
+def test_setup_logging_debug_shows_debug_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.DEBUG)
 
-    logger.debug("Debug message")
+    logger.debug("debug-marker-73829")
+
+    captured = capfd.readouterr()
+    assert "debug-marker-73829" in captured.err
 
 
-def test_setup_logging_trace_configures_handler() -> None:
+def test_setup_logging_trace_shows_trace_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.TRACE)
 
-    logger.trace("Trace message")
+    logger.trace("trace-marker-28374")
+
+    captured = capfd.readouterr()
+    assert "trace-marker-28374" in captured.err
 
 
-def test_setup_logging_warn_configures_handler() -> None:
+def test_setup_logging_warn_shows_warning_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.WARN)
 
-    logger.warning("Warning message")
+    logger.warning("warn-marker-92837")
+
+    captured = capfd.readouterr()
+    assert "warn-marker-92837" in captured.err
 
 
-def test_setup_logging_error_configures_handler() -> None:
+def test_setup_logging_error_shows_error_messages(capfd: Any) -> None:
     setup_logging(ConsoleLogLevel.ERROR)
 
-    logger.error("Error message")
+    logger.error("error-marker-83729")
+
+    captured = capfd.readouterr()
+    assert "error-marker-83729" in captured.err
