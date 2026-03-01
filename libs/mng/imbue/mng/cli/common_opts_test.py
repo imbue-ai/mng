@@ -445,22 +445,17 @@ def test_resolve_format_flags_json_with_explicit_format_raises() -> None:
 # =============================================================================
 
 
-def _start_and_await_failing_thread(cg: ConcurrencyGroup) -> None:
-    """Start a checked thread that fails immediately and wait for it to finish.
+def _start_failing_thread(cg: ConcurrencyGroup) -> None:
+    """Start a checked thread that fails immediately.
 
-    After this call, the CG has a recorded failure that will be reported as a
-    ConcurrencyExceptionGroup during __exit__.
-
-    We use threading.Thread.join() (the base class) instead of ObservableThread.join()
-    because the latter calls maybe_raise() which would re-raise the captured exception
-    here instead of letting the CG report it during __exit__.
+    After this call (once the thread finishes), the CG has a recorded failure
+    that will be reported as a ConcurrencyExceptionGroup during __exit__.
     """
 
     def _fail() -> None:
         raise ConcurrencyGroupError("simulated failure")
 
-    thread = cg.start_new_thread(target=_fail, name="failing-thread")
-    threading.Thread.join(thread)
+    cg.start_new_thread(target=_fail, name="failing-thread")
 
 
 def test_close_concurrency_group_suppresses_when_shutting_down() -> None:
@@ -468,7 +463,7 @@ def test_close_concurrency_group_suppresses_when_shutting_down() -> None:
     cg = ConcurrencyGroup(name="test-sigint")
     cg.__enter__()
 
-    _start_and_await_failing_thread(cg)
+    _start_failing_thread(cg)
     cg.shutdown_event.set()
 
     # Should not raise -- the ConcurrencyExceptionGroup from the failed thread is suppressed
@@ -480,7 +475,7 @@ def test_close_concurrency_group_raises_when_not_shutting_down() -> None:
     cg = ConcurrencyGroup(name="test-real-failure")
     cg.__enter__()
 
-    _start_and_await_failing_thread(cg)
+    _start_failing_thread(cg)
 
     # Should raise because the CG is NOT shutting down -- this is a real failure
     with pytest.raises(ConcurrencyExceptionGroup):
@@ -509,7 +504,7 @@ def test_close_concurrency_group_restores_signal_handler_on_exception() -> None:
     cg.__enter__()
 
     saved_handler = _install_sigint_shutdown_handler(cg)
-    _start_and_await_failing_thread(cg)
+    _start_failing_thread(cg)
 
     with pytest.raises(ConcurrencyExceptionGroup):
         _close_concurrency_group(cg, saved_handler)
