@@ -123,10 +123,13 @@ for line in open('$CONVERSATIONS_FILE'):
     line = line.strip()
     if not line:
         continue
-    record = json.loads(line)
-    convs[record['id']] = record
+    try:
+        record = json.loads(line)
+        convs[record['id']] = record
+    except (json.JSONDecodeError, KeyError):
+        continue
 for cid, record in convs.items():
-    print(f\"  {record['id']}  model={record['model']}  created={record['timestamp']}\")
+    print(f\"  {record['id']}  model={record.get('model', '?')}  created={record.get('timestamp', '?')}\")
 " 2>/dev/null || echo "  (error reading conversations)"
 }
 

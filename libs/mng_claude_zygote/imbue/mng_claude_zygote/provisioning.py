@@ -14,7 +14,6 @@ _SCRIPT_FILES = (
     "chat.sh",
     "conversation_watcher.sh",
     "event_watcher.sh",
-    "memory_linker.sh",
 )
 
 # Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
@@ -146,3 +145,52 @@ def write_default_chat_model(host: OnlineHostInterface, agent_state_dir: Path, m
     """Write the default chat model to the agent state directory."""
     model_file = agent_state_dir / "default_chat_model"
     host.write_text_file(model_file, str(model) + "\n")
+
+
+def compute_claude_project_dir_name(work_dir_abs: str) -> str:
+    """Compute the Claude project directory name from an absolute work_dir path.
+
+    Claude names project directories by replacing '/' and '.' with '-' in the
+    absolute path, e.g. /home/user/.changelings/my-agent -> -home-user--changelings-my-agent
+    """
+    return work_dir_abs.replace("/", "-").replace(".", "-")
+
+
+def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:
+    """Symlink the changelings memory directory into the Claude project memory path.
+
+    Creates:
+    - <work_dir>/<changelings_dir>/memory/ (if it doesn't exist)
+    - ~/.claude/projects/<project_name>/memory/ -> <work_dir>/<changelings_dir>/memory/
+
+    This ensures all Claude agents share the same project memory, and that
+    memories are version-controlled in the agent's git repo.
+    """
+    changelings_memory = work_dir / changelings_dir_name / "memory"
+
+    # Get the absolute path of work_dir on the host
+    abs_result = host.execute_command(
+        f"cd {shlex.quote(str(work_dir))} && pwd",
+        timeout_seconds=5.0,
+    )
+    if not abs_result.success:
+        raise RuntimeError(f"Failed to resolve absolute path of {work_dir}: {abs_result.stderr}")
+    abs_work_dir = abs_result.stdout.strip()
+
+    project_dir_name = compute_claude_project_dir_name(abs_work_dir)
+
+    # Create the changelings memory directory
+    host.execute_command(f"mkdir -p {shlex.quote(str(changelings_memory))}", timeout_seconds=5.0)
+
+    # Create the Claude project directory and symlink memory into it
+    project_dir = Path("~/.claude/projects") / project_dir_name
+    memory_link = project_dir / "memory"
+
+    cmd = (
+        f"mkdir -p {shlex.quote(str(project_dir))} && "
+        f"ln -sfn {shlex.quote(str(changelings_memory))} {shlex.quote(str(memory_link))}"
+    )
+    with log_span("Linking memory: {} -> {}", memory_link, changelings_memory):
+        result = host.execute_command(cmd, timeout_seconds=5.0)
+        if not result.success:
+            raise RuntimeError(f"Failed to link memory directory: {result.stderr}")

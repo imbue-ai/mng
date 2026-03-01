@@ -22,15 +22,13 @@ from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteConfig
 from imbue.mng_claude_zygote.plugin import EVENT_WATCHER_COMMAND
 from imbue.mng_claude_zygote.plugin import EVENT_WATCHER_WINDOW_NAME
-from imbue.mng_claude_zygote.plugin import MEMORY_LINKER_COMMAND
-from imbue.mng_claude_zygote.plugin import MEMORY_LINKER_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import inject_agent_ttyd
 from imbue.mng_claude_zygote.plugin import inject_changeling_windows
 from imbue.mng_claude_zygote.plugin import override_command_options
 
 # Total number of tmux windows injected by inject_changeling_windows:
-# agent ttyd, conv_watcher, events, memory_linker, chat ttyd
-_CHANGELING_WINDOW_COUNT = 5
+# agent ttyd, conv_watcher, events, chat ttyd
+_CHANGELING_WINDOW_COUNT = 4
 
 
 class _DummyCommandClass:
@@ -113,12 +111,6 @@ def test_adds_event_watcher_window(zygote_create_params: dict[str, Any]) -> None
     entries = [c for c in zygote_create_params["add_command"] if EVENT_WATCHER_WINDOW_NAME in c]
     assert len(entries) == 1
     assert EVENT_WATCHER_COMMAND in entries[0]
-
-
-def test_adds_memory_linker_window(zygote_create_params: dict[str, Any]) -> None:
-    entries = [c for c in zygote_create_params["add_command"] if MEMORY_LINKER_WINDOW_NAME in c]
-    assert len(entries) == 1
-    assert MEMORY_LINKER_COMMAND in entries[0]
 
 
 def test_adds_chat_ttyd_window(zygote_create_params: dict[str, Any]) -> None:
@@ -253,15 +245,6 @@ def test_conv_watcher_command_references_script() -> None:
 
 def test_event_watcher_command_references_script() -> None:
     assert "event_watcher.sh" in EVENT_WATCHER_COMMAND
-
-
-def test_memory_linker_command_references_script() -> None:
-    assert "memory_linker.sh" in MEMORY_LINKER_COMMAND
-
-
-def test_memory_linker_command_passes_work_dir() -> None:
-    """Verify that memory_linker command passes the working directory."""
-    assert "$(pwd)" in MEMORY_LINKER_COMMAND
 
 
 # -- ClaudeZygoteAgent._get_zygote_config tests --
