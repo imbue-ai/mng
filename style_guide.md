@@ -372,6 +372,8 @@ Never validate data using ad-hoc code in functions--always use pydantic models o
 
 # Errors
 
+## Exception hierarchy
+
 All raised Exceptions should inherit from a base class that is specific to that library or app.
 
 Never raise built-in Exceptions directly (except NotImplementedError). Instead, create a new type that inherits from both the base error class for the package and the built-in. Avoid creating and raising such exceptions unless it very obviously applies (ex: this is clearly a timeout error)
@@ -446,49 +448,9 @@ Never use a blanket `except:` clause! Always catch the narrowest specific except
 
 Always log errors that are caught (at the appropriate level--trace or debug if this is expected, or warning if this is from us trying to make the code more robust and there's no other choice, error only if this is a more general top level error handler)
 
+## Try/except
+
 Each try/except blocks should only span a single statement, and should catch precisely the errors that we want to handle from that statement.
-
-## Timeouts
-
-When calling external commands or making network requests, always use a two-threshold timeout pattern:
-
-1. **Hard timeout**: Set a generous timeout that represents "this is definitely broken" (e.g. 15s for filesystem ops, 60s for network calls, 300s for installations). This prevents infinite hangs.
-2. **Warning threshold**: After the command completes successfully, check if it took longer than a "suspicious" duration (e.g. 2s for filesystem ops, 15s for network calls). If so, emit a warning so we notice things becoming slow *before* they become totally broken.
-
-```python
-import time
-
-from loguru import logger
-
-# For host commands:
-cmd = "mkdir -p /some/path"
-start = time.monotonic()
-result = host.execute_command(cmd, timeout_seconds=15.0)
-elapsed = time.monotonic() - start
-if elapsed > 2.0:
-    logger.warning("mkdir took {:.1f}s (expected <2s): {}", elapsed, cmd)
-
-# For subprocess calls:
-start = time.monotonic()
-result = subprocess.run(["mng", "list", "--json"], capture_output=True, text=True, timeout=120)
-elapsed = time.monotonic() - start
-if elapsed > 15.0:
-    logger.warning("mng list took {:.1f}s (expected <15s)", elapsed)
-```
-
-For standalone scripts (bash, deployed Python tools) where loguru is not available, use print to stderr or a log file:
-
-```bash
-start_time=$(date +%s%N)
-result=$(some_command)
-end_time=$(date +%s%N)
-elapsed_ms=$(( (end_time - start_time) / 1000000 ))
-if [ "$elapsed_ms" -gt 2000 ]; then
-    log "WARNING: some_command took ${elapsed_ms}ms (expected <2000ms)"
-fi
-```
-
-This pattern allows us to notice degradation and diagnose slowdowns before they become outright failures.
 
 ```python
 from pathlib import Path
@@ -578,6 +540,48 @@ class TodoNotificationService(MutableModel):
 ```
 
 Be very conservative with what exceptions are caught. Prefer to crash instead of catching errors.
+
+## Timeouts
+
+When calling external commands or making network requests, always use a two-threshold timeout pattern:
+
+1. **Hard timeout**: Set a generous timeout that represents "this is definitely broken" (e.g. 15s for filesystem ops, 60s for network calls, 300s for installations). This prevents infinite hangs.
+2. **Warning threshold**: After the command completes successfully, check if it took longer than a "suspicious" duration (e.g. 2s for filesystem ops, 15s for network calls). If so, emit a warning so we notice things becoming slow *before* they become totally broken.
+
+```python
+import time
+
+from loguru import logger
+
+# For host commands:
+cmd = "mkdir -p /some/path"
+start = time.monotonic()
+result = host.execute_command(cmd, timeout_seconds=15.0)
+elapsed = time.monotonic() - start
+if elapsed > 2.0:
+    logger.warning("mkdir took {:.1f}s (expected <2s): {}", elapsed, cmd)
+
+# For subprocess calls:
+start = time.monotonic()
+result = subprocess.run(["mng", "list", "--json"], capture_output=True, text=True, timeout=120)
+elapsed = time.monotonic() - start
+if elapsed > 15.0:
+    logger.warning("mng list took {:.1f}s (expected <15s)", elapsed)
+```
+
+For standalone scripts (bash, deployed Python tools) where loguru is not available, use print to stderr or a log file:
+
+```bash
+start_time=$(date +%s%N)
+result=$(some_command)
+end_time=$(date +%s%N)
+elapsed_ms=$(( (end_time - start_time) / 1000000 ))
+if [ "$elapsed_ms" -gt 2000 ]; then
+    log "WARNING: some_command took ${elapsed_ms}ms (expected <2000ms)"
+fi
+```
+
+This pattern allows us to notice degradation and diagnose slowdowns before they become outright failures.
 
 # Docstrings
 
