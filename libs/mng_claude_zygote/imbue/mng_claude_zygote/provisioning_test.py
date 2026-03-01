@@ -478,17 +478,22 @@ def test_write_default_chat_model_writes_model_to_file() -> None:
 # -- mng availability check tests --
 
 
+def _make_fake_pm(plugins: list[tuple[str, object]]) -> Any:
+    """Create a fake PluginManager that returns the given plugin list."""
+
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return plugins
+
+    return cast(Any, _FakePM())
+
+
 def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
     host = _StubHost()
     host.is_local = True  # type: ignore[attr-defined]
 
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return []
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]))
 
-    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
-
-    # Should not even check for mng on local hosts
     assert not any("command -v mng" in c for c in host.executed_commands)
 
 
@@ -496,13 +501,8 @@ def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> Non
     host = _StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return [("recursive_mng", object())]
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("recursive_mng", object())]))
 
-    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
-
-    # Should not check for mng when recursive plugin handles it
     assert not any("command -v mng" in c for c in host.executed_commands)
 
 
@@ -510,42 +510,77 @@ def test_warn_if_mng_unavailable_checks_on_remote_without_recursive() -> None:
     host = _StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return [("some_other_plugin", object())]
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("some_other_plugin", object())]))
 
-    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
-
-    # Should check for mng on remote host without recursive plugin
     assert any("command -v mng" in c for c in host.executed_commands)
 
 
 def test_is_recursive_plugin_registered_returns_true_when_present() -> None:
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return [("recursive_mng", object()), ("other", object())]
-
-    assert _is_recursive_plugin_registered(cast(Any, _FakePM())) is True
+    assert _is_recursive_plugin_registered(_make_fake_pm([("recursive_mng", object())])) is True
 
 
 def test_is_recursive_plugin_registered_returns_false_when_absent() -> None:
-    class _FakePM:
-        def list_name_plugin(self) -> list[tuple[str, object]]:
-            return [("some_plugin", object())]
-
-    assert _is_recursive_plugin_registered(cast(Any, _FakePM())) is False
+    assert _is_recursive_plugin_registered(_make_fake_pm([("some_plugin", object())])) is False
 
 
 # -- context_tool incremental behavior tests --
 
 
-def test_context_tool_tracks_state_between_calls() -> None:
-    """Verify context_tool.py uses module-level state for incremental context."""
-    content = load_zygote_resource("context_tool.py")
-    assert "_last_line_counts" in content
+def test_context_tool_gather_context_returns_no_context_when_env_not_set(tmp_path: Path) -> None:
+    """Verify gather_context returns a message when MNG_AGENT_STATE_DIR is not set."""
+    import importlib
+
+    spec = importlib.util.spec_from_file_location(
+        "context_tool_test_module",
+        Path(__file__).parent / "resources" / "context_tool.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    import os
+
+    old_val = os.environ.pop("MNG_AGENT_STATE_DIR", None)
+    try:
+        result = module.gather_context()
+        assert "No agent data directory" in result
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
 
 
-def test_context_tool_reports_no_new_context_on_subsequent_calls() -> None:
-    """Verify context_tool.py differentiates first call from subsequent calls."""
-    content = load_zygote_resource("context_tool.py")
-    assert "No new context" in content or "is_first_call" in content
+def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_path: Path) -> None:
+    """Verify gather_context returns incremental results on subsequent calls."""
+    import importlib
+    import os
+
+    # Set up a minimal agent data dir with one scheduled event
+    logs_dir = tmp_path / "logs" / "scheduled"
+    logs_dir.mkdir(parents=True)
+    events_file = logs_dir / "events.jsonl"
+    events_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"e1","source":"scheduled"}\n')
+
+    # Load a fresh module instance (to get clean _last_line_counts state)
+    spec = importlib.util.spec_from_file_location(
+        "context_tool_incremental_test",
+        Path(__file__).parent / "resources" / "context_tool.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    old_val = os.environ.get("MNG_AGENT_STATE_DIR")
+    os.environ["MNG_AGENT_STATE_DIR"] = str(tmp_path)
+    try:
+        # First call: should return the event
+        first_result = module.gather_context()
+        assert "scheduled" in first_result.lower()
+
+        # Second call with no new events: should report no new context
+        second_result = module.gather_context()
+        assert "No new context" in second_result
+    finally:
+        if old_val is not None:
+            os.environ["MNG_AGENT_STATE_DIR"] = old_val
+        else:
+            os.environ.pop("MNG_AGENT_STATE_DIR", None)
