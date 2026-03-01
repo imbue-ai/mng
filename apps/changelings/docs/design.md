@@ -61,8 +61,8 @@ event_poll_interval_seconds = 3         # Poll interval for event watcher
 watched_event_sources = ["messages", "scheduled", "mng_agents", "stop"]
 
 [provisioning]
-fs_hard_timeout_seconds = 15.0          # Hard timeout for filesystem operations
-fs_warn_threshold_seconds = 2.0         # Warning threshold for filesystem operations
+fs_hard_timeout_seconds = 16.0          # Hard timeout for filesystem operations
+fs_warn_threshold_seconds = 4.0         # Warning threshold for filesystem operations
 command_check_hard_timeout_seconds = 30.0
 command_check_warn_threshold_seconds = 5.0
 install_hard_timeout_seconds = 300.0    # Hard timeout for package installations
