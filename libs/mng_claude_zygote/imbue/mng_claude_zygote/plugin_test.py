@@ -255,3 +255,8 @@ def test_event_watcher_command_references_script() -> None:
 
 def test_memory_linker_command_references_script() -> None:
     assert "memory_linker.sh" in MEMORY_LINKER_COMMAND
+
+
+def test_memory_linker_command_passes_work_dir() -> None:
+    """Verify that memory_linker command passes the working directory."""
+    assert "$(pwd)" in MEMORY_LINKER_COMMAND

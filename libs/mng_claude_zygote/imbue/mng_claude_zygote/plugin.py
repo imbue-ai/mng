@@ -13,6 +13,12 @@ from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_zygote.data_types import ChatModel
+from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
+from imbue.mng_claude_zygote.provisioning import create_conversation_directories
+from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
+from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
+from imbue.mng_claude_zygote.provisioning import provision_llm_tools
+from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
 AGENT_TTYD_WINDOW_NAME = "agent"
@@ -123,13 +129,6 @@ class ClaudeZygoteAgent(ClaudeAgent):
         5. Default chat model configuration
         6. LLM tool scripts for conversation context
         """
-        from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
-        from imbue.mng_claude_zygote.provisioning import create_conversation_directories
-        from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
-        from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
-        from imbue.mng_claude_zygote.provisioning import provision_llm_tools
-        from imbue.mng_claude_zygote.provisioning import write_default_chat_model
-
         super().provision(host, options, mng_ctx)
 
         config = self._get_zygote_config()

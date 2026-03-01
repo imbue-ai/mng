@@ -3,12 +3,17 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_conversation_directories
+from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
+from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
+from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 
 
@@ -254,3 +259,116 @@ class TestWriteDefaultChatModel:
         call_args = host.write_text_file.call_args
         assert "claude-sonnet-4-6" in call_args[0][1]
         assert str(call_args[0][0]).endswith("default_chat_model")
+
+
+class TestInstallLlmToolchain:
+    def test_skips_install_when_llm_already_present(self) -> None:
+        """Verify that install_llm_toolchain skips llm install if already available."""
+        host = _make_mock_host()
+        install_llm_toolchain(host)
+
+        # Should check for llm, then install plugins (not llm itself)
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("command -v llm" in c for c in calls)
+        assert not any("uv tool install llm" in c for c in calls)
+
+    def test_installs_llm_when_not_present(self) -> None:
+        """Verify that install_llm_toolchain installs llm when not available."""
+        host = _make_mock_host()
+        # First call (command -v llm) fails, rest succeed
+        fail_result = MagicMock()
+        fail_result.success = False
+        fail_result.stderr = "not found"
+        ok_result = MagicMock()
+        ok_result.success = True
+        ok_result.stderr = ""
+        host.execute_command.side_effect = [fail_result, ok_result, ok_result, ok_result]
+
+        install_llm_toolchain(host)
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("uv tool install llm" in c for c in calls)
+
+    def test_installs_llm_plugins(self) -> None:
+        """Verify that install_llm_toolchain installs llm-anthropic and llm-live-chat."""
+        host = _make_mock_host()
+        install_llm_toolchain(host)
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("llm install llm-anthropic" in c for c in calls)
+        assert any("llm install llm-live-chat" in c for c in calls)
+
+    def test_raises_on_llm_install_failure(self) -> None:
+        """Verify that install_llm_toolchain raises on llm install failure."""
+        host = _make_mock_host()
+        fail_result = MagicMock()
+        fail_result.success = False
+        fail_result.stderr = "install failed"
+        # command -v fails, then uv tool install fails
+        host.execute_command.side_effect = [fail_result, fail_result]
+
+        with pytest.raises(RuntimeError, match="Failed to install llm"):
+            install_llm_toolchain(host)
+
+    def test_raises_on_plugin_install_failure(self) -> None:
+        """Verify that install_llm_toolchain raises on plugin install failure."""
+        host = _make_mock_host()
+        ok_result = MagicMock()
+        ok_result.success = True
+        ok_result.stderr = ""
+        fail_result = MagicMock()
+        fail_result.success = False
+        fail_result.stderr = "plugin install failed"
+        # command -v succeeds, then llm install llm-anthropic fails
+        host.execute_command.side_effect = [ok_result, fail_result]
+
+        with pytest.raises(RuntimeError, match="Failed to install llm-anthropic"):
+            install_llm_toolchain(host)
+
+
+class TestProvisionChangelingScripts:
+    def test_creates_commands_directory(self) -> None:
+        """Verify that provision_changeling_scripts creates the commands directory."""
+        host = _make_mock_host()
+        provision_changeling_scripts(host)
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("mkdir" in c and "commands" in c for c in calls)
+
+    def test_writes_all_scripts(self) -> None:
+        """Verify that provision_changeling_scripts writes all script files."""
+        host = _make_mock_host()
+        provision_changeling_scripts(host)
+
+        write_calls = host.write_file.call_args_list
+        written_names = [str(c[0][0]) for c in write_calls]
+        for script_name in _SCRIPT_FILES:
+            assert any(script_name in name for name in written_names), f"{script_name} not written"
+
+    def test_writes_scripts_as_executable(self) -> None:
+        """Verify that scripts are written with mode 0755."""
+        host = _make_mock_host()
+        provision_changeling_scripts(host)
+
+        for write_call in host.write_file.call_args_list:
+            assert write_call[1].get("mode") == "0755" or (len(write_call[0]) > 2 and write_call[0][2] == "0755")
+
+
+class TestProvisionLlmTools:
+    def test_creates_llm_tools_directory(self) -> None:
+        """Verify that provision_llm_tools creates the llm_tools directory."""
+        host = _make_mock_host()
+        provision_llm_tools(host)
+
+        calls = [str(c) for c in host.execute_command.call_args_list]
+        assert any("mkdir" in c and "llm_tools" in c for c in calls)
+
+    def test_writes_all_tool_files(self) -> None:
+        """Verify that provision_llm_tools writes all tool files."""
+        host = _make_mock_host()
+        provision_llm_tools(host)
+
+        write_calls = host.write_file.call_args_list
+        written_names = [str(c[0][0]) for c in write_calls]
+        for tool_file in _LLM_TOOL_FILES:
+            assert any(tool_file in name for name in written_names), f"{tool_file} not written"
