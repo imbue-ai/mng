@@ -11,6 +11,9 @@ import json
 import os
 from pathlib import Path
 
+# how many lines of the inner monologue transcript to include in the context? adjust as needed for more/less detail vs token budget
+INNER_MONOLOGUE_LINE_COUNT = 10
+
 
 def gather_context() -> str:
     """Gather context from other conversations, inner monologue, and recent events.
@@ -22,6 +25,7 @@ def gather_context() -> str:
 
     Call this at the start of each conversation turn for situational awareness.
     """
+    # FIXME: boh this and the next block should be exceptions--it makes no sense to call gather_context() without the folder being defined and existing
     agent_data_dir_str = os.environ.get("MNG_AGENT_STATE_DIR", "")
     if not agent_data_dir_str:
         return "No agent data directory configured."
@@ -37,7 +41,7 @@ def gather_context() -> str:
     if transcript.exists():
         try:
             lines = transcript.read_text().strip().split("\n")
-            recent = lines[-10:] if len(lines) > 10 else lines
+            recent = lines[-INNER_MONOLOGUE_LINE_COUNT:] if len(lines) > INNER_MONOLOGUE_LINE_COUNT else lines
             if recent and recent[0]:
                 formatted = _format_jsonl_lines(recent)
                 sections.append(f"## Recent Inner Monologue (last {len(recent)} entries)\n{formatted}")
