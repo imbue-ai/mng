@@ -51,8 +51,8 @@ def test_settings_default_watcher_values() -> None:
 
 def test_settings_default_provisioning_values() -> None:
     settings = ClaudeZygoteSettings()
-    assert settings.provisioning.fs_hard_timeout_seconds == 15.0
-    assert settings.provisioning.fs_warn_threshold_seconds == 2.0
+    assert settings.provisioning.fs_hard_timeout_seconds == 16.0
+    assert settings.provisioning.fs_warn_threshold_seconds == 4.0
     assert settings.provisioning.command_check_hard_timeout_seconds == 30.0
     assert settings.provisioning.command_check_warn_threshold_seconds == 5.0
     assert settings.provisioning.install_hard_timeout_seconds == 300.0
