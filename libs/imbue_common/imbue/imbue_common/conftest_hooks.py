@@ -110,10 +110,6 @@ _SHARED_COVERAGE_EXCLUDE_LINES: Final[list[str]] = [
 # both a binary on PATH and a pytest mark name (e.g., @pytest.mark.tmux).
 _GUARDED_RESOURCES: Final[list[str]] = ["tmux", "rsync", "unison"]
 
-# Resources guarded by SDK monkeypatches. Each resource name corresponds to
-# a Python SDK and a pytest mark name (e.g., @pytest.mark.modal).
-_GUARDED_SDK_RESOURCES: Final[list[str]] = ["modal", "docker"]
-
 
 # ---------------------------------------------------------------------------
 # Helper functions
@@ -272,7 +268,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
     create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
     # Install SDK-level guards (each process patches independently, no shared state)
-    create_sdk_resource_guards(_GUARDED_SDK_RESOURCES)
+    create_sdk_resource_guards()
 
 
 @pytest.hookimpl(trylast=True)

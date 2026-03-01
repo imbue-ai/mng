@@ -6,16 +6,19 @@ Two guard mechanisms are provided:
    rsync). During the test call phase, wrappers block or track invocations
    based on whether the test has the corresponding mark.
 
-2. SDK monkeypatches intercept Python SDK chokepoints (e.g. Modal gRPC calls,
-   Docker HTTP requests). The monkeypatches call _enforce_sdk_guard, which
-   mirrors the wrapper logic: block unmarked usage and track marked usage.
+2. SDK monkeypatches intercept Python SDK chokepoints. SDK-specific guards
+   are registered via register_sdk_guard() before session start, then
+   installed by create_sdk_resource_guards(). The monkeypatches call
+   _enforce_sdk_guard, which mirrors the wrapper logic: block unmarked
+   usage and track marked usage.
 
 Both mechanisms use per-test tracking files so that makereport can fail tests
 that invoke a resource without the mark or carry a mark without invoking it.
 
 Usage:
-    Call create_resource_guard_wrappers(resources) and
-    create_sdk_resource_guards(sdk_resources) during pytest_sessionstart.
+    Register SDK guards via register_sdk_guard(name, install, cleanup) before
+    pytest_sessionstart. Call create_resource_guard_wrappers(resources) and
+    create_sdk_resource_guards() during pytest_sessionstart.
     Call cleanup_sdk_resource_guards() and cleanup_resource_guard_wrappers()
     during pytest_sessionfinish. Register the three runtest hooks
     (pytest_runtest_setup, pytest_runtest_teardown, pytest_runtest_makereport)
@@ -26,6 +29,7 @@ import os
 import shutil
 import stat
 import tempfile
+from collections.abc import Callable
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
@@ -56,9 +60,9 @@ _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
 _guarded_resources: list[str] = []
 
-# Module-level state for SDK guards. Stores original methods so they can be
-# restored by cleanup_sdk_resource_guards().
-_sdk_guard_originals: dict[str, object] = {}
+# Module-level state for SDK guards. Each entry is (name, install_fn, cleanup_fn).
+# Populated by register_sdk_guard() before create_sdk_resource_guards() runs.
+_registered_sdk_guards: list[tuple[str, Callable[[], None], Callable[[], None]]] = []
 
 
 def generate_wrapper_script(resource: str, real_path: str) -> str:
@@ -207,106 +211,39 @@ def _enforce_sdk_guard(resource: str) -> None:
         Path(tracking_dir).joinpath(resource).touch()
 
 
-def create_sdk_resource_guards(resources: list[str]) -> None:
-    """Register SDK resources as guarded and install monkeypatches.
+def register_sdk_guard(
+    name: str,
+    install: Callable[[], None],
+    cleanup: Callable[[], None],
+) -> None:
+    """Register an SDK guard for use by create_sdk_resource_guards.
 
-    Each SDK resource is added to _guarded_resources so the per-test hooks
-    set up env vars for it. For known SDKs (modal, docker), monkeypatches
-    are installed on the SDK's chokepoint methods to call _enforce_sdk_guard.
-    Silently skips SDKs whose packages are not importable.
+    Callers (e.g. mng's sdk_guards module) call this before
+    register_conftest_hooks() to push SDK-specific guard implementations
+    into the infrastructure. Deduplicates by name so multiple conftest
+    files can safely call the registration function.
     """
-    _guarded_resources.extend(resources)
-    for resource in resources:
-        if resource == "modal":
-            _install_modal_guards()
-        elif resource == "docker":
-            _install_docker_guards()
-        else:
-            # Unknown SDK: tracked via _guarded_resources for env var setup,
-            # but no monkeypatch installed.
-            pass
+    registered_names = {entry[0] for entry in _registered_sdk_guards}
+    if name not in registered_names:
+        _registered_sdk_guards.append((name, install, cleanup))
 
 
-def _install_modal_guards() -> None:
-    """Monkeypatch Modal's gRPC wrapper classes to enforce resource guards.
+def create_sdk_resource_guards() -> None:
+    """Install all registered SDK guards and add their names to _guarded_resources.
 
-    Patches UnaryUnaryWrapper.__call__ and UnaryStreamWrapper.unary_stream,
-    which are the entry points for all Modal unary and streaming RPC calls.
+    Iterates through guards registered via register_sdk_guard(), calls each
+    install function, and extends _guarded_resources so the per-test hooks
+    set up env vars for them.
     """
-    try:
-        from modal._grpc_client import UnaryStreamWrapper
-        from modal._grpc_client import UnaryUnaryWrapper
-    except ImportError:
-        return
-
-    original_call = UnaryUnaryWrapper.__call__
-    original_stream = UnaryStreamWrapper.unary_stream
-    _sdk_guard_originals["modal_unary_call"] = original_call
-    _sdk_guard_originals["modal_unary_stream"] = original_stream
-
-    # async is required here because the original methods are async
-    async def guarded_unary_call(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("modal")
-        return await original_call(self, *args, **kwargs)
-
-    async def guarded_unary_stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("modal")
-        async for response in original_stream(self, *args, **kwargs):
-            yield response
-
-    UnaryUnaryWrapper.__call__ = guarded_unary_call  # type: ignore[assignment]
-    UnaryStreamWrapper.unary_stream = guarded_unary_stream  # type: ignore[assignment]
-
-
-def _install_docker_guards() -> None:
-    """Monkeypatch Docker's APIClient.send to enforce resource guards.
-
-    APIClient inherits send from requests.Session. We shadow it on APIClient
-    so that all Docker HTTP requests are guarded without affecting other
-    requests.Session usage.
-    """
-    try:
-        from docker.api.client import APIClient
-    except ImportError:
-        return
-
-    # Capture whatever send() APIClient currently resolves to (via MRO).
-    original_send = APIClient.send
-    _sdk_guard_originals["docker_send_existed"] = "send" in APIClient.__dict__
-    if "send" in APIClient.__dict__:
-        _sdk_guard_originals["docker_send_original"] = APIClient.__dict__["send"]
-
-    def guarded_send(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-        _enforce_sdk_guard("docker")
-        return original_send(self, *args, **kwargs)
-
-    APIClient.send = guarded_send  # type: ignore[method-assign]
+    for name, install, _cleanup in _registered_sdk_guards:
+        _guarded_resources.append(name)
+        install()
 
 
 def cleanup_sdk_resource_guards() -> None:
-    """Restore original SDK methods patched by create_sdk_resource_guards."""
-    if "modal_unary_call" in _sdk_guard_originals:
-        try:
-            from modal._grpc_client import UnaryStreamWrapper
-            from modal._grpc_client import UnaryUnaryWrapper
-        except ImportError:
-            pass
-        else:
-            UnaryUnaryWrapper.__call__ = _sdk_guard_originals["modal_unary_call"]  # type: ignore[assignment]
-            UnaryStreamWrapper.unary_stream = _sdk_guard_originals["modal_unary_stream"]  # type: ignore[assignment]
-
-    if "docker_send_existed" in _sdk_guard_originals:
-        try:
-            from docker.api.client import APIClient
-        except ImportError:
-            pass
-        else:
-            if _sdk_guard_originals["docker_send_existed"]:
-                APIClient.send = _sdk_guard_originals["docker_send_original"]  # type: ignore[method-assign]
-            elif "send" in APIClient.__dict__:
-                del APIClient.send  # type: ignore[misc]
-
-    _sdk_guard_originals.clear()
+    """Call cleanup for all registered SDK guards."""
+    for _name, _install, cleanup in _registered_sdk_guards:
+        cleanup()
 
 
 # ---------------------------------------------------------------------------

@@ -54,7 +54,7 @@ def isolated_guard_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rg, "_owns_guard_wrapper_dir", False)
     monkeypatch.setattr(rg, "_session_env_patcher", None)
     monkeypatch.setattr(rg, "_guarded_resources", [])
-    monkeypatch.setattr(rg, "_sdk_guard_originals", {})
+    monkeypatch.setattr(rg, "_registered_sdk_guards", [])
     monkeypatch.delenv("_PYTEST_GUARD_WRAPPER_DIR", raising=False)
 
 
@@ -274,6 +274,7 @@ import pytest
 from imbue.imbue_common.resource_guards import (
     create_resource_guard_wrappers,
     cleanup_resource_guard_wrappers,
+    register_sdk_guard,
     create_sdk_resource_guards,
     cleanup_sdk_resource_guards,
     _pytest_runtest_setup,
@@ -287,9 +288,11 @@ os.environ.pop("_PYTEST_GUARD_WRAPPER_DIR", None)
 def pytest_configure(config):
     config.addinivalue_line("markers", "test_sdk: test uses test_sdk")
 
+register_sdk_guard("test_sdk", lambda: None, lambda: None)
+
 def pytest_sessionstart(session):
     create_resource_guard_wrappers([])
-    create_sdk_resource_guards(["test_sdk"])
+    create_sdk_resource_guards()
 
 def pytest_sessionfinish(session, exitstatus):
     cleanup_sdk_resource_guards()
