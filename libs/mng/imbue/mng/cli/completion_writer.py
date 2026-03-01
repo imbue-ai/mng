@@ -54,6 +54,16 @@ _AGENT_NAME_COMMANDS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Subcommands (within groups) whose positional arguments should complete
+# against agent names. Uses dotted notation: "group.subcommand".
+_AGENT_NAME_SUBCOMMANDS: Final[frozenset[str]] = frozenset(
+    {
+        "snapshot.create",
+        "snapshot.destroy",
+        "snapshot.list",
+    }
+)
+
 
 # =============================================================================
 # Cache writers
@@ -141,13 +151,20 @@ def write_cli_completions_cache(cli_group: click.Group) -> None:
                     options_by_command[canonical_name] = cmd_options
                 option_choices.update(_extract_choices_for_command(cmd, canonical_name))
 
+        # Include both top-level commands and group subcommands that take agent names
+        agent_name_args = _AGENT_NAME_COMMANDS & canonical_names
+        for sub_key in _AGENT_NAME_SUBCOMMANDS:
+            group_name = sub_key.split(".")[0]
+            if group_name in canonical_names:
+                agent_name_args = agent_name_args | {sub_key}
+
         cache_data: dict[str, object] = {
             "commands": all_command_names,
             "aliases": alias_to_canonical,
             "subcommand_by_command": subcommand_by_command,
             "options_by_command": options_by_command,
             "option_choices": option_choices,
-            "agent_name_arguments": sorted(_AGENT_NAME_COMMANDS & canonical_names),
+            "agent_name_arguments": sorted(agent_name_args),
         }
 
         cache_path = get_completion_cache_dir() / COMMAND_COMPLETIONS_CACHE_FILENAME
