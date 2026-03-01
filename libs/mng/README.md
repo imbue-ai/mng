@@ -1,6 +1,6 @@
 <!-- This file is auto-generated. Do not edit directly. -->
 <!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->
-<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->
+<!-- To modify, edit README.md in the repo root and run: uv run python scripts/generate_derived_files.py -->
 
 # mng: build your team of AI engineering agents
 

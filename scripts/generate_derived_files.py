@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
-"""Generate markdown documentation for mng CLI commands and the PyPI README.
+"""Generate derived files: CLI docs, PyPI README, and .dockerignore.
 
 Usage:
-    uv run python scripts/make_cli_docs.py
+    uv run python scripts/generate_derived_files.py
 
-This script generates markdown documentation for all CLI commands
-and writes them to libs/mng/docs/commands/. It preserves option
-groups defined via click_option_group in the generated markdown.
+This script generates:
+- Markdown documentation for all CLI commands (libs/mng/docs/commands/)
+- libs/mng/README.md from the top-level README.md (with GitHub URLs for PyPI)
+- .dockerignore from .gitignore (with .git/ added)
 
-It also generates libs/mng/README.md from the top-level README.md
-by converting local relative paths to GitHub URLs (for PyPI rendering).
-
-All content comes from two sources:
+CLI doc content comes from two sources:
 - Click command introspection (usage line, options, arguments)
 - CommandHelpMetadata (description, synopsis, examples, see also, etc.)
 """
@@ -516,7 +514,7 @@ def generate_command_doc(command_name: str, base_dir: Path) -> None:
     # Add generation comment at the top
     generation_comment = (
         "<!-- This file is auto-generated. Do not edit directly. -->\n"
-        "<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->\n\n"
+        "<!-- To modify, edit the command's help metadata and run: uv run python scripts/generate_derived_files.py -->\n\n"
     )
     content = generation_comment + content
 
@@ -579,7 +577,7 @@ def generate_alias_doc(command_name: str, base_dir: Path) -> None:
     # Add generation comment at the top
     generation_comment = (
         "<!-- This file is auto-generated. Do not edit directly. -->\n"
-        "<!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->\n\n"
+        "<!-- To modify, edit the command's help metadata and run: uv run python scripts/generate_derived_files.py -->\n\n"
     )
     content = generation_comment + content
 
@@ -604,6 +602,34 @@ def _local_path_to_github_url(match: re.Match[str]) -> str:
     return f"]({GITHUB_BASE_URL}{path})"
 
 
+def generate_dockerignore(repo_root: Path) -> None:
+    """Generate .dockerignore from .gitignore with .git/ added.
+
+    Reads the .gitignore file and writes a .dockerignore that includes
+    the same patterns plus .git/ (which is not in .gitignore but should
+    be excluded from Docker build contexts).
+    """
+    gitignore = repo_root / ".gitignore"
+    dockerignore = repo_root / ".dockerignore"
+
+    gitignore_content = gitignore.read_text()
+
+    generation_comment = (
+        "# This file is auto-generated from .gitignore. Do not edit directly.\n"
+        "# To modify, edit .gitignore and run: uv run python scripts/generate_derived_files.py\n"
+        "\n"
+        "# .git is not in .gitignore but should be excluded from Docker build contexts\n"
+        ".git/\n"
+        "\n"
+    )
+    content = generation_comment + gitignore_content
+
+    existing_content = dockerignore.read_text() if dockerignore.exists() else None
+    if content != existing_content:
+        dockerignore.write_text(content)
+        print(f"Updated: {dockerignore}")
+
+
 def generate_pypi_readme(repo_root: Path) -> None:
     """Generate libs/mng/README.md from the top-level README.md.
 
@@ -622,7 +648,7 @@ def generate_pypi_readme(repo_root: Path) -> None:
     generation_comment = (
         "<!-- This file is auto-generated. Do not edit directly. -->\n"
         "<!-- This is a copy of the top-level README.md, but with local paths replaced by GitHub links. -->\n"
-        "<!-- To modify, edit README.md in the repo root and run: uv run python scripts/make_cli_docs.py -->\n\n"
+        "<!-- To modify, edit README.md in the repo root and run: uv run python scripts/generate_derived_files.py -->\n\n"
     )
     content = generation_comment + content
 
@@ -635,6 +661,9 @@ def generate_pypi_readme(repo_root: Path) -> None:
 
 def main() -> None:
     repo_root = Path(__file__).parent.parent
+
+    # Generate .dockerignore from .gitignore
+    generate_dockerignore(repo_root)
 
     # Generate PyPI README from top-level README
     generate_pypi_readme(repo_root)
