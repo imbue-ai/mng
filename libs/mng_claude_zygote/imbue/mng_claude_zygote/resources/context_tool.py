@@ -27,7 +27,7 @@ def gather_context() -> str:
     Returns a formatted string containing:
     - Recent messages from other active conversations (from logs/messages/events.jsonl)
     - Recent inner monologue entries (from logs/claude_transcript/events.jsonl)
-    - Recent scheduled events (from logs/scheduled/events.jsonl)
+    - Recent trigger events (from logs/scheduled/, mng_agents/, stop/, monitor/)
 
     Call this at the start of each conversation turn for situational awareness.
     """
@@ -80,17 +80,18 @@ def gather_context() -> str:
         except OSError:
             pass
 
-    # Recent scheduled events (last 5 from logs/scheduled/events.jsonl)
-    events_file = agent_data_dir / "logs" / "scheduled" / "events.jsonl"
-    if events_file.exists():
-        try:
-            lines = events_file.read_text().strip().split("\n")
-            recent = lines[-5:] if len(lines) > 5 else lines
-            if recent and recent[0]:
-                formatted = _format_events(recent)
-                sections.append(f"## Recent Entrypoint Events (last {len(recent)})\n{formatted}")
-        except OSError:
-            pass
+    # Recent events from all trigger sources
+    for source in ("scheduled", "mng_agents", "stop", "monitor"):
+        events_file = agent_data_dir / "logs" / source / "events.jsonl"
+        if events_file.exists():
+            try:
+                lines = events_file.read_text().strip().split("\n")
+                recent = lines[-5:] if len(lines) > 5 else lines
+                if recent and recent[0]:
+                    formatted = _format_events(recent)
+                    sections.append(f"## Recent {source} events (last {len(recent)})\n{formatted}")
+            except OSError:
+                pass
 
     return "\n\n".join(sections) if sections else "No context available."
 
