@@ -17,6 +17,8 @@ import imbue.mng.providers.docker.backend as docker_backend_module
 import imbue.mng.providers.local.backend as local_backend_module
 import imbue.mng.providers.modal.backend as modal_backend_module
 import imbue.mng.providers.ssh.backend as ssh_backend_module
+from imbue.mng.providers.mng_remote.backend import MngRemoteProviderBackend
+from imbue.mng.providers.mng_remote.config import MngRemoteProviderConfig
 from imbue.imbue_common.pure import pure
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.config.data_types import MngContext
@@ -81,6 +83,11 @@ def _load_backends(pm: pluggy.PluginManager, *, include_modal: bool, include_doc
             backend_name = backend_class.get_name()
             _backend_registry[backend_name] = backend_class
             _config_registry[backend_name] = config_class
+
+    # Register the mng remote backend directly (not via plugin system)
+    remote_name = MngRemoteProviderBackend.get_name()
+    _backend_registry[remote_name] = MngRemoteProviderBackend
+    _config_registry[remote_name] = MngRemoteProviderConfig
 
     _registry_state["backends_loaded"] = True
 
