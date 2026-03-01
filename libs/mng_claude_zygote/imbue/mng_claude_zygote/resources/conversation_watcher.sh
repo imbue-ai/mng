@@ -1,10 +1,14 @@
 #!/bin/bash
 # Conversation watcher for changeling agents.
 #
-# Watches the llm database for changes and syncs new messages to the
-# standard event log at logs/messages/events.jsonl. Each message event
-# includes the full envelope (timestamp, type, event_id, source) plus
-# conversation_id and role, making every line self-describing.
+# Syncs messages from the llm database to the standard event log at
+# logs/messages/events.jsonl. Works as an ID-based syncer: reads event IDs
+# already present in the output file, queries recent responses from the DB
+# for all tracked conversations in a single batch, and appends any events
+# whose IDs are not yet in the file (in time order).
+#
+# Each message event includes the full envelope (timestamp, type, event_id,
+# source) plus conversation_id and role, making every line self-describing.
 #
 # Usage: conversation_watcher.sh
 #
@@ -18,7 +22,6 @@ AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 MESSAGES_EVENTS="$AGENT_DATA_DIR/logs/messages/events.jsonl"
-SYNC_STATE_DIR="$AGENT_DATA_DIR/logs/.conv_sync_state"
 LOG_FILE="$HOST_DIR/logs/conversation_watcher.log"
 POLL_INTERVAL=5
 
@@ -48,128 +51,18 @@ get_llm_db_path() {
     echo "$db_path"
 }
 
-# Get all tracked conversation IDs from logs/conversations/events.jsonl
-get_conversation_ids() {
-    if [ ! -f "$CONVERSATIONS_EVENTS" ]; then
-        return
-    fi
-    python3 -c "
-import json, sys
-seen = set()
-for line in open('$CONVERSATIONS_EVENTS'):
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-        cid = event['conversation_id']
-        if cid not in seen:
-            seen.add(cid)
-            print(cid)
-    except (json.JSONDecodeError, KeyError):
-        continue
-"
-}
-
-# Sync new messages for a single conversation from the llm database.
+# Sync missing messages from the llm DB to logs/messages/events.jsonl.
 #
-# Each row in the llm responses table contains BOTH the user's prompt and
-# the assistant's response. We produce separate message events for each,
-# written to logs/messages/events.jsonl with the standard envelope fields.
-sync_conversation() {
-    local cid="$1"
-    local db_path="$2"
-    local state_file="$SYNC_STATE_DIR/$cid.last_ts"
-
-    local last_ts=""
-    if [ -f "$state_file" ]; then
-        last_ts=$(cat "$state_file")
-    fi
-
-    local ts_filter=""
-    if [ -n "$last_ts" ]; then
-        ts_filter="AND datetime_utc > '${last_ts}'"
-    fi
-
-    # Each message event has the full envelope: timestamp, type, event_id, source,
-    # plus conversation_id, role, content. event_id is constructed from the
-    # response id + role suffix to be unique and deterministic.
-    local query="
-    SELECT msg FROM (
-        SELECT json_object(
-            'timestamp', datetime_utc,
-            'type', 'message',
-            'event_id', id || '-user',
-            'source', 'messages',
-            'conversation_id', conversation_id,
-            'role', 'user',
-            'content', prompt
-        ) AS msg, datetime_utc AS sort_ts, 0 AS sort_order
-        FROM responses
-        WHERE conversation_id = '${cid}'
-        AND prompt IS NOT NULL AND prompt != ''
-        ${ts_filter}
-        UNION ALL
-        SELECT json_object(
-            'timestamp', datetime_utc,
-            'type', 'message',
-            'event_id', id || '-assistant',
-            'source', 'messages',
-            'conversation_id', conversation_id,
-            'role', 'assistant',
-            'content', response
-        ) AS msg, datetime_utc AS sort_ts, 1 AS sort_order
-        FROM responses
-        WHERE conversation_id = '${cid}'
-        AND response IS NOT NULL AND response != ''
-        ${ts_filter}
-    ) ORDER BY sort_ts ASC, sort_order ASC;"
-
-    log_debug "Querying conversation $cid (last_ts=$last_ts)"
-
-    local new_messages
-    local query_stderr
-    query_stderr=$(mktemp)
-    new_messages=$(sqlite3 "$db_path" "$query" 2>"$query_stderr" || true)
-
-    if [ -s "$query_stderr" ]; then
-        log "WARNING: sqlite3 query error for conversation $cid: $(cat "$query_stderr")"
-    fi
-    rm -f "$query_stderr"
-
-    if [ -z "$new_messages" ]; then
-        log_debug "No new messages for conversation $cid"
-        return
-    fi
-
-    local msg_count
-    msg_count=$(echo "$new_messages" | wc -l | tr -d '[:space:]')
-    log "Synced $msg_count new message(s) for conversation $cid -> logs/messages/events.jsonl"
-
-    mkdir -p "$(dirname "$MESSAGES_EVENTS")"
-    echo "$new_messages" >> "$MESSAGES_EVENTS"
-
-    local new_last_ts
-    local ts_stderr
-    ts_stderr=$(mktemp)
-    new_last_ts=$(sqlite3 "$db_path" "
-        SELECT MAX(datetime_utc) FROM responses
-        WHERE conversation_id = '${cid}'
-        ${ts_filter};
-    " 2>"$ts_stderr" || true)
-    if [ -s "$ts_stderr" ]; then
-        log "WARNING: sqlite3 MAX(datetime_utc) error for $cid: $(cat "$ts_stderr")"
-    fi
-    rm -f "$ts_stderr"
-    if [ -n "$new_last_ts" ]; then
-        echo "$new_last_ts" > "$state_file"
-        log_debug "Updated sync state for $cid: last_ts=$new_last_ts"
-    else
-        log "WARNING: could not determine latest timestamp for $cid, sync state not updated (may cause duplicates on next cycle)"
-    fi
-}
-
-sync_all_conversations() {
+# Uses Python with the built-in sqlite3 module for a single-pass, ID-based
+# sync across all tracked conversations. Instead of querying each conversation
+# individually, this does one batch query and deduplicates by event_id.
+#
+# Uses an adaptive window: starts by fetching the most recent 200 responses
+# from the DB and checks which event IDs are missing from the output file.
+# If ALL fetched events are missing (suggesting the file is far behind),
+# doubles the window and retries until it finds events already in the file
+# or runs out of DB rows.
+sync_messages() {
     local db_path="$1"
 
     if [ ! -f "$db_path" ]; then
@@ -177,24 +70,168 @@ sync_all_conversations() {
         return
     fi
 
-    local cids
-    cids=$(get_conversation_ids)
-    if [ -z "$cids" ]; then
-        log_debug "No tracked conversations found"
+    local sync_stderr
+    sync_stderr=$(mktemp)
+    local result
+    result=$(_CONVERSATIONS_FILE="$CONVERSATIONS_EVENTS" \
+             _MESSAGES_FILE="$MESSAGES_EVENTS" \
+             _DB_PATH="$db_path" \
+             python3 << 'SYNC_SCRIPT' 2>"$sync_stderr" || true
+import json
+import os
+import sqlite3
+import sys
+
+
+def sync():
+    conversations_file = os.environ["_CONVERSATIONS_FILE"]
+    messages_file = os.environ["_MESSAGES_FILE"]
+    db_path = os.environ["_DB_PATH"]
+
+    # Get tracked conversation IDs from logs/conversations/events.jsonl
+    tracked_cids = set()
+    if os.path.isfile(conversations_file):
+        with open(conversations_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    tracked_cids.add(json.loads(line)["conversation_id"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    if not tracked_cids:
+        print("0")
         return
+
+    # Get all event IDs already in messages/events.jsonl
+    file_event_ids = set()
+    if os.path.isfile(messages_file):
+        with open(messages_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    file_event_ids.add(json.loads(line)["event_id"])
+                except (json.JSONDecodeError, KeyError):
+                    continue
+
+    if not os.path.isfile(db_path):
+        print("0")
+        return
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error as e:
+        print(f"WARNING: cannot open database: {e}", file=sys.stderr)
+        print("0")
+        return
+
+    placeholders = ",".join("?" for _ in tracked_cids)
+    cid_list = list(tracked_cids)
+
+    # Adaptive window: start with 200 responses, double if all events are
+    # missing (meaning we may need to look further back in the DB).
+    window = 200
+    missing_events = []
+
+    while True:
+        try:
+            rows = conn.execute(
+                f"SELECT id, datetime_utc, conversation_id, prompt, response "
+                f"FROM responses "
+                f"WHERE conversation_id IN ({placeholders}) "
+                f"ORDER BY datetime_utc DESC "
+                f"LIMIT ?",
+                [*cid_list, window],
+            ).fetchall()
+        except sqlite3.Error as e:
+            print(f"WARNING: sqlite3 query error: {e}", file=sys.stderr)
+            break
+
+        if not rows:
+            break
+
+        missing_events = []
+        found_existing = False
+
+        for row_id, ts, cid, prompt, response in rows:
+            if prompt:
+                eid = f"{row_id}-user"
+                if eid in file_event_ids:
+                    found_existing = True
+                else:
+                    missing_events.append((ts, 0, json.dumps({
+                        "timestamp": ts,
+                        "type": "message",
+                        "event_id": eid,
+                        "source": "messages",
+                        "conversation_id": cid,
+                        "role": "user",
+                        "content": prompt,
+                    }, separators=(",", ":"))))
+
+            if response:
+                eid = f"{row_id}-assistant"
+                if eid in file_event_ids:
+                    found_existing = True
+                else:
+                    missing_events.append((ts, 1, json.dumps({
+                        "timestamp": ts,
+                        "type": "message",
+                        "event_id": eid,
+                        "source": "messages",
+                        "conversation_id": cid,
+                        "role": "assistant",
+                        "content": response,
+                    }, separators=(",", ":"))))
+
+        # If we found at least one event already in the file, we have looked
+        # far enough back. If ALL events were missing and we got a full window
+        # of rows, there may be even older missing events -- double and retry.
+        if found_existing or len(rows) < window:
+            break
+
+        window *= 2
+
+    conn.close()
+
+    if not missing_events:
+        print("0")
+        return
+
+    # Sort by (timestamp, sort_order) and append to file
+    missing_events.sort(key=lambda x: (x[0], x[1]))
+
+    os.makedirs(os.path.dirname(messages_file), exist_ok=True)
+    with open(messages_file, "a") as f:
+        for _, _, event_json in missing_events:
+            f.write(event_json + "\n")
+
+    print(str(len(missing_events)))
+
+
+sync()
+SYNC_SCRIPT
+)
+
+    if [ -s "$sync_stderr" ]; then
+        log "WARNING: sync error: $(cat "$sync_stderr")"
     fi
+    rm -f "$sync_stderr"
 
-    local cid_count
-    cid_count=$(echo "$cids" | wc -l | tr -d '[:space:]')
-    log_debug "Checking $cid_count tracked conversation(s)"
-
-    while IFS= read -r cid; do
-        sync_conversation "$cid" "$db_path"
-    done <<< "$cids"
+    local synced="${result:-0}"
+    if [ "$synced" -gt 0 ] 2>/dev/null; then
+        log "Synced $synced new message event(s) -> logs/messages/events.jsonl"
+    else
+        log_debug "No new messages to sync"
+    fi
 }
 
 main() {
-    mkdir -p "$SYNC_STATE_DIR" "$(dirname "$MESSAGES_EVENTS")"
+    mkdir -p "$(dirname "$MESSAGES_EVENTS")"
 
     local db_path
     db_path=$(get_llm_db_path)
@@ -212,7 +249,7 @@ main() {
         while true; do
             inotifywait -q -t "$POLL_INTERVAL" -e modify,create "$db_path" "$CONVERSATIONS_EVENTS" 2>/dev/null || true
             db_path=$(get_llm_db_path)
-            sync_all_conversations "$db_path"
+            sync_messages "$db_path"
         done
     else
         if ! command -v inotifywait &>/dev/null; then
@@ -222,7 +259,7 @@ main() {
         fi
         while true; do
             db_path=$(get_llm_db_path)
-            sync_all_conversations "$db_path"
+            sync_messages "$db_path"
             sleep "$POLL_INTERVAL"
         done
     fi

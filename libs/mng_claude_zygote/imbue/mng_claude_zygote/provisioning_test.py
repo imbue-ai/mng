@@ -206,12 +206,26 @@ def test_conversation_watcher_logs_to_file() -> None:
 def test_conversation_watcher_logs_sqlite_errors() -> None:
     """Verify conversation_watcher.sh captures and logs sqlite3 errors."""
     content = load_zygote_resource("conversation_watcher.sh")
-    assert "query_stderr" in content or "WARNING" in content
+    assert "WARNING" in content
 
 
 def test_conversation_watcher_supports_inotifywait() -> None:
     content = load_zygote_resource("conversation_watcher.sh")
     assert "inotifywait" in content
+
+
+def test_conversation_watcher_uses_id_based_dedup() -> None:
+    """Verify conversation_watcher.sh deduplicates events by event_id."""
+    content = load_zygote_resource("conversation_watcher.sh")
+    assert "file_event_ids" in content
+    assert "event_id" in content
+
+
+def test_conversation_watcher_uses_adaptive_window() -> None:
+    """Verify conversation_watcher.sh uses an adaptive window for batch sync."""
+    content = load_zygote_resource("conversation_watcher.sh")
+    assert "window" in content
+    assert "window *= 2" in content
 
 
 # -- Event watcher content tests --
