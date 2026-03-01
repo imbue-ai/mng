@@ -27,10 +27,30 @@ AGENT_NAME="${MNG_AGENT_NAME:?MNG_AGENT_NAME must be set}"
 HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 # All event sources the watcher monitors for new events
 LOGS_DIR="$AGENT_DATA_DIR/logs"
-WATCHED_SOURCES=("messages" "scheduled" "mng_agents" "stop")
 OFFSETS_DIR="$AGENT_DATA_DIR/logs/.event_offsets"
 LOG_FILE="$HOST_DIR/logs/event_watcher.log"
-POLL_INTERVAL=3
+
+# Read settings from settings.toml, fall back to defaults
+_SETTINGS_JSON=$(python3 -c "
+import tomllib, pathlib, json
+p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
+try:
+    s = tomllib.loads(p.read_text()) if p.exists() else {}
+    w = s.get('watchers', {})
+    print(json.dumps({
+        'poll': w.get('event_poll_interval_seconds', 3),
+        'sources': w.get('watched_event_sources', ['messages', 'scheduled', 'mng_agents', 'stop'])
+    }))
+except Exception:
+    print(json.dumps({'poll': 3, 'sources': ['messages', 'scheduled', 'mng_agents', 'stop']}))
+" 2>/dev/null || echo '{"poll": 3, "sources": ["messages", "scheduled", "mng_agents", "stop"]}')
+
+POLL_INTERVAL=$(echo "$_SETTINGS_JSON" | python3 -c "import json, sys; print(json.load(sys.stdin)['poll'])" 2>/dev/null || echo 3)
+
+# Read watched sources as a bash array
+_SOURCES_STR=$(echo "$_SETTINGS_JSON" | python3 -c "import json, sys; print(' '.join(json.load(sys.stdin)['sources']))" 2>/dev/null || echo "messages scheduled mng_agents stop")
+# shellcheck disable=SC2206
+WATCHED_SOURCES=($_SOURCES_STR)
 
 log() {
     local ts

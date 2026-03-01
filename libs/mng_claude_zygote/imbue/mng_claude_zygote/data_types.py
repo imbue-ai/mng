@@ -3,9 +3,14 @@ from __future__ import annotations
 from typing import Any
 from typing import Final
 
+from pydantic import Field
+
 from imbue.imbue_common.event_envelope import EventEnvelope
 from imbue.imbue_common.event_envelope import EventSource
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
+from imbue.imbue_common.primitives import PositiveFloat
+from imbue.imbue_common.primitives import PositiveInt
 
 
 class ConversationId(NonEmptyStr):
@@ -64,3 +69,138 @@ class ChangelingEvent(EventEnvelope):
     """
 
     data: dict[str, Any] = {}
+
+
+# -- Settings types --
+# These model the structure of .changelings/settings.toml.
+# Each section corresponds to a TOML table.
+
+
+class ChatSettings(FrozenModel):
+    """Settings for the [chat] TOML section."""
+
+    default_model: ChatModel = Field(
+        default=ChatModel("claude-opus-4-6"),
+        description="Default model for new conversation threads.",
+    )
+
+
+class ContextSettings(FrozenModel):
+    """Settings for the [context] TOML section (used by context_tool.py)."""
+
+    initial_transcript_line_count: PositiveInt = Field(
+        default=PositiveInt(10),
+        description="Number of inner monologue lines to show on first context call.",
+    )
+    initial_messages_line_count: PositiveInt = Field(
+        default=PositiveInt(20),
+        description="Number of recent message lines to show on first context call.",
+    )
+    initial_messages_per_conversation: PositiveInt = Field(
+        default=PositiveInt(3),
+        description="Maximum messages to show per conversation on first context call.",
+    )
+    initial_trigger_line_count: PositiveInt = Field(
+        default=PositiveInt(5),
+        description="Number of trigger event lines per source on first context call.",
+    )
+    max_content_length: PositiveInt = Field(
+        default=PositiveInt(200),
+        description="Maximum character length for truncated event content in context_tool.",
+    )
+
+
+class ExtraContextSettings(FrozenModel):
+    """Settings for the [extra_context] TOML section (used by extra_context_tool.py)."""
+
+    max_content_length: PositiveInt = Field(
+        default=PositiveInt(300),
+        description="Maximum character length for truncated event content in extra_context_tool.",
+    )
+    transcript_line_count: PositiveInt = Field(
+        default=PositiveInt(50),
+        description="Number of inner monologue lines to show in extended history.",
+    )
+    mng_list_hard_timeout_seconds: PositiveFloat = Field(
+        default=PositiveFloat(120.0),
+        description="Hard timeout for mng list command (seconds).",
+    )
+    mng_list_warn_threshold_seconds: PositiveFloat = Field(
+        default=PositiveFloat(15.0),
+        description="Warning threshold for mng list command (seconds).",
+    )
+
+
+class WatcherSettings(FrozenModel):
+    """Settings for the [watchers] TOML section."""
+
+    conversation_poll_interval_seconds: PositiveInt = Field(
+        default=PositiveInt(5),
+        description="Poll interval for the conversation watcher (seconds).",
+    )
+    event_poll_interval_seconds: PositiveInt = Field(
+        default=PositiveInt(3),
+        description="Poll interval for the event watcher (seconds).",
+    )
+    watched_event_sources: tuple[str, ...] = Field(
+        default=("messages", "scheduled", "mng_agents", "stop"),
+        description="Event sources monitored by the event watcher.",
+    )
+
+
+class ProvisioningSettings(FrozenModel):
+    """Settings for the [provisioning] TOML section."""
+
+    fs_hard_timeout_seconds: PositiveFloat = Field(
+        default=PositiveFloat(15.0),
+        description="Hard timeout for filesystem operations (seconds).",
+    )
+    fs_warn_threshold_seconds: PositiveFloat = Field(
+        default=PositiveFloat(2.0),
+        description="Warning threshold for filesystem operations (seconds).",
+    )
+    command_check_hard_timeout_seconds: PositiveFloat = Field(
+        default=PositiveFloat(30.0),
+        description="Hard timeout for command existence checks (seconds).",
+    )
+    command_check_warn_threshold_seconds: PositiveFloat = Field(
+        default=PositiveFloat(5.0),
+        description="Warning threshold for command existence checks (seconds).",
+    )
+    install_hard_timeout_seconds: PositiveFloat = Field(
+        default=PositiveFloat(300.0),
+        description="Hard timeout for package installations (seconds).",
+    )
+    install_warn_threshold_seconds: PositiveFloat = Field(
+        default=PositiveFloat(60.0),
+        description="Warning threshold for package installations (seconds).",
+    )
+
+
+class ClaudeZygoteSettings(FrozenModel):
+    """Top-level settings loaded from .changelings/settings.toml.
+
+    All fields have defaults, so an empty or missing settings file
+    produces a valid settings object with the standard defaults.
+    """
+
+    chat: ChatSettings = Field(
+        default_factory=ChatSettings,
+        description="Chat-related settings ([chat] section).",
+    )
+    context: ContextSettings = Field(
+        default_factory=ContextSettings,
+        description="Context tool settings ([context] section).",
+    )
+    extra_context: ExtraContextSettings = Field(
+        default_factory=ExtraContextSettings,
+        description="Extra context tool settings ([extra_context] section).",
+    )
+    watchers: WatcherSettings = Field(
+        default_factory=WatcherSettings,
+        description="Watcher settings ([watchers] section).",
+    )
+    provisioning: ProvisioningSettings = Field(
+        default_factory=ProvisioningSettings,
+        description="Provisioning timeout settings ([provisioning] section).",
+    )

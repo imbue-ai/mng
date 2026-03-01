@@ -10,6 +10,9 @@ The tool tracks which events have already been returned, so each call only
 returns new events since the last invocation. This makes conversations more
 efficient by avoiding redundant context.
 
+Settings are read from $MNG_AGENT_STATE_DIR/settings.toml (provisioned
+during agent setup). Missing file or keys fall back to built-in defaults.
+
 NOTE: _format_events() is duplicated in extra_context_tool.py because these
 files are deployed as standalone scripts to the agent host via --functions,
 where they cannot import from each other or from the mng_claude_zygote package.
@@ -19,14 +22,31 @@ import json
 import os
 from pathlib import Path
 
-_MAX_CONTENT_LENGTH = 200
 _TAIL_CHUNK_SIZE = 8192
 
-# Number of tail lines to read on first call, per source.
-_INITIAL_TRANSCRIPT_LINES = 10
-_INITIAL_MESSAGES_LINES = 20
-_INITIAL_MESSAGES_PER_CONVERSATION = 3
-_INITIAL_TRIGGER_LINES = 5  # per trigger source (scheduled, mng_agents, stop, monitor)
+
+def _load_settings() -> dict:
+    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml."""
+    try:
+        import tomllib
+    except ImportError:
+        return {}
+    settings_path = Path(os.environ.get("MNG_AGENT_STATE_DIR", "")) / "settings.toml"
+    try:
+        with settings_path.open("rb") as f:
+            return tomllib.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+_SETTINGS = _load_settings()
+_CONTEXT = _SETTINGS.get("context", {})
+
+_MAX_CONTENT_LENGTH = _CONTEXT.get("max_content_length", 200)
+_INITIAL_TRANSCRIPT_LINES = _CONTEXT.get("initial_transcript_line_count", 10)
+_INITIAL_MESSAGES_LINES = _CONTEXT.get("initial_messages_line_count", 20)
+_INITIAL_MESSAGES_PER_CONVERSATION = _CONTEXT.get("initial_messages_per_conversation", 3)
+_INITIAL_TRIGGER_LINES = _CONTEXT.get("initial_trigger_line_count", 5)
 
 # State that persists between calls within the same llm live-chat session.
 # llm loads the module once via exec() and keeps function objects in memory,

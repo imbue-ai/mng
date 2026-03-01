@@ -20,7 +20,17 @@ CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 MESSAGES_EVENTS="$AGENT_DATA_DIR/logs/messages/events.jsonl"
 SYNC_STATE_DIR="$AGENT_DATA_DIR/logs/.conv_sync_state"
 LOG_FILE="$HOST_DIR/logs/conversation_watcher.log"
-POLL_INTERVAL=5
+
+# Read poll interval from settings.toml, fall back to default
+POLL_INTERVAL=$(python3 -c "
+import tomllib, pathlib
+p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
+try:
+    s = tomllib.loads(p.read_text()) if p.exists() else {}
+    print(s.get('watchers', {}).get('conversation_poll_interval_seconds', 5))
+except Exception:
+    print(5)
+" 2>/dev/null || echo 5)
 
 log() {
     local ts

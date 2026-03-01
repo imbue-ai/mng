@@ -1,0 +1,202 @@
+"""Unit tests for the mng_claude_zygote settings module."""
+
+from pathlib import Path
+from typing import Any
+from typing import cast
+
+from imbue.mng_claude_zygote.data_types import ChatModel
+from imbue.mng_claude_zygote.data_types import ChatSettings
+from imbue.mng_claude_zygote.data_types import ClaudeZygoteSettings
+from imbue.mng_claude_zygote.data_types import ContextSettings
+from imbue.mng_claude_zygote.data_types import ExtraContextSettings
+from imbue.mng_claude_zygote.data_types import ProvisioningSettings
+from imbue.mng_claude_zygote.data_types import WatcherSettings
+from imbue.mng_claude_zygote.settings import load_settings_from_host
+from imbue.mng_claude_zygote.settings import provision_settings_file
+
+
+class _StubCommandResult:
+    """Concrete test double for command execution results."""
+
+    def __init__(self, *, success: bool = True, stderr: str = "", stdout: str = "") -> None:
+        self.success = success
+        self.stderr = stderr
+        self.stdout = stdout
+
+
+class _StubHost:
+    """Concrete test double for OnlineHostInterface that records operations."""
+
+    def __init__(
+        self,
+        command_results: dict[str, _StubCommandResult] | None = None,
+        text_file_contents: dict[str, str] | None = None,
+    ) -> None:
+        self.executed_commands: list[str] = []
+        self.written_text_files: list[tuple[Path, str]] = []
+        self._command_results = command_results or {}
+        self._text_file_contents = text_file_contents or {}
+
+    def execute_command(self, command: str, **kwargs: Any) -> _StubCommandResult:
+        self.executed_commands.append(command)
+        for pattern, result in self._command_results.items():
+            if pattern in command:
+                return result
+        return _StubCommandResult()
+
+    def read_text_file(self, path: Path) -> str:
+        for pattern, content in self._text_file_contents.items():
+            if pattern in str(path):
+                return content
+        raise FileNotFoundError(f"No stub content for {path}")
+
+    def write_text_file(self, path: Path, content: str) -> None:
+        self.written_text_files.append((path, content))
+
+
+# -- ClaudeZygoteSettings default tests --
+
+
+def test_settings_default_chat_model() -> None:
+    settings = ClaudeZygoteSettings()
+    assert settings.chat.default_model == ChatModel("claude-opus-4-6")
+
+
+def test_settings_default_context_values() -> None:
+    settings = ClaudeZygoteSettings()
+    assert settings.context.initial_transcript_line_count == 10
+    assert settings.context.initial_messages_line_count == 20
+    assert settings.context.initial_messages_per_conversation == 3
+    assert settings.context.initial_trigger_line_count == 5
+    assert settings.context.max_content_length == 200
+
+
+def test_settings_default_extra_context_values() -> None:
+    settings = ClaudeZygoteSettings()
+    assert settings.extra_context.max_content_length == 300
+    assert settings.extra_context.transcript_line_count == 50
+    assert settings.extra_context.mng_list_hard_timeout_seconds == 120.0
+    assert settings.extra_context.mng_list_warn_threshold_seconds == 15.0
+
+
+def test_settings_default_watcher_values() -> None:
+    settings = ClaudeZygoteSettings()
+    assert settings.watchers.conversation_poll_interval_seconds == 5
+    assert settings.watchers.event_poll_interval_seconds == 3
+    assert settings.watchers.watched_event_sources == ("messages", "scheduled", "mng_agents", "stop")
+
+
+def test_settings_default_provisioning_values() -> None:
+    settings = ClaudeZygoteSettings()
+    assert settings.provisioning.fs_hard_timeout_seconds == 15.0
+    assert settings.provisioning.fs_warn_threshold_seconds == 2.0
+    assert settings.provisioning.command_check_hard_timeout_seconds == 30.0
+    assert settings.provisioning.command_check_warn_threshold_seconds == 5.0
+    assert settings.provisioning.install_hard_timeout_seconds == 300.0
+    assert settings.provisioning.install_warn_threshold_seconds == 60.0
+
+
+def test_settings_from_partial_toml() -> None:
+    """Verify that partial TOML data fills in defaults for missing sections."""
+    settings = ClaudeZygoteSettings.model_validate({"chat": {"default_model": "claude-sonnet-4-6"}})
+    assert settings.chat.default_model == ChatModel("claude-sonnet-4-6")
+    # Other sections should have defaults
+    assert settings.context.initial_transcript_line_count == 10
+    assert settings.watchers.event_poll_interval_seconds == 3
+
+
+def test_settings_from_full_toml() -> None:
+    """Verify that all sections can be overridden."""
+    data = {
+        "chat": {"default_model": "claude-sonnet-4-6"},
+        "context": {"max_content_length": 500},
+        "extra_context": {"transcript_line_count": 100},
+        "watchers": {"event_poll_interval_seconds": 10},
+        "provisioning": {"fs_hard_timeout_seconds": 30.0},
+    }
+    settings = ClaudeZygoteSettings.model_validate(data)
+    assert settings.chat.default_model == ChatModel("claude-sonnet-4-6")
+    assert settings.context.max_content_length == 500
+    assert settings.extra_context.transcript_line_count == 100
+    assert settings.watchers.event_poll_interval_seconds == 10
+    assert settings.provisioning.fs_hard_timeout_seconds == 30.0
+
+
+# -- Section model tests --
+
+
+def test_chat_settings_is_frozen() -> None:
+    settings = ChatSettings()
+    assert settings.model_config.get("frozen") is True
+
+
+def test_context_settings_is_frozen() -> None:
+    settings = ContextSettings()
+    assert settings.model_config.get("frozen") is True
+
+
+def test_extra_context_settings_is_frozen() -> None:
+    settings = ExtraContextSettings()
+    assert settings.model_config.get("frozen") is True
+
+
+def test_watcher_settings_is_frozen() -> None:
+    settings = WatcherSettings()
+    assert settings.model_config.get("frozen") is True
+
+
+def test_provisioning_settings_is_frozen() -> None:
+    settings = ProvisioningSettings()
+    assert settings.model_config.get("frozen") is True
+
+
+# -- load_settings_from_host tests --
+
+
+def test_load_settings_returns_defaults_when_file_missing() -> None:
+    host = _StubHost(command_results={"test -f": _StubCommandResult(success=False)})
+    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    assert settings == ClaudeZygoteSettings()
+
+
+def test_load_settings_parses_toml_from_host() -> None:
+    toml_content = '[chat]\ndefault_model = "claude-sonnet-4-6"\n'
+    host = _StubHost(text_file_contents={"settings.toml": toml_content})
+    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    assert settings.chat.default_model == ChatModel("claude-sonnet-4-6")
+
+
+def test_load_settings_returns_defaults_on_invalid_toml() -> None:
+    host = _StubHost(text_file_contents={"settings.toml": "not valid toml {{{"})
+    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    assert settings == ClaudeZygoteSettings()
+
+
+def test_load_settings_returns_defaults_on_read_failure() -> None:
+    # Host says file exists but read_text_file raises
+    host = _StubHost()
+    settings = load_settings_from_host(cast(Any, host), Path("/work"), ".changelings")
+    # File check passes (default success), but read_text_file raises FileNotFoundError
+    # which is caught. Defaults returned.
+    assert settings.chat.default_model == ChatModel("claude-opus-4-6")
+
+
+# -- provision_settings_file tests --
+
+
+def test_provision_settings_file_copies_when_exists() -> None:
+    toml_content = '[chat]\ndefault_model = "claude-sonnet-4-6"\n'
+    host = _StubHost(text_file_contents={"settings.toml": toml_content})
+    provision_settings_file(cast(Any, host), Path("/work"), ".changelings", Path("/state"))
+
+    assert len(host.written_text_files) == 1
+    path, content = host.written_text_files[0]
+    assert str(path) == "/state/settings.toml"
+    assert "claude-sonnet-4-6" in content
+
+
+def test_provision_settings_file_skips_when_missing() -> None:
+    host = _StubHost(command_results={"test -f": _StubCommandResult(success=False)})
+    provision_settings_file(cast(Any, host), Path("/work"), ".changelings", Path("/state"))
+
+    assert len(host.written_text_files) == 0

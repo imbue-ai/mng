@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 
 from imbue.mng_claude_zygote.data_types import ChatModel
+from imbue.mng_claude_zygote.data_types import ProvisioningSettings
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
 from imbue.mng_claude_zygote.provisioning import _is_recursive_plugin_registered
@@ -21,6 +22,8 @@ from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
+
+_DEFAULT_PROVISIONING = ProvisioningSettings()
 
 
 class _StubCommandResult:
@@ -307,14 +310,18 @@ def test_compute_claude_project_dir_name_replaces_dots() -> None:
 
 def test_link_memory_directory_creates_changelings_memory_dir() -> None:
     host = _StubHost()
-    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+    link_memory_directory(
+        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
+    )
 
     assert any("mkdir" in c and ".changelings/memory" in c for c in host.executed_commands)
 
 
 def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> None:
     host = _StubHost()
-    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+    link_memory_directory(
+        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
+    )
 
     # Must use $HOME (not ~) so tilde expansion works inside quotes
     mkdir_cmds = [c for c in host.executed_commands if "mkdir" in c and ".claude/projects" in c]
@@ -325,7 +332,9 @@ def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> Non
 
 def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
     host = _StubHost()
-    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings")
+    link_memory_directory(
+        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
+    )
 
     ln_cmds = [c for c in host.executed_commands if "ln -sfn" in c]
     assert len(ln_cmds) == 1
@@ -339,7 +348,7 @@ def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
 def test_link_memory_directory_does_not_use_literal_tilde() -> None:
     """Verify that ~ is never used in paths (it doesn't expand inside single quotes)."""
     host = _StubHost()
-    link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings")
+    link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings", _DEFAULT_PROVISIONING)
 
     for cmd in host.executed_commands:
         if ".claude/projects" in cmd:
@@ -351,7 +360,7 @@ def test_link_memory_directory_does_not_use_literal_tilde() -> None:
 
 def test_install_llm_toolchain_skips_when_already_present() -> None:
     host = _StubHost()
-    install_llm_toolchain(cast(Any, host))
+    install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("command -v llm" in c for c in host.executed_commands)
     assert not any("uv tool install llm" in c for c in host.executed_commands)
@@ -359,21 +368,21 @@ def test_install_llm_toolchain_skips_when_already_present() -> None:
 
 def test_install_llm_toolchain_installs_when_missing() -> None:
     host = _StubHost(command_results={"command -v llm": _StubCommandResult(success=False)})
-    install_llm_toolchain(cast(Any, host))
+    install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("uv tool install llm" in c for c in host.executed_commands)
 
 
 def test_install_llm_toolchain_installs_anthropic_plugin() -> None:
     host = _StubHost()
-    install_llm_toolchain(cast(Any, host))
+    install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("llm install llm-anthropic" in c for c in host.executed_commands)
 
 
 def test_install_llm_toolchain_installs_live_chat_plugin() -> None:
     host = _StubHost()
-    install_llm_toolchain(cast(Any, host))
+    install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("llm install llm-live-chat" in c for c in host.executed_commands)
 
@@ -386,7 +395,7 @@ def test_install_llm_toolchain_raises_on_llm_install_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to install llm"):
-        install_llm_toolchain(cast(Any, host))
+        install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
 
 def test_install_llm_toolchain_raises_on_plugin_install_failure() -> None:
@@ -394,40 +403,40 @@ def test_install_llm_toolchain_raises_on_plugin_install_failure() -> None:
         command_results={"llm install llm-anthropic": _StubCommandResult(success=False, stderr="plugin failed")}
     )
     with pytest.raises(RuntimeError, match="Failed to install llm-anthropic"):
-        install_llm_toolchain(cast(Any, host))
+        install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
 
 def test_create_changeling_symlinks_checks_entrypoint_md() -> None:
     host = _StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("entrypoint.md" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_checks_entrypoint_json() -> None:
     host = _StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("entrypoint.json" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_creates_claude_local_md() -> None:
     host = _StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     assert any("ln -sf" in c and "CLAUDE.local.md" in c for c in host.executed_commands)
 
 
 def test_provision_changeling_scripts_creates_commands_dir() -> None:
     host = _StubHost()
-    provision_changeling_scripts(cast(Any, host))
+    provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "commands" in c for c in host.executed_commands)
 
 
 def test_provision_changeling_scripts_writes_all_scripts() -> None:
     host = _StubHost()
-    provision_changeling_scripts(cast(Any, host))
+    provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
     for script_name in _SCRIPT_FILES:
@@ -436,7 +445,7 @@ def test_provision_changeling_scripts_writes_all_scripts() -> None:
 
 def test_provision_changeling_scripts_uses_executable_mode() -> None:
     host = _StubHost()
-    provision_changeling_scripts(cast(Any, host))
+    provision_changeling_scripts(cast(Any, host), _DEFAULT_PROVISIONING)
 
     for _, _, mode in host.written_files:
         assert mode == "0755"
@@ -444,14 +453,14 @@ def test_provision_changeling_scripts_uses_executable_mode() -> None:
 
 def test_provision_llm_tools_creates_tools_dir() -> None:
     host = _StubHost()
-    provision_llm_tools(cast(Any, host))
+    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     assert any("mkdir" in c and "llm_tools" in c for c in host.executed_commands)
 
 
 def test_provision_llm_tools_writes_all_tool_files() -> None:
     host = _StubHost()
-    provision_llm_tools(cast(Any, host))
+    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     written_names = [str(path) for path, _, _ in host.written_files]
     for tool_file in _LLM_TOOL_FILES:
@@ -460,7 +469,7 @@ def test_provision_llm_tools_writes_all_tool_files() -> None:
 
 def test_create_event_log_directories_creates_all_source_dirs() -> None:
     host = _StubHost()
-    create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"))
+    create_event_log_directories(cast(Any, host), Path("/tmp/mng-test/agents/agent-123"), _DEFAULT_PROVISIONING)
 
     for source in ("conversations", "messages", "scheduled", "mng_agents", "stop", "monitor", "claude_transcript"):
         assert any(source in c and "mkdir" in c for c in host.executed_commands), f"Missing mkdir for {source}"
@@ -493,7 +502,7 @@ def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
     host = _StubHost()
     host.is_local = True  # type: ignore[attr-defined]
 
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]))
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]), _DEFAULT_PROVISIONING)
 
     assert not any("command -v mng" in c for c in host.executed_commands)
 
@@ -502,7 +511,7 @@ def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> Non
     host = _StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("recursive_mng", object())]))
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("recursive_mng", object())]), _DEFAULT_PROVISIONING)
 
     assert not any("command -v mng" in c for c in host.executed_commands)
 
@@ -511,7 +520,7 @@ def test_warn_if_mng_unavailable_checks_on_remote_without_recursive() -> None:
     host = _StubHost()
     host.is_local = False  # type: ignore[attr-defined]
 
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("some_other_plugin", object())]))
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([("some_other_plugin", object())]), _DEFAULT_PROVISIONING)
 
     assert any("command -v mng" in c for c in host.executed_commands)
 
@@ -1069,7 +1078,7 @@ def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
             "test -f": _StubCommandResult(success=False),
         }
     )
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
     # No symlink commands should have been executed
     assert not any("ln -sf" in c for c in host.executed_commands)
@@ -1083,7 +1092,7 @@ def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to create symlink"):
-        create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings")
+        create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
 
 def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> None:
@@ -1094,7 +1103,7 @@ def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> N
         }
     )
     with pytest.raises(RuntimeError, match="Failed to install llm-live-chat"):
-        install_llm_toolchain(cast(Any, host))
+        install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
 
 def test_link_memory_directory_raises_on_resolve_failure() -> None:
@@ -1105,7 +1114,7 @@ def test_link_memory_directory_raises_on_resolve_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to resolve absolute path"):
-        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings")
+        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
 
 def test_link_memory_directory_raises_on_link_failure() -> None:
@@ -1116,13 +1125,13 @@ def test_link_memory_directory_raises_on_link_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to link memory directory"):
-        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings")
+        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
 
 
 def test_provision_llm_tools_uses_correct_mode() -> None:
     """Verify LLM tool files are written with 0644 mode."""
     host = _StubHost()
-    provision_llm_tools(cast(Any, host))
+    provision_llm_tools(cast(Any, host), _DEFAULT_PROVISIONING)
 
     for _, _, mode in host.written_files:
         assert mode == "0644"
@@ -1397,7 +1406,7 @@ def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
     host.is_local = False  # type: ignore[attr-defined]
 
     # Should not raise, just warn
-    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]))
+    warn_if_mng_unavailable(cast(Any, host), _make_fake_pm([]), _DEFAULT_PROVISIONING)
 
     # Verify the mng availability check was executed
     assert any("command -v mng" in c for c in host.executed_commands)

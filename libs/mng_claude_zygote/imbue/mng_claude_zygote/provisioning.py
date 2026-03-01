@@ -14,6 +14,7 @@ from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_zygote import resources as zygote_resources
 from imbue.mng_claude_zygote.data_types import ChatModel
+from imbue.mng_claude_zygote.data_types import ProvisioningSettings
 
 # Scripts to provision to $MNG_HOST_DIR/commands/
 _SCRIPT_FILES: Final[tuple[str, ...]] = (
@@ -27,16 +28,6 @@ _LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "context_tool.py",
     "extra_context_tool.py",
 )
-
-# Timeout thresholds (seconds).
-# Hard timeout = command is definitely broken if it takes this long.
-# Warn threshold = emit a warning if the command takes longer than this.
-_FS_HARD_TIMEOUT: Final[float] = 15.0
-_FS_WARN_THRESHOLD: Final[float] = 2.0
-_COMMAND_CHECK_HARD_TIMEOUT: Final[float] = 30.0
-_COMMAND_CHECK_WARN_THRESHOLD: Final[float] = 5.0
-_INSTALL_HARD_TIMEOUT: Final[float] = 300.0
-_INSTALL_WARN_THRESHOLD: Final[float] = 60.0
 
 
 def _execute_with_timing(
@@ -68,7 +59,7 @@ def load_zygote_resource(filename: str) -> str:
     return resource_path.read_text()
 
 
-def install_llm_toolchain(host: OnlineHostInterface) -> None:
+def install_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
     """Install llm, llm-anthropic, and llm-live-chat on the host.
 
     Uses uv tool install for llm itself, then llm install for plugins.
@@ -79,38 +70,38 @@ def install_llm_toolchain(host: OnlineHostInterface) -> None:
         check_result = _execute_with_timing(
             host,
             "command -v llm",
-            hard_timeout=_COMMAND_CHECK_HARD_TIMEOUT,
-            warn_threshold=_COMMAND_CHECK_WARN_THRESHOLD,
+            hard_timeout=settings.command_check_hard_timeout_seconds,
+            warn_threshold=settings.command_check_warn_threshold_seconds,
             label="llm check",
         )
         if check_result.success:
             # llm is installed, just ensure plugins are present
-            _install_llm_plugins(host)
+            _install_llm_plugins(host, settings)
             return
 
         # Install llm via uv tool
         result = _execute_with_timing(
             host,
             "uv tool install llm",
-            hard_timeout=_INSTALL_HARD_TIMEOUT,
-            warn_threshold=_INSTALL_WARN_THRESHOLD,
+            hard_timeout=settings.install_hard_timeout_seconds,
+            warn_threshold=settings.install_warn_threshold_seconds,
             label="llm install",
         )
         if not result.success:
             raise RuntimeError(f"Failed to install llm: {result.stderr}")
 
-        _install_llm_plugins(host)
+        _install_llm_plugins(host, settings)
 
 
-def _install_llm_plugins(host: OnlineHostInterface) -> None:
+def _install_llm_plugins(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
     """Install llm-anthropic and llm-live-chat plugins."""
     for plugin_name in ("llm-anthropic", "llm-live-chat"):
         with log_span("Installing llm plugin: {}", plugin_name):
             result = _execute_with_timing(
                 host,
                 f"llm install {plugin_name}",
-                hard_timeout=_INSTALL_HARD_TIMEOUT,
-                warn_threshold=_INSTALL_WARN_THRESHOLD,
+                hard_timeout=settings.install_hard_timeout_seconds,
+                warn_threshold=settings.install_warn_threshold_seconds,
                 label=f"llm plugin install ({plugin_name})",
             )
             if not result.success:
@@ -122,7 +113,11 @@ def _is_recursive_plugin_registered(pm: pluggy.PluginManager) -> bool:
     return any(name == "recursive_mng" for name, _ in pm.list_name_plugin())
 
 
-def warn_if_mng_unavailable(host: OnlineHostInterface, pm: pluggy.PluginManager) -> None:
+def warn_if_mng_unavailable(
+    host: OnlineHostInterface,
+    pm: pluggy.PluginManager,
+    settings: ProvisioningSettings,
+) -> None:
     """Warn if mng will not be available on the agent host.
 
     Changeling scripts (event_watcher.sh, etc.) use 'uv run mng message' to
@@ -143,8 +138,8 @@ def warn_if_mng_unavailable(host: OnlineHostInterface, pm: pluggy.PluginManager)
     check_result = _execute_with_timing(
         host,
         "command -v mng",
-        hard_timeout=_COMMAND_CHECK_HARD_TIMEOUT,
-        warn_threshold=_COMMAND_CHECK_WARN_THRESHOLD,
+        hard_timeout=settings.command_check_hard_timeout_seconds,
+        warn_threshold=settings.command_check_warn_threshold_seconds,
         label="mng check",
     )
     if not check_result.success:
@@ -156,7 +151,12 @@ def warn_if_mng_unavailable(host: OnlineHostInterface, pm: pluggy.PluginManager)
         )
 
 
-def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:
+def create_changeling_symlinks(
+    host: OnlineHostInterface,
+    work_dir: Path,
+    changelings_dir_name: str,
+    settings: ProvisioningSettings,
+) -> None:
     """Create symlinks from changeling entrypoint files to their expected locations.
 
     Creates:
@@ -169,22 +169,29 @@ def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, change
         host,
         link_path=work_dir / "CLAUDE.local.md",
         target_path=changelings_dir / "entrypoint.md",
+        settings=settings,
     )
 
     _create_symlink_if_target_exists(
         host,
         link_path=work_dir / ".claude" / "settings.local.json",
         target_path=changelings_dir / "entrypoint.json",
+        settings=settings,
     )
 
 
-def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path, target_path: Path) -> None:
+def _create_symlink_if_target_exists(
+    host: OnlineHostInterface,
+    link_path: Path,
+    target_path: Path,
+    settings: ProvisioningSettings,
+) -> None:
     """Create a symlink at link_path pointing to target_path, if target exists."""
     check = _execute_with_timing(
         host,
         f"test -f {shlex.quote(str(target_path))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="file check",
     )
     if not check.success:
@@ -194,8 +201,8 @@ def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path,
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(link_path.parent))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir",
     )
 
@@ -205,15 +212,15 @@ def _create_symlink_if_target_exists(host: OnlineHostInterface, link_path: Path,
         result = _execute_with_timing(
             host,
             cmd,
-            hard_timeout=_FS_HARD_TIMEOUT,
-            warn_threshold=_FS_WARN_THRESHOLD,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
             label="symlink",
         )
         if not result.success:
             raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
 
 
-def provision_changeling_scripts(host: OnlineHostInterface) -> None:
+def provision_changeling_scripts(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
     """Write changeling bash scripts to $MNG_HOST_DIR/commands/.
 
     Scripts are loaded from the resources package and written with execute permission.
@@ -222,8 +229,8 @@ def provision_changeling_scripts(host: OnlineHostInterface) -> None:
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(commands_dir))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir commands",
     )
 
@@ -234,7 +241,7 @@ def provision_changeling_scripts(host: OnlineHostInterface) -> None:
             host.write_file(script_path, script_content.encode(), mode="0755")
 
 
-def provision_llm_tools(host: OnlineHostInterface) -> None:
+def provision_llm_tools(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
     """Write LLM tool Python files to $MNG_HOST_DIR/commands/llm_tools/.
 
     These files are passed to `llm live-chat` via `--functions` to give
@@ -244,8 +251,8 @@ def provision_llm_tools(host: OnlineHostInterface) -> None:
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(tools_dir))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir llm_tools",
     )
 
@@ -256,7 +263,11 @@ def provision_llm_tools(host: OnlineHostInterface) -> None:
             host.write_file(tool_path, tool_content.encode(), mode="0644")
 
 
-def create_event_log_directories(host: OnlineHostInterface, agent_state_dir: Path) -> None:
+def create_event_log_directories(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
     """Create the event log directory structure.
 
     Creates directories for each event source:
@@ -273,8 +284,8 @@ def create_event_log_directories(host: OnlineHostInterface, agent_state_dir: Pat
         _execute_with_timing(
             host,
             f"mkdir -p {shlex.quote(str(source_dir))}",
-            hard_timeout=_FS_HARD_TIMEOUT,
-            warn_threshold=_FS_WARN_THRESHOLD,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
             label=f"mkdir logs/{source}",
         )
 
@@ -294,7 +305,12 @@ def compute_claude_project_dir_name(work_dir_abs: str) -> str:
     return work_dir_abs.replace("/", "-").replace(".", "-")
 
 
-def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:
+def link_memory_directory(
+    host: OnlineHostInterface,
+    work_dir: Path,
+    changelings_dir_name: str,
+    settings: ProvisioningSettings,
+) -> None:
     """Symlink the changelings memory directory into the Claude project memory path.
 
     Creates:
@@ -310,8 +326,8 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
     abs_result = _execute_with_timing(
         host,
         f"cd {shlex.quote(str(work_dir))} && pwd",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="resolve work_dir",
     )
     if not abs_result.success:
@@ -323,8 +339,8 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
     _execute_with_timing(
         host,
         f"mkdir -p {shlex.quote(str(changelings_memory))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir changelings memory",
     )
 
@@ -340,8 +356,8 @@ def link_memory_directory(host: OnlineHostInterface, work_dir: Path, changelings
         result = _execute_with_timing(
             host,
             cmd,
-            hard_timeout=_FS_HARD_TIMEOUT,
-            warn_threshold=_FS_WARN_THRESHOLD,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
             label="link memory",
         )
         if not result.success:

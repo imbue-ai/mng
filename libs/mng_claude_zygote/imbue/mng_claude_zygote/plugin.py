@@ -22,6 +22,8 @@ from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
+from imbue.mng_claude_zygote.settings import load_settings_from_host
+from imbue.mng_claude_zygote.settings import provision_settings_file
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
 AGENT_TTYD_WINDOW_NAME: Final[str] = "agent"
@@ -129,31 +131,45 @@ class ClaudeZygoteAgent(ClaudeAgent):
         """Provision the changeling agent with llm toolchain and watcher infrastructure.
 
         Extends ClaudeAgent provisioning with:
-        1. llm + plugin installation
-        2. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
-        3. Watcher scripts and chat utilities
-        4. Event log directory structure (logs/<source>/events.jsonl)
-        5. Default chat model configuration
-        6. LLM tool scripts for conversation context
-        7. Memory directory symlink into Claude project
+        1. Settings loading from .changelings/settings.toml
+        2. llm + plugin installation
+        3. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
+        4. Watcher scripts and chat utilities
+        5. Event log directory structure (logs/<source>/events.jsonl)
+        6. Default chat model configuration
+        7. LLM tool scripts for conversation context
+        8. Memory directory symlink into Claude project
+        9. Settings file provisioned to agent state dir for script access
         """
         super().provision(host, options, mng_ctx)
 
         config = self._get_zygote_config()
 
-        warn_if_mng_unavailable(host, mng_ctx.pm)
+        # Load settings from .changelings/settings.toml (falls back to defaults)
+        settings = load_settings_from_host(host, self.work_dir, config.changelings_dir_name)
+        provisioning = settings.provisioning
+
+        warn_if_mng_unavailable(host, mng_ctx.pm, provisioning)
 
         if config.install_llm:
-            install_llm_toolchain(host)
+            install_llm_toolchain(host, provisioning)
 
-        create_changeling_symlinks(host, self.work_dir, config.changelings_dir_name)
-        provision_changeling_scripts(host)
-        provision_llm_tools(host)
+        create_changeling_symlinks(host, self.work_dir, config.changelings_dir_name, provisioning)
+        provision_changeling_scripts(host, provisioning)
+        provision_llm_tools(host, provisioning)
 
         agent_state_dir = self._get_agent_dir()
-        create_event_log_directories(host, agent_state_dir)
-        write_default_chat_model(host, agent_state_dir, config.default_chat_model)
-        link_memory_directory(host, self.work_dir, config.changelings_dir_name)
+        create_event_log_directories(host, agent_state_dir, provisioning)
+
+        # Use default_chat_model from settings.toml if present,
+        # otherwise fall back to the agent type config value.
+        chat_model = settings.chat.default_model
+        write_default_chat_model(host, agent_state_dir, chat_model)
+
+        link_memory_directory(host, self.work_dir, config.changelings_dir_name, provisioning)
+
+        # Provision settings.toml to agent state dir so scripts can access it
+        provision_settings_file(host, self.work_dir, config.changelings_dir_name, agent_state_dir)
 
 
 def inject_agent_ttyd(params: dict[str, Any]) -> None:
