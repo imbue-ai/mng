@@ -37,10 +37,6 @@ from unittest.mock import patch
 import pytest
 
 
-class MissingGuardedResourceError(Exception):
-    """A guarded resource binary is not installed."""
-
-
 class ResourceGuardViolation(Exception):
     """Raised when a test invokes an SDK resource without the required mark."""
 
@@ -102,6 +98,35 @@ exec "{real_path}" "$@"
 """
 
 
+def generate_stub_wrapper_script(resource: str) -> str:
+    """Generate a wrapper for a resource binary that is not installed.
+
+    The stub still tracks blocked/allowed invocations for mark enforcement,
+    but always exits 127 since there is no real binary to delegate to.
+    This allows the guard system to work on machines where the binary is
+    missing -- tests that need the resource will fail clearly, and mark
+    enforcement still catches missing/superfluous marks.
+    """
+    bash_guard_var = f"$_PYTEST_GUARD_{resource.upper()}"
+    return f"""#!/bin/bash
+if [ "$_PYTEST_GUARD_PHASE" = "call" ]; then
+    if [ "{bash_guard_var}" = "block" ]; then
+        if [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
+            touch "$_PYTEST_GUARD_TRACKING_DIR/blocked_{resource}"
+        fi
+        echo "RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource} mark." >&2
+        echo "Add @pytest.mark.{resource} to the test, or remove the {resource} usage." >&2
+        exit 127
+    fi
+    if [ "{bash_guard_var}" = "allow" ] && [ -n "$_PYTEST_GUARD_TRACKING_DIR" ]; then
+        touch "$_PYTEST_GUARD_TRACKING_DIR/{resource}"
+    fi
+fi
+echo "RESOURCE GUARD: '{resource}' is not installed on this machine." >&2
+exit 127
+"""
+
+
 def create_resource_guard_wrappers(resources: list[str]) -> None:
     """Create wrapper scripts for guarded resources and prepend to PATH.
 
@@ -131,14 +156,11 @@ def create_resource_guard_wrappers(resources: list[str]) -> None:
 
     for resource in _guarded_resources:
         real_path = shutil.which(resource)
-        if real_path is None:
-            raise MissingGuardedResourceError(
-                f"Guarded resource '{resource}' not found on PATH. "
-                f"Install {resource} or remove it from the guarded resources list."
-            )
-
         wrapper_path = Path(_guard_wrapper_dir) / resource
-        wrapper_path.write_text(generate_wrapper_script(resource, real_path))
+        if real_path is not None:
+            wrapper_path.write_text(generate_wrapper_script(resource, real_path))
+        else:
+            wrapper_path.write_text(generate_stub_wrapper_script(resource))
         wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     # Prepend wrapper directory to PATH and advertise to xdist workers.

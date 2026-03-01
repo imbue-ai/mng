@@ -264,7 +264,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
         # Record start time AFTER acquiring the lock so wait time isn't counted
         setattr(session, "start_time", time.time())  # noqa: B010
 
-    # Create resource guard wrappers (workers reuse the controller's via env var)
+    # Create resource guard wrappers (workers reuse the controller's via env var).
     create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
     # Install SDK-level guards (each process patches independently, no shared state)
