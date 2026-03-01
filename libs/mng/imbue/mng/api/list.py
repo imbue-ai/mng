@@ -746,11 +746,11 @@ def load_all_agents_grouped_by_host(
         # Warn if any host names are duplicated within the same provider
         _warn_on_duplicate_host_names(agents_by_host)
 
-        # Update the completion cache when doing a full unfiltered scan that
-        # includes destroyed hosts. Only include_destroyed=True captures all
-        # agents (including those on stopped Modal hosts), so writing the cache
-        # from include_destroyed=False would poison it with an incomplete set.
-        if provider_names is None and include_destroyed:
+        # Update the completion cache on any full unfiltered scan. Scans with
+        # include_destroyed=False may miss agents on stopped Modal hosts, but a
+        # partial cache is better than none -- the fallback in
+        # find_agents_by_identifiers_or_state handles misses correctly.
+        if provider_names is None:
             write_agent_names_cache(get_completion_cache_dir(), agents_by_host)
 
         return (agents_by_host, providers)
