@@ -7,7 +7,7 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.imbue_common.pure import pure
-from imbue.mng.api.find import AgentMatch
+from imbue.mng.api.find import AgentSummary
 from imbue.mng.api.find import find_agents_by_identifiers_or_state
 from imbue.mng.api.find import group_agents_by_host
 from imbue.mng.api.find import resolve_host_reference
@@ -469,9 +469,9 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
 
                 # Apply agent-level changes per agent
                 if _has_agent_level_settings(opts):
-                    for agent_match in agent_list:
+                    for agent_summary in agent_list:
                         _apply_agent_changes(
-                            agent_match=agent_match,
+                            agent_summary=agent_summary,
                             online_host=online_host,
                             opts=opts,
                             output_opts=output_opts,
@@ -530,7 +530,7 @@ def _apply_host_only_changes(
 
 
 def _apply_agent_changes(
-    agent_match: AgentMatch,
+    agent_summary: AgentSummary,
     online_host: OnlineHostInterface,
     opts: LimitCliOptions,
     output_opts: OutputOptions,
@@ -538,18 +538,18 @@ def _apply_agent_changes(
 ) -> None:
     """Apply agent-level changes to a single agent."""
     for agent in online_host.get_agents():
-        if agent.id == agent_match.agent_id:
+        if agent.id == agent_summary.agent_id:
             if opts.start_on_boot is not None:
                 agent.set_is_start_on_boot(opts.start_on_boot)
                 _output(
-                    f"Set start-on-boot={opts.start_on_boot} for agent {agent_match.agent_name}",
+                    f"Set start-on-boot={opts.start_on_boot} for agent {agent_summary.agent_name}",
                     output_opts,
                 )
                 changes.append(
                     {
                         "type": "agent_start_on_boot",
-                        "agent_id": str(agent_match.agent_id),
-                        "agent_name": str(agent_match.agent_name),
+                        "agent_id": str(agent_summary.agent_id),
+                        "agent_name": str(agent_summary.agent_name),
                         "start_on_boot": opts.start_on_boot,
                     }
                 )
@@ -563,20 +563,20 @@ def _apply_agent_changes(
                 )
                 agent.set_permissions(new_permissions)
                 _output(
-                    f"Updated permissions for agent {agent_match.agent_name}",
+                    f"Updated permissions for agent {agent_summary.agent_name}",
                     output_opts,
                 )
                 changes.append(
                     {
                         "type": "agent_permissions",
-                        "agent_id": str(agent_match.agent_id),
-                        "agent_name": str(agent_match.agent_name),
+                        "agent_id": str(agent_summary.agent_id),
+                        "agent_name": str(agent_summary.agent_name),
                         "permissions": [str(p) for p in new_permissions],
                     }
                 )
             break
     else:
-        raise AgentNotFoundOnHostError(agent_match.agent_id, agent_match.host_id)
+        raise AgentNotFoundOnHostError(agent_summary.agent_id, agent_summary.host_id)
 
 
 # Register help metadata for git-style help formatting

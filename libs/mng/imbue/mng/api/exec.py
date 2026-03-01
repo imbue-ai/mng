@@ -9,7 +9,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mng.api.find import AgentMatch
+from imbue.mng.api.find import AgentSummary
 from imbue.mng.api.find import ensure_host_started
 from imbue.mng.api.find import find_agents_by_identifiers_or_state
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
@@ -106,7 +106,7 @@ def _record_failure(
 
 def _get_online_host_for_agents(
     host_id_str: str,
-    agent_list: Sequence[AgentMatch],
+    agent_list: Sequence[AgentSummary],
     mng_ctx: MngContext,
     is_start_desired: bool,
     result: MultiExecResult,
@@ -158,7 +158,7 @@ def _get_online_host_for_agents(
 
 def _execute_on_single_agent(
     online_host: OnlineHostInterface,
-    match: AgentMatch,
+    match: AgentSummary,
     command: str,
     user: str | None,
     cwd: str | None,

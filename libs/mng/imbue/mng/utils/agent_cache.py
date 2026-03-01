@@ -35,7 +35,7 @@ def get_completion_cache_dir() -> Path:
     return cache_dir
 
 
-class CachedAgentEntry(FrozenModel):
+class AgentSummaryUntyped(FrozenModel):
     """Cached metadata about an agent for provider-aware lookups."""
 
     name: str = Field(description="Human-readable agent name")
@@ -60,11 +60,11 @@ def write_agent_names_cache(
     the caller. Other exceptions are allowed to propagate.
     """
     try:
-        entries: list[CachedAgentEntry] = []
+        entries: list[AgentSummaryUntyped] = []
         for host_ref, agent_refs in agents_by_host.items():
             for agent_ref in agent_refs:
                 entries.append(
-                    CachedAgentEntry(
+                    AgentSummaryUntyped(
                         name=str(agent_ref.agent_name),
                         id=str(agent_ref.agent_id),
                         provider=str(host_ref.provider_name),
@@ -91,10 +91,10 @@ def write_agent_names_cache(
 def resolve_identifiers_from_cache(
     cache_dir: Path,
     identifiers: Sequence[str],
-) -> list[CachedAgentEntry] | None:
+) -> list[AgentSummaryUntyped] | None:
     """Look up cached agent entries matching the given identifiers (by name or ID).
 
-    Returns a list of CachedAgentEntry objects if every identifier is found in
+    Returns a list of AgentSummaryUntyped objects if every identifier is found in
     the cache, or None if the cache is missing/corrupt or any identifier cannot
     be resolved.
     """
@@ -111,20 +111,20 @@ def resolve_identifiers_from_cache(
         return None
 
     # Build lookup dicts: name -> list of entries, id -> list of entries
-    entries_by_name: dict[str, list[CachedAgentEntry]] = {}
-    entries_by_id: dict[str, list[CachedAgentEntry]] = {}
+    entries_by_name: dict[str, list[AgentSummaryUntyped]] = {}
+    entries_by_id: dict[str, list[AgentSummaryUntyped]] = {}
     for raw_entry in agents_list:
         if not isinstance(raw_entry, dict):
             continue
         try:
-            entry = CachedAgentEntry.model_validate(raw_entry)
+            entry = AgentSummaryUntyped.model_validate(raw_entry)
         except ValueError:
             continue
         entries_by_name.setdefault(entry.name, []).append(entry)
         entries_by_id.setdefault(entry.id, []).append(entry)
 
     # Resolve each identifier against both name and id lookups
-    matched_entries: list[CachedAgentEntry] = []
+    matched_entries: list[AgentSummaryUntyped] = []
     for identifier in identifiers:
         name_matches = entries_by_name.get(identifier)
         id_matches = entries_by_id.get(identifier)
