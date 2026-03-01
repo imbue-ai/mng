@@ -6,6 +6,9 @@ deeper context information beyond what gather_context() returns.
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from logs/<source>/events.jsonl.
 
+Settings are read from $MNG_AGENT_STATE_DIR/settings.toml (provisioned
+during agent setup). Missing file or keys fall back to built-in defaults.
+
 NOTE: _format_events() is duplicated in context_tool.py because these
 files are deployed as standalone scripts to the agent host via --functions,
 where they cannot import from each other or from the mng_claude_zygote package.
@@ -18,9 +21,32 @@ import sys
 import time
 from pathlib import Path
 
-_MNG_LIST_HARD_TIMEOUT = 120
-_MNG_LIST_WARN_THRESHOLD = 15
-_MAX_CONTENT_LENGTH = 300
+
+def _load_settings() -> dict:
+    """Load settings from $MNG_AGENT_STATE_DIR/settings.toml.
+
+    NOTE: This function is intentionally duplicated in context_tool.py.
+    These files are deployed as standalone scripts and cannot share imports.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return {}
+    settings_path = Path(os.environ.get("MNG_AGENT_STATE_DIR", "")) / "settings.toml"
+    try:
+        with settings_path.open("rb") as f:
+            return tomllib.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+_SETTINGS = _load_settings()
+_EXTRA = _SETTINGS.get("extra_context", {})
+
+_MNG_LIST_HARD_TIMEOUT = _EXTRA.get("mng_list_hard_timeout_seconds", 120)
+_MNG_LIST_WARN_THRESHOLD = _EXTRA.get("mng_list_warn_threshold_seconds", 15)
+_MAX_CONTENT_LENGTH = _EXTRA.get("max_content_length", 300)
+_TRANSCRIPT_LINE_COUNT = _EXTRA.get("transcript_line_count", 50)
 
 
 def gather_extra_context() -> str:
@@ -63,12 +89,12 @@ def gather_extra_context() -> str:
     if agent_data_dir_str:
         agent_data_dir = Path(agent_data_dir_str)
 
-        # Extended inner monologue (last 50 from logs/claude_transcript/events.jsonl)
+        # Extended inner monologue (from logs/claude_transcript/events.jsonl)
         transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
         if transcript.exists():
             try:
                 lines = transcript.read_text().strip().split("\n")
-                recent = lines[-50:] if len(lines) > 50 else lines
+                recent = lines[-_TRANSCRIPT_LINE_COUNT:] if len(lines) > _TRANSCRIPT_LINE_COUNT else lines
                 if recent and recent[0]:
                     formatted = _format_events(recent)
                     sections.append(
