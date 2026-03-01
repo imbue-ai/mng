@@ -1413,10 +1413,10 @@ def test_all_default_skill_files_are_loadable() -> None:
         assert content, f"defaults/skills/{skill_name}/SKILL.md is empty"
 
 
-def test_default_claude_md_mentions_mng() -> None:
-    """Verify the default CLAUDE.md references mng for agent management."""
+def test_default_claude_md_mentions_changelings() -> None:
+    """Verify the default CLAUDE.md references the changelings framework."""
     content = load_zygote_resource("defaults/CLAUDE.md")
-    assert "mng" in content
+    assert "changelings" in content
 
 
 def test_default_entrypoint_md_describes_event_processing() -> None:

@@ -47,10 +47,16 @@ log() {
 
 get_default_model() {
     if [ -f "$DEFAULT_MODEL_FILE" ]; then
-        tr -d '[:space:]' < "$DEFAULT_MODEL_FILE"
-    else
-        # Fall back to settings.toml, then hardcoded default
-        python3 -c "
+        local file_model
+        file_model=$(tr -d '[:space:]' < "$DEFAULT_MODEL_FILE")
+        if [ -n "$file_model" ]; then
+            echo "$file_model"
+            return
+        fi
+        log "WARNING: default_chat_model file exists but is empty, falling back"
+    fi
+    # Fall back to settings.toml, then hardcoded default
+    python3 -c "
 import tomllib, pathlib, sys
 p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
 try:
@@ -60,7 +66,6 @@ except Exception as e:
     print(f'WARNING: failed to load settings: {e}', file=sys.stderr)
     print('claude-opus-4-6')
 " 2>>"$LOG_FILE" || echo "claude-opus-4-6"
-    fi
 }
 
 generate_cid() {
@@ -143,7 +148,7 @@ resume_conversation() {
 
     # Get the model from the latest event for this conversation
     local model
-    model=$(grep "\"conversation_id\":\"$cid\"" "$CONVERSATIONS_EVENTS" 2>/dev/null \
+    model=$(grep -F "\"conversation_id\":\"$cid\"" "$CONVERSATIONS_EVENTS" 2>/dev/null \
         | tail -1 \
         | jq -r '.model' 2>/dev/null \
         || get_default_model)
