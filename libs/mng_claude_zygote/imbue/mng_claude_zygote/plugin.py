@@ -200,7 +200,8 @@ def override_command_options(
 ) -> None:
     """Add changeling tmux windows when creating claude-zygote agents.
 
-    Injects: agent ttyd, conversation watcher, event watcher, and chat ttyd.
+    Injects: agent ttyd, conversation watcher, event watcher, memory linker,
+    and chat ttyd.
     """
     if command_name != "create":
         return

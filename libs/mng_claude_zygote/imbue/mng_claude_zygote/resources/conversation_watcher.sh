@@ -57,36 +57,58 @@ for line in open('$CONVERSATIONS_FILE'):
 "
 }
 
-# Sync new messages for a single conversation from the llm database
+# Sync new messages for a single conversation from the llm database.
+#
+# Each row in the llm responses table contains BOTH the user's prompt and
+# the assistant's response. We use UNION ALL to produce separate user and
+# assistant message records from each row, preserving both sides of the
+# conversation.
+#
+# We track sync state via the datetime of the last synced response, rather
+# than by ID, since datetime comparison is universally correct regardless
+# of the ID format.
 sync_conversation() {
     local cid="$1"
     local db_path="$2"
     local conv_file="$CONVERSATIONS_DIR/$cid.jsonl"
-    local state_file="$SYNC_STATE_DIR/$cid.last_id"
+    local state_file="$SYNC_STATE_DIR/$cid.last_ts"
 
-    # Read last synced response ID (empty string if no state yet)
-    local last_id=""
+    # Read last synced timestamp (empty string if no state yet)
+    local last_ts=""
     if [ -f "$state_file" ]; then
-        last_id=$(cat "$state_file")
+        last_ts=$(cat "$state_file")
     fi
 
-    # Query the llm database for new messages after last_id
-    # The responses table has: id, prompt, response, conversation_id, model, datetime_utc
-    local id_filter=""
-    if [ -n "$last_id" ]; then
-        id_filter="AND id > '${last_id}'"
+    # Build datetime filter for incremental sync
+    local ts_filter=""
+    if [ -n "$last_ts" ]; then
+        ts_filter="AND datetime_utc > '${last_ts}'"
     fi
 
-    local query="SELECT json_object(
-        'role', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN 'user' ELSE 'assistant' END,
-        'content', CASE WHEN prompt IS NOT NULL AND prompt != '' THEN prompt ELSE response END,
+    # Query produces two rows per response: one for the user prompt,
+    # one for the assistant response. Rows without a prompt (injected
+    # assistant messages) produce only the assistant row.
+    local query="
+    SELECT json_object(
+        'role', 'user',
+        'content', prompt,
         'timestamp', datetime_utc,
-        'conversation_id', conversation_id,
-        'response_id', id
+        'conversation_id', conversation_id
     ) FROM responses
     WHERE conversation_id = '${cid}'
-    ${id_filter}
-    ORDER BY datetime_utc ASC;"
+    AND prompt IS NOT NULL AND prompt != ''
+    ${ts_filter}
+    UNION ALL
+    SELECT json_object(
+        'role', 'assistant',
+        'content', response,
+        'timestamp', datetime_utc,
+        'conversation_id', conversation_id
+    ) FROM responses
+    WHERE conversation_id = '${cid}'
+    AND response IS NOT NULL AND response != ''
+    ${ts_filter}
+    ORDER BY 1;"
 
     local new_messages
     new_messages=$(sqlite3 "$db_path" "$query" 2>/dev/null || echo "")
@@ -95,14 +117,18 @@ sync_conversation() {
         return
     fi
 
-    # Append new messages and update state
+    # Append new messages to the conversation file
     echo "$new_messages" >> "$conv_file"
 
-    # Save the last response ID for next sync
-    local new_last_id
-    new_last_id=$(echo "$new_messages" | tail -1 | python3 -c "import sys,json; print(json.loads(sys.stdin.read())['response_id'])" 2>/dev/null || echo "")
-    if [ -n "$new_last_id" ]; then
-        echo "$new_last_id" > "$state_file"
+    # Save the latest timestamp for next sync
+    local new_last_ts
+    new_last_ts=$(sqlite3 "$db_path" "
+        SELECT MAX(datetime_utc) FROM responses
+        WHERE conversation_id = '${cid}'
+        ${ts_filter};
+    " 2>/dev/null || echo "")
+    if [ -n "$new_last_ts" ]; then
+        echo "$new_last_ts" > "$state_file"
     fi
 }
 

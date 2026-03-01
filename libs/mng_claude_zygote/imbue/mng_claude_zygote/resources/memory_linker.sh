@@ -56,9 +56,10 @@ while [ "$elapsed" -lt "$MAX_WAIT" ]; do
                 echo "Memory already linked: $MEMORY_DIR -> $CHANGELINGS_MEMORY"
                 exit 0
             fi
-        fi
-
-        if [ -d "$MEMORY_DIR" ] && [ ! -L "$MEMORY_DIR" ]; then
+            # Symlink points elsewhere -- remove it and re-create
+            echo "Updating memory symlink (was: $current_target)"
+            rm "$MEMORY_DIR"
+        elif [ -d "$MEMORY_DIR" ]; then
             # Real directory: merge its contents into changelings memory, then replace.
             # Fail if the merge fails -- do NOT delete the original without a successful copy.
             if ! rsync -a "$MEMORY_DIR/" "$CHANGELINGS_MEMORY/"; then
