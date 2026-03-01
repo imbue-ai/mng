@@ -244,6 +244,7 @@ scripts/notify_user.local.sh
 
 # Test output files (slow tests, coverage summaries)
 .test_output/
+.claude/tests_outputs/
 
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
