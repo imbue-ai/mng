@@ -12,12 +12,12 @@ import pluggy
 from imbue.imbue_common.model_update import to_update
 from imbue.mng import hookimpl
 from imbue.mng.api.create import create
-from imbue.mng.api.data_types import NewHostOptions
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import AgentName
@@ -27,7 +27,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import load_local_backend_only
-from imbue.mng.utils.testing import tmux_session_cleanup
+from imbue.mng.testing.testing import tmux_session_cleanup
 
 
 class _AgentHostHookTracker:

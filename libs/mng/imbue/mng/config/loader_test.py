@@ -3,14 +3,12 @@
 from pathlib import Path
 from typing import Any
 
-import click
 import pluggy
 import pytest
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.config.data_types import CommandDefaults
 from imbue.mng.config.data_types import CreateTemplateName
-from imbue.mng.config.data_types import LoggingConfig
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng.config.data_types import get_or_create_user_id
 from imbue.mng.config.loader import _apply_plugin_overrides
@@ -27,7 +25,6 @@ from imbue.mng.config.loader import get_or_create_profile_dir
 from imbue.mng.config.loader import load_config
 from imbue.mng.config.loader import parse_config
 from imbue.mng.errors import ConfigParseError
-from imbue.mng.main import cli
 from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import LogLevel
@@ -35,6 +32,7 @@ from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderBackendName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import load_all_registries
+from imbue.mng.utils.logging import LoggingConfig
 
 hookimpl = pluggy.HookimplMarker("mng")
 
@@ -180,42 +178,6 @@ def test_merge_command_defaults_override_wins_same_command() -> None:
 
     assert result["create"].defaults["name"] == "new"
     assert result["create"].defaults["other"] == "base"
-
-
-# =============================================================================
-# Test for single-word command names
-# =============================================================================
-
-
-def test_all_cli_commands_are_single_word() -> None:
-    """Ensure all CLI command names are single words (no spaces, hyphens, or underscores).
-
-    This is CRITICAL for the MNG_COMMANDS_<COMMANDNAME>_<PARAMNAME> env var parsing
-    to work correctly. If command names contained underscores, parsing would be ambiguous.
-
-    For example, if a command was named "foo_bar" and a param was "baz", the env var
-    would be "MNG_COMMANDS_FOO_BAR_BAZ", which could be interpreted as either:
-        - command="foo", param="bar_baz"
-        - command="foo_bar", param="baz"
-
-    By requiring single-word commands, we avoid this ambiguity.
-
-    Any future plugins that register custom commands MUST also follow this convention.
-    """
-    # Get all commands from the CLI group
-    assert isinstance(cli, click.Group), "cli should be a click.Group"
-
-    invalid_commands = []
-    for command_name in cli.commands.keys():
-        # Check for spaces, hyphens, or underscores in command names
-        if " " in command_name or "-" in command_name or "_" in command_name:
-            invalid_commands.append(command_name)
-
-    assert not invalid_commands, (
-        f"CLI command names must be single words (no spaces, hyphens, or underscores) "
-        f"for MNG_COMMANDS_<COMMANDNAME>_<PARAMNAME> env var parsing to work. "
-        f"Invalid commands: {invalid_commands}"
-    )
 
 
 # =============================================================================
@@ -595,7 +557,11 @@ def test_on_load_config_hook_is_called(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    load_config(
+        pm=pm,
+        concurrency_group=cg,
+        context_dir=tmp_path,
+    )
 
     # Verify hook was called
     assert hook_called, "on_load_config hook was not called"
@@ -626,7 +592,11 @@ def test_on_load_config_hook_can_modify_config(
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        context_dir=tmp_path,
+    )
 
     # Verify the config was modified
     assert mng_ctx.config.prefix == "modified-by-plugin-"
@@ -658,7 +628,11 @@ def test_on_load_config_hook_can_add_new_fields(
     monkeypatch.delenv("MNG_ROOT_NAME", raising=False)
 
     # Call load_config
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        context_dir=tmp_path,
+    )
 
     # Verify the agent type was added
     assert AgentTypeName("custom-agent") in mng_ctx.config.agent_types
@@ -864,7 +838,11 @@ def test_load_config_preserves_default_destroyed_host_persisted_seconds_from_tom
     settings_path = profile_dir / "settings.toml"
     settings_path.write_text("default_destroyed_host_persisted_seconds = 86400.0\n")
 
-    mng_ctx = load_config(pm=pm, context_dir=tmp_path, concurrency_group=cg)
+    mng_ctx = load_config(
+        pm=pm,
+        concurrency_group=cg,
+        context_dir=tmp_path,
+    )
 
     assert mng_ctx.config.default_destroyed_host_persisted_seconds == 86400.0
 

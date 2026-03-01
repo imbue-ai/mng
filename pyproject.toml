@@ -132,13 +132,14 @@ omit = [
     "*/tests/*",
     "*/conftest.py",
     # Test utility modules contain helpers only used by tests
-    "*/utils/testing.py",
+    "*/testing/*",
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
     "libs/mng/imbue/mng/providers/modal/*",
     # Docker provider requires a Docker daemon for testing
     "libs/mng/imbue/mng/providers/docker/instance.py",
     "libs/mng/imbue/mng/providers/docker/volume.py",
+    "libs/mng/imbue/mng/providers/docker/testing.py",
     # Changeling deploy modules run on Modal and require infrastructure to test
     "apps/changelings/imbue/changelings/deploy/cron_runner.py",
     "apps/changelings/imbue/changelings/deploy/remote_runner.py",
@@ -169,18 +170,24 @@ layers = [
     "imbue.mng.agents",
     "imbue.mng.providers",
     "imbue.mng.hosts",
+    "imbue.mng.plugins",
     "imbue.mng.interfaces",
     "imbue.mng.config",
     "imbue.mng.utils",
     "imbue.mng.errors",
     "imbue.mng.primitives",
 ]
+# Config-layer tests need to import from higher layers (providers, plugins, main)
+# to set up realistic test scenarios. This is inherent to testing config loading
+# and provider registry functionality -- they must reference concrete providers
+# and plugin hookspecs to verify correct behavior.
 ignore_imports = [
-    "imbue.mng.hosts.test_host -> imbue.mng.providers.local.instance",
-    "imbue.mng.cli.test_create -> imbue.mng.main",
-    "imbue.mng.utils.logging_test -> imbue.mng.config.data_types",
-    "imbue.mng.utils.testing -> imbue.mng.providers.local.instance",
-    "imbue.mng.utils.testing -> imbue.mng.config.data_types",
+    "imbue.mng.config.loader_test -> imbue.mng.plugins.hookspecs",
+    "imbue.mng.config.loader_test -> imbue.mng.providers.registry",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.registry",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.docker.config",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.local.config",
+    "imbue.mng.config.provider_registry_test -> imbue.mng.providers.modal.config",
 ]
 
 [[tool.importlinter.contracts]]
