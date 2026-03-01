@@ -40,12 +40,11 @@ from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
+from imbue.mng_claude_zygote.provisioning import load_zygote_resource
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
-from imbue.mng_claude_zygote.settings import load_settings_from_host
-from imbue.mng_claude_zygote.settings import provision_settings_file
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -141,104 +140,45 @@ def _create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str,
     conn.close()
 
 
+def _extract_sync_script_from_watcher() -> str:
+    """Extract the Python sync script from conversation_watcher.sh.
+
+    The watcher embeds a Python heredoc between 'SYNC_SCRIPT' markers.
+    This function extracts it so tests run the actual production algorithm
+    rather than a potentially-stale copy.
+    """
+    watcher_content = load_zygote_resource("conversation_watcher.sh")
+    start_marker = "python3 << 'SYNC_SCRIPT'"
+    end_marker = "SYNC_SCRIPT"
+
+    start_idx = watcher_content.index(start_marker)
+    # Find the content after the start marker line
+    script_start = watcher_content.index("\n", start_idx) + 1
+    # Find the closing SYNC_SCRIPT marker (it's on its own line after the heredoc)
+    remaining = watcher_content[script_start:]
+    # The end marker is on a line by itself (possibly with leading whitespace)
+    script_end = None
+    for i, line in enumerate(remaining.split("\n")):
+        if line.strip() == end_marker:
+            script_end = sum(len(l) + 1 for l in remaining.split("\n")[:i])
+            break
+    assert script_end is not None, "Could not find SYNC_SCRIPT end marker in conversation_watcher.sh"
+    return remaining[:script_end]
+
+
 def _run_sync_script(conversations_file: Path, messages_file: Path, db_path: Path) -> int:
     """Run the conversation watcher's sync logic and return the count of synced events.
 
-    Extracts and runs the Python sync script embedded in conversation_watcher.sh.
-    This tests the actual sync algorithm that the watcher uses.
+    Extracts the Python sync script embedded in conversation_watcher.sh and
+    runs it directly, testing the actual production algorithm without needing
+    the full bash watcher loop infrastructure.
     """
     sync_env = os.environ.copy()
     sync_env["_CONVERSATIONS_FILE"] = str(conversations_file)
     sync_env["_MESSAGES_FILE"] = str(messages_file)
     sync_env["_DB_PATH"] = str(db_path)
 
-    # This is the sync logic extracted from conversation_watcher.sh's heredoc.
-    # We run it directly to test the actual algorithm without needing the full
-    # bash watcher loop infrastructure.
-    sync_script = """
-import json, os, sqlite3
-
-def sync():
-    conversations_file = os.environ["_CONVERSATIONS_FILE"]
-    messages_file = os.environ["_MESSAGES_FILE"]
-    db_path = os.environ["_DB_PATH"]
-
-    tracked_cids = set()
-    if os.path.isfile(conversations_file):
-        with open(conversations_file) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    tracked_cids.add(json.loads(line)["conversation_id"])
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-    if not tracked_cids:
-        print("0")
-        return
-
-    file_event_ids = set()
-    if os.path.isfile(messages_file):
-        with open(messages_file) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    file_event_ids.add(json.loads(line)["event_id"])
-                except (json.JSONDecodeError, KeyError):
-                    continue
-
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    placeholders = ",".join("?" for _ in tracked_cids)
-    cid_list = list(tracked_cids)
-
-    rows = conn.execute(
-        f"SELECT id, datetime_utc, conversation_id, prompt, response "
-        f"FROM responses "
-        f"WHERE conversation_id IN ({placeholders}) "
-        f"ORDER BY datetime_utc DESC "
-        f"LIMIT 200",
-        cid_list,
-    ).fetchall()
-
-    conn.close()
-
-    missing_events = []
-    for row_id, ts, cid, prompt, response in rows:
-        if prompt:
-            eid = f"{row_id}-user"
-            if eid not in file_event_ids:
-                missing_events.append((ts, 0, json.dumps({
-                    "timestamp": ts, "type": "message", "event_id": eid,
-                    "source": "messages", "conversation_id": cid,
-                    "role": "user", "content": prompt,
-                })))
-        if response:
-            eid = f"{row_id}-assistant"
-            if eid not in file_event_ids:
-                missing_events.append((ts, 1, json.dumps({
-                    "timestamp": ts, "type": "message", "event_id": eid,
-                    "source": "messages", "conversation_id": cid,
-                    "role": "assistant", "content": response,
-                })))
-
-    if not missing_events:
-        print("0")
-        return
-
-    missing_events.sort(key=lambda x: (x[0], x[1]))
-    os.makedirs(os.path.dirname(messages_file), exist_ok=True)
-    with open(messages_file, "a") as f:
-        for _, _, event_json in missing_events:
-            f.write(event_json + "\\n")
-
-    print(str(len(missing_events)))
-
-sync()
-"""
+    sync_script = _extract_sync_script_from_watcher()
 
     result = subprocess.run(
         ["python3", "-c", sync_script],
@@ -533,8 +473,6 @@ def test_chat_script_list_handles_malformed_events(chat_env: ChatScriptEnv) -> N
 @pytest.mark.timeout(30)
 def test_conversation_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> None:
     """Verify that conversation_watcher.sh passes bash syntax check."""
-    from imbue.mng_claude_zygote.provisioning import load_zygote_resource
-
     watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "conversation_watcher.sh"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
     watcher_script.write_text(load_zygote_resource("conversation_watcher.sh"))
@@ -547,8 +485,6 @@ def test_conversation_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> N
 @pytest.mark.timeout(30)
 def test_event_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> None:
     """Verify that event_watcher.sh passes bash syntax check."""
-    from imbue.mng_claude_zygote.provisioning import load_zygote_resource
-
     watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.sh"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
     watcher_script.write_text(load_zygote_resource("event_watcher.sh"))
@@ -630,57 +566,9 @@ def test_create_agent_creates_state_directory(
         assert (agent_state_dir / "data.json").exists(), "data.json should exist in agent state dir"
 
 
-# -- Settings loading integration tests --
-
-
-@pytest.mark.timeout(30)
-def test_settings_loaded_from_host_with_valid_toml(
-    temp_git_repo: Path,
-    local_shell_host: LocalShellHost,
-) -> None:
-    """Verify that settings are loaded from a valid settings.toml file."""
-    changelings_dir = temp_git_repo / ".changelings"
-    changelings_dir.mkdir()
-    (changelings_dir / "settings.toml").write_text(
-        '[chat]\nmodel = "claude-sonnet-4-6"\n\n[watchers]\nconversation_poll_interval_seconds = 10\n'
-    )
-
-    settings = load_settings_from_host(local_shell_host, temp_git_repo, ".changelings")  # type: ignore[arg-type]
-
-    assert settings.chat.model == "claude-sonnet-4-6"
-    assert settings.watchers.conversation_poll_interval_seconds == 10
-
-
-@pytest.mark.timeout(30)
-def test_settings_returns_defaults_for_missing_file(
-    temp_git_repo: Path,
-    local_shell_host: LocalShellHost,
-) -> None:
-    """Verify that settings default gracefully when settings.toml is missing."""
-    settings = load_settings_from_host(local_shell_host, temp_git_repo, ".changelings")  # type: ignore[arg-type]
-
-    assert settings.chat.model is None
-    assert settings.watchers.conversation_poll_interval_seconds == 5
-    assert settings.watchers.event_poll_interval_seconds == 3
-
-
-@pytest.mark.timeout(30)
-def test_settings_returns_defaults_for_invalid_toml(
-    temp_git_repo: Path,
-    local_shell_host: LocalShellHost,
-) -> None:
-    """Verify that settings default gracefully when settings.toml is invalid."""
-    changelings_dir = temp_git_repo / ".changelings"
-    changelings_dir.mkdir()
-    (changelings_dir / "settings.toml").write_text("this is not valid toml [[[")
-
-    settings = load_settings_from_host(local_shell_host, temp_git_repo, ".changelings")  # type: ignore[arg-type]
-
-    assert settings.chat.model is None
-    assert settings.watchers.conversation_poll_interval_seconds == 5
-
-
 # -- JSONL event format tests --
+# Note: settings loading tests (load_settings_from_host, provision_settings_file)
+# are covered by unit tests in settings_test.py using StubHost.
 
 
 @pytest.mark.timeout(30)
@@ -799,45 +687,6 @@ print(json.dumps({{
     parsed = json.loads(result.stdout.strip())
     assert parsed["poll"] == 7
     assert parsed["sources"] == ["messages", "stop"]
-
-
-# -- Provisioning settings file tests --
-
-
-@pytest.mark.timeout(30)
-def test_provision_settings_file_copies_to_agent_state(
-    temp_git_repo: Path,
-    local_shell_host: LocalShellHost,
-) -> None:
-    """Verify that settings.toml is copied to the agent state directory."""
-    changelings_dir = temp_git_repo / ".changelings"
-    changelings_dir.mkdir()
-    settings_content = '[chat]\nmodel = "claude-sonnet-4-6"\n'
-    (changelings_dir / "settings.toml").write_text(settings_content)
-
-    agent_state_dir = local_shell_host.host_dir / "agents" / "test-agent"
-    agent_state_dir.mkdir(parents=True)
-
-    provision_settings_file(local_shell_host, temp_git_repo, ".changelings", agent_state_dir)  # type: ignore[arg-type]
-
-    dest = agent_state_dir / "settings.toml"
-    assert dest.exists(), "settings.toml should be copied to agent state dir"
-    assert dest.read_text() == settings_content
-
-
-@pytest.mark.timeout(30)
-def test_provision_settings_file_noop_when_missing(
-    temp_git_repo: Path,
-    local_shell_host: LocalShellHost,
-) -> None:
-    """Verify that provisioning settings does nothing when settings.toml is missing."""
-    agent_state_dir = local_shell_host.host_dir / "agents" / "test-agent"
-    agent_state_dir.mkdir(parents=True)
-
-    provision_settings_file(local_shell_host, temp_git_repo, ".changelings", agent_state_dir)  # type: ignore[arg-type]
-
-    dest = agent_state_dir / "settings.toml"
-    assert not dest.exists(), "settings.toml should not be created when source is missing"
 
 
 # -- Tmux window injection integration tests --
