@@ -20,36 +20,102 @@ import os
 from pathlib import Path
 
 _MAX_CONTENT_LENGTH = 200
+_TAIL_CHUNK_SIZE = 8192
+
+# Number of tail lines to read on first call, per source.
+_INITIAL_TRANSCRIPT_LINES = 10
+_INITIAL_MESSAGES_LINES = 20
+_INITIAL_MESSAGES_PER_CONVERSATION = 3
+_INITIAL_TRIGGER_LINES = 5  # per trigger source (scheduled, mng_agents, stop, monitor)
 
 # State that persists between calls within the same llm live-chat session.
 # llm loads the module once via exec() and keeps function objects in memory,
 # so module-level state survives across invocations.
-_last_line_counts: dict[str, int] = {}
+# Tracks byte offsets (file sizes) rather than line counts so that
+# incremental reads can seek directly to new data.
+_last_file_sizes: dict[str, int] = {}
+
+
+def _read_tail_lines(file_path: Path, n: int) -> list[str]:
+    """Read the last n complete lines from a file by reading backwards from EOF.
+
+    If the file doesn't end with a newline, the final partial line is dropped
+    (incomplete write). Updates _last_file_sizes for incremental tracking.
+    Returns lines in chronological order.
+    """
+    key = str(file_path)
+    try:
+        size = file_path.stat().st_size
+    except OSError:
+        return []
+    if size == 0:
+        return []
+
+    with file_path.open("rb") as f:
+        data = b""
+        pos = size
+
+        while pos > 0:
+            read_size = min(_TAIL_CHUNK_SIZE, pos)
+            pos -= read_size
+            f.seek(pos)
+            data = f.read(read_size) + data
+            # n+1 newlines guarantees n complete lines even when we start
+            # mid-line (the first partial segment gets discarded by [-n:]).
+            if data.count(b"\n") >= n + 1:
+                break
+
+    # If doesn't end with newline, drop the incomplete last line
+    if data.endswith(b"\n"):
+        _last_file_sizes[key] = size
+    else:
+        last_nl = data.rfind(b"\n")
+        if last_nl == -1:
+            return []
+        # Track up to the end of the last complete line
+        _last_file_sizes[key] = pos + last_nl + 1
+        data = data[: last_nl + 1]
+
+    text = data.decode("utf-8", errors="replace")
+    lines = [line for line in text.split("\n") if line.strip()]
+    return lines[-n:]
 
 
 def _get_new_lines(file_path: Path) -> list[str]:
-    """Read new lines from a file since the last call, updating the offset."""
-    key = str(file_path)
-    last_count = _last_line_counts.get(key, 0)
+    """Read new complete lines appended since the last call.
 
-    if not file_path.exists():
-        return []
+    Only returns lines terminated by a newline (complete writes).
+    Updates _last_file_sizes to track the read position.
+    """
+    key = str(file_path)
+    last_size = _last_file_sizes.get(key, 0)
 
     try:
-        all_lines = file_path.read_text().strip().split("\n")
+        current_size = file_path.stat().st_size
     except OSError:
         return []
 
-    if not all_lines or not all_lines[0]:
+    if current_size <= last_size:
         return []
 
-    total = len(all_lines)
-    if total <= last_count:
+    try:
+        with file_path.open("rb") as f:
+            f.seek(last_size)
+            new_data = f.read()
+    except OSError:
         return []
 
-    new_lines = all_lines[last_count:]
-    _last_line_counts[key] = total
-    return new_lines
+    if new_data.endswith(b"\n"):
+        _last_file_sizes[key] = current_size
+    else:
+        last_nl = new_data.rfind(b"\n")
+        if last_nl == -1:
+            return []
+        _last_file_sizes[key] = last_size + last_nl + 1
+        new_data = new_data[: last_nl + 1]
+
+    text = new_data.decode("utf-8", errors="replace")
+    return [line for line in text.split("\n") if line.strip()]
 
 
 def gather_context() -> str:
@@ -75,22 +141,15 @@ def gather_context() -> str:
         return "Agent data directory does not exist."
 
     sections: list[str] = []
-    is_first_call = len(_last_line_counts) == 0
+    is_first_call = len(_last_file_sizes) == 0
 
     # Inner monologue (from logs/claude_transcript/events.jsonl)
     transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
     if is_first_call:
-        # On first call, show last 10 lines for initial context
-        if transcript.exists():
-            try:
-                lines = transcript.read_text().strip().split("\n")
-                if lines and lines[0]:
-                    recent = lines[-10:] if len(lines) > 10 else lines
-                    formatted = _format_events(recent)
-                    sections.append(f"## Recent Inner Monologue ({len(recent)} entries)\n{formatted}")
-                    _last_line_counts[str(transcript)] = len(lines)
-            except OSError:
-                pass
+        recent = _read_tail_lines(transcript, _INITIAL_TRANSCRIPT_LINES)
+        if recent:
+            formatted = _format_events(recent)
+            sections.append(f"## Recent Inner Monologue ({len(recent)} entries)\n{formatted}")
     else:
         new_lines = _get_new_lines(transcript)
         if new_lines:
@@ -100,59 +159,48 @@ def gather_context() -> str:
     # Messages from other conversations (from logs/messages/events.jsonl)
     messages_file = agent_data_dir / "logs" / "messages" / "events.jsonl"
     current_cid = os.environ.get("LLM_CONVERSATION_ID", "")
-    new_msg_lines = _get_new_lines(messages_file) if not is_first_call else []
-    if is_first_call and messages_file.exists():
-        try:
-            all_lines = messages_file.read_text().strip().split("\n")
-            if all_lines and all_lines[0]:
-                _last_line_counts[str(messages_file)] = len(all_lines)
-                # Show last 3 per other conversation for initial context
-                other_convs: dict[str, list[str]] = {}
-                for line in all_lines:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                        cid = event.get("conversation_id", "")
-                        if cid and cid != current_cid:
-                            other_convs.setdefault(cid, []).append(line)
-                    except json.JSONDecodeError:
-                        continue
-                for cid, msgs in other_convs.items():
-                    recent = msgs[-3:]
-                    formatted = _format_events(recent)
-                    sections.append(f"## Conversation {cid} (last {len(recent)} messages)\n{formatted}")
-        except OSError:
-            pass
-    elif new_msg_lines:
-        # Filter to only other conversations' messages
-        other_msgs = []
-        for line in new_msg_lines:
-            try:
-                event = json.loads(line.strip())
-                if event.get("conversation_id", "") != current_cid:
-                    other_msgs.append(line)
-            except json.JSONDecodeError:
-                continue
-        if other_msgs:
-            formatted = _format_events(other_msgs)
-            sections.append(f"## New messages from other conversations ({len(other_msgs)})\n{formatted}")
+    if is_first_call:
+        recent_msgs = _read_tail_lines(messages_file, _INITIAL_MESSAGES_LINES)
+        if recent_msgs:
+            other_convs: dict[str, list[str]] = {}
+            for line in recent_msgs:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                    cid = event.get("conversation_id", "")
+                    if cid and cid != current_cid:
+                        other_convs.setdefault(cid, []).append(line)
+                except json.JSONDecodeError:
+                    continue
+            for cid, msgs in other_convs.items():
+                recent = msgs[-_INITIAL_MESSAGES_PER_CONVERSATION:]
+                formatted = _format_events(recent)
+                sections.append(f"## Conversation {cid} (last {len(recent)} messages)\n{formatted}")
+    else:
+        new_msg_lines = _get_new_lines(messages_file)
+        if new_msg_lines:
+            other_msgs = []
+            for line in new_msg_lines:
+                try:
+                    event = json.loads(line.strip())
+                    if event.get("conversation_id", "") != current_cid:
+                        other_msgs.append(line)
+                except json.JSONDecodeError:
+                    continue
+            if other_msgs:
+                formatted = _format_events(other_msgs)
+                sections.append(f"## New messages from other conversations ({len(other_msgs)})\n{formatted}")
 
     # Trigger events from all sources
     for source in ("scheduled", "mng_agents", "stop", "monitor"):
         events_file = agent_data_dir / "logs" / source / "events.jsonl"
         if is_first_call:
-            if events_file.exists():
-                try:
-                    lines = events_file.read_text().strip().split("\n")
-                    if lines and lines[0]:
-                        recent = lines[-5:] if len(lines) > 5 else lines
-                        formatted = _format_events(recent)
-                        sections.append(f"## Recent {source} events ({len(recent)})\n{formatted}")
-                        _last_line_counts[str(events_file)] = len(lines)
-                except OSError:
-                    pass
+            recent = _read_tail_lines(events_file, _INITIAL_TRIGGER_LINES)
+            if recent:
+                formatted = _format_events(recent)
+                sections.append(f"## Recent {source} events ({len(recent)})\n{formatted}")
         else:
             new_lines = _get_new_lines(events_file)
             if new_lines:

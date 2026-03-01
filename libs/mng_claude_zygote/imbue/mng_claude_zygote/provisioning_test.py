@@ -560,7 +560,7 @@ def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_p
     events_file = logs_dir / "events.jsonl"
     events_file.write_text('{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"e1","source":"scheduled"}\n')
 
-    # Load a fresh module instance (to get clean _last_line_counts state)
+    # Load a fresh module instance (to get clean _last_file_sizes state)
     spec = importlib.util.spec_from_file_location(
         "context_tool_incremental_test",
         Path(__file__).parent / "resources" / "context_tool.py",
@@ -584,3 +584,144 @@ def test_context_tool_gather_context_returns_no_new_context_on_second_call(tmp_p
             os.environ["MNG_AGENT_STATE_DIR"] = old_val
         else:
             os.environ.pop("MNG_AGENT_STATE_DIR", None)
+
+
+def _load_fresh_context_tool(name: str) -> Any:
+    """Load a fresh instance of context_tool.py with clean state."""
+    import importlib
+
+    spec = importlib.util.spec_from_file_location(
+        name,
+        Path(__file__).parent / "resources" / "context_tool.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _make_event_line(event_id: str, source: str = "test") -> str:
+    return f'{{"timestamp":"2026-01-01T00:00:00Z","type":"test","event_id":"{event_id}","source":"{source}"}}'
+
+
+def test_read_tail_lines_returns_last_n_lines(tmp_path: Path) -> None:
+    """Verify _read_tail_lines returns only the last N complete lines."""
+    module = _load_fresh_context_tool("tail_last_n")
+    f = tmp_path / "events.jsonl"
+    lines = [_make_event_line(f"e{i}") for i in range(20)]
+    f.write_text("\n".join(lines) + "\n")
+
+    result = module._read_tail_lines(f, 5)
+    assert len(result) == 5
+    for i, line in enumerate(result):
+        assert f'"event_id":"e{15 + i}"' in line
+
+
+def test_read_tail_lines_drops_incomplete_last_line(tmp_path: Path) -> None:
+    """Verify _read_tail_lines drops the last line when it lacks a trailing newline."""
+    module = _load_fresh_context_tool("tail_incomplete")
+    f = tmp_path / "events.jsonl"
+    complete = _make_event_line("complete")
+    incomplete = '{"partial":"data_no_newline'
+    f.write_text(complete + "\n" + incomplete)
+
+    result = module._read_tail_lines(f, 5)
+    assert len(result) == 1
+    assert "complete" in result[0]
+    assert "partial" not in result[0]
+
+
+def test_read_tail_lines_handles_empty_file(tmp_path: Path) -> None:
+    """Verify _read_tail_lines returns empty list for an empty file."""
+    module = _load_fresh_context_tool("tail_empty")
+    f = tmp_path / "events.jsonl"
+    f.write_text("")
+
+    result = module._read_tail_lines(f, 5)
+    assert result == []
+
+
+def test_read_tail_lines_handles_missing_file(tmp_path: Path) -> None:
+    """Verify _read_tail_lines returns empty list for a nonexistent file."""
+    module = _load_fresh_context_tool("tail_missing")
+    f = tmp_path / "nonexistent.jsonl"
+
+    result = module._read_tail_lines(f, 5)
+    assert result == []
+
+
+def test_read_tail_lines_returns_all_when_fewer_than_n(tmp_path: Path) -> None:
+    """Verify _read_tail_lines returns all lines when fewer than N exist."""
+    module = _load_fresh_context_tool("tail_fewer")
+    f = tmp_path / "events.jsonl"
+    lines = [_make_event_line(f"e{i}") for i in range(3)]
+    f.write_text("\n".join(lines) + "\n")
+
+    result = module._read_tail_lines(f, 10)
+    assert len(result) == 3
+
+
+def test_read_tail_lines_file_only_incomplete_line(tmp_path: Path) -> None:
+    """Verify _read_tail_lines returns empty when file has only an incomplete line."""
+    module = _load_fresh_context_tool("tail_only_incomplete")
+    f = tmp_path / "events.jsonl"
+    f.write_text("partial data no newline")
+
+    result = module._read_tail_lines(f, 5)
+    assert result == []
+
+
+def test_get_new_lines_returns_appended_data(tmp_path: Path) -> None:
+    """Verify _get_new_lines returns lines appended after a _read_tail_lines call."""
+    module = _load_fresh_context_tool("new_lines_append")
+    f = tmp_path / "events.jsonl"
+    f.write_text(_make_event_line("e1") + "\n")
+
+    # Prime the offset via _read_tail_lines
+    module._read_tail_lines(f, 5)
+
+    # Append new data
+    with f.open("a") as fh:
+        fh.write(_make_event_line("e2") + "\n")
+
+    result = module._get_new_lines(f)
+    assert len(result) == 1
+    assert '"event_id":"e2"' in result[0]
+
+
+def test_get_new_lines_drops_incomplete_appended_line(tmp_path: Path) -> None:
+    """Verify _get_new_lines skips an incomplete trailing line."""
+    module = _load_fresh_context_tool("new_lines_incomplete")
+    f = tmp_path / "events.jsonl"
+    f.write_text(_make_event_line("e1") + "\n")
+
+    module._read_tail_lines(f, 5)
+
+    # Append one complete line and one incomplete
+    with f.open("a") as fh:
+        fh.write(_make_event_line("e2") + "\n")
+        fh.write("incomplete")
+
+    result = module._get_new_lines(f)
+    assert len(result) == 1
+    assert '"event_id":"e2"' in result[0]
+
+    # Now "complete" the incomplete line
+    with f.open("a") as fh:
+        fh.write("_data\n")
+
+    result2 = module._get_new_lines(f)
+    assert len(result2) == 1
+    assert "incomplete_data" in result2[0]
+
+
+def test_get_new_lines_returns_empty_when_no_new_data(tmp_path: Path) -> None:
+    """Verify _get_new_lines returns empty when file hasn't changed."""
+    module = _load_fresh_context_tool("new_lines_no_change")
+    f = tmp_path / "events.jsonl"
+    f.write_text(_make_event_line("e1") + "\n")
+
+    module._read_tail_lines(f, 5)
+
+    result = module._get_new_lines(f)
+    assert result == []
