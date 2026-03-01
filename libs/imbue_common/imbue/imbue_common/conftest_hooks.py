@@ -264,11 +264,7 @@ def _pytest_sessionstart(session: pytest.Session) -> None:
         setattr(session, "start_time", time.time())  # noqa: B010
 
     # Create resource guard wrappers (workers reuse the controller's via env var).
-    # Skip during --collect-only since guards are only needed for test execution
-    # and the guarded binaries may not be installed (e.g. on CI runners that only
-    # run test discovery for offload).
-    if not session.config.option.collectonly:
-        create_resource_guard_wrappers(_GUARDED_RESOURCES)
+    create_resource_guard_wrappers(_GUARDED_RESOURCES)
 
 
 @pytest.hookimpl(trylast=True)
