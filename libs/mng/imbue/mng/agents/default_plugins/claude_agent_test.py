@@ -538,7 +538,10 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     # Should fail loudly on missing session_id, not silently swallow
     assert "exit 1" in session_id_hook
     assert ">&2" in session_id_hook
-    # Should append to history file for tracking old session IDs
+    # Should extract source from hook payload
+    assert "source" in session_id_hook
+    assert "_MNG_SOURCE" in session_id_hook
+    # Should append to history file for tracking old session IDs (with source)
     assert "claude_session_id_history" in session_id_hook
     # Should use atomic write (write to .tmp then mv) to prevent torn reads
     assert "claude_session_id.tmp" in session_id_hook
