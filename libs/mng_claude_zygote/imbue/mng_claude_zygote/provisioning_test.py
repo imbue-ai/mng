@@ -179,6 +179,13 @@ def test_chat_script_reports_malformed_lines() -> None:
     assert "WARNING" in content or "malformed" in content
 
 
+def test_chat_script_logs_to_file() -> None:
+    """Verify chat.sh writes debug output to a log file."""
+    content = load_zygote_resource("chat.sh")
+    assert "LOG_FILE" in content
+    assert "chat.log" in content
+
+
 # -- Conversation watcher content tests --
 
 
@@ -190,6 +197,19 @@ def test_conversation_watcher_queries_sqlite() -> None:
 def test_conversation_watcher_syncs_to_conversations_dir() -> None:
     content = load_zygote_resource("conversation_watcher.sh")
     assert "conversations" in content
+
+
+def test_conversation_watcher_logs_to_file() -> None:
+    """Verify conversation_watcher.sh writes debug output to a log file."""
+    content = load_zygote_resource("conversation_watcher.sh")
+    assert "LOG_FILE" in content
+    assert "conversation_watcher.log" in content
+
+
+def test_conversation_watcher_logs_sqlite_errors() -> None:
+    """Verify conversation_watcher.sh captures and logs sqlite3 errors."""
+    content = load_zygote_resource("conversation_watcher.sh")
+    assert "query_stderr" in content or "WARNING" in content
 
 
 def test_conversation_watcher_supports_inotifywait() -> None:
@@ -223,6 +243,19 @@ def test_event_watcher_tracks_offsets() -> None:
 def test_event_watcher_supports_inotifywait() -> None:
     content = load_zygote_resource("event_watcher.sh")
     assert "inotifywait" in content
+
+
+def test_event_watcher_logs_to_file() -> None:
+    """Verify event_watcher.sh writes debug output to a log file."""
+    content = load_zygote_resource("event_watcher.sh")
+    assert "LOG_FILE" in content
+    assert "event_watcher.log" in content
+
+
+def test_event_watcher_logs_send_errors() -> None:
+    """Verify event_watcher.sh captures and logs mng message errors."""
+    content = load_zygote_resource("event_watcher.sh")
+    assert "send_stderr" in content or "ERROR" in content
 
 
 # -- LLM tool content tests --

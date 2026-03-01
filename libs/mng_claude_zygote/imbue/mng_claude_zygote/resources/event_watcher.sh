@@ -12,15 +12,35 @@
 # Environment:
 #   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
 #   MNG_AGENT_NAME       - name of the primary agent to send messages to
+#   MNG_HOST_DIR         - host data directory (contains logs/ for log output)
 
 set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 AGENT_NAME="${MNG_AGENT_NAME:?MNG_AGENT_NAME must be set}"
+HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
 EVENTS_FILE="$AGENT_DATA_DIR/logs/entrypoint_events.jsonl"
 OFFSETS_DIR="$AGENT_DATA_DIR/logs/.event_offsets"
+LOG_FILE="$HOST_DIR/logs/event_watcher.log"
 POLL_INTERVAL=3
+
+# Log to both stdout (visible in tmux window) and log file
+log() {
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    local msg="[$ts] $*"
+    echo "$msg"
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "$msg" >> "$LOG_FILE"
+}
+
+log_debug() {
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "[$ts] [debug] $*" >> "$LOG_FILE"
+}
 
 # Check for new lines in a file and send them to the primary agent
 check_and_send_new_events() {
@@ -65,16 +85,24 @@ check_and_send_new_events() {
         source_label="conversation $cid"
     fi
 
+    log "Found $new_count new line(s) in $basename (offset $current_offset -> $total_lines)"
+    log_debug "New lines from $basename: $(echo "$new_lines" | head -c 500)"
+
     local message
     message="New $source_label:
 $new_lines"
 
     # Send to the primary agent via mng message
-    if uv run mng message "$AGENT_NAME" -m "$message" 2>/dev/null; then
+    log "Sending event to agent '$AGENT_NAME' from $basename ($new_count line(s))"
+    local send_stderr
+    send_stderr=$(mktemp)
+    if uv run mng message "$AGENT_NAME" -m "$message" 2>"$send_stderr"; then
         echo "$total_lines" > "$offset_file"
+        log "Event sent successfully, offset updated to $total_lines"
     else
-        echo "Warning: failed to send event from $basename to $AGENT_NAME" >&2
+        log "ERROR: failed to send event from $basename to $AGENT_NAME: $(cat "$send_stderr")"
     fi
+    rm -f "$send_stderr"
 }
 
 # Check all watched files for new events
@@ -86,11 +114,14 @@ check_all_files() {
 
     # Check conversation files
     if [ -d "$CONVERSATIONS_DIR" ]; then
+        local file_count=0
         for conv_file in "$CONVERSATIONS_DIR"/*.jsonl; do
             if [ -f "$conv_file" ]; then
                 check_and_send_new_events "$conv_file"
+                file_count=$((file_count + 1))
             fi
         done
+        log_debug "Checked $file_count conversation file(s)"
     fi
 }
 
@@ -98,16 +129,18 @@ check_all_files() {
 main() {
     mkdir -p "$OFFSETS_DIR"
 
-    echo "Event watcher started"
-    echo "  Agent data dir: $AGENT_DATA_DIR"
-    echo "  Agent name: $AGENT_NAME"
-    echo "  Events file: $EVENTS_FILE"
-    echo "  Conversations dir: $CONVERSATIONS_DIR"
-    echo "  Poll interval: ${POLL_INTERVAL}s"
+    log "Event watcher started"
+    log "  Agent data dir: $AGENT_DATA_DIR"
+    log "  Agent name: $AGENT_NAME"
+    log "  Events file: $EVENTS_FILE"
+    log "  Conversations dir: $CONVERSATIONS_DIR"
+    log "  Offsets dir: $OFFSETS_DIR"
+    log "  Log file: $LOG_FILE"
+    log "  Poll interval: ${POLL_INTERVAL}s"
 
     # Check if inotifywait is available
     if command -v inotifywait &>/dev/null; then
-        echo "  Using inotifywait for file watching"
+        log "Using inotifywait for file watching"
         while true; do
             # Build the watch list: conversations dir + events file
             local watch_targets=("$CONVERSATIONS_DIR")
@@ -115,12 +148,13 @@ main() {
                 watch_targets+=("$EVENTS_FILE")
             fi
 
+            log_debug "Waiting for file changes (targets: ${watch_targets[*]})"
             # Wait for changes (with timeout to pick up new files)
             inotifywait -q -r -t "$POLL_INTERVAL" -e modify,create "${watch_targets[@]}" 2>/dev/null || true
             check_all_files
         done
     else
-        echo "  Using polling (inotifywait not available)"
+        log "inotifywait not available, using polling"
         while true; do
             check_all_files
             sleep "$POLL_INTERVAL"

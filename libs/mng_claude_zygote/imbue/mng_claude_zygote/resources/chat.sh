@@ -24,11 +24,20 @@ CONVERSATIONS_FILE="$AGENT_DATA_DIR/logs/conversations.jsonl"
 CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
 DEFAULT_MODEL_FILE="$AGENT_DATA_DIR/default_chat_model"
 LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
+LOG_FILE="${MNG_HOST_DIR}/logs/chat.log"
 
 # Nanosecond-precision UTC timestamp in ISO 8601 format.
 # Used everywhere in this plugin for consistent, high-precision timestamps.
 iso_timestamp_ns() {
     date -u +"%Y-%m-%dT%H:%M:%S.%NZ"
+}
+
+# Log a message to the log file (not to stdout, since chat is interactive)
+log() {
+    local ts
+    ts=$(iso_timestamp_ns)
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "[$ts] $*" >> "$LOG_FILE"
 }
 
 get_default_model() {
@@ -62,6 +71,7 @@ append_conversation_record() {
     timestamp=$(iso_timestamp_ns)
     mkdir -p "$(dirname "$CONVERSATIONS_FILE")"
     printf '{"id":"%s","model":"%s","timestamp":"%s"}\n' "$cid" "$model" "$timestamp" >> "$CONVERSATIONS_FILE"
+    log "Appended conversation record: cid=$cid model=$model timestamp=$timestamp"
 }
 
 build_tool_args() {
@@ -91,18 +101,23 @@ new_conversation() {
     local cid
     cid=$(generate_cid)
 
+    log "Creating new conversation: cid=$cid model=$model as_agent=$as_agent message_len=${#message}"
+
     append_conversation_record "$cid" "$model"
 
     if [ "$as_agent" = true ]; then
         # Agent-initiated: inject the message as an assistant response
         if [ -n "$message" ]; then
+            log "Injecting agent message into conversation $cid"
             llm inject --cid "$cid" -m "$model" "$message"
+            log "Agent message injected successfully"
         fi
         echo "$cid"
     else
         # User-initiated: start an interactive live-chat session
         local tool_args
         tool_args=$(build_tool_args)
+        log "Starting live-chat session: cid=$cid model=$model tool_args='$tool_args'"
         if [ -n "$message" ]; then
             # shellcheck disable=SC2086
             exec llm live-chat --cid "$cid" -m "$model" $tool_args "$message"
@@ -117,6 +132,8 @@ resume_conversation() {
     local cid="$1"
     shift
 
+    log "Resuming conversation: cid=$cid"
+
     # Get the model from the latest entry for this conversation
     local model
     model=$(grep "\"id\":\"$cid\"" "$CONVERSATIONS_FILE" 2>/dev/null \
@@ -124,8 +141,11 @@ resume_conversation() {
         | jq -r '.model' 2>/dev/null \
         || get_default_model)
 
+    log "Resolved model for conversation $cid: $model"
+
     local tool_args
     tool_args=$(build_tool_args)
+    log "Starting live-chat session (resume): cid=$cid model=$model tool_args='$tool_args'"
     # shellcheck disable=SC2086
     exec llm live-chat --show-history -c --cid "$cid" -m "$model" $tool_args
 }
@@ -135,6 +155,8 @@ list_conversations() {
         echo "No conversations yet."
         return 0
     fi
+
+    log "Listing conversations from $CONVERSATIONS_FILE"
 
     echo "Conversations:"
     echo "=============="
@@ -176,6 +198,8 @@ sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), rev
 for record in sorted_convs:
     print(f\"  {record['id']}  model={record.get('model', '?')}  created_at={record.get('timestamp', '?')}  updated_at={record.get('updated_at', '?')}\")
 "
+
+    log "Listed $(wc -l < "$CONVERSATIONS_FILE" | tr -d '[:space:]') conversation records"
 }
 
 show_help() {
@@ -189,6 +213,8 @@ show_help() {
     echo ""
     echo "With no arguments, lists conversations (same as --list)."
 }
+
+log "Invoked with args: $*"
 
 # Parse top-level arguments
 case "${1:-}" in

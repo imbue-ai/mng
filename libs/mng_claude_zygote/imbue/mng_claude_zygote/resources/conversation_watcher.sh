@@ -13,14 +13,34 @@
 #
 # Environment:
 #   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
+#   MNG_HOST_DIR         - host data directory (contains logs/ for log output)
 
 set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
+HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 CONVERSATIONS_FILE="$AGENT_DATA_DIR/logs/conversations.jsonl"
 CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
 SYNC_STATE_DIR="$AGENT_DATA_DIR/logs/.conv_sync_state"
+LOG_FILE="$HOST_DIR/logs/conversation_watcher.log"
 POLL_INTERVAL=5
+
+# Log to both stdout (visible in tmux window) and log file
+log() {
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    local msg="[$ts] $*"
+    echo "$msg"
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "$msg" >> "$LOG_FILE"
+}
+
+log_debug() {
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "[$ts] [debug] $*" >> "$LOG_FILE"
+}
 
 # Determine the llm database path
 get_llm_db_path() {
@@ -118,12 +138,26 @@ sync_conversation() {
         ${ts_filter}
     ) ORDER BY sort_ts ASC, sort_order ASC;"
 
+    log_debug "Querying conversation $cid (last_ts=$last_ts)"
+
     local new_messages
-    new_messages=$(sqlite3 "$db_path" "$query" 2>/dev/null || echo "")
+    local query_stderr
+    query_stderr=$(mktemp)
+    new_messages=$(sqlite3 "$db_path" "$query" 2>"$query_stderr" || true)
+
+    if [ -s "$query_stderr" ]; then
+        log "WARNING: sqlite3 query error for conversation $cid: $(cat "$query_stderr")"
+    fi
+    rm -f "$query_stderr"
 
     if [ -z "$new_messages" ]; then
+        log_debug "No new messages for conversation $cid"
         return
     fi
+
+    local msg_count
+    msg_count=$(echo "$new_messages" | wc -l | tr -d '[:space:]')
+    log "Synced $msg_count new message(s) for conversation $cid"
 
     # Append new messages to the conversation file
     echo "$new_messages" >> "$conv_file"
@@ -137,6 +171,7 @@ sync_conversation() {
     " 2>/dev/null || echo "")
     if [ -n "$new_last_ts" ]; then
         echo "$new_last_ts" > "$state_file"
+        log_debug "Updated sync state for $cid: last_ts=$new_last_ts"
     fi
 }
 
@@ -145,14 +180,20 @@ sync_all_conversations() {
     local db_path="$1"
 
     if [ ! -f "$db_path" ]; then
+        log_debug "LLM database not found at $db_path"
         return
     fi
 
     local cids
     cids=$(get_conversation_ids)
     if [ -z "$cids" ]; then
+        log_debug "No tracked conversations found"
         return
     fi
+
+    local cid_count
+    cid_count=$(echo "$cids" | wc -l | tr -d '[:space:]')
+    log_debug "Checking $cid_count tracked conversation(s)"
 
     while IFS= read -r cid; do
         sync_conversation "$cid" "$db_path"
@@ -166,14 +207,18 @@ main() {
     local db_path
     db_path=$(get_llm_db_path)
 
-    echo "Conversation watcher started"
-    echo "  Agent data dir: $AGENT_DATA_DIR"
-    echo "  LLM database: $db_path"
-    echo "  Poll interval: ${POLL_INTERVAL}s"
+    log "Conversation watcher started"
+    log "  Agent data dir: $AGENT_DATA_DIR"
+    log "  LLM database: $db_path"
+    log "  Conversations file: $CONVERSATIONS_FILE"
+    log "  Conversations dir: $CONVERSATIONS_DIR"
+    log "  Sync state dir: $SYNC_STATE_DIR"
+    log "  Log file: $LOG_FILE"
+    log "  Poll interval: ${POLL_INTERVAL}s"
 
     # Check if inotifywait is available for efficient watching
     if command -v inotifywait &>/dev/null && [ -f "$db_path" ]; then
-        echo "  Using inotifywait for file watching"
+        log "Using inotifywait for file watching"
         # Watch both the llm database and the conversations file for changes
         while true; do
             # Wait for either file to be modified (with timeout for new conversations)
@@ -183,7 +228,11 @@ main() {
             sync_all_conversations "$db_path"
         done
     else
-        echo "  Using polling (inotifywait not available)"
+        if ! command -v inotifywait &>/dev/null; then
+            log "inotifywait not available, using polling"
+        elif [ ! -f "$db_path" ]; then
+            log "LLM database not yet created at $db_path, using polling"
+        fi
         while true; do
             # Re-resolve db_path in case it was created after we started
             db_path=$(get_llm_db_path)
