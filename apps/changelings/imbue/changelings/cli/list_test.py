@@ -138,8 +138,8 @@ def test_emit_human_output_with_empty_list_does_not_raise() -> None:
     _emit_human_output([], _DEFAULT_DISPLAY_FIELDS)
 
 
-def test_emit_human_output_uses_header_labels() -> None:
-    """Verify that the header labels mapping covers the default display fields."""
+def test_default_display_fields_have_header_labels() -> None:
+    """Verify that the header labels mapping covers all default display fields."""
     for field in _DEFAULT_DISPLAY_FIELDS:
         assert field in _HEADER_LABELS
 

@@ -729,12 +729,24 @@ def test_parse_add_path_absolute_dest(tmp_path: Path) -> None:
 # --- Tests for deploy with self-deploy enabled ---
 
 
-def test_deploy_self_deploy_yes_flag(tmp_path: Path) -> None:
-    """Verify --self-deploy flag is accepted."""
-    result = _deploy_with_agent_type(tmp_path, name="my-bot")
+def test_deploy_with_self_deploy_flag(tmp_path: Path) -> None:
+    """Verify --self-deploy flag is accepted and skips the self-deploy prompt."""
+    repo_dir = _create_git_repo_with_settings(tmp_path)
 
-    # Should run without error (it logs debug about self-deploy not yet implemented)
-    # We're just checking the flag is accepted
+    result = _RUNNER.invoke(
+        cli,
+        [
+            "deploy",
+            str(repo_dir),
+            "--name",
+            "my-bot",
+            "--provider",
+            "local",
+            "--self-deploy",
+            *_data_dir_args(tmp_path),
+        ],
+    )
+
     assert "launch its own agents" not in result.output
 
 

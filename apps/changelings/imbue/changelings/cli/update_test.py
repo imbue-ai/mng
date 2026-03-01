@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from click.testing import CliRunner
 
 from imbue.changelings.cli.update import _is_agent_remote
@@ -133,61 +134,27 @@ def test_is_agent_remote_returns_false_when_agent_not_found() -> None:
 # --- _print_result tests ---
 
 
-def test_print_result_all_steps_does_not_raise() -> None:
-    """Verify _print_result does not raise when all steps were performed."""
+@pytest.mark.parametrize(
+    "did_snapshot, did_push, did_provision",
+    [
+        (True, True, True),
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+    ],
+)
+def test_print_result_does_not_raise(
+    did_snapshot: bool,
+    did_push: bool,
+    did_provision: bool,
+) -> None:
+    """Verify _print_result does not raise for any combination of steps."""
     result = UpdateResult(
         agent_name=AgentName("my-agent"),
-        did_snapshot=True,
-        did_push=True,
-        did_provision=True,
-    )
-
-    _print_result(result)
-
-
-def test_print_result_minimal_steps_does_not_raise() -> None:
-    """Verify _print_result works when only stop and start were performed."""
-    result = UpdateResult(
-        agent_name=AgentName("my-agent"),
-        did_snapshot=False,
-        did_push=False,
-        did_provision=False,
-    )
-
-    _print_result(result)
-
-
-def test_print_result_snapshot_only_does_not_raise() -> None:
-    """Verify _print_result works with snapshot but no push/provision."""
-    result = UpdateResult(
-        agent_name=AgentName("my-agent"),
-        did_snapshot=True,
-        did_push=False,
-        did_provision=False,
-    )
-
-    _print_result(result)
-
-
-def test_print_result_push_only_does_not_raise() -> None:
-    """Verify _print_result works with push but no snapshot/provision."""
-    result = UpdateResult(
-        agent_name=AgentName("my-agent"),
-        did_snapshot=False,
-        did_push=True,
-        did_provision=False,
-    )
-
-    _print_result(result)
-
-
-def test_print_result_provision_only_does_not_raise() -> None:
-    """Verify _print_result works with provision but no snapshot/push."""
-    result = UpdateResult(
-        agent_name=AgentName("my-agent"),
-        did_snapshot=False,
-        did_push=False,
-        did_provision=True,
+        did_snapshot=did_snapshot,
+        did_push=did_push,
+        did_provision=did_provision,
     )
 
     _print_result(result)
