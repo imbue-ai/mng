@@ -3136,6 +3136,9 @@ def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequ
     return result
 
 
+# FIXME: this code that breaks dockefiles up into layers really only needs to chunk the layer when we run into a COPY or RUN command (or when we're finished parsing the commands from the file).
+#  Doing that should make things quite a bit faster, but without really sacrificing any debuggability (since commands like ENV and ARG don't really do much)
+#  Specifically, we should execute the dockerfile commands together in modal, where each batch ends with a RUN or COPY command (or the end of the file), rather than doing *EVERY* command separately
 def _build_image_from_dockerfile_contents(
     dockerfile_contents: str,
     # build context directory for COPY/ADD instructions

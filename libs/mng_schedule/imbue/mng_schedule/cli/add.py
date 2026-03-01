@@ -88,6 +88,8 @@ def _has_tag_with_key(mng_args: Sequence[str], tag_key: str) -> bool:
     return False
 
 
+# FIXME: there really should be a "--headless" and "--interactive" flags in mng itself (as common options that apply across every command and raise an Exception if eg you try to be interactive but are not in a TTY). That way, if --headless is set, we can NEVER do interactive things (we have some logic for understnding if we're in interactive mode, it should be made consistent and use that common flag).
+#  When implementing this, once it's done, also come back here and add "--headless" as a default flag for *any* command (not just create)
 @pure
 def auto_fix_create_args(
     args: str,
@@ -106,6 +108,8 @@ def auto_fix_create_args(
     """
     parts = shlex.split(args) if args else []
     mng_args, passthrough_args = _split_args_at_separator(parts)
+
+    # FIXME: we should check that "--yes" is specified, and add it if not
 
     if not _has_flag(mng_args, "--no-connect", "--connect"):
         mng_args.append("--no-connect")
