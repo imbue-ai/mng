@@ -88,27 +88,35 @@ sync_conversation() {
     # Query produces two rows per response: one for the user prompt,
     # one for the assistant response. Rows without a prompt (injected
     # assistant messages) produce only the assistant row.
+    #
+    # We use a subquery with explicit sort_ts and sort_order columns to
+    # ensure correct chronological ordering: messages are sorted by
+    # timestamp, with user messages before assistant messages at the same
+    # timestamp (sort_order 0 < 1).
     local query="
-    SELECT json_object(
-        'role', 'user',
-        'content', prompt,
-        'timestamp', datetime_utc,
-        'conversation_id', conversation_id
-    ) FROM responses
-    WHERE conversation_id = '${cid}'
-    AND prompt IS NOT NULL AND prompt != ''
-    ${ts_filter}
-    UNION ALL
-    SELECT json_object(
-        'role', 'assistant',
-        'content', response,
-        'timestamp', datetime_utc,
-        'conversation_id', conversation_id
-    ) FROM responses
-    WHERE conversation_id = '${cid}'
-    AND response IS NOT NULL AND response != ''
-    ${ts_filter}
-    ORDER BY 1;"
+    SELECT msg FROM (
+        SELECT json_object(
+            'role', 'user',
+            'content', prompt,
+            'timestamp', datetime_utc,
+            'conversation_id', conversation_id
+        ) AS msg, datetime_utc AS sort_ts, 0 AS sort_order
+        FROM responses
+        WHERE conversation_id = '${cid}'
+        AND prompt IS NOT NULL AND prompt != ''
+        ${ts_filter}
+        UNION ALL
+        SELECT json_object(
+            'role', 'assistant',
+            'content', response,
+            'timestamp', datetime_utc,
+            'conversation_id', conversation_id
+        ) AS msg, datetime_utc AS sort_ts, 1 AS sort_order
+        FROM responses
+        WHERE conversation_id = '${cid}'
+        AND response IS NOT NULL AND response != ''
+        ${ts_filter}
+    ) ORDER BY sort_ts ASC, sort_order ASC;"
 
     local new_messages
     new_messages=$(sqlite3 "$db_path" "$query" 2>/dev/null || echo "")

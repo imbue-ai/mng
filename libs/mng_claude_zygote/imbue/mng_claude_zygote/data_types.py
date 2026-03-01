@@ -14,6 +14,18 @@ class ChatModel(NonEmptyStr):
     """Model name used for chat conversations (e.g. 'claude-sonnet-4-6')."""
 
 
+class IsoTimestamp(NonEmptyStr):
+    """An ISO 8601 formatted timestamp string (e.g. '2026-02-28T00:00:00Z')."""
+
+
+class EventType(NonEmptyStr):
+    """Type of an entrypoint event (e.g. 'scheduled', 'sub_agent_waiting')."""
+
+
+class MessageRole(NonEmptyStr):
+    """Role of a message sender (e.g. 'user', 'assistant')."""
+
+
 class ConversationRecord(FrozenModel):
     """A record in conversations.jsonl tracking a conversation thread.
 
@@ -24,7 +36,7 @@ class ConversationRecord(FrozenModel):
 
     id: ConversationId
     model: ChatModel
-    timestamp: str
+    timestamp: IsoTimestamp
 
 
 class EntrypointEvent(FrozenModel):
@@ -34,8 +46,8 @@ class EntrypointEvent(FrozenModel):
     include time-based triggers, sub-agent state changes, and shutdown checks.
     """
 
-    type: str
-    timestamp: str
+    type: EventType
+    timestamp: IsoTimestamp
     data: dict[str, Any] = {}
 
 
@@ -46,7 +58,7 @@ class ConversationMessage(FrozenModel):
     a single user or assistant message in timestamp order.
     """
 
-    role: str
+    role: MessageRole
     content: str
-    timestamp: str
+    timestamp: IsoTimestamp
     conversation_id: ConversationId
