@@ -20,6 +20,7 @@ from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
+from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
@@ -139,6 +140,8 @@ class ClaudeZygoteAgent(ClaudeAgent):
         super().provision(host, options, mng_ctx)
 
         config = self._get_zygote_config()
+
+        warn_if_mng_unavailable(host, mng_ctx.pm)
 
         if config.install_llm:
             install_llm_toolchain(host)

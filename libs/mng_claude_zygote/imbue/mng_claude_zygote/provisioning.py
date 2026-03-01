@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Final
 
+import pluggy
 from loguru import logger
 
 from imbue.imbue_common.logging import log_span
@@ -114,6 +115,45 @@ def _install_llm_plugins(host: OnlineHostInterface) -> None:
             )
             if not result.success:
                 raise RuntimeError(f"Failed to install {plugin_name}: {result.stderr}")
+
+
+def _is_recursive_plugin_registered(pm: pluggy.PluginManager) -> bool:
+    """Check if the mng_recursive plugin is registered (and thus will install mng on remote hosts)."""
+    return any(name == "recursive_mng" for name, _ in pm.list_name_plugin())
+
+
+def warn_if_mng_unavailable(host: OnlineHostInterface, pm: pluggy.PluginManager) -> None:
+    """Warn if mng will not be available on the agent host.
+
+    Changeling scripts (event_watcher.sh, etc.) use 'uv run mng message' to
+    communicate with the primary agent. If mng is not available on the host,
+    these scripts will fail silently.
+
+    Skips the warning if:
+    - The host is local (mng is obviously available since it's running locally)
+    - The mng_recursive plugin is registered (it will install mng on remote hosts)
+    """
+    if host.is_local:
+        return
+
+    if _is_recursive_plugin_registered(pm):
+        logger.debug("Skipping mng availability check: recursive plugin will install mng")
+        return
+
+    check_result = _execute_with_timing(
+        host,
+        "command -v mng",
+        hard_timeout=_COMMAND_CHECK_HARD_TIMEOUT,
+        warn_threshold=_COMMAND_CHECK_WARN_THRESHOLD,
+        label="mng check",
+    )
+    if not check_result.success:
+        logger.warning(
+            "mng is not available on the remote host and the mng_recursive plugin is not enabled. "
+            "Changeling scripts (event_watcher.sh, etc.) use 'uv run mng message' to communicate "
+            "with the primary agent and will fail without mng installed. "
+            "Enable the mng_recursive plugin or install mng on the remote host manually."
+        )
 
 
 def create_changeling_symlinks(host: OnlineHostInterface, work_dir: Path, changelings_dir_name: str) -> None:

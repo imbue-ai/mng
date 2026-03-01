@@ -6,6 +6,10 @@ the conversation agent with context about the current state of the changeling.
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from logs/<source>/events.jsonl.
 
+The tool tracks which events have already been returned, so each call only
+returns new events since the last invocation. This makes conversations more
+efficient by avoiding redundant context.
+
 NOTE: _format_events() is duplicated in extra_context_tool.py because these
 files are deployed as standalone scripts to the agent host via --functions,
 where they cannot import from each other or from the mng_claude_zygote package.
@@ -15,23 +19,53 @@ import json
 import os
 from pathlib import Path
 
-# how many lines of the inner monologue transcript to include in the context? adjust as needed for more/less detail vs token budget
-INNER_MONOLOGUE_LINE_COUNT = 10
-
 _MAX_CONTENT_LENGTH = 200
+
+# State that persists between calls within the same llm live-chat session.
+# llm loads the module once via exec() and keeps function objects in memory,
+# so module-level state survives across invocations.
+_last_line_counts: dict[str, int] = {}
+
+
+def _get_new_lines(file_path: Path) -> list[str]:
+    """Read new lines from a file since the last call, updating the offset."""
+    key = str(file_path)
+    last_count = _last_line_counts.get(key, 0)
+
+    if not file_path.exists():
+        return []
+
+    try:
+        all_lines = file_path.read_text().strip().split("\n")
+    except OSError:
+        return []
+
+    if not all_lines or not all_lines[0]:
+        return []
+
+    total = len(all_lines)
+    if total <= last_count:
+        return []
+
+    new_lines = all_lines[last_count:]
+    _last_line_counts[key] = total
+    return new_lines
 
 
 def gather_context() -> str:
-    """Gather context from other conversations, inner monologue, and recent events.
+    """Gather NEW context since the last call for this conversation.
 
-    Returns a formatted string containing:
-    - Recent messages from other active conversations (from logs/messages/events.jsonl)
-    - Recent inner monologue entries (from logs/claude_transcript/events.jsonl)
-    - Recent trigger events (from logs/scheduled/, mng_agents/, stop/, monitor/)
+    On the first call, returns recent events from all sources. On subsequent
+    calls, returns only events that appeared since the previous invocation.
+
+    Returns context from:
+    - New messages from other active conversations (from logs/messages/events.jsonl)
+    - New inner monologue entries (from logs/claude_transcript/events.jsonl)
+    - New trigger events (from logs/scheduled/, mng_agents/, stop/, monitor/)
 
     Call this at the start of each conversation turn for situational awareness.
+    If it returns "No new context", nothing has changed since the last call.
     """
-    # FIXME: boh this and the next block should be exceptions--it makes no sense to call gather_context() without the folder being defined and existing
     agent_data_dir_str = os.environ.get("MNG_AGENT_STATE_DIR", "")
     if not agent_data_dir_str:
         return "No agent data directory configured."
@@ -41,59 +75,94 @@ def gather_context() -> str:
         return "Agent data directory does not exist."
 
     sections: list[str] = []
+    is_first_call = len(_last_line_counts) == 0
 
-    # Recent inner monologue (last INNER_MONOLOGUE_LINE_COUNT entries from logs/claude_transcript/events.jsonl)
+    # Inner monologue (from logs/claude_transcript/events.jsonl)
     transcript = agent_data_dir / "logs" / "claude_transcript" / "events.jsonl"
-    if transcript.exists():
-        try:
-            lines = transcript.read_text().strip().split("\n")
-            recent = lines[-INNER_MONOLOGUE_LINE_COUNT:] if len(lines) > INNER_MONOLOGUE_LINE_COUNT else lines
-            if recent and recent[0]:
-                formatted = _format_events(recent)
-                sections.append(f"## Recent Inner Monologue (last {len(recent)} entries)\n{formatted}")
-        except OSError:
-            pass
+    if is_first_call:
+        # On first call, show last 10 lines for initial context
+        if transcript.exists():
+            try:
+                lines = transcript.read_text().strip().split("\n")
+                if lines and lines[0]:
+                    recent = lines[-10:] if len(lines) > 10 else lines
+                    formatted = _format_events(recent)
+                    sections.append(f"## Recent Inner Monologue ({len(recent)} entries)\n{formatted}")
+                    _last_line_counts[str(transcript)] = len(lines)
+            except OSError:
+                pass
+    else:
+        new_lines = _get_new_lines(transcript)
+        if new_lines:
+            formatted = _format_events(new_lines)
+            sections.append(f"## New Inner Monologue ({len(new_lines)} entries)\n{formatted}")
 
     # Messages from other conversations (from logs/messages/events.jsonl)
     messages_file = agent_data_dir / "logs" / "messages" / "events.jsonl"
     current_cid = os.environ.get("LLM_CONVERSATION_ID", "")
-    if messages_file.exists():
+    new_msg_lines = _get_new_lines(messages_file) if not is_first_call else []
+    if is_first_call and messages_file.exists():
         try:
-            lines = messages_file.read_text().strip().split("\n")
-            # Group by conversation, show last 3 from each other conversation
-            other_convs: dict[str, list[str]] = {}
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                    cid = event.get("conversation_id", "")
-                    if cid and cid != current_cid:
-                        other_convs.setdefault(cid, []).append(line)
-                except json.JSONDecodeError:
-                    continue
-            for cid, msgs in other_convs.items():
-                recent = msgs[-3:]
-                formatted = _format_events(recent)
-                sections.append(f"## Conversation {cid} (last {len(recent)} messages)\n{formatted}")
+            all_lines = messages_file.read_text().strip().split("\n")
+            if all_lines and all_lines[0]:
+                _last_line_counts[str(messages_file)] = len(all_lines)
+                # Show last 3 per other conversation for initial context
+                other_convs: dict[str, list[str]] = {}
+                for line in all_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                        cid = event.get("conversation_id", "")
+                        if cid and cid != current_cid:
+                            other_convs.setdefault(cid, []).append(line)
+                    except json.JSONDecodeError:
+                        continue
+                for cid, msgs in other_convs.items():
+                    recent = msgs[-3:]
+                    formatted = _format_events(recent)
+                    sections.append(f"## Conversation {cid} (last {len(recent)} messages)\n{formatted}")
         except OSError:
             pass
+    elif new_msg_lines:
+        # Filter to only other conversations' messages
+        other_msgs = []
+        for line in new_msg_lines:
+            try:
+                event = json.loads(line.strip())
+                if event.get("conversation_id", "") != current_cid:
+                    other_msgs.append(line)
+            except json.JSONDecodeError:
+                continue
+        if other_msgs:
+            formatted = _format_events(other_msgs)
+            sections.append(f"## New messages from other conversations ({len(other_msgs)})\n{formatted}")
 
-    # Recent events from all trigger sources
+    # Trigger events from all sources
     for source in ("scheduled", "mng_agents", "stop", "monitor"):
         events_file = agent_data_dir / "logs" / source / "events.jsonl"
-        if events_file.exists():
-            try:
-                lines = events_file.read_text().strip().split("\n")
-                recent = lines[-5:] if len(lines) > 5 else lines
-                if recent and recent[0]:
-                    formatted = _format_events(recent)
-                    sections.append(f"## Recent {source} events (last {len(recent)})\n{formatted}")
-            except OSError:
-                pass
+        if is_first_call:
+            if events_file.exists():
+                try:
+                    lines = events_file.read_text().strip().split("\n")
+                    if lines and lines[0]:
+                        recent = lines[-5:] if len(lines) > 5 else lines
+                        formatted = _format_events(recent)
+                        sections.append(f"## Recent {source} events ({len(recent)})\n{formatted}")
+                        _last_line_counts[str(events_file)] = len(lines)
+                except OSError:
+                    pass
+        else:
+            new_lines = _get_new_lines(events_file)
+            if new_lines:
+                formatted = _format_events(new_lines)
+                sections.append(f"## New {source} events ({len(new_lines)})\n{formatted}")
 
-    return "\n\n".join(sections) if sections else "No context available."
+    if not sections:
+        return "No new context since last call." if not is_first_call else "No context available."
+
+    return "\n\n".join(sections)
 
 
 def _format_events(lines: list[str]) -> str:

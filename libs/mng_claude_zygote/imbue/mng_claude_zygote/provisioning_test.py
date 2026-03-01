@@ -9,6 +9,7 @@ import pytest
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
+from imbue.mng_claude_zygote.provisioning import _is_recursive_plugin_registered
 from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_event_log_directories
@@ -17,6 +18,7 @@ from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
+from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.provisioning import write_default_chat_model
 
 
@@ -471,3 +473,79 @@ def test_write_default_chat_model_writes_model_to_file() -> None:
     path, content = host.written_text_files[0]
     assert "claude-sonnet-4-6" in content
     assert str(path).endswith("default_chat_model")
+
+
+# -- mng availability check tests --
+
+
+def test_warn_if_mng_unavailable_skips_on_local_host() -> None:
+    host = _StubHost()
+    host.is_local = True  # type: ignore[attr-defined]
+
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return []
+
+    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
+
+    # Should not even check for mng on local hosts
+    assert not any("command -v mng" in c for c in host.executed_commands)
+
+
+def test_warn_if_mng_unavailable_skips_when_recursive_plugin_registered() -> None:
+    host = _StubHost()
+    host.is_local = False  # type: ignore[attr-defined]
+
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return [("recursive_mng", object())]
+
+    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
+
+    # Should not check for mng when recursive plugin handles it
+    assert not any("command -v mng" in c for c in host.executed_commands)
+
+
+def test_warn_if_mng_unavailable_checks_on_remote_without_recursive() -> None:
+    host = _StubHost()
+    host.is_local = False  # type: ignore[attr-defined]
+
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return [("some_other_plugin", object())]
+
+    warn_if_mng_unavailable(cast(Any, host), cast(Any, _FakePM()))
+
+    # Should check for mng on remote host without recursive plugin
+    assert any("command -v mng" in c for c in host.executed_commands)
+
+
+def test_is_recursive_plugin_registered_returns_true_when_present() -> None:
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return [("recursive_mng", object()), ("other", object())]
+
+    assert _is_recursive_plugin_registered(cast(Any, _FakePM())) is True
+
+
+def test_is_recursive_plugin_registered_returns_false_when_absent() -> None:
+    class _FakePM:
+        def list_name_plugin(self) -> list[tuple[str, object]]:
+            return [("some_plugin", object())]
+
+    assert _is_recursive_plugin_registered(cast(Any, _FakePM())) is False
+
+
+# -- context_tool incremental behavior tests --
+
+
+def test_context_tool_tracks_state_between_calls() -> None:
+    """Verify context_tool.py uses module-level state for incremental context."""
+    content = load_zygote_resource("context_tool.py")
+    assert "_last_line_counts" in content
+
+
+def test_context_tool_reports_no_new_context_on_subsequent_calls() -> None:
+    """Verify context_tool.py differentiates first call from subsequent calls."""
+    content = load_zygote_resource("context_tool.py")
+    assert "No new context" in content or "is_first_call" in content
