@@ -215,20 +215,24 @@ def provision_llm_tools(host: OnlineHostInterface) -> None:
             host.write_file(tool_path, tool_content.encode(), mode="0644")
 
 
-def create_conversation_directories(host: OnlineHostInterface, agent_state_dir: Path) -> None:
-    """Create the conversation log directory structure.
+def create_event_log_directories(host: OnlineHostInterface, agent_state_dir: Path) -> None:
+    """Create the event log directory structure.
 
-    Creates:
-    - <agent_state_dir>/logs/conversations/
+    Creates directories for each event source:
+    - <agent_state_dir>/logs/conversations/  (conversation lifecycle events)
+    - <agent_state_dir>/logs/messages/       (conversation messages)
+    - <agent_state_dir>/logs/entrypoint/     (entrypoint trigger events)
+    - <agent_state_dir>/logs/transcript/     (inner monologue, written by Claude background tasks)
     """
-    conversations_dir = agent_state_dir / "logs" / "conversations"
-    _execute_with_timing(
-        host,
-        f"mkdir -p {shlex.quote(str(conversations_dir))}",
-        hard_timeout=_FS_HARD_TIMEOUT,
-        warn_threshold=_FS_WARN_THRESHOLD,
-        label="mkdir conversations",
-    )
+    for source in ("conversations", "messages", "entrypoint", "transcript"):
+        source_dir = agent_state_dir / "logs" / source
+        _execute_with_timing(
+            host,
+            f"mkdir -p {shlex.quote(str(source_dir))}",
+            hard_timeout=_FS_HARD_TIMEOUT,
+            warn_threshold=_FS_WARN_THRESHOLD,
+            label=f"mkdir logs/{source}",
+        )
 
 
 def write_default_chat_model(host: OnlineHostInterface, agent_state_dir: Path, model: ChatModel) -> None:

@@ -15,50 +15,84 @@ class ChatModel(NonEmptyStr):
 
 
 class IsoTimestamp(NonEmptyStr):
-    """An ISO 8601 formatted timestamp string (e.g. '2026-02-28T00:00:00Z')."""
+    """An ISO 8601 formatted timestamp string with nanosecond precision.
+
+    Example: '2026-02-28T00:00:00.123456789Z'
+    """
 
 
 class EventType(NonEmptyStr):
-    """Type of an entrypoint event (e.g. 'scheduled', 'sub_agent_waiting')."""
+    """Type of an event (e.g. 'conversation_created', 'message', 'scheduled')."""
+
+
+class EventSource(NonEmptyStr):
+    """Source identifier for an event, matching the log folder name.
+
+    Must match the folder under logs/ where the event is stored.
+    Examples: 'conversations', 'messages', 'entrypoint'
+    """
+
+
+class EventId(NonEmptyStr):
+    """Unique identifier for an event (typically timestamp + random hex)."""
 
 
 class MessageRole(NonEmptyStr):
     """Role of a message sender (e.g. 'user', 'assistant')."""
 
 
-class ConversationRecord(FrozenModel):
-    """A record in conversations.jsonl tracking a conversation thread.
+# -- Event log sources --
+# These constants define the source names and corresponding log paths.
+# Each source writes to logs/<SOURCE>/events.jsonl.
 
-    Each line in conversations.jsonl is one of these records. Multiple entries
-    for the same conversation ID are allowed (append-only); the last entry wins
-    for fields like model.
+SOURCE_CONVERSATIONS = EventSource("conversations")
+SOURCE_MESSAGES = EventSource("messages")
+SOURCE_ENTRYPOINT = EventSource("entrypoint")
+SOURCE_TRANSCRIPT = EventSource("transcript")
+
+
+class ConversationEvent(FrozenModel):
+    """An event in logs/conversations/events.jsonl tracking conversation lifecycle.
+
+    Emitted when a conversation is created or its model is changed.
+    Every event includes the standard envelope fields (timestamp, type,
+    event_id, source) plus conversation-specific fields.
     """
 
-    id: ConversationId
-    model: ChatModel
     timestamp: IsoTimestamp
+    type: EventType
+    event_id: EventId
+    source: EventSource
+    conversation_id: ConversationId
+    model: ChatModel
+
+
+class MessageEvent(FrozenModel):
+    """An event in logs/messages/events.jsonl recording a conversation message.
+
+    Each event represents a single user or assistant message. All messages
+    across all conversations go into the same file, with conversation_id
+    identifying which conversation the message belongs to.
+    """
+
+    timestamp: IsoTimestamp
+    type: EventType
+    event_id: EventId
+    source: EventSource
+    conversation_id: ConversationId
+    role: MessageRole
+    content: str
 
 
 class EntrypointEvent(FrozenModel):
-    """An event record in entrypoint_events.jsonl.
+    """An event in logs/entrypoint/events.jsonl that triggers the inner monologue.
 
-    Events trigger the primary agent's inner monologue to react. Event types
-    include time-based triggers, sub-agent state changes, and shutdown checks.
+    Event types include time-based triggers, sub-agent state changes,
+    and shutdown checks. The data field carries event-type-specific payload.
     """
 
+    timestamp: IsoTimestamp
     type: EventType
-    timestamp: IsoTimestamp
+    event_id: EventId
+    source: EventSource
     data: dict[str, Any] = {}
-
-
-class ConversationMessage(FrozenModel):
-    """A message synced from the llm database to a per-conversation JSONL file.
-
-    Each line in conversations/<cid>.jsonl is one of these records, representing
-    a single user or assistant message in timestamp order.
-    """
-
-    role: MessageRole
-    content: str
-    timestamp: IsoTimestamp
-    conversation_id: ConversationId

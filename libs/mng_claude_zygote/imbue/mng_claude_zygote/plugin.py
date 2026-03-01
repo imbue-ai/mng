@@ -14,7 +14,7 @@ from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng_claude_zygote.data_types import ChatModel
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
-from imbue.mng_claude_zygote.provisioning import create_conversation_directories
+from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
@@ -128,7 +128,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         1. llm + plugin installation
         2. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
         3. Watcher scripts and chat utilities
-        4. Conversation directory structure
+        4. Event log directory structure (logs/<source>/events.jsonl)
         5. Default chat model configuration
         6. LLM tool scripts for conversation context
         7. Memory directory symlink into Claude project
@@ -145,7 +145,7 @@ class ClaudeZygoteAgent(ClaudeAgent):
         provision_llm_tools(host)
 
         agent_state_dir = self._get_agent_dir()
-        create_conversation_directories(host, agent_state_dir)
+        create_event_log_directories(host, agent_state_dir)
         write_default_chat_model(host, agent_state_dir, config.default_chat_model)
         link_memory_directory(host, self.work_dir, config.changelings_dir_name)
 

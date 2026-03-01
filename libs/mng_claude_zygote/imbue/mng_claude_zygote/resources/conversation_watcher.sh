@@ -1,13 +1,10 @@
 #!/bin/bash
 # Conversation watcher for changeling agents.
 #
-# Watches the llm database for changes and syncs new messages to per-conversation
-# JSONL files. Uses inotifywait when available for efficient file watching,
-# falling back to polling.
-#
-# The watcher reads conversation IDs from conversations.jsonl, then queries
-# the llm SQLite database for new messages and appends them to individual
-# conversation files at logs/conversations/<cid>.jsonl.
+# Watches the llm database for changes and syncs new messages to the
+# standard event log at logs/messages/events.jsonl. Each message event
+# includes the full envelope (timestamp, type, event_id, source) plus
+# conversation_id and role, making every line self-describing.
 #
 # Usage: conversation_watcher.sh
 #
@@ -19,13 +16,12 @@ set -euo pipefail
 
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
-CONVERSATIONS_FILE="$AGENT_DATA_DIR/logs/conversations.jsonl"
-CONVERSATIONS_DIR="$AGENT_DATA_DIR/logs/conversations"
+CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
+MESSAGES_EVENTS="$AGENT_DATA_DIR/logs/messages/events.jsonl"
 SYNC_STATE_DIR="$AGENT_DATA_DIR/logs/.conv_sync_state"
 LOG_FILE="$HOST_DIR/logs/conversation_watcher.log"
 POLL_INTERVAL=5
 
-# Log to both stdout (visible in tmux window) and log file
 log() {
     local ts
     ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
@@ -42,33 +38,31 @@ log_debug() {
     echo "[$ts] [debug] $*" >> "$LOG_FILE"
 }
 
-# Determine the llm database path
 get_llm_db_path() {
     local db_path
     db_path=$(llm logs path 2>/dev/null || echo "")
     if [ -z "$db_path" ]; then
-        # Fallback to common default locations
         local llm_user_path="${LLM_USER_PATH:-$HOME/.config/io.datasette.llm}"
         db_path="$llm_user_path/logs.db"
     fi
     echo "$db_path"
 }
 
-# Get all tracked conversation IDs from conversations.jsonl
+# Get all tracked conversation IDs from logs/conversations/events.jsonl
 get_conversation_ids() {
-    if [ ! -f "$CONVERSATIONS_FILE" ]; then
+    if [ ! -f "$CONVERSATIONS_EVENTS" ]; then
         return
     fi
     python3 -c "
 import json, sys
 seen = set()
-for line in open('$CONVERSATIONS_FILE'):
+for line in open('$CONVERSATIONS_EVENTS'):
     line = line.strip()
     if not line:
         continue
     try:
-        record = json.loads(line)
-        cid = record['id']
+        event = json.loads(line)
+        cid = event['conversation_id']
         if cid not in seen:
             seen.add(cid)
             print(cid)
@@ -80,46 +74,36 @@ for line in open('$CONVERSATIONS_FILE'):
 # Sync new messages for a single conversation from the llm database.
 #
 # Each row in the llm responses table contains BOTH the user's prompt and
-# the assistant's response. We use UNION ALL to produce separate user and
-# assistant message records from each row, preserving both sides of the
-# conversation.
-#
-# We track sync state via the datetime of the last synced response, rather
-# than by ID, since datetime comparison is universally correct regardless
-# of the ID format.
+# the assistant's response. We produce separate message events for each,
+# written to logs/messages/events.jsonl with the standard envelope fields.
 sync_conversation() {
     local cid="$1"
     local db_path="$2"
-    local conv_file="$CONVERSATIONS_DIR/$cid.jsonl"
     local state_file="$SYNC_STATE_DIR/$cid.last_ts"
 
-    # Read last synced timestamp (empty string if no state yet)
     local last_ts=""
     if [ -f "$state_file" ]; then
         last_ts=$(cat "$state_file")
     fi
 
-    # Build datetime filter for incremental sync
     local ts_filter=""
     if [ -n "$last_ts" ]; then
         ts_filter="AND datetime_utc > '${last_ts}'"
     fi
 
-    # Query produces two rows per response: one for the user prompt,
-    # one for the assistant response. Rows without a prompt (injected
-    # assistant messages) produce only the assistant row.
-    #
-    # We use a subquery with explicit sort_ts and sort_order columns to
-    # ensure correct chronological ordering: messages are sorted by
-    # timestamp, with user messages before assistant messages at the same
-    # timestamp (sort_order 0 < 1).
+    # Each message event has the full envelope: timestamp, type, event_id, source,
+    # plus conversation_id, role, content. event_id is constructed from the
+    # response id + role suffix to be unique and deterministic.
     local query="
     SELECT msg FROM (
         SELECT json_object(
-            'role', 'user',
-            'content', prompt,
             'timestamp', datetime_utc,
-            'conversation_id', conversation_id
+            'type', 'message',
+            'event_id', id || '-user',
+            'source', 'messages',
+            'conversation_id', conversation_id,
+            'role', 'user',
+            'content', prompt
         ) AS msg, datetime_utc AS sort_ts, 0 AS sort_order
         FROM responses
         WHERE conversation_id = '${cid}'
@@ -127,10 +111,13 @@ sync_conversation() {
         ${ts_filter}
         UNION ALL
         SELECT json_object(
-            'role', 'assistant',
-            'content', response,
             'timestamp', datetime_utc,
-            'conversation_id', conversation_id
+            'type', 'message',
+            'event_id', id || '-assistant',
+            'source', 'messages',
+            'conversation_id', conversation_id,
+            'role', 'assistant',
+            'content', response
         ) AS msg, datetime_utc AS sort_ts, 1 AS sort_order
         FROM responses
         WHERE conversation_id = '${cid}'
@@ -157,12 +144,11 @@ sync_conversation() {
 
     local msg_count
     msg_count=$(echo "$new_messages" | wc -l | tr -d '[:space:]')
-    log "Synced $msg_count new message(s) for conversation $cid"
+    log "Synced $msg_count new message(s) for conversation $cid -> logs/messages/events.jsonl"
 
-    # Append new messages to the conversation file
-    echo "$new_messages" >> "$conv_file"
+    mkdir -p "$(dirname "$MESSAGES_EVENTS")"
+    echo "$new_messages" >> "$MESSAGES_EVENTS"
 
-    # Save the latest timestamp for next sync
     local new_last_ts
     new_last_ts=$(sqlite3 "$db_path" "
         SELECT MAX(datetime_utc) FROM responses
@@ -175,7 +161,6 @@ sync_conversation() {
     fi
 }
 
-# Sync all tracked conversations
 sync_all_conversations() {
     local db_path="$1"
 
@@ -200,9 +185,8 @@ sync_all_conversations() {
     done <<< "$cids"
 }
 
-# Main loop
 main() {
-    mkdir -p "$CONVERSATIONS_DIR" "$SYNC_STATE_DIR"
+    mkdir -p "$SYNC_STATE_DIR" "$(dirname "$MESSAGES_EVENTS")"
 
     local db_path
     db_path=$(get_llm_db_path)
@@ -210,20 +194,15 @@ main() {
     log "Conversation watcher started"
     log "  Agent data dir: $AGENT_DATA_DIR"
     log "  LLM database: $db_path"
-    log "  Conversations file: $CONVERSATIONS_FILE"
-    log "  Conversations dir: $CONVERSATIONS_DIR"
-    log "  Sync state dir: $SYNC_STATE_DIR"
+    log "  Conversations events: $CONVERSATIONS_EVENTS"
+    log "  Messages events: $MESSAGES_EVENTS"
     log "  Log file: $LOG_FILE"
     log "  Poll interval: ${POLL_INTERVAL}s"
 
-    # Check if inotifywait is available for efficient watching
     if command -v inotifywait &>/dev/null && [ -f "$db_path" ]; then
         log "Using inotifywait for file watching"
-        # Watch both the llm database and the conversations file for changes
         while true; do
-            # Wait for either file to be modified (with timeout for new conversations)
-            inotifywait -q -t "$POLL_INTERVAL" -e modify,create "$db_path" "$CONVERSATIONS_FILE" 2>/dev/null || true
-            # Re-resolve db_path in case it was created after we started
+            inotifywait -q -t "$POLL_INTERVAL" -e modify,create "$db_path" "$CONVERSATIONS_EVENTS" 2>/dev/null || true
             db_path=$(get_llm_db_path)
             sync_all_conversations "$db_path"
         done
@@ -234,7 +213,6 @@ main() {
             log "LLM database not yet created at $db_path, using polling"
         fi
         while true; do
-            # Re-resolve db_path in case it was created after we started
             db_path=$(get_llm_db_path)
             sync_all_conversations "$db_path"
             sleep "$POLL_INTERVAL"

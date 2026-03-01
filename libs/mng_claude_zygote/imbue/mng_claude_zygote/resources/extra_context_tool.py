@@ -3,8 +3,8 @@
 This file is passed to `llm live-chat` via `--functions` and provides
 deeper context information beyond what gather_context() returns.
 
-Use this when the conversation requires more detailed information about
-the system state, agent status, or extended history.
+All event data follows the standard envelope format with timestamp, type,
+event_id, and source fields. Events are read from logs/<source>/events.jsonl.
 """
 
 import json
@@ -14,9 +14,6 @@ import sys
 import time
 from pathlib import Path
 
-# Timeout thresholds for mng list.
-# Hard timeout: definitely broken if it takes this long.
-# Warn threshold: emit a warning if it takes longer than this.
 _MNG_LIST_HARD_TIMEOUT = 120
 _MNG_LIST_WARN_THRESHOLD = 15
 
@@ -26,8 +23,8 @@ def gather_extra_context() -> str:
 
     Returns a formatted string with:
     - Current mng agent list (active agents and their states)
-    - Extended inner monologue history (last 50 entries)
-    - Full conversation list with metadata
+    - Extended inner monologue history (from logs/transcript/events.jsonl)
+    - Full conversation list (from logs/conversations/events.jsonl)
 
     Use this when you need deeper context than gather_context() provides.
     """
@@ -61,22 +58,22 @@ def gather_extra_context() -> str:
     if agent_data_dir_str:
         agent_data_dir = Path(agent_data_dir_str)
 
-        # Extended inner monologue (last 50 entries)
-        transcript = agent_data_dir / "logs" / "transcript.jsonl"
+        # Extended inner monologue (last 50 from logs/transcript/events.jsonl)
+        transcript = agent_data_dir / "logs" / "transcript" / "events.jsonl"
         if transcript.exists():
             try:
                 lines = transcript.read_text().strip().split("\n")
                 recent = lines[-50:] if len(lines) > 50 else lines
                 if recent and recent[0]:
-                    formatted = _format_jsonl_lines(recent)
+                    formatted = _format_events(recent)
                     sections.append(
                         f"## Extended Inner Monologue (last {len(recent)} of {len(lines)} entries)\n{formatted}"
                     )
             except OSError:
                 pass
 
-        # Full conversation list
-        conversations_file = agent_data_dir / "logs" / "conversations.jsonl"
+        # Full conversation list (from logs/conversations/events.jsonl)
+        conversations_file = agent_data_dir / "logs" / "conversations" / "events.jsonl"
         if conversations_file.exists():
             try:
                 lines = conversations_file.read_text().strip().split("\n")
@@ -86,15 +83,16 @@ def gather_extra_context() -> str:
                     if not line:
                         continue
                     try:
-                        record = json.loads(line)
-                        convs[record["id"]] = record
+                        event = json.loads(line)
+                        cid = event["conversation_id"]
+                        convs[cid] = event
                     except (json.JSONDecodeError, KeyError):
                         continue
                 if convs:
                     conv_lines = []
-                    for cid, record in convs.items():
+                    for cid, event in convs.items():
                         conv_lines.append(
-                            f"  {cid}: model={record.get('model', '?')}, created={record.get('timestamp', '?')}"
+                            f"  {cid}: model={event.get('model', '?')}, created={event.get('timestamp', '?')}"
                         )
                     sections.append("## All Conversations\n" + "\n".join(conv_lines))
             except OSError:
@@ -103,22 +101,24 @@ def gather_extra_context() -> str:
     return "\n\n".join(sections) if sections else "No extra context available."
 
 
-def _format_jsonl_lines(lines: list[str]) -> str:
-    """Format JSONL lines into a readable summary."""
+def _format_events(lines: list[str]) -> str:
+    """Format event JSONL lines into a readable summary."""
     formatted_parts: list[str] = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
         try:
-            data = json.loads(line)
-            if "role" in data and "content" in data:
-                content = str(data["content"])[:300]
-                formatted_parts.append(f"  [{data.get('role', '?')}] {content}")
-            elif "type" in data:
-                formatted_parts.append(f"  [{data['type']}] {json.dumps(data.get('data', {}))[:300]}")
+            event = json.loads(line)
+            event_type = event.get("type", "?")
+            ts = event.get("timestamp", "?")
+            if "role" in event and "content" in event:
+                content = str(event["content"])[:300]
+                formatted_parts.append(f"  [{ts}] [{event.get('role', '?')}] {content}")
+            elif "data" in event:
+                formatted_parts.append(f"  [{ts}] [{event_type}] {json.dumps(event.get('data', {}))[:300]}")
             else:
-                formatted_parts.append(f"  {line[:300]}")
+                formatted_parts.append(f"  [{ts}] [{event_type}] {line[:300]}")
         except json.JSONDecodeError:
             formatted_parts.append(f"  {line[:300]}")
     return "\n".join(formatted_parts)
