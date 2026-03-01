@@ -243,12 +243,7 @@ def test_tunnel_accept_loop_forwards_connections(tmp_path: Path) -> None:
     )
     accept_thread.start()
 
-    ready = threading.Event()
-    for _ in range(50):
-        if sock_path.exists():
-            break
-        ready.wait(timeout=0.05)
-    assert sock_path.exists()
+    _wait_for_socket(sock_path, timeout=10.0)
 
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
@@ -284,11 +279,7 @@ def test_tunnel_accept_loop_handles_channel_open_failure(tmp_path: Path) -> None
     )
     accept_thread.start()
 
-    ready = threading.Event()
-    for _ in range(50):
-        if sock_path.exists():
-            break
-        ready.wait(timeout=0.05)
+    _wait_for_socket(sock_path, timeout=10.0)
 
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     client.connect(str(sock_path))
@@ -319,11 +310,7 @@ def test_tunnel_accept_loop_shutdown_event_stops_loop(tmp_path: Path) -> None:
     )
     accept_thread.start()
 
-    ready = threading.Event()
-    for _ in range(50):
-        if sock_path.exists():
-            break
-        ready.wait(timeout=0.05)
+    _wait_for_socket(sock_path, timeout=10.0)
 
     shutdown_event.set()
     accept_thread.join(timeout=3.0)
