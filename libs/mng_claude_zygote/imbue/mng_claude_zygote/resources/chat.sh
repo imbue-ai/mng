@@ -157,7 +157,7 @@ list_conversations() {
 
     echo "Conversations:"
     echo "=============="
-    uv run python3 -c "
+    python3 -c "
 import json, os, sys
 from pathlib import Path
 
