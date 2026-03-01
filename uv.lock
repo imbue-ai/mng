@@ -19,6 +19,7 @@ members = [
     "mng-elena-code",
     "mng-opencode",
     "mng-pair",
+    "mng-recursive",
     "mng-schedule",
     "mng-ttyd",
     "mng-tutor",
@@ -533,6 +534,7 @@ dependencies = [
     { name = "loguru" },
     { name = "mng" },
     { name = "modal" },
+    { name = "paramiko" },
     { name = "pydantic" },
     { name = "tabulate" },
     { name = "tomlkit" },
@@ -553,6 +555,7 @@ requires-dist = [
     { name = "loguru" },
     { name = "mng", editable = "libs/mng" },
     { name = "modal", specifier = ">=1.3.1" },
+    { name = "paramiko", specifier = ">=3.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "tabulate", specifier = ">=0.9.0" },
     { name = "tomlkit", specifier = ">=0.12.0" },
@@ -1902,6 +1905,17 @@ requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
+
+[[package]]
+name = "mng-recursive"
+version = "0.1.0"
+source = { editable = "libs/mng_recursive" }
+dependencies = [
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mng", editable = "libs/mng" }]
 
 [[package]]
 name = "mng-schedule"
