@@ -79,6 +79,7 @@ class ChangelingEvent(EventEnvelope):
 class ChatSettings(FrozenModel):
     """Settings for the [chat] TOML section."""
 
+    # FIXME: this should just be called "model"
     default_model: ChatModel | None = Field(
         default=None,
         description="Default model for new conversation threads. "
@@ -89,6 +90,7 @@ class ChatSettings(FrozenModel):
 class ContextSettings(FrozenModel):
     """Settings for the [context] TOML section (used by context_tool.py)."""
 
+    # FIXME: all of these "initial" settings are dumb--these should be about "max", and that script should be adapted to actually use these settings as the max instead
     initial_transcript_line_count: PositiveInt = Field(
         default=PositiveInt(10),
         description="Number of inner monologue lines to show on first context call.",
@@ -153,11 +155,11 @@ class ProvisioningSettings(FrozenModel):
     """Settings for the [provisioning] TOML section."""
 
     fs_hard_timeout_seconds: PositiveFloat = Field(
-        default=PositiveFloat(15.0),
+        default=PositiveFloat(16.0),
         description="Hard timeout for filesystem operations (seconds).",
     )
     fs_warn_threshold_seconds: PositiveFloat = Field(
-        default=PositiveFloat(2.0),
+        default=PositiveFloat(4.0),
         description="Warning threshold for filesystem operations (seconds).",
     )
     command_check_hard_timeout_seconds: PositiveFloat = Field(
@@ -189,6 +191,7 @@ class ClaudeZygoteSettings(FrozenModel):
         default_factory=ChatSettings,
         description="Chat-related settings ([chat] section).",
     )
+    # FIXME: move context and extra_context into chat settings, since that's logically what they're related to
     context: ContextSettings = Field(
         default_factory=ContextSettings,
         description="Context tool settings ([context] section).",
