@@ -51,17 +51,19 @@ Every event is self-describing: you never need to know the filename to understan
 - Changeling agents are assumed to run from a specially structured git repo that contains various skills, configuration, prompt files, and the code for any tools they have constructed for themselves. The layout is:
     - `GLOBAL.md` - shared instructions for all agents (symlinked as `CLAUDE.md` so Claude Code discovers it)
     - `settings.json` - shared Claude Code settings (symlinked as `.claude/settings.json`)
-    - `talking/PROMPT.md` - talking agent prompt
-    - `thinking/PROMPT.md` - primary/inner monologue agent prompt (symlinked as `CLAUDE.local.md`)
-    - `thinking/settings.json` - primary agent Claude Code settings (symlinked as `.claude/settings.local.json`)
-    - `thinking/skills/` - skills for the thinking agent (symlinked as `.claude/skills`)
-    - `working/PROMPT.md` - working agent prompt
-    - `working/settings.json` - working agent settings
-    - `working/skills/` - skills for the working agent
     - `memory/` - shared memory directory (symlinked into Claude project memory)
+    - `talking/` - the talking agent (generates replies to user messages, is not allowed to have skills right now)
+    - `thinking/` - primary/inner monologue agent (that reacts to events, can have skills and tools)
+    - `working/` - the working agent (does the actual work, can have skills and tools)
+    - `verifying/` - the verifying agent (scheduled in reaction to "finished" events from sub-agents, checks work, can have skills and tools)
+    - `(user-defined roles)/` - any additional agent roles the user wants to define (e.g. "planning/", "researching/", etc)
+- Each of the above roles (talking, thinking, working, etc.) correspond to a different agent type in `.mng/settings.toml`, and the directories have their own structure:
+    - `<agent-role>/PROMPT.md` - prompt for the agent (symlinked as `CLAUDE.local.md`)
+    - `<agent-role>/settings.json` - Claude Code settings (symlinked as `.claude/settings.local.json`)
+    - `<agent-role>/skills/` - skills for the agent (symlinked as `.claude/skills`)
 - The `GLOBAL.md` serves as the core system prompt that is *shared* among all agents (the primary agent, any claude subagent it makes, and even any other agents created via mng with this repo as the target). It is symlinked to `CLAUDE.md` at the project root so Claude Code picks it up.
 - The primary agent prompt is stored as `thinking/PROMPT.md` and symlinked as `CLAUDE.local.md` at the project root. Similarly, `thinking/settings.json` is symlinked as `.claude/settings.local.json`, and `thinking/skills/` is symlinked as `.claude/skills`. All of this is handled by the ClaudeZygoteAgent during provisioning.
-- Other agent roles (e.g., `talking/`) can be defined by creating corresponding directories with their own `PROMPT.md`, `settings.json`, and `skills/` subdirectories (and creating an appropriate agent type for them in `.mng/settings.toml`)
+- Other agent roles can be defined by creating corresponding directories with their own `PROMPT.md`, `settings.json`, and `skills/` subdirectories (except `talking/`, which can only have `PROMPT.md`) An appropriate agent type must also be created for them in `.mng/settings.toml` right now. 
 - The prompts for the primary agent (both before shutdown and upon message receipt) should encourage it to keep track of messages that it received (via its own task list)
 - *All* claude agents should share the same memory, which is stored at `memory/` in the work dir and symlinked to the Claude project memory location (`~/.claude/projects/<project>/memory/`, which then causes the memories to show up as changes to git). This is done during provisioning: since we know the work_dir, we can compute the Claude project directory name (absolute path with / and . replaced by -) and proactively create the directory and symlink without needing to poll
 - Any claude agents should use the "project" memory scope (again, to keep memories version controlled)
