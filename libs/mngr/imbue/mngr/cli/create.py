@@ -529,12 +529,8 @@ def _handle_create(mngr_ctx, output_opts, opts):
             "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
         )
 
-    # Validate --adopt-session is only used with claude agent type (or default)
-    if opts.adopt_session is not None:
-        if opts.agent_type is not None and opts.agent_type != "claude":
-            raise UserInputError(
-                f"--adopt-session can only be used with the claude agent type. Got --agent-type={opts.agent_type}."
-            )
+    # (--adopt-session agent-type validation is deferred to _parse_agent_opts
+    # where the resolved agent type is known, including positional args.)
 
     # Early validation: --edit-message cannot be used with background creation
     # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
@@ -1297,6 +1293,15 @@ def _parse_agent_opts(
             )
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
+
+    # Validate --adopt-session is only used with claude agent type (or default).
+    # This check runs after agent type resolution so that positional agent types
+    # (e.g. "mngr create my-agent generic --adopt-session") are caught too.
+    if opts.adopt_session is not None:
+        if resolved_agent_type is not None and resolved_agent_type != "claude":
+            raise UserInputError(
+                f"--adopt-session can only be used with the claude agent type, not '{resolved_agent_type}'."
+            )
 
     # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
     # This is set when cloning from an existing agent (--source-agent) or adopting a session (--adopt-session).
