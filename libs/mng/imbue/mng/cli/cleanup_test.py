@@ -1,11 +1,7 @@
 """Unit tests for cleanup CLI helpers."""
 
 import json
-import sys
 from collections.abc import Callable
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import pluggy
 import pytest
@@ -21,6 +17,7 @@ from imbue.mng.cli.cleanup import _emit_no_agents_found
 from imbue.mng.cli.cleanup import _emit_result
 from imbue.mng.cli.cleanup import _selected_marker
 from imbue.mng.cli.cleanup import cleanup
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.conftest import make_test_agent_info
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -493,18 +490,6 @@ def test_create_cleanup_list_item_not_selected() -> None:
 # =============================================================================
 
 
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
-
 def test_emit_result_human_destroyed() -> None:
     """Test _emit_result with destroyed agents in HUMAN format."""
     result = CleanupResult(
@@ -513,7 +498,7 @@ def test_emit_result_human_destroyed() -> None:
         errors=[],
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = buf.getvalue()
     assert "Successfully destroyed 2 agent(s)" in output
@@ -529,7 +514,7 @@ def test_emit_result_human_stopped() -> None:
         errors=[],
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = buf.getvalue()
     assert "Successfully stopped 1 agent(s)" in output
@@ -544,7 +529,7 @@ def test_emit_result_human_no_agents() -> None:
         errors=[],
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = buf.getvalue()
     assert "No agents were affected" in output
@@ -558,7 +543,7 @@ def test_emit_result_json_format() -> None:
         errors=["some error"],
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = json.loads(buf.getvalue().strip())
     assert output["destroyed_agents"] == ["agent-x"]
@@ -574,7 +559,7 @@ def test_emit_result_jsonl_format() -> None:
         errors=[],
     )
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = json.loads(buf.getvalue().strip())
     assert output["event"] == "cleanup_result"
@@ -593,7 +578,7 @@ def test_emit_dry_run_output_human_destroy() -> None:
         make_test_agent_info(name="dry-run-agent", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.DESTROY, output_opts)
     output = buf.getvalue()
     assert "Would destroy" in output
@@ -606,7 +591,7 @@ def test_emit_dry_run_output_human_stop() -> None:
         make_test_agent_info(name="stop-target", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.STOP, output_opts)
     output = buf.getvalue()
     assert "Would stop" in output
@@ -619,7 +604,7 @@ def test_emit_dry_run_output_json_format() -> None:
         make_test_agent_info(name="json-dry", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.DESTROY, output_opts)
     output = json.loads(buf.getvalue().strip())
     assert output["dry_run"] is True
@@ -633,7 +618,7 @@ def test_emit_dry_run_output_jsonl_format() -> None:
         make_test_agent_info(name="jsonl-dry", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.STOP, output_opts)
     output = json.loads(buf.getvalue().strip())
     assert output["event"] == "dry_run"
@@ -648,7 +633,7 @@ def test_emit_dry_run_output_jsonl_format() -> None:
 def test_emit_no_agents_found_human_format() -> None:
     """_emit_no_agents_found should output message in HUMAN format."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_no_agents_found(output_opts)
     assert "No agents found matching the specified filters" in buf.getvalue()
 
@@ -656,7 +641,7 @@ def test_emit_no_agents_found_human_format() -> None:
 def test_emit_no_agents_found_json_format() -> None:
     """_emit_no_agents_found should output JSON data."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_no_agents_found(output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["agents"] == []
@@ -666,7 +651,7 @@ def test_emit_no_agents_found_json_format() -> None:
 def test_emit_no_agents_found_jsonl_format() -> None:
     """_emit_no_agents_found should output JSONL event."""
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_no_agents_found(output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "info"
@@ -683,7 +668,7 @@ def test_emit_result_human_with_destroyed() -> None:
     result = CleanupResult()
     result.destroyed_agents = [AgentName("agent-1"), AgentName("agent-2")]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = buf.getvalue()
     assert "Successfully destroyed 2 agent(s)" in output
@@ -696,7 +681,7 @@ def test_emit_result_human_with_stopped() -> None:
     result = CleanupResult()
     result.stopped_agents = [AgentName("stopped-1")]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     output = buf.getvalue()
     assert "Successfully stopped 1 agent(s)" in output
@@ -707,7 +692,7 @@ def test_emit_result_human_with_no_agents_affected() -> None:
     """_emit_result should show no agents affected in HUMAN format."""
     result = CleanupResult()
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     assert "No agents were affected" in buf.getvalue()
 
@@ -719,7 +704,7 @@ def test_emit_result_json_with_errors() -> None:
     result.stopped_agents = [AgentName("agent-y")]
     result.errors = ["error-1"]
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["destroyed_count"] == 1
@@ -733,7 +718,7 @@ def test_emit_result_human_with_errors() -> None:
     result = CleanupResult()
     result.errors = ["Failed to destroy agent-x", "Timeout on agent-y"]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_result(result, output_opts)
     # Errors go to logger (stderr), not stdout, but "No agents were affected" still shows
     assert "No agents were affected" in buf.getvalue()
@@ -746,7 +731,7 @@ def test_emit_dry_run_output_human_stop_action() -> None:
         make_test_agent_info(name="stop-dry-2", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.STOP, output_opts)
     output = buf.getvalue()
     assert "Would stop 2 agent(s)" in output
@@ -759,7 +744,7 @@ def test_emit_dry_run_output_human_destroy_action() -> None:
         make_test_agent_info(name="destroy-dry", state=AgentLifecycleState.STOPPED),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_dry_run_output(agents, CleanupAction.DESTROY, output_opts)
     output = buf.getvalue()
     assert "Would destroy 1 agent(s)" in output

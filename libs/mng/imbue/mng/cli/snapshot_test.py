@@ -1,14 +1,11 @@
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone
-from io import StringIO
 
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.snapshot import SnapshotCreateCliOptions
 from imbue.mng.cli.snapshot import SnapshotDestroyCliOptions
 from imbue.mng.cli.snapshot import SnapshotListCliOptions
@@ -224,18 +221,6 @@ def test_classify_mixed_identifiers_no_agents_treats_all_as_hosts(
 # =============================================================================
 
 
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
-
 def test_emit_create_result_format_template() -> None:
     """_emit_create_result renders format templates for created snapshots."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{snapshot_id}")
@@ -243,7 +228,7 @@ def test_emit_create_result_format_template() -> None:
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["agent1"]},
         {"snapshot_id": "snap-def", "host_id": "host-2", "provider": "local", "agent_names": ["agent2", "agent3"]},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
     lines = buf.getvalue().strip().split("\n")
     assert lines == ["snap-abc", "snap-def"]
@@ -255,7 +240,7 @@ def test_emit_create_result_format_template_agent_names() -> None:
     created = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local", "agent_names": ["a1", "a2"]},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
     assert buf.getvalue().strip() == "a1, a2"
 
@@ -271,7 +256,7 @@ def test_emit_destroy_result_format_template() -> None:
     destroyed = [
         {"snapshot_id": "snap-abc", "host_id": "host-1", "provider": "local"},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_destroy_result(destroyed, output_opts=output_opts)
     assert buf.getvalue().strip() == "snap-abc\thost-1"
 
@@ -444,7 +429,7 @@ def test_emit_create_result_json_format() -> None:
     created = [
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": ["a1"]},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["snapshots_created"] == created
@@ -459,7 +444,7 @@ def test_emit_create_result_json_format_with_errors() -> None:
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": ["a1"]},
     ]
     errors = [{"host_id": "host-2", "error": "fail"}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=errors, output_opts=output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["errors"] == errors
@@ -472,7 +457,7 @@ def test_emit_create_result_jsonl_format() -> None:
     created = [
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": ["a1"]},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "create_result"
@@ -486,7 +471,7 @@ def test_emit_create_result_human_format() -> None:
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": ["a1"]},
         {"snapshot_id": "snap-2", "host_id": "host-2", "provider": "local", "agent_names": ["a2"]},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors=[], output_opts=output_opts)
     assert "Created 2 snapshot(s)" in buf.getvalue()
 
@@ -513,7 +498,7 @@ def _make_test_snapshot(
 def test_emit_list_snapshots_human_empty() -> None:
     """_emit_list_snapshots prints 'No snapshots found' when empty."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([], output_opts)
     assert "No snapshots found" in buf.getvalue()
 
@@ -522,7 +507,7 @@ def test_emit_list_snapshots_human_with_snapshots() -> None:
     """_emit_list_snapshots prints a table with snapshot info."""
     snap = _make_test_snapshot()
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-1", snap)], output_opts)
     output = buf.getvalue()
     assert "snap-abc" in output
@@ -534,7 +519,7 @@ def test_emit_list_snapshots_json_format() -> None:
     """_emit_list_snapshots emits JSON with snapshots array."""
     snap = _make_test_snapshot()
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-1", snap)], output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["count"] == 1
@@ -545,7 +530,7 @@ def test_emit_list_snapshots_jsonl_format() -> None:
     """_emit_list_snapshots emits JSONL events per snapshot."""
     snap = _make_test_snapshot()
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-1", snap)], output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "snapshot"
@@ -556,7 +541,7 @@ def test_emit_list_snapshots_format_template() -> None:
     """_emit_list_snapshots renders format templates."""
     snap = _make_test_snapshot()
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{id}\t{name}")
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-1", snap)], output_opts)
     assert "snap-abc\ttest-snapshot" in buf.getvalue()
 
@@ -565,7 +550,7 @@ def test_emit_list_snapshots_human_with_none_size() -> None:
     """_emit_list_snapshots handles None size_bytes correctly."""
     snap = _make_test_snapshot(size_bytes=None)
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-1", snap)], output_opts)
     output = buf.getvalue()
     # size_bytes=None should display as "-"
@@ -583,7 +568,7 @@ def test_emit_destroy_result_json_format() -> None:
     destroyed = [
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local"},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_destroy_result(destroyed, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["count"] == 1
@@ -596,7 +581,7 @@ def test_emit_destroy_result_jsonl_format() -> None:
     destroyed = [
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local"},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_destroy_result(destroyed, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "destroy_result"
@@ -610,7 +595,7 @@ def test_emit_destroy_result_human_format() -> None:
         {"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local"},
         {"snapshot_id": "snap-2", "host_id": "host-2", "provider": "local"},
     ]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_destroy_result(destroyed, output_opts)
     assert "Destroyed 2 snapshot(s)" in buf.getvalue()
 
@@ -625,7 +610,7 @@ def test_emit_create_result_json_with_errors() -> None:
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
     created = [{"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": []}]
     errors = [{"host_id": "host-2", "error": "timeout"}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["count"] == 1
@@ -638,7 +623,7 @@ def test_emit_create_result_jsonl_with_errors() -> None:
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
     created = [{"snapshot_id": "snap-1", "host_id": "host-1", "provider": "local", "agent_names": []}]
     errors = [{"host_id": "host-2", "error": "timeout"}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_create_result(created, errors, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "create_result"
@@ -654,7 +639,7 @@ def test_emit_list_snapshots_human_table_with_size() -> None:
         created_at=datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
         size_bytes=1048576,
     )
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_list_snapshots([("host-abc", snap)], output_opts)
     output = buf.getvalue()
     assert "ID" in output

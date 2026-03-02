@@ -1,8 +1,4 @@
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import click
 import pluggy
@@ -10,6 +6,7 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mng.api.message import MessageResult
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.message import MessageCliOptions
 from imbue.mng.cli.message import _emit_human_output
 from imbue.mng.cli.message import _emit_json_output
@@ -20,19 +17,6 @@ from imbue.mng.cli.message import _get_message_content
 from imbue.mng.cli.message import message
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.primitives import OutputFormat
-
-
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
 
 _DEFAULT_OPTS = MessageCliOptions(
     agents=(),
@@ -291,7 +275,7 @@ def test_emit_output_human_dispatches() -> None:
     result = MessageResult()
     result.successful_agents = ["agent-1"]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(result, output_opts)
     assert "Message sent to: agent-1" in buf.getvalue()
 
@@ -301,7 +285,7 @@ def test_emit_output_json_dispatches() -> None:
     result = MessageResult()
     result.successful_agents = ["agent-1"]
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(result, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["total_sent"] == 1
@@ -325,7 +309,7 @@ def test_emit_human_output_successful_agents_with_count() -> None:
     """Test _emit_human_output shows success count."""
     result = MessageResult()
     result.successful_agents = ["agent-1", "agent-2", "agent-3"]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_human_output(result)
     output = buf.getvalue()
     assert "Message sent to: agent-1" in output
@@ -338,7 +322,7 @@ def test_emit_human_output_only_failed_agents() -> None:
     """Test _emit_human_output handles case with only failures."""
     result = MessageResult()
     result.failed_agents = [("agent-1", "error1"), ("agent-2", "error2")]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_human_output(result)
     output = buf.getvalue()
     assert "Failed to send message to 2 agent(s)" in output

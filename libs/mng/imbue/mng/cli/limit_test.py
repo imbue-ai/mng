@@ -1,12 +1,9 @@
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.limit import LimitCliOptions
 from imbue.mng.cli.limit import _build_updated_activity_config
 from imbue.mng.cli.limit import _build_updated_permissions
@@ -22,18 +19,6 @@ from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import Permission
-
-
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
 
 
 def _make_limit_opts(
@@ -550,7 +535,7 @@ def test_has_any_setting_with_no_settings() -> None:
 def test_limit_output_human() -> None:
     """_output should write in HUMAN format."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output("Test limit message", output_opts)
     assert "Test limit message" in buf.getvalue()
 
@@ -558,7 +543,7 @@ def test_limit_output_human() -> None:
 def test_limit_output_json_silent() -> None:
     """_output should be silent in JSON format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output("Should not appear", output_opts)
     assert buf.getvalue() == ""
 
@@ -567,7 +552,7 @@ def test_limit_output_result_human_with_changes() -> None:
     """_output_result should show change count in HUMAN format."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
     changes = [{"setting": "idle_timeout", "value": 300}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result(changes, output_opts)
     assert "Applied 1 change(s)" in buf.getvalue()
 
@@ -575,7 +560,7 @@ def test_limit_output_result_human_with_changes() -> None:
 def test_limit_output_result_human_empty() -> None:
     """_output_result should not write in HUMAN format with no changes."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result([], output_opts)
     assert "Applied" not in buf.getvalue()
 
@@ -584,7 +569,7 @@ def test_limit_output_result_json() -> None:
     """_output_result should output JSON data."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
     changes = [{"setting": "idle_timeout", "value": 300}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result(changes, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["count"] == 1
@@ -595,7 +580,7 @@ def test_limit_output_result_jsonl() -> None:
     """_output_result should output JSONL event."""
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
     changes = [{"setting": "idle_timeout", "value": 300}]
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result(changes, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "limit_result"

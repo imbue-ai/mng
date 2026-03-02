@@ -1,32 +1,16 @@
 """Unit tests for the provision CLI command."""
 
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.provision import ProvisionCliOptions
 from imbue.mng.cli.provision import _output_result
 from imbue.mng.cli.provision import provision
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.primitives import OutputFormat
-
-
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
 
 # =============================================================================
 # Tests for ProvisionCliOptions
@@ -75,7 +59,7 @@ def test_provision_cli_options_can_be_instantiated() -> None:
 def test_output_result_json_format() -> None:
     """_output_result should output JSON data for JSON format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result("my-agent", output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["agent"] == "my-agent"
@@ -85,7 +69,7 @@ def test_output_result_json_format() -> None:
 def test_output_result_jsonl_format() -> None:
     """_output_result should output JSONL event for JSONL format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result("my-agent", output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "provision_result"
@@ -96,7 +80,7 @@ def test_output_result_jsonl_format() -> None:
 def test_output_result_human_format() -> None:
     """_output_result should produce no output for HUMAN format (logs go to stderr)."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result("my-agent", output_opts)
     # HUMAN format does not write anything to stdout for this function
     assert buf.getvalue() == ""

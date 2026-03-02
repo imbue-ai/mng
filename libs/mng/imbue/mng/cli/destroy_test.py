@@ -1,14 +1,11 @@
 """Unit tests for the destroy CLI command."""
 
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.destroy import DestroyCliOptions
 from imbue.mng.cli.destroy import _DestroyTargets
 from imbue.mng.cli.destroy import _OfflineHostToDestroy
@@ -247,22 +244,10 @@ def test_destroy_session_cannot_combine_with_all(
 # =============================================================================
 
 
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
-
-
 def test_destroy_output_writes_in_human_format() -> None:
     """Test _output writes in HUMAN format."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output("Destroyed something", output_opts)
     assert "Destroyed something" in buf.getvalue()
 
@@ -270,7 +255,7 @@ def test_destroy_output_writes_in_human_format() -> None:
 def test_destroy_output_silent_in_json_format() -> None:
     """Test _output does not write in JSON format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output("Should not appear", output_opts)
     assert buf.getvalue() == ""
 
@@ -278,7 +263,7 @@ def test_destroy_output_silent_in_json_format() -> None:
 def test_destroy_output_result_human_with_agents() -> None:
     """Test _output_result in HUMAN format with destroyed agents."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result([AgentName("agent-a"), AgentName("agent-b")], output_opts)
     assert "Successfully destroyed 2 agent(s)" in buf.getvalue()
 
@@ -286,7 +271,7 @@ def test_destroy_output_result_human_with_agents() -> None:
 def test_destroy_output_result_json() -> None:
     """Test _output_result in JSON format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result([AgentName("agent-x")], output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["destroyed_agents"] == ["agent-x"]
@@ -296,7 +281,7 @@ def test_destroy_output_result_json() -> None:
 def test_destroy_output_result_jsonl() -> None:
     """Test _output_result in JSONL format."""
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result([AgentName("agent-y")], output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["event"] == "destroy_result"
@@ -306,6 +291,6 @@ def test_destroy_output_result_jsonl() -> None:
 def test_destroy_output_result_format_template() -> None:
     """Test _output_result with a format template."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{name}")
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _output_result([AgentName("my-agent")], output_opts)
     assert "my-agent" in buf.getvalue()

@@ -1,10 +1,6 @@
 """Unit tests for the exec CLI command."""
 
 import json
-import sys
-from collections.abc import Iterator
-from contextlib import contextmanager
-from io import StringIO
 
 import pluggy
 import pytest
@@ -12,6 +8,7 @@ from click.testing import CliRunner
 
 from imbue.mng.api.exec import ExecResult
 from imbue.mng.api.exec import MultiExecResult
+from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.exec import ExecCliOptions
 from imbue.mng.cli.exec import _emit_human_output
 from imbue.mng.cli.exec import _emit_json_output
@@ -21,18 +18,6 @@ from imbue.mng.cli.exec import _emit_output
 from imbue.mng.cli.exec import exec_command
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.primitives import OutputFormat
-
-
-@contextmanager
-def _capture_stdout() -> Iterator[StringIO]:
-    """Temporarily redirect sys.stdout to a StringIO buffer."""
-    buf = StringIO()
-    old_stdout = sys.stdout
-    sys.stdout = buf
-    try:
-        yield buf
-    finally:
-        sys.stdout = old_stdout
 
 
 def test_exec_cli_options_fields() -> None:
@@ -240,7 +225,7 @@ def test_emit_output_with_format_template() -> None:
     result1 = ExecResult(agent_name="agent-1", stdout="hello\n", stderr="", success=True)
     multi_result = MultiExecResult(successful_results=[result1], failed_agents=[])
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{agent}\t{stdout}")
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(multi_result, output_opts)
     assert "agent-1\thello" in buf.getvalue()
 
@@ -250,7 +235,7 @@ def test_emit_output_format_template_strips_trailing_newline_from_stdout() -> No
     result1 = ExecResult(agent_name="agent-1", stdout="output\n", stderr="err\n", success=True)
     multi_result = MultiExecResult(successful_results=[result1], failed_agents=[])
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{stdout}|{stderr}")
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(multi_result, output_opts)
     # Should strip trailing \n from stdout and stderr in format template mode
     assert "output|err" in buf.getvalue()
@@ -263,7 +248,7 @@ def test_emit_output_format_template_includes_failed_agents() -> None:
         failed_agents=[("agent-x", "host offline")],
     )
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{agent}: {stderr}")
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(multi_result, output_opts)
     assert "agent-x: host offline" in buf.getvalue()
 
@@ -273,7 +258,7 @@ def test_emit_output_dispatches_to_human() -> None:
     result1 = ExecResult(agent_name="agent-1", stdout="hello\n", stderr="", success=True)
     multi_result = MultiExecResult(successful_results=[result1], failed_agents=[])
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(multi_result, output_opts)
     assert "hello" in buf.getvalue()
 
@@ -283,7 +268,7 @@ def test_emit_output_dispatches_to_json() -> None:
     result1 = ExecResult(agent_name="agent-1", stdout="hello\n", stderr="", success=True)
     multi_result = MultiExecResult(successful_results=[result1], failed_agents=[])
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with _capture_stdout() as buf:
+    with capture_stdout() as buf:
         _emit_output(multi_result, output_opts)
     data = json.loads(buf.getvalue().strip())
     assert data["total_executed"] == 1
