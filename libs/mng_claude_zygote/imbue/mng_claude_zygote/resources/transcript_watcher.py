@@ -110,7 +110,7 @@ def _get_existing_event_ids(output_file: Path) -> set[str]:
                 except (json.JSONDecodeError, KeyError):
                     continue
     except OSError as exc:
-        logger.info("Failed to read output file: {}", exc)
+        logger.warning("Failed to read output file: {}", exc)
     return existing_ids
 
 
@@ -295,7 +295,7 @@ def _convert_new_events(
 
                 # Skip: progress, file-history-snapshot, system, result, etc.
     except OSError as exc:
-        logger.info("Failed to read input file: {}", exc)
+        logger.warning("Failed to read input file: {}", exc)
         return 0
 
     if not new_events:

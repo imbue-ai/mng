@@ -88,7 +88,7 @@ def _check_and_send_new_events(
         with events_file.open() as f:
             all_lines = f.readlines()
     except OSError as exc:
-        logger.info("Failed to read {}: {}", events_file, exc)
+        logger.error("Failed to read {}: {}", events_file, exc)
         return
 
     total_lines = len(all_lines)
@@ -117,20 +117,20 @@ def _check_and_send_new_events(
             timeout=120,
         )
     except subprocess.TimeoutExpired:
-        logger.info("Timed out sending events from {} to {}", source, agent_name)
+        logger.error("Timed out sending events from {} to {}", source, agent_name)
         return
     except OSError as exc:
-        logger.info("Failed to invoke mng message subprocess: {}", exc)
+        logger.error("Failed to invoke mng message subprocess: {}", exc)
         return
 
     if result.returncode != 0:
-        logger.info("mng message returned non-zero for {} -> {}: {}", source, agent_name, result.stderr)
+        logger.error("mng message returned non-zero for {} -> {}: {}", source, agent_name, result.stderr)
         return
 
     try:
         _set_offset(offsets_dir, source, total_lines)
     except OSError as exc:
-        logger.info("Failed to write offset file for {}: {}", source, exc)
+        logger.error("Failed to write offset file for {}: {}", source, exc)
         return
 
     logger.info("Events sent successfully, offset updated to {}", total_lines)

@@ -19,15 +19,6 @@ from imbue.mng_claude_zygote.resources.watcher_common import setup_watchdog_for_
 from imbue.mng_claude_zygote.resources.watcher_common import setup_watchdog_for_files
 from imbue.mng_claude_zygote.resources.watcher_common import setup_watcher_logging
 
-
-@pytest.fixture(autouse=True)
-def _reset_loguru() -> Any:
-    """Reset loguru handlers before and after each test."""
-    logger.remove()
-    yield
-    logger.remove()
-
-
 # -- setup_watcher_logging tests --
 
 

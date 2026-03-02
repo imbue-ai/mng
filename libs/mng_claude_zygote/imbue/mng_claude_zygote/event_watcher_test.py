@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from loguru import logger
 
 from imbue.mng_claude_zygote.resources import event_watcher as event_watcher_module
 from imbue.mng_claude_zygote.resources.event_watcher import _WatcherSettings
@@ -15,12 +14,6 @@ from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_
 from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
 from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
 from imbue.mng_claude_zygote.resources.event_watcher import _set_offset
-
-
-@pytest.fixture(autouse=True)
-def _reset_loguru() -> None:
-    """Reset loguru handlers before each test to avoid test pollution."""
-    logger.remove()
 
 
 class SubprocessCapture:

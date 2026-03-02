@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-from loguru import logger
 
 from imbue.mng_claude_zygote.conftest import create_test_llm_db
 from imbue.mng_claude_zygote.conftest import write_conversation_event
@@ -13,13 +12,6 @@ from imbue.mng_claude_zygote.resources.conversation_watcher import _get_llm_db_p
 from imbue.mng_claude_zygote.resources.conversation_watcher import _get_tracked_conversation_ids
 from imbue.mng_claude_zygote.resources.conversation_watcher import _load_poll_interval
 from imbue.mng_claude_zygote.resources.conversation_watcher import _sync_messages
-
-
-@pytest.fixture(autouse=True)
-def _reset_loguru() -> None:
-    """Reset loguru handlers before each test to avoid test pollution."""
-    logger.remove()
-
 
 # -- _load_poll_interval tests --
 

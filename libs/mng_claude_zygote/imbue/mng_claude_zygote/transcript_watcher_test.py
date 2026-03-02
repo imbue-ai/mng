@@ -5,22 +5,12 @@ from pathlib import Path
 from typing import Any
 from typing import cast
 
-import pytest
-from loguru import logger
-
 from imbue.mng_claude_zygote.resources.transcript_watcher import _convert_new_events
 from imbue.mng_claude_zygote.resources.transcript_watcher import _extract_text_content
 from imbue.mng_claude_zygote.resources.transcript_watcher import _get_existing_event_ids
 from imbue.mng_claude_zygote.resources.transcript_watcher import _has_tool_results_only
 from imbue.mng_claude_zygote.resources.transcript_watcher import _load_poll_interval
 from imbue.mng_claude_zygote.resources.transcript_watcher import _make_event_id
-
-
-@pytest.fixture(autouse=True)
-def _reset_loguru() -> None:
-    """Reset loguru handlers before each test to avoid test pollution."""
-    logger.remove()
-
 
 # -- _load_poll_interval tests --
 

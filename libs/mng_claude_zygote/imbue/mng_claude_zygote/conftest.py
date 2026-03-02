@@ -20,6 +20,14 @@ register_plugin_test_fixtures(globals())
 
 
 @pytest.fixture(autouse=True)
+def _reset_loguru() -> Generator[None, None, None]:
+    """Reset loguru handlers before and after each test to prevent handler leakage."""
+    logger.remove()
+    yield
+    logger.remove()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_tmux_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[None, None, None]:

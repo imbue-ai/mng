@@ -63,10 +63,10 @@ def _get_tracked_conversation_ids(conversations_file: Path) -> set[str]:
                 try:
                     tracked_cids.add(json.loads(line)["conversation_id"])
                 except (json.JSONDecodeError, KeyError) as exc:
-                    logger.info("Malformed conversation event line: {}", exc)
+                    logger.warning("Malformed conversation event line: {}", exc)
                     continue
     except OSError as exc:
-        logger.info("Failed to read conversations file: {}", exc)
+        logger.warning("Failed to read conversations file: {}", exc)
     return tracked_cids
 
 
@@ -84,10 +84,10 @@ def _get_existing_event_ids(messages_file: Path) -> set[str]:
                 try:
                     file_event_ids.add(json.loads(line)["event_id"])
                 except (json.JSONDecodeError, KeyError) as exc:
-                    logger.info("Malformed message event line: {}", exc)
+                    logger.warning("Malformed message event line: {}", exc)
                     continue
     except OSError as exc:
-        logger.info("Failed to read messages file: {}", exc)
+        logger.warning("Failed to read messages file: {}", exc)
     return file_event_ids
 
 
@@ -119,7 +119,7 @@ def _sync_messages(
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     except sqlite3.Error as exc:
-        logger.info("Cannot open database: {}", exc)
+        logger.warning("Cannot open database: {}", exc)
         return 0
 
     placeholders = ",".join("?" for _ in tracked_cids)
@@ -139,7 +139,7 @@ def _sync_messages(
                 [*cid_list, window],
             ).fetchall()
         except sqlite3.Error as exc:
-            logger.info("sqlite3 query error: {}", exc)
+            logger.warning("sqlite3 query error: {}", exc)
             break
 
         if not rows:
