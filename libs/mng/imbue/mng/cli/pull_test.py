@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import cast
 
+import pluggy
 import pytest
 from click.testing import CliRunner
 
@@ -10,6 +11,7 @@ from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.sync import SyncFilesResult
 from imbue.mng.cli.output_helpers import output_sync_files_result
 from imbue.mng.cli.pull import PullCliOptions
+from imbue.mng.cli.pull import pull
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
@@ -28,6 +30,58 @@ from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SyncMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
+
+
+def test_pull_cli_options_can_be_instantiated() -> None:
+    """Test that PullCliOptions can be instantiated with all required fields."""
+    opts = PullCliOptions(
+        source_pos=None,
+        destination_pos=None,
+        source=None,
+        source_agent=None,
+        source_host=None,
+        source_path=None,
+        destination=None,
+        dry_run=False,
+        stop=False,
+        delete=False,
+        sync_mode="files",
+        exclude=(),
+        uncommitted_changes="fail",
+        target_branch=None,
+        target=None,
+        target_agent=None,
+        target_host=None,
+        target_path=None,
+        stdin=False,
+        include=(),
+        include_gitignored=False,
+        include_file=None,
+        exclude_file=None,
+        rsync_arg=(),
+        rsync_args=None,
+        branch=(),
+        all_branches=False,
+        tags=False,
+        force_git=False,
+        merge=False,
+        rebase=False,
+        uncommitted_source=None,
+        output_format="human",
+        quiet=False,
+        verbose=0,
+        log_file=None,
+        log_commands=None,
+        log_command_output=None,
+        log_env_vars=None,
+        project_context_path=None,
+        plugin=(),
+        disable_plugin=(),
+    )
+    assert opts.sync_mode == "files"
+    assert opts.dry_run is False
+    assert opts.delete is False
+    assert opts.uncommitted_changes == "fail"
 
 
 def test_pull_cli_options_has_all_fields() -> None:
@@ -293,3 +347,18 @@ def test_find_agent_without_skip_raises_for_stopped_agent(
     # Without skip_agent_state_check, should raise for stopped agent
     with pytest.raises(UserInputError, match="stopped and automatic starting is disabled"):
         find_and_maybe_start_agent_by_name_or_id(str(agent_name), agents_by_host, temp_mng_ctx, "test")
+
+
+def test_pull_nonexistent_agent(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test pulling from a non-existent agent returns error."""
+    result = cli_runner.invoke(
+        pull,
+        ["nonexistent-agent-66201"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0

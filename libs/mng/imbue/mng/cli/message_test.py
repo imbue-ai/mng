@@ -1,11 +1,14 @@
 import click
+import pluggy
 import pytest
+from click.testing import CliRunner
 
 from imbue.mng.api.message import MessageResult
 from imbue.mng.cli.message import MessageCliOptions
 from imbue.mng.cli.message import _emit_human_output
 from imbue.mng.cli.message import _emit_json_output
 from imbue.mng.cli.message import _get_message_content
+from imbue.mng.cli.message import message
 
 _DEFAULT_OPTS = MessageCliOptions(
     agents=(),
@@ -129,3 +132,51 @@ def test_emit_json_output_includes_counts(capsys: pytest.CaptureFixture) -> None
     captured = capsys.readouterr()
     assert '"total_sent": 3' in captured.out
     assert '"total_failed": 1' in captured.out
+
+
+def test_message_requires_agent_or_all(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that message requires at least one agent, --all, or --include."""
+    result = cli_runner.invoke(
+        message,
+        ["-m", "hello"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+    assert "Must specify at least one agent" in result.output
+
+
+def test_message_cannot_combine_agents_and_all(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that --all cannot be combined with agent names."""
+    result = cli_runner.invoke(
+        message,
+        ["my-agent", "--all", "-m", "hello"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot specify both agent names and --all" in result.output
+
+
+def test_message_sends_nothing_with_no_matching_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that message --all with no agents reports no agents found."""
+    result = cli_runner.invoke(
+        message,
+        ["--all", "-m", "hello"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert "No agents found to send message to" in result.output

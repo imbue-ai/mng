@@ -80,6 +80,21 @@ def test_logs_cli_rejects_head_with_follow(
     assert "Cannot use --head with --follow" in result.output
 
 
+def test_logs_nonexistent_agent(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that logs for a non-existent agent returns an error."""
+    result = cli_runner.invoke(
+        logs,
+        ["nonexistent-agent-34892"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+
+    assert result.exit_code != 0
+
+
 def test_logs_cli_log_filename_does_not_conflict_with_common_log_file(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
