@@ -25,29 +25,37 @@ set -euo pipefail
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
-LOG_FILE="${MNG_HOST_DIR}/logs/chat.log"
 TALKING_PROMPT="${MNG_AGENT_WORK_DIR:-}/talking/PROMPT.md"
+
+# Configure and source the shared logging library
+_MNG_LOG_TYPE="chat"
+_MNG_LOG_SOURCE="chat"
+_MNG_LOG_FILE="${MNG_HOST_DIR}/logs/chat/events.jsonl"
+# shellcheck source=../../../../mng/imbue/mng/resources/mng_log.sh
+source "$MNG_HOST_DIR/commands/mng_log.sh"
+
+LOG_FILE="$_MNG_LOG_FILE"
 
 # Nanosecond-precision UTC timestamp in ISO 8601 format.
 iso_timestamp_ns() {
     date -u +"%Y-%m-%dT%H:%M:%S.%NZ"
 }
 
-# Generate a unique event ID (timestamp-based + random hex for uniqueness)
+# Generate a unique event ID (random UUID4 hex with evt- prefix)
 generate_event_id() {
-    echo "evt-$(date +%s%N)-$(head -c 4 /dev/urandom | xxd -p)"
+    echo "evt-$(head -c 16 /dev/urandom | xxd -p)"
 }
 
 # Log a message to the log file (not to stdout, since chat is interactive)
 log() {
-    local ts
-    ts=$(iso_timestamp_ns)
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "[$ts] $*" >> "$LOG_FILE"
+    log_info "$*"
 }
 
 get_default_model() {
-    python3 -c "
+    local _stderr_file
+    _stderr_file=$(mktemp)
+    local _model
+    _model=$(python3 -c "
 import tomllib, pathlib, sys
 p = pathlib.Path('${MNG_AGENT_WORK_DIR:-}/.changelings/settings.toml')
 if p.exists():
@@ -60,7 +68,12 @@ if p.exists():
     except Exception as e:
         print(f'WARNING: failed to load settings from {p}: {e}', file=sys.stderr)
 print('claude-opus-4.6')
-" 2>>"$LOG_FILE" || echo "claude-opus-4.6"
+" 2>"$_stderr_file") || true
+    if [ -s "$_stderr_file" ]; then
+        log_error "Failed to load settings: $(cat "$_stderr_file")"
+    fi
+    rm -f "$_stderr_file"
+    echo "${_model:-claude-opus-4-6}"
 }
 
 generate_cid() {

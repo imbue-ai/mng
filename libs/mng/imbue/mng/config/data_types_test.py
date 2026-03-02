@@ -35,7 +35,6 @@ def test_logging_config_merge_overrides_all_fields() -> None:
     override = LoggingConfig(
         file_level=LogLevel.TRACE,
         log_dir=Path("/custom/logs"),
-        max_log_files=500,
         max_log_size_mb=20,
         console_level=LogLevel.DEBUG,
         is_logging_commands=False,
@@ -46,7 +45,6 @@ def test_logging_config_merge_overrides_all_fields() -> None:
 
     assert merged.file_level == LogLevel.TRACE
     assert merged.log_dir == Path("/custom/logs")
-    assert merged.max_log_files == 500
     assert merged.max_log_size_mb == 20
     assert merged.console_level == LogLevel.DEBUG
     assert merged.is_logging_commands is False

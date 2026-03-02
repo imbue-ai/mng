@@ -548,8 +548,8 @@ def test_chat_script_creates_log_file(chat_env: ChatScriptEnv) -> None:
 
     chat_env.run("--new", "--as-agent")
 
-    log_file = log_dir / "chat.log"
-    assert log_file.exists(), "chat.log should be created"
+    log_file = log_dir / "chat" / "events.jsonl"
+    assert log_file.exists(), "chat/events.jsonl should be created"
     log_content = log_file.read_text()
     assert "Creating new conversation" in log_content
 

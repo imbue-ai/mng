@@ -12,6 +12,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_span
 from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng_claude_zygote import resources as zygote_resources
 from imbue.mng_claude_zygote.data_types import ProvisioningSettings
 
@@ -448,6 +449,13 @@ def provision_changeling_scripts(host: OnlineHostInterface, settings: Provisioni
         warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir commands",
     )
+
+    # Provision the shared logging library (from mng core resources) first,
+    # since the changeling scripts source it.
+    mng_log_content = load_resource_script("mng_log.sh")
+    mng_log_path = commands_dir / "mng_log.sh"
+    with log_span("Writing mng_log.sh to host"):
+        host.write_file(mng_log_path, mng_log_content.encode(), mode="0755")
 
     for script_name in _SCRIPT_FILES:
         script_content = load_zygote_resource(script_name)

@@ -396,11 +396,11 @@ def test_apply_plugin_overrides_creates_disabled_plugin() -> None:
 
 def test_parse_logging_config_parses_valid_config() -> None:
     """_parse_logging_config should parse valid logging config."""
-    raw = {"file_level": "TRACE", "max_log_files": 500}
+    raw = {"file_level": "TRACE", "max_log_size_mb": 20}
     result = _parse_logging_config(raw)
     assert isinstance(result, LoggingConfig)
     assert result.file_level == LogLevel.TRACE
-    assert result.max_log_files == 500
+    assert result.max_log_size_mb == 20
 
 
 def test_parse_logging_config_handles_empty_dict() -> None:

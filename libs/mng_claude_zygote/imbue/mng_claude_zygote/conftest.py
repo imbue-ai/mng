@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from loguru import logger
 
+from imbue.mng.providers.ssh_host_setup import load_resource_script
 from imbue.mng.utils.plugin_testing import register_plugin_test_fixtures
 from imbue.mng.utils.testing import init_git_repo_with_config
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
@@ -111,6 +112,12 @@ class ChatScriptEnv:
     def __init__(self, temp_host_dir: Path) -> None:
         self.chat_script = temp_host_dir / "commands" / "chat.sh"
         self.chat_script.parent.mkdir(parents=True)
+
+        # Write the shared logging library (sourced by chat.sh and other scripts)
+        mng_log_path = temp_host_dir / "commands" / "mng_log.sh"
+        mng_log_path.write_text(load_resource_script("mng_log.sh"))
+        os.chmod(mng_log_path, 0o755)
+
         self.chat_script.write_text(load_zygote_resource("chat.sh"))
         os.chmod(self.chat_script, 0o755)
 
