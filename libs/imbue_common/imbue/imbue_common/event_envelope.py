@@ -9,6 +9,7 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.primitives import NonEmptyStr
+from imbue.imbue_common.primitives import PositiveInt
 
 
 class IsoTimestamp(NonEmptyStr):
@@ -59,9 +60,9 @@ class LogEvent(EventEnvelope):
     identifies the component that produced the log.
     """
 
-    level: str = Field(description="Log level (e.g. DEBUG, INFO, WARNING, ERROR)")
+    level: NonEmptyStr = Field(description="Log level (e.g. DEBUG, INFO, WARNING, ERROR)")
     message: str = Field(description="The log message text")
-    pid: int = Field(description="Process ID of the emitting process")
+    pid: PositiveInt = Field(description="Process ID of the emitting process")
     command: str | None = Field(
         default=None,
         description="CLI subcommand that produced this log (e.g. 'create', 'list')",

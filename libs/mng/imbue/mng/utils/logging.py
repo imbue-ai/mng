@@ -13,6 +13,7 @@ from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import format_loguru_record_as_jsonl_event
+from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.mng.primitives import LogLevel
 
 # Default event type and source for mng CLI logs
@@ -55,12 +56,12 @@ class LoggingConfig(FrozenModel):
         default=False,
         description="Log environment variables (security risk)",
     )
-    event_type: str = Field(
-        default=_DEFAULT_EVENT_TYPE,
+    event_type: NonEmptyStr = Field(
+        default=NonEmptyStr(_DEFAULT_EVENT_TYPE),
         description="Event type for JSONL log events (e.g. 'mng', 'changelings')",
     )
-    event_source: str = Field(
-        default=_DEFAULT_EVENT_SOURCE,
+    event_source: NonEmptyStr = Field(
+        default=NonEmptyStr(_DEFAULT_EVENT_SOURCE),
         description="Event source for JSONL log events, matching logs/<source>/",
     )
 

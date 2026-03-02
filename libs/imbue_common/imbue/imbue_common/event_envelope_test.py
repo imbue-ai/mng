@@ -10,6 +10,8 @@ from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.event_envelope import EventType
 from imbue.imbue_common.event_envelope import IsoTimestamp
 from imbue.imbue_common.event_envelope import LogEvent
+from imbue.imbue_common.primitives import NonEmptyStr
+from imbue.imbue_common.primitives import PositiveInt
 
 _TS = IsoTimestamp("2026-02-28T00:00:00.000000000Z")
 _EID = EventId("evt-1234")
@@ -80,9 +82,9 @@ def test_log_event_includes_envelope_and_log_fields() -> None:
         type=EventType("mng"),
         event_id=_EID,
         source=_SRC,
-        level="DEBUG",
+        level=NonEmptyStr("DEBUG"),
         message="Saving agent to repository",
-        pid=12345,
+        pid=PositiveInt(12345),
         command="create",
     )
     assert event.timestamp == _TS
@@ -99,9 +101,9 @@ def test_log_event_serializes_to_json_with_all_fields() -> None:
         type=EventType("mng"),
         event_id=_EID,
         source=_SRC,
-        level="INFO",
+        level=NonEmptyStr("INFO"),
         message="Listed 3 agents",
-        pid=99999,
+        pid=PositiveInt(99999),
         command="list",
     )
     data = json.loads(event.model_dump_json())
@@ -121,9 +123,9 @@ def test_log_event_command_defaults_to_none() -> None:
         type=EventType("event_watcher"),
         event_id=_EID,
         source=EventSource("event_watcher"),
-        level="DEBUG",
+        level=NonEmptyStr("DEBUG"),
         message="Watching for events",
-        pid=1000,
+        pid=PositiveInt(1000),
     )
     assert event.command is None
     data = json.loads(event.model_dump_json())
@@ -136,9 +138,9 @@ def test_log_event_is_frozen() -> None:
         type=EventType("mng"),
         event_id=_EID,
         source=_SRC,
-        level="DEBUG",
+        level=NonEmptyStr("DEBUG"),
         message="test",
-        pid=1,
+        pid=PositiveInt(1),
     )
     with pytest.raises(Exception):
         event.level = "INFO"  # type: ignore[misc]
