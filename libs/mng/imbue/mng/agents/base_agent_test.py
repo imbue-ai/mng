@@ -76,14 +76,20 @@ def create_test_agent(
     return agent
 
 
-@pytest.mark.tmux
-def test_lifecycle_state_stopped_when_no_tmux_session(
+@pytest.fixture
+def test_agent(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
+) -> BaseAgent:
+    return create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+
+
+@pytest.mark.tmux
+def test_lifecycle_state_stopped_when_no_tmux_session(
+    test_agent: BaseAgent,
 ) -> None:
     """Test that agent is STOPPED when there is no tmux session."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     state = test_agent.get_lifecycle_state()
     assert state == AgentLifecycleState.STOPPED
 
@@ -155,12 +161,9 @@ def test_is_running_true_when_tmux_session_running(
 
 @pytest.mark.tmux
 def test_lifecycle_state_replaced_when_different_process_exists(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that agent is REPLACED when tmux session exists with different process."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session with a different command (cat waits for input indefinitely)
@@ -184,12 +187,9 @@ def test_lifecycle_state_replaced_when_different_process_exists(
 
 @pytest.mark.tmux
 def test_lifecycle_state_done_when_no_process_in_pane(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that agent is DONE when tmux session exists but no process is running."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session, then manually stop the process inside it
@@ -214,12 +214,9 @@ def test_lifecycle_state_done_when_no_process_in_pane(
 
 @pytest.mark.tmux
 def test_lifecycle_state_waiting_when_no_active_file(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that agent is WAITING when tmux session exists with expected process but no active file."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -243,12 +240,10 @@ def test_lifecycle_state_waiting_when_no_active_file(
 
 @pytest.mark.tmux
 def test_lifecycle_state_running_when_active_file_created(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that agent transitions from WAITING to RUNNING when active file is created."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session and run the expected command
@@ -281,22 +276,17 @@ def test_lifecycle_state_running_when_active_file_created(
 
 
 def test_get_initial_message_returns_none_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_initial_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_initial_message() is None
 
 
 def test_get_initial_message_returns_message_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_initial_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -309,22 +299,17 @@ def test_get_initial_message_returns_message_when_set(
 
 
 def test_get_resume_message_returns_none_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_resume_message returns None when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_resume_message() is None
 
 
 def test_get_resume_message_returns_message_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_resume_message returns the message when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -337,22 +322,17 @@ def test_get_resume_message_returns_message_when_set(
 
 
 def test_get_ready_timeout_seconds_returns_default_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_ready_timeout_seconds returns default when not set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_ready_timeout_seconds() == DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 
 
 def test_get_ready_timeout_seconds_returns_value_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_ready_timeout_seconds returns the value when set in data.json."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     agent_dir = local_provider.host_dir / "agents" / str(test_agent.id)
     data_path = agent_dir / "data.json"
 
@@ -365,44 +345,32 @@ def test_get_ready_timeout_seconds_returns_value_when_set(
 
 
 def test_get_expected_process_name_uses_command_basename(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_expected_process_name returns the command basename."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # Default command is "sleep 1000" based on create_test_agent
     assert test_agent.get_expected_process_name() == "sleep"
 
 
 def test_uses_marker_based_send_message_returns_false_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that uses_marker_based_send_message returns False by default."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.uses_marker_based_send_message() is False
 
 
 def test_get_tui_ready_indicator_returns_none_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_tui_ready_indicator returns None by default."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     assert test_agent.get_tui_ready_indicator() is None
 
 
 @pytest.mark.tmux
 def test_send_backspace_with_noop_sends_keys_to_tmux(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that _send_backspace_with_noop sends backspaces and noop keys to tmux session."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
 
     # Create a tmux session with some text
@@ -449,12 +417,9 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
 
 @pytest.mark.tmux
 def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that _send_enter_and_wait_for_signal returns True when tmux wait-for signal is received."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
     wait_channel = f"mng-submit-{session_name}"
 
@@ -484,12 +449,9 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
 
 @pytest.mark.tmux
 def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that _send_enter_and_wait_for_signal returns False when signal times out."""
-    test_agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # Use a shorter timeout so the test doesn't wait the full 2 seconds
     test_agent.enter_submission_timeout_seconds = 0.2
     session_name = f"{test_agent.mng_ctx.config.prefix}{test_agent.name}"
@@ -672,17 +634,15 @@ def test_assemble_command_appends_both_cli_and_agent_args(
 
 
 def test_read_data_returns_empty_dict_when_no_data_file(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that _read_data returns {} when data.json does not exist."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # Remove the data.json file
-    data_path = local_provider.host_dir / "agents" / str(agent.id) / "data.json"
+    data_path = local_provider.host_dir / "agents" / str(test_agent.id) / "data.json"
     data_path.unlink()
 
-    result = agent._read_data()
+    result = test_agent._read_data()
     assert result == {}
 
 
@@ -692,30 +652,25 @@ def test_read_data_returns_empty_dict_when_no_data_file(
 
 
 def test_get_command_returns_command_from_data(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_command returns the command stored in data.json."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # data.json was created with command="sleep 1000"
-    assert agent.get_command() == CommandString("sleep 1000")
+    assert test_agent.get_command() == CommandString("sleep 1000")
 
 
 def test_get_command_returns_bash_when_no_command(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_command returns 'bash' when no command is in data.json."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     # Remove the command from data.json
-    data_path = local_provider.host_dir / "agents" / str(agent.id) / "data.json"
+    data_path = local_provider.host_dir / "agents" / str(test_agent.id) / "data.json"
     data = json.loads(data_path.read_text())
     del data["command"]
     data_path.write_text(json.dumps(data, indent=2))
 
-    assert agent.get_command() == CommandString("bash")
+    assert test_agent.get_command() == CommandString("bash")
 
 
 # =========================================================================
@@ -724,26 +679,20 @@ def test_get_command_returns_bash_when_no_command(
 
 
 def test_get_permissions_returns_empty_list_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_permissions returns an empty list when none are set."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_permissions() == []
+    assert test_agent.get_permissions() == []
 
 
 def test_set_and_get_permissions(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_permissions persists and get_permissions retrieves them."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     perms = [Permission("read"), Permission("write"), Permission("execute")]
-    agent.set_permissions(perms)
+    test_agent.set_permissions(perms)
 
-    result = agent.get_permissions()
+    result = test_agent.get_permissions()
     assert result == perms
 
 
@@ -753,26 +702,20 @@ def test_set_and_get_permissions(
 
 
 def test_get_labels_returns_empty_dict_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_labels returns an empty dict when none are set."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_labels() == {}
+    assert test_agent.get_labels() == {}
 
 
 def test_set_and_get_labels(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_labels persists and get_labels retrieves them."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     labels = {"env": "production", "team": "backend"}
-    agent.set_labels(labels)
+    test_agent.set_labels(labels)
 
-    result = agent.get_labels()
+    result = test_agent.get_labels()
     assert result == labels
 
 
@@ -782,28 +725,23 @@ def test_set_and_get_labels(
 
 
 def test_get_created_branch_name_returns_none_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_created_branch_name returns None when not set."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_created_branch_name() is None
+    assert test_agent.get_created_branch_name() is None
 
 
 def test_get_created_branch_name_returns_value_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_created_branch_name returns the branch name when set in data.json."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    data_path = local_provider.host_dir / "agents" / str(agent.id) / "data.json"
+    data_path = local_provider.host_dir / "agents" / str(test_agent.id) / "data.json"
     data = json.loads(data_path.read_text())
     data["created_branch_name"] = "feature/my-branch"
     data_path.write_text(json.dumps(data, indent=2))
 
-    assert agent.get_created_branch_name() == "feature/my-branch"
+    assert test_agent.get_created_branch_name() == "feature/my-branch"
 
 
 # =========================================================================
@@ -812,27 +750,21 @@ def test_get_created_branch_name_returns_value_when_set(
 
 
 def test_get_is_start_on_boot_returns_false_by_default(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_is_start_on_boot returns False by default."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_is_start_on_boot() is False
+    assert test_agent.get_is_start_on_boot() is False
 
 
 def test_set_and_get_is_start_on_boot(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_is_start_on_boot persists and get_is_start_on_boot retrieves it."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_is_start_on_boot(True)
-    assert agent.get_is_start_on_boot() is True
+    test_agent.set_is_start_on_boot(True)
+    assert test_agent.get_is_start_on_boot() is True
 
-    agent.set_is_start_on_boot(False)
-    assert agent.get_is_start_on_boot() is False
+    test_agent.set_is_start_on_boot(False)
+    assert test_agent.get_is_start_on_boot() is False
 
 
 # =========================================================================
@@ -841,27 +773,22 @@ def test_set_and_get_is_start_on_boot(
 
 
 def test_get_reported_url_returns_none_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_reported_url returns None when no url file exists."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_reported_url() is None
+    assert test_agent.get_reported_url() is None
 
 
 def test_get_reported_url_returns_url_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_reported_url returns the URL from the status file."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    status_dir = local_provider.host_dir / "agents" / str(agent.id) / "status"
+    status_dir = local_provider.host_dir / "agents" / str(test_agent.id) / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
     (status_dir / "url").write_text("https://example.com/agent\n")
 
-    assert agent.get_reported_url() == "https://example.com/agent"
+    assert test_agent.get_reported_url() == "https://example.com/agent"
 
 
 # =========================================================================
@@ -870,28 +797,23 @@ def test_get_reported_url_returns_url_when_set(
 
 
 def test_get_reported_start_time_returns_none_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_reported_start_time returns None when no start_time file exists."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_reported_start_time() is None
+    assert test_agent.get_reported_start_time() is None
 
 
 def test_get_reported_start_time_returns_datetime_when_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that get_reported_start_time returns a datetime from the status file."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    status_dir = local_provider.host_dir / "agents" / str(agent.id) / "status"
+    status_dir = local_provider.host_dir / "agents" / str(test_agent.id) / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
     start_time = datetime(2025, 6, 15, 12, 30, 0, tzinfo=timezone.utc)
     (status_dir / "start_time").write_text(start_time.isoformat() + "\n")
 
-    result = agent.get_reported_start_time()
+    result = test_agent.get_reported_start_time()
     assert result is not None
     assert result == start_time
 
@@ -902,26 +824,20 @@ def test_get_reported_start_time_returns_datetime_when_set(
 
 
 def test_get_reported_activity_time_returns_none_when_no_activity(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_reported_activity_time returns None when no activity recorded."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_reported_activity_time(ActivitySource.USER) is None
+    assert test_agent.get_reported_activity_time(ActivitySource.USER) is None
 
 
 def test_record_activity_and_get_reported_activity_time(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that record_activity writes a file and get_reported_activity_time reads its mtime."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     before = datetime.now(timezone.utc)
-    agent.record_activity(ActivitySource.USER)
+    test_agent.record_activity(ActivitySource.USER)
 
-    result = agent.get_reported_activity_time(ActivitySource.USER)
+    result = test_agent.get_reported_activity_time(ActivitySource.USER)
     assert result is not None
     # mtime should be approximately now (within a few seconds)
     delta = (result - before).total_seconds()
@@ -929,19 +845,17 @@ def test_record_activity_and_get_reported_activity_time(
 
 
 def test_record_activity_writes_json_with_expected_fields(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that record_activity writes JSON containing time, agent_id, and agent_name."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.record_activity(ActivitySource.PROCESS)
+    test_agent.record_activity(ActivitySource.PROCESS)
 
-    activity_path = local_provider.host_dir / "agents" / str(agent.id) / "activity" / "process"
+    activity_path = local_provider.host_dir / "agents" / str(test_agent.id) / "activity" / "process"
     content = json.loads(activity_path.read_text())
     assert "time" in content
-    assert content["agent_id"] == str(agent.id)
-    assert content["agent_name"] == str(agent.name)
+    assert content["agent_id"] == str(test_agent.id)
+    assert content["agent_name"] == str(test_agent.name)
     assert isinstance(content["time"], int)
 
 
@@ -951,42 +865,33 @@ def test_record_activity_writes_json_with_expected_fields(
 
 
 def test_get_plugin_data_returns_empty_dict_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_plugin_data returns {} when no plugin data is set."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_plugin_data("my-plugin") == {}
+    assert test_agent.get_plugin_data("my-plugin") == {}
 
 
 def test_set_and_get_plugin_data(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_plugin_data persists and get_plugin_data retrieves it."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     plugin_data = {"key1": "value1", "nested": {"a": 1}}
-    agent.set_plugin_data("my-plugin", plugin_data)
+    test_agent.set_plugin_data("my-plugin", plugin_data)
 
-    result = agent.get_plugin_data("my-plugin")
+    result = test_agent.get_plugin_data("my-plugin")
     assert result == plugin_data
 
 
 def test_plugin_data_is_isolated_per_plugin(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that plugin data for different plugins is independent."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_plugin_data("plugin-a", {"a": 1})
-    agent.set_plugin_data("plugin-b", {"b": 2})
+    test_agent.set_plugin_data("plugin-a", {"a": 1})
+    test_agent.set_plugin_data("plugin-b", {"b": 2})
 
-    assert agent.get_plugin_data("plugin-a") == {"a": 1}
-    assert agent.get_plugin_data("plugin-b") == {"b": 2}
-    assert agent.get_plugin_data("plugin-c") == {}
+    assert test_agent.get_plugin_data("plugin-a") == {"a": 1}
+    assert test_agent.get_plugin_data("plugin-b") == {"b": 2}
+    assert test_agent.get_plugin_data("plugin-c") == {}
 
 
 # =========================================================================
@@ -995,50 +900,38 @@ def test_plugin_data_is_isolated_per_plugin(
 
 
 def test_set_and_get_reported_plugin_file(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_reported_plugin_file writes and get_reported_plugin_file reads."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_reported_plugin_file("my-plugin", "config.json", '{"hello": "world"}')
+    test_agent.set_reported_plugin_file("my-plugin", "config.json", '{"hello": "world"}')
 
-    result = agent.get_reported_plugin_file("my-plugin", "config.json")
+    result = test_agent.get_reported_plugin_file("my-plugin", "config.json")
     assert result == '{"hello": "world"}'
 
 
 def test_get_reported_plugin_file_raises_when_not_found(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_reported_plugin_file raises FileNotFoundError for missing files."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     with pytest.raises(FileNotFoundError):
-        agent.get_reported_plugin_file("nonexistent-plugin", "missing.txt")
+        test_agent.get_reported_plugin_file("nonexistent-plugin", "missing.txt")
 
 
 def test_list_reported_plugin_files_returns_empty_when_none(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that list_reported_plugin_files returns [] when no files exist."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.list_reported_plugin_files("nonexistent-plugin") == []
+    assert test_agent.list_reported_plugin_files("nonexistent-plugin") == []
 
 
 def test_list_reported_plugin_files_returns_filenames(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that list_reported_plugin_files returns the names of files for a plugin."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_reported_plugin_file("my-plugin", "file1.txt", "content1")
-    agent.set_reported_plugin_file("my-plugin", "file2.json", "content2")
+    test_agent.set_reported_plugin_file("my-plugin", "file1.txt", "content1")
+    test_agent.set_reported_plugin_file("my-plugin", "file2.json", "content2")
 
-    result = sorted(agent.list_reported_plugin_files("my-plugin"))
+    result = sorted(test_agent.list_reported_plugin_files("my-plugin"))
     assert result == ["file1.txt", "file2.json"]
 
 
@@ -1048,77 +941,59 @@ def test_list_reported_plugin_files_returns_filenames(
 
 
 def test_get_env_vars_returns_empty_dict_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_env_vars returns {} when no environment file exists."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_env_vars() == {}
+    assert test_agent.get_env_vars() == {}
 
 
 def test_set_and_get_env_vars(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_env_vars persists and get_env_vars retrieves them."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     env = {"API_KEY": "secret123", "DEBUG": "true"}
-    agent.set_env_vars(env)
+    test_agent.set_env_vars(env)
 
-    result = agent.get_env_vars()
+    result = test_agent.get_env_vars()
     assert result == env
 
 
 def test_get_env_var_returns_value_when_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_env_var returns the value for a specific key."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_env_vars({"FOO": "bar", "BAZ": "qux"})
+    test_agent.set_env_vars({"FOO": "bar", "BAZ": "qux"})
 
-    assert agent.get_env_var("FOO") == "bar"
-    assert agent.get_env_var("BAZ") == "qux"
+    assert test_agent.get_env_var("FOO") == "bar"
+    assert test_agent.get_env_var("BAZ") == "qux"
 
 
 def test_get_env_var_returns_none_when_not_set(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that get_env_var returns None for a key that does not exist."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.get_env_var("NONEXISTENT") is None
+    assert test_agent.get_env_var("NONEXISTENT") is None
 
 
 def test_set_env_var_adds_to_existing(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_env_var adds a new variable without clobbering existing ones."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_env_vars({"EXISTING": "value"})
-    agent.set_env_var("NEW_KEY", "new_value")
+    test_agent.set_env_vars({"EXISTING": "value"})
+    test_agent.set_env_var("NEW_KEY", "new_value")
 
-    assert agent.get_env_var("EXISTING") == "value"
-    assert agent.get_env_var("NEW_KEY") == "new_value"
+    assert test_agent.get_env_var("EXISTING") == "value"
+    assert test_agent.get_env_var("NEW_KEY") == "new_value"
 
 
 def test_set_env_var_overwrites_existing_key(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that set_env_var overwrites an existing variable."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    agent.set_env_vars({"KEY": "old"})
-    agent.set_env_var("KEY", "new")
+    test_agent.set_env_vars({"KEY": "old"})
+    test_agent.set_env_var("KEY", "new")
 
-    assert agent.get_env_var("KEY") == "new"
+    assert test_agent.get_env_var("KEY") == "new"
 
 
 # =========================================================================
@@ -1127,29 +1002,24 @@ def test_set_env_var_overwrites_existing_key(
 
 
 def test_runtime_seconds_returns_none_when_no_start_time(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
+    test_agent: BaseAgent,
 ) -> None:
     """Test that runtime_seconds returns None when no start time is reported."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    assert agent.runtime_seconds is None
+    assert test_agent.runtime_seconds is None
 
 
 def test_runtime_seconds_returns_positive_value_when_start_time_set(
+    test_agent: BaseAgent,
     local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
 ) -> None:
     """Test that runtime_seconds returns a positive value when start time is in the past."""
-    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    status_dir = local_provider.host_dir / "agents" / str(agent.id) / "status"
+    status_dir = local_provider.host_dir / "agents" / str(test_agent.id) / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
     # Set start time to 60 seconds ago
     start_time = datetime(2020, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
     (status_dir / "start_time").write_text(start_time.isoformat())
 
-    result = agent.runtime_seconds
+    result = test_agent.runtime_seconds
     assert result is not None
     # Should be at least a few years worth of seconds (the start time is in 2020)
     assert result > 100_000
