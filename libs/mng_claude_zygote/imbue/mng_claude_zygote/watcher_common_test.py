@@ -1,7 +1,7 @@
 """Unit tests for watcher_common.py shared utilities."""
 
+import os
 import threading
-import time
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -146,8 +146,9 @@ def test_mtime_poll_files_detects_modification(tmp_path: Path) -> None:
 
     mtime_poll_files([test_file], cache, log)
 
-    time.sleep(0.05)
     test_file.write_text("modified content")
+    # Force a different mtime so the poller detects the change
+    os.utime(test_file, (0, 999999999))
     assert mtime_poll_files([test_file], cache, log)
 
 
@@ -174,8 +175,8 @@ def test_mtime_poll_files_tracks_multiple_files(tmp_path: Path) -> None:
     mtime_poll_files([file_a, file_b], cache, log)
     assert len(cache) == 2
 
-    time.sleep(0.05)
     file_a.write_text("a modified")
+    os.utime(file_a, (0, 999999999))
     assert mtime_poll_files([file_a, file_b], cache, log)
 
 
@@ -212,9 +213,9 @@ def test_mtime_poll_directories_detects_modification(tmp_path: Path) -> None:
 
     mtime_poll_directories([source_dir], cache, log)
 
-    time.sleep(0.05)
     with events_file.open("a") as f:
         f.write('{"line": 2}\n')
+    os.utime(events_file, (0, 999999999))
     assert mtime_poll_directories([source_dir], cache, log)
 
 

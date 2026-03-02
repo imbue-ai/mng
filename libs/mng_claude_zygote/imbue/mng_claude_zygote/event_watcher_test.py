@@ -3,10 +3,11 @@
 import subprocess
 import types
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
 
 import pytest
 
+from imbue.mng_claude_zygote.resources import event_watcher as event_watcher_module
 from imbue.mng_claude_zygote.resources.event_watcher import _WatcherSettings
 from imbue.mng_claude_zygote.resources.event_watcher import _check_all_sources
 from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_events
@@ -15,11 +16,19 @@ from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settin
 from imbue.mng_claude_zygote.resources.event_watcher import _set_offset
 from imbue.mng_claude_zygote.resources.watcher_common import Logger
 
-# Patch target for subprocess.run inside the event_watcher module.
-# Using patch() with a string target (rather than monkeypatch.setattr on the
-# module object) avoids contaminating the global subprocess module, which would
-# break unrelated code like the conftest tmux teardown.
-_SUBPROCESS_RUN = "imbue.mng_claude_zygote.resources.event_watcher.subprocess.run"
+
+def _make_mock_subprocess(
+    mock_run: Any,
+) -> types.SimpleNamespace:
+    """Build a mock subprocess module with the given run function.
+
+    Replaces only the event_watcher module's local subprocess reference
+    (via monkeypatch) so the global subprocess module is never contaminated.
+    """
+    return types.SimpleNamespace(
+        run=mock_run,
+        TimeoutExpired=subprocess.TimeoutExpired,
+    )
 
 
 # -- _WatcherSettings tests --
@@ -102,19 +111,31 @@ def test_set_offset_overwrites_previous(tmp_path: Path) -> None:
 # -- _check_and_send_new_events tests --
 
 
-def test_check_and_send_does_nothing_when_no_events_file(tmp_path: Path) -> None:
+def test_check_and_send_does_nothing_when_no_events_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No crash when events file does not exist."""
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN) as mock_run:
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
-        mock_run.assert_not_called()
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
+    assert len(captured_calls) == 0
 
 
-def test_check_and_send_does_nothing_when_at_current_offset(tmp_path: Path) -> None:
+def test_check_and_send_does_nothing_when_at_current_offset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
@@ -122,12 +143,21 @@ def test_check_and_send_does_nothing_when_at_current_offset(tmp_path: Path) -> N
     _set_offset(offsets_dir, "test_source", 1)
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN) as mock_run:
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
-        mock_run.assert_not_called()
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
+    assert len(captured_calls) == 0
 
 
-def test_check_and_send_sends_new_events_and_updates_offset(tmp_path: Path) -> None:
+def test_check_and_send_sends_new_events_and_updates_offset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
@@ -135,55 +165,82 @@ def test_check_and_send_sends_new_events_and_updates_offset(tmp_path: Path) -> N
     (offsets_dir / "test_source.offset").write_text("1")
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN, return_value=types.SimpleNamespace(returncode=0, stdout="", stderr="")) as mock_run:
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
 
-        assert mock_run.call_count == 1
-        cmd = mock_run.call_args[0][0]
-        assert "mng" in cmd and "message" in cmd
-        assert "my-agent" in cmd
-        assert '{"event": 2}' in cmd[-1]
-        assert '{"event": 3}' in cmd[-1]
-        assert _get_offset(offsets_dir, "test_source") == 3
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
+
+    assert len(captured_calls) == 1
+    cmd = captured_calls[0][0]
+    assert "mng" in cmd and "message" in cmd
+    assert "my-agent" in cmd
+    assert '{"event": 2}' in cmd[-1]
+    assert '{"event": 3}' in cmd[-1]
+    assert _get_offset(offsets_dir, "test_source") == 3
 
 
-def test_check_and_send_does_not_update_offset_on_failure(tmp_path: Path) -> None:
+def test_check_and_send_does_not_update_offset_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     events_file.write_text('{"event": 1}\n{"event": 2}\n')
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN, return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="send failed")):
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
-        assert _get_offset(offsets_dir, "test_source") == 0
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        return types.SimpleNamespace(returncode=1, stdout="", stderr="send failed")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
+    assert _get_offset(offsets_dir, "test_source") == 0
 
 
-def test_check_and_send_handles_timeout(tmp_path: Path) -> None:
+def test_check_and_send_handles_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     events_file.write_text('{"event": 1}\n')
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN, side_effect=subprocess.TimeoutExpired(cmd=["mng"], timeout=120)):
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
-        assert _get_offset(offsets_dir, "test_source") == 0
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
+    assert _get_offset(offsets_dir, "test_source") == 0
 
 
-def test_check_and_send_handles_os_error(tmp_path: Path) -> None:
+def test_check_and_send_handles_os_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     events_file.write_text('{"event": 1}\n')
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN, side_effect=OSError("subprocess launch failed")):
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
-        assert _get_offset(offsets_dir, "test_source") == 0
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        raise OSError("subprocess launch failed")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
+    assert _get_offset(offsets_dir, "test_source") == 0
 
 
-def test_check_and_send_skips_empty_new_lines(tmp_path: Path) -> None:
+def test_check_and_send_skips_empty_new_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When new lines are all whitespace, should not send a message."""
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
@@ -192,15 +249,24 @@ def test_check_and_send_skips_empty_new_lines(tmp_path: Path) -> None:
     _set_offset(offsets_dir, "test_source", 1)
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN) as mock_run:
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
-        mock_run.assert_not_called()
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_and_send_new_events(events_file, "test_source", offsets_dir, "agent", log)
+    assert len(captured_calls) == 0
 
 
 # -- _check_all_sources tests --
 
 
-def test_check_all_sources_iterates_all_sources(tmp_path: Path) -> None:
+def test_check_all_sources_iterates_all_sources(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logs_dir = tmp_path / "logs"
     offsets_dir = logs_dir / ".event_offsets"
     offsets_dir.mkdir(parents=True)
@@ -211,17 +277,34 @@ def test_check_all_sources_iterates_all_sources(tmp_path: Path) -> None:
         source_dir.mkdir(parents=True)
         (source_dir / "events.jsonl").write_text(f'{{"source": "{source}"}}\n')
 
-    with patch(_SUBPROCESS_RUN, return_value=types.SimpleNamespace(returncode=0, stdout="", stderr="")) as mock_run:
-        _check_all_sources(logs_dir, ["messages", "stop"], offsets_dir, "agent", log)
-        assert mock_run.call_count == 2
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_all_sources(logs_dir, ["messages", "stop"], offsets_dir, "agent", log)
+
+    assert len(captured_calls) == 2
 
 
-def test_check_all_sources_skips_missing_event_files(tmp_path: Path) -> None:
+def test_check_all_sources_skips_missing_event_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     logs_dir = tmp_path / "logs"
     offsets_dir = logs_dir / ".event_offsets"
     offsets_dir.mkdir(parents=True)
     log = Logger(tmp_path / "test.log")
 
-    with patch(_SUBPROCESS_RUN) as mock_run:
-        _check_all_sources(logs_dir, ["nonexistent"], offsets_dir, "agent", log)
-        mock_run.assert_not_called()
+    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
+        captured_calls.append((cmd, kwargs))
+        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(event_watcher_module, "subprocess", _make_mock_subprocess(mock_run))
+    _check_all_sources(logs_dir, ["nonexistent"], offsets_dir, "agent", log)
+
+    assert len(captured_calls) == 0

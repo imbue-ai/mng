@@ -16,13 +16,11 @@ import sqlite3
 import subprocess
 import sys
 import time
-import types
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from typing import cast
-from unittest.mock import patch
 
 import pluggy
 import pytest
@@ -51,14 +49,7 @@ from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.resources.conversation_watcher import _sync_messages
-from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_events
-from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
-from imbue.mng_claude_zygote.resources.event_watcher import _set_offset
 from imbue.mng_claude_zygote.resources.watcher_common import Logger
-from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
-
-_EVENT_WATCHER_SUBPROCESS_RUN = "imbue.mng_claude_zygote.resources.event_watcher.subprocess.run"
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -657,143 +648,6 @@ print(json.dumps({{
     parsed = json.loads(result.stdout.strip())
     assert parsed["poll"] == 7
     assert parsed["sources"] == ["messages", "stop"]
-
-
-# -- Event watcher behavioral tests --
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_get_offset_returns_zero_when_missing(tmp_path: Path) -> None:
-    offsets_dir = tmp_path / "offsets"
-    offsets_dir.mkdir()
-    assert _get_offset(offsets_dir, "messages") == 0
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_set_and_get_offset_roundtrip(tmp_path: Path) -> None:
-    offsets_dir = tmp_path / "offsets"
-    offsets_dir.mkdir()
-    _set_offset(offsets_dir, "messages", 42)
-    assert _get_offset(offsets_dir, "messages") == 42
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_get_offset_returns_zero_for_corrupt_file(tmp_path: Path) -> None:
-    offsets_dir = tmp_path / "offsets"
-    offsets_dir.mkdir()
-    (offsets_dir / "messages.offset").write_text("not_a_number")
-    assert _get_offset(offsets_dir, "messages") == 0
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_mtime_poll_detects_new_file(tmp_path: Path) -> None:
-    source_dir = tmp_path / "messages"
-    source_dir.mkdir()
-    log = Logger(tmp_path / "test.log")
-    mtime_cache: dict[str, tuple[float, int]] = {}
-
-    assert not mtime_poll_directories([source_dir], mtime_cache, log)
-
-    (source_dir / "events.jsonl").write_text('{"test": true}\n')
-    assert mtime_poll_directories([source_dir], mtime_cache, log)
-
-    assert not mtime_poll_directories([source_dir], mtime_cache, log)
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_mtime_poll_detects_modification(tmp_path: Path) -> None:
-    source_dir = tmp_path / "messages"
-    source_dir.mkdir()
-    events_file = source_dir / "events.jsonl"
-    events_file.write_text('{"line": 1}\n')
-
-    log = Logger(tmp_path / "test.log")
-    mtime_cache: dict[str, tuple[float, int]] = {}
-    mtime_poll_directories([source_dir], mtime_cache, log)
-
-    time.sleep(0.05)
-    with events_file.open("a") as f:
-        f.write('{"line": 2}\n')
-
-    assert mtime_poll_directories([source_dir], mtime_cache, log)
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_mtime_poll_detects_removal(tmp_path: Path) -> None:
-    source_dir = tmp_path / "messages"
-    source_dir.mkdir()
-    events_file = source_dir / "events.jsonl"
-    events_file.write_text('{"line": 1}\n')
-
-    log = Logger(tmp_path / "test.log")
-    mtime_cache: dict[str, tuple[float, int]] = {}
-    mtime_poll_directories([source_dir], mtime_cache, log)
-
-    events_file.unlink()
-    assert mtime_poll_directories([source_dir], mtime_cache, log)
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_load_settings_defaults(tmp_path: Path) -> None:
-    settings = _load_watcher_settings(tmp_path)
-    assert settings.poll_interval == 3
-    assert settings.sources == ["messages", "scheduled", "mng_agents", "stop"]
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_load_settings_from_file(tmp_path: Path) -> None:
-    (tmp_path / "settings.toml").write_text(
-        '[watchers]\nevent_poll_interval_seconds = 10\nwatched_event_sources = ["messages", "stop"]\n'
-    )
-    settings = _load_watcher_settings(tmp_path)
-    assert settings.poll_interval == 10
-    assert settings.sources == ["messages", "stop"]
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_check_and_send_sends_new_events_and_updates_offset(
-    tmp_path: Path,
-) -> None:
-    """Verify _check_and_send_new_events reads new lines, sends them, and updates the offset."""
-    offsets_dir = tmp_path / "offsets"
-    offsets_dir.mkdir()
-    events_file = tmp_path / "events.jsonl"
-    events_file.write_text('{"event": 1}\n{"event": 2}\n{"event": 3}\n')
-    (offsets_dir / "test_source.offset").write_text("1")
-
-    log = Logger(tmp_path / "test.log")
-    with patch(
-        _EVENT_WATCHER_SUBPROCESS_RUN,
-        return_value=types.SimpleNamespace(returncode=0, stdout="", stderr=""),
-    ) as mock_run:
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
-
-        assert mock_run.call_count == 1
-        cmd = mock_run.call_args[0][0]
-        assert "mng" in cmd and "message" in cmd
-        assert "my-agent" in cmd
-        assert '{"event": 2}' in cmd[-1]
-        assert '{"event": 3}' in cmd[-1]
-        assert _get_offset(offsets_dir, "test_source") == 3
-
-
-@pytest.mark.timeout(30)
-def test_event_watcher_check_and_send_does_not_update_offset_on_failure(
-    tmp_path: Path,
-) -> None:
-    """Verify _check_and_send_new_events does not update offset when mng message fails."""
-    offsets_dir = tmp_path / "offsets"
-    offsets_dir.mkdir()
-    events_file = tmp_path / "events.jsonl"
-    events_file.write_text('{"event": 1}\n{"event": 2}\n')
-
-    log = Logger(tmp_path / "test.log")
-    with patch(
-        _EVENT_WATCHER_SUBPROCESS_RUN,
-        return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="send failed"),
-    ):
-        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
-        assert _get_offset(offsets_dir, "test_source") == 0
 
 
 # -- Tmux window injection integration tests --
