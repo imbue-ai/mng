@@ -1660,10 +1660,11 @@ def test_global_md_describes_repo_structure() -> None:
 
 
 def test_global_md_describes_event_system() -> None:
-    """Verify the GLOBAL.md describes the event system and agent management."""
+    """Verify the GLOBAL.md describes agent management and delegation."""
     content = load_zygote_resource("defaults/GLOBAL.md")
-    assert "event" in content.lower()
-    assert "mng" in content
+    assert "Agent management" in content
+    assert "mng create" in content
+    assert "delegate" in content.lower()
 
 
 def test_global_md_describes_agent_roles() -> None:

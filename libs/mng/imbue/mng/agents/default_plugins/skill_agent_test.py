@@ -338,13 +338,18 @@ def test_skill_provisioned_agent_config_accepts_custom_command() -> None:
 def test_install_skill_locally_skips_when_content_matches(
     temp_mng_ctx: MngContext,
 ) -> None:
-    """_install_skill_locally should skip writing when the existing content matches."""
-    skill_path = Path.home() / ".claude" / "skills" / "test-skill" / "SKILL.md"
+    """_install_skill_locally should skip writing when the existing content matches.
+
+    Note: Path.home() is isolated to a temp directory by the autouse
+    setup_test_mng_env fixture, so this test writes to tmp_path/.claude/,
+    not the real home directory.
+    """
+    skill_path = Path.home() / ".claude" / "skills" / "skip-test-skill" / "SKILL.md"
     skill_path.parent.mkdir(parents=True, exist_ok=True)
     skill_path.write_text("same content")
     original_mtime = skill_path.stat().st_mtime
 
-    _install_skill_locally("test-skill", "same content", temp_mng_ctx)
+    _install_skill_locally("skip-test-skill", "same content", temp_mng_ctx)
 
     assert skill_path.stat().st_mtime == original_mtime
     assert skill_path.read_text() == "same content"

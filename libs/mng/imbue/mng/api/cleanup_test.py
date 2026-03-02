@@ -22,9 +22,7 @@ from imbue.mng.primitives import CleanupAction
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.providers.local.instance import LocalProviderInstance
 
 
 def _make_test_agent_info(name: str = "test-agent") -> AgentInfo:
@@ -137,13 +135,10 @@ def test_execute_cleanup_dry_run_returns_cleanup_result_type(
 def test_find_agents_for_cleanup_returns_matching_agents(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """find_agents_for_cleanup should return agents matching include filters."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("cleanup-find-test"),
@@ -151,7 +146,7 @@ def test_find_agents_for_cleanup_returns_matching_agents(
             command=CommandString("sleep 99001"),
         ),
     )
-    host.start_agents([agent.id])
+    local_host.start_agents([agent.id])
 
     try:
         agents = find_agents_for_cleanup(
@@ -164,7 +159,7 @@ def test_find_agents_for_cleanup_returns_matching_agents(
         assert len(agents) == 1
         assert agents[0].name == AgentName("cleanup-find-test")
     finally:
-        host.destroy_agent(agent)
+        local_host.destroy_agent(agent)
 
 
 def test_find_agents_for_cleanup_returns_empty_when_no_match(
@@ -184,13 +179,10 @@ def test_find_agents_for_cleanup_returns_empty_when_no_match(
 def test_execute_cleanup_destroy_on_online_host(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """execute_cleanup with DESTROY action should destroy agents on an online host."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("cleanup-destroy-test"),
@@ -198,7 +190,7 @@ def test_execute_cleanup_destroy_on_online_host(
             command=CommandString("sleep 99002"),
         ),
     )
-    host.start_agents([agent.id])
+    local_host.start_agents([agent.id])
 
     # Find the agent via the API
     agents = find_agents_for_cleanup(
@@ -235,13 +227,11 @@ def test_execute_cleanup_destroy_on_online_host(
 def test_execute_cleanup_stop_on_online_host(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """execute_cleanup with STOP action should stop agents on an online host."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
 
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("cleanup-stop-test"),
@@ -249,7 +239,7 @@ def test_execute_cleanup_stop_on_online_host(
             command=CommandString("sleep 99003"),
         ),
     )
-    host.start_agents([agent.id])
+    local_host.start_agents([agent.id])
 
     # Verify agent is alive before stop (sleep commands enter WAITING state)
     state_before = agent.get_lifecycle_state()
@@ -280,4 +270,4 @@ def test_execute_cleanup_stop_on_online_host(
     assert agent.get_lifecycle_state() == AgentLifecycleState.STOPPED
 
     # Clean up
-    host.destroy_agent(agent)
+    local_host.destroy_agent(agent)

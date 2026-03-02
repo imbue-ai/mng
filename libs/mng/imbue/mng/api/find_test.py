@@ -27,7 +27,6 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.providers.local.instance import LocalProviderInstance
 
 
 def test_parse_source_string_with_agent_only() -> None:
@@ -741,13 +740,10 @@ def test_find_agents_by_identifiers_or_state_raises_on_unknown_identifier(
 def test_find_agents_by_identifiers_or_state_finds_by_name(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """find_agents_by_identifiers_or_state should find an agent by its name."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("find-by-name-test"),
@@ -763,7 +759,7 @@ def test_find_agents_by_identifiers_or_state_finds_by_name(
         mng_ctx=temp_mng_ctx,
     )
 
-    host.destroy_agent(agent)
+    local_host.destroy_agent(agent)
 
     assert len(results) == 1
     assert results[0].agent_name == AgentName("find-by-name-test")
@@ -773,13 +769,10 @@ def test_find_agents_by_identifiers_or_state_finds_by_name(
 def test_find_agents_by_identifiers_or_state_finds_by_id(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """find_agents_by_identifiers_or_state should find an agent by its ID."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("find-by-id-test"),
@@ -796,7 +789,7 @@ def test_find_agents_by_identifiers_or_state_finds_by_id(
         mng_ctx=temp_mng_ctx,
     )
 
-    host.destroy_agent(agent)
+    local_host.destroy_agent(agent)
 
     assert len(results) == 1
     assert str(results[0].agent_id) == agent_id_str
@@ -806,13 +799,10 @@ def test_find_agents_by_identifiers_or_state_finds_by_id(
 def test_find_agents_by_identifiers_or_state_filter_all_returns_all(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """find_agents_by_identifiers_or_state with filter_all=True, target_state=None returns all agents."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent1 = host.create_agent_state(
+    agent1 = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("find-all-1"),
@@ -820,7 +810,7 @@ def test_find_agents_by_identifiers_or_state_filter_all_returns_all(
             command=CommandString("sleep 847312"),
         ),
     )
-    agent2 = host.create_agent_state(
+    agent2 = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("find-all-2"),
@@ -836,8 +826,8 @@ def test_find_agents_by_identifiers_or_state_filter_all_returns_all(
         mng_ctx=temp_mng_ctx,
     )
 
-    host.destroy_agent(agent1)
-    host.destroy_agent(agent2)
+    local_host.destroy_agent(agent1)
+    local_host.destroy_agent(agent2)
 
     found_names = {str(r.agent_name) for r in results}
     assert "find-all-1" in found_names
@@ -848,14 +838,11 @@ def test_find_agents_by_identifiers_or_state_filter_all_returns_all(
 def test_find_agents_by_identifiers_or_state_filter_by_stopped_state(
     temp_work_dir: Path,
     temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
+    local_host: Host,
 ) -> None:
     """find_agents_by_identifiers_or_state with target_state=STOPPED should only return stopped agents."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
     # Create an agent but don't start it (so it's stopped)
-    agent = host.create_agent_state(
+    agent = local_host.create_agent_state(
         work_dir_path=temp_work_dir,
         options=CreateAgentOptions(
             name=AgentName("find-stopped-test"),
@@ -871,7 +858,7 @@ def test_find_agents_by_identifiers_or_state_filter_by_stopped_state(
         mng_ctx=temp_mng_ctx,
     )
 
-    host.destroy_agent(agent)
+    local_host.destroy_agent(agent)
 
     found_names = {str(r.agent_name) for r in results}
     assert "find-stopped-test" in found_names
