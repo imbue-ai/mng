@@ -15,11 +15,23 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
     [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
-
 Create and run an agent.
 
-Sets up the agent's work_dir, optionally provisions a new host (or uses
-an existing one), runs the specified agent, and connects to it (by default).
+This command sets up an agent's working directory, optionally provisions a
+new host (or uses an existing one), runs the specified agent process, and
+connects to it by default.
+
+By default, agents run locally in a new git worktree (for git repositories)
+or a copy of the current directory. Use --in to create a new remote host,
+or --host to use an existing host.
+
+The agent type defaults to 'claude' if not specified. Any command in your
+PATH can also be used as an agent type. Arguments after -- are passed
+directly to the agent command.
+
+For local agents, mng creates a git worktree that shares objects with your
+original repository, allowing efficient branch management. For remote agents,
+the working directory is copied to the remote host.
 
 Alias: c
 
@@ -28,7 +40,6 @@ Alias: c
 ```text
 mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 ```
-
 ## Arguments
 
 - `NAME`: Name for the agent (auto-generated if not provided)
@@ -43,6 +54,7 @@ mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 | ---- | ---- | ----------- | ------- |
 | `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
+| `--agent-id` | text | Explicit agent ID [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
 | `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
@@ -142,6 +154,7 @@ See [Provision Options](../secondary/provision.md) for full details.
 | `--host-env-file` | path | Load env file for host [repeatable] | None |
 | `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
 | `--known-host` | text | SSH known_hosts entry to add to the host (for outbound SSH) [repeatable] | None |
+| `--authorized-key` | text | SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable] | None |
 
 ## New Host Build
 
@@ -203,11 +216,6 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Agent Limits
@@ -227,12 +235,12 @@ Provider: local
 
 Provider: modal
   Supported build arguments for the modal provider:
-    --dockerfile PATH     Path to the Dockerfile to build the sandbox image. Default: Dockerfile in context dir
+    --file PATH           Path to the Dockerfile to build the sandbox image. Default: Dockerfile in context dir
     --context-dir PATH    Build context directory for Dockerfile COPY/ADD instructions. Default: Dockerfile's directory
     --cpu COUNT           Number of CPU cores (0.25-16). Default: 1.0
     --memory GB           Memory in GB (0.5-32). Default: 1.0
     --gpu TYPE            GPU type to use (e.g., t4, a10g, a100, any). Default: no GPU
-    --image NAME          Base Docker image to use. Not required if using a dockerfile. Default: debian:bookworm-slim
+    --image NAME          Base Docker image to use. Not required if using --file. Default: debian:bookworm-slim
     --timeout SEC         Maximum sandbox lifetime in seconds. Default: 900 (15 min)
     --region NAME         Region to run the sandbox in (e.g., us-east, us-west, eu-west). Default: auto
     --secret VAR          Pass an environment variable as a secret to the image build. The value of
@@ -244,6 +252,10 @@ Provider: modal
     --volume NAME:PATH    Mount a persistent Modal Volume at PATH inside the sandbox [experimental]. NAME is the
                           volume name on Modal (created if it doesn't exist). Can be specified
                           multiple times.
+    --docker-build-arg KEY=VALUE
+                          Override a Dockerfile ARG default value. For example,
+                          --docker-build-arg=CLAUDE_CODE_VERSION=2.1.50 sets the CLAUDE_CODE_VERSION
+                          ARG during the image build. Can be specified multiple times.
   No start arguments are supported for the modal provider.
 
 Provider: ssh

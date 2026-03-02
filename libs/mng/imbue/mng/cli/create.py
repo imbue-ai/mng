@@ -25,10 +25,6 @@ from imbue.mng.api.connect import run_connect_command
 from imbue.mng.api.create import create as api_create
 from imbue.mng.api.data_types import ConnectionOptions
 from imbue.mng.api.data_types import CreateAgentResult
-from imbue.mng.api.data_types import HostEnvironmentOptions
-from imbue.mng.api.data_types import HostLifecycleOptions
-from imbue.mng.api.data_types import NewHostBuildOptions
-from imbue.mng.api.data_types import NewHostOptions
 from imbue.mng.api.data_types import SourceLocation
 from imbue.mng.api.find import ensure_agent_started
 from imbue.mng.api.find import ensure_host_started
@@ -43,7 +39,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -55,6 +50,7 @@ from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.agent import AgentInterface
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import AgentDataOptions
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentGitOptions
@@ -65,7 +61,10 @@ from imbue.mng.interfaces.host import AgentProvisioningOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mng.interfaces.host import FileModificationSpec
+from imbue.mng.interfaces.host import HostEnvironmentOptions
 from imbue.mng.interfaces.host import NamedCommand
+from imbue.mng.interfaces.host import NewHostBuildOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.host import UploadFileSpec
 from imbue.mng.primitives import ActivitySource
@@ -92,10 +91,10 @@ from imbue.mng.utils.editor import EditorSession
 from imbue.mng.utils.git_utils import derive_project_name_from_path
 from imbue.mng.utils.git_utils import find_git_worktree_root
 from imbue.mng.utils.git_utils import get_current_git_branch
+from imbue.mng.utils.logging import LoggingConfig
 from imbue.mng.utils.logging import LoggingSuppressor
 from imbue.mng.utils.logging import remove_console_handlers
 from imbue.mng.utils.name_generator import generate_agent_name
-from imbue.mng.utils.name_generator import generate_host_name
 from imbue.mng.utils.polling import wait_for
 
 
@@ -169,6 +168,7 @@ class CreateCliOptions(CommonCliOptions):
     ensure_clean: bool
     snapshot_source: bool | None
     name: str | None
+    agent_id: str | None
     name_style: str
     agent_command: str | None
     add_command: tuple[str, ...]
@@ -206,7 +206,8 @@ class CreateCliOptions(CommonCliOptions):
     host_env: tuple[str, ...]
     host_env_file: tuple[str, ...]
     pass_host_env: tuple[str, ...]
-    known_host: tuple[str, ...]
+    known_hosts: tuple[str, ...]
+    authorized_keys: tuple[str, ...]
     snapshot: str | None
     build_arg: tuple[str, ...]
     build_args: str | None
@@ -250,6 +251,7 @@ class CreateCliOptions(CommonCliOptions):
     help="Use a named template from create_templates config [repeatable, stacks in order]",
 )
 @optgroup.option("-n", "--name", help="Agent name (alternative to positional argument) [default: auto-generated]")
+@optgroup.option("--agent-id", help="Explicit agent ID [default: auto-generated]")
 @optgroup.option(
     "--name-style",
     type=click.Choice(_make_name_style_choices(), case_sensitive=False),
@@ -448,9 +450,15 @@ class CreateCliOptions(CommonCliOptions):
 @optgroup.option("--pass-host-env", multiple=True, help="Forward variable from shell for host [repeatable]")
 @optgroup.option(
     "--known-host",
-    "known_host",
+    "known_hosts",
     multiple=True,
     help="SSH known_hosts entry to add to the host (for outbound SSH) [repeatable]",
+)
+@optgroup.option(
+    "--authorized-key",
+    "authorized_keys",
+    multiple=True,
+    help="SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable]",
 )
 @optgroup.group("New Host Build")
 @optgroup.option("--snapshot", help="Use existing snapshot instead of building")
@@ -526,14 +534,6 @@ class CreateCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def create(ctx: click.Context, **kwargs) -> None:
-    """Create and run an agent.
-
-    Sets up the agent's work_dir, optionally provisions a new host (or uses
-    an existing one), runs the specified agent, and connects to it (by default).
-
-    \b
-    Alias: c
-    """
     # Setup command context (config, logging, output options)
     # This loads the config, applies defaults, and creates the final options
     mng_ctx, output_opts, opts = setup_command_context(
@@ -541,6 +541,7 @@ def create(ctx: click.Context, **kwargs) -> None:
         command_name="create",
         command_class=CreateCliOptions,
     )
+    logging_config: LoggingConfig = ctx.meta["logging_config"]
 
     # Apply --yes flag to auto-approve prompts (e.g., skill installation)
     if opts.yes:
@@ -548,7 +549,7 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    result = _handle_create(mng_ctx, output_opts, opts)
+    result = _handle_create(mng_ctx, output_opts, opts, logging_config)
     if result is None:
         return
     create_result, connection_opts, output_opts, opts, mng_ctx = result
@@ -559,6 +560,7 @@ def _handle_create(
     mng_ctx: MngContext,
     output_opts: OutputOptions,
     opts: CreateCliOptions,
+    logging_config: LoggingConfig,
 ) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
@@ -621,7 +623,7 @@ def _handle_create(
         editor_session = EditorSession.create(initial_content=initial_message_content)
         # Enable logging suppression before starting the editor so that
         # log messages don't interfere with the editor's terminal output
-        LoggingSuppressor.enable(output_opts)
+        LoggingSuppressor.enable(logging_config.console_level)
         # Start editor with callback that restores logging when it exits
         editor_session.start(on_exit=_on_editor_exit)
         # When using editor, don't pass message to api_create (we'll send it after editor finishes)
@@ -743,15 +745,17 @@ def _handle_create(
     # note that this only matters if we're NOT using a snapshot, otherwise it's already "copied"
     # and obviously only matters if we're not creating a new host
     is_work_dir_created: bool
+    early_created_branch_name: str | None = None
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
-        work_dir_path = resolved_target_host.create_agent_work_dir(
+        work_dir_result = resolved_target_host.create_agent_work_dir(
             source_location.host, source_location.path, agent_opts
         )
         # Record the actual work_dir path in agent_opts so the API uses it
         # (the path may have been auto-generated, e.g. for worktrees)
         agent_opts = agent_opts.model_copy_update(
-            to_update(agent_opts.field_ref().target_path, work_dir_path),
+            to_update(agent_opts.field_ref().target_path, work_dir_result.path),
         )
+        early_created_branch_name = work_dir_result.created_branch_name
         is_work_dir_created = True
     else:
         if snapshot is None:
@@ -780,6 +784,7 @@ def _handle_create(
             mng_ctx,
             is_work_dir_created,
             output_opts,
+            created_branch_name=early_created_branch_name,
         )
         return
 
@@ -792,6 +797,7 @@ def _handle_create(
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
+            created_branch_name=early_created_branch_name,
         )
 
         # If --edit-message was used, wait for editor and send the message
@@ -897,6 +903,7 @@ def _create_agent_in_background(
     mng_ctx: MngContext,
     is_work_dir_created: bool,
     output_opts: OutputOptions,
+    created_branch_name: str | None = None,
 ) -> None:
     """Create an agent in a background process that continues after parent exits.
 
@@ -927,6 +934,7 @@ def _create_agent_in_background(
             agent_options=agent_options,
             mng_ctx=mng_ctx,
             create_work_dir=not is_work_dir_created,
+            created_branch_name=created_branch_name,
         )
 
         # Output result
@@ -1380,6 +1388,7 @@ def _parse_agent_opts(
         resolved_agent_type = "generic"
 
     agent_opts = CreateAgentOptions(
+        agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
         name=parsed_agent_name,
         command=CommandString(opts.agent_command) if opts.agent_command else None,
@@ -1444,13 +1453,6 @@ def _parse_target_host(
         parsed_target_host = host_ref
     elif opts.new_host:
         # Creating a new host
-        parsed_host_name: HostName
-        if opts.host_name:
-            parsed_host_name = HostName(opts.host_name)
-        else:
-            parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
-            parsed_host_name = generate_host_name(parsed_host_name_style)
-
         # Parse host-level tags
         tags_dict: dict[str, str] = {}
         for tag_string in opts.tag:
@@ -1483,15 +1485,18 @@ def _parse_target_host(
             start_args=tuple(combined_start_args),
         )
 
+        parsed_host_name_style = HostNameStyle(opts.host_name_style.upper())
         parsed_target_host = NewHostOptions(
             provider=ProviderInstanceName(opts.new_host),
-            name=parsed_host_name,
+            name=HostName(opts.host_name) if opts.host_name else None,
+            name_style=parsed_host_name_style,
             tags=tags,
             build=build_options,
             environment=HostEnvironmentOptions(
                 env_vars=host_env_vars,
                 env_files=host_env_files,
-                known_hosts=opts.known_host,
+                known_hosts=opts.known_hosts,
+                authorized_keys=opts.authorized_keys,
             ),
             lifecycle=lifecycle,
         )
@@ -1595,7 +1600,7 @@ def _find_agent_in_host(host: OnlineHostInterface, agent_id: AgentId) -> AgentIn
 
 def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
     """Output the create result according to output options."""
-    if opts.console_level == LogLevel.NONE:
+    if opts.is_quiet:
         return
 
     result_data = {"agent_id": str(result.agent.id), "host_id": str(result.host.id)}
@@ -1612,7 +1617,7 @@ def _output_result(result: CreateAgentResult, opts: OutputOptions) -> None:
 
 # Register help metadata for git-style help formatting
 _CREATE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-create",
+    key="create",
     one_line_description="Create and run an agent",
     synopsis="""mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [--host <HOST>] [--c WINDOW_NAME=COMMAND]
     [--label KEY=VALUE] [--tag KEY=VALUE] [--project <PROJECT>] [--from <SOURCE>] [--in-place|--copy|--clone|--worktree]
@@ -1625,9 +1630,7 @@ _CREATE_HELP_METADATA = CommandHelpMetadata(
     arguments_description="""- `NAME`: Name for the agent (auto-generated if not provided)
 - `AGENT_TYPE`: Which type of agent to run (default: `claude`). Can also be specified via `--agent-type`
 - `AGENT_ARGS`: Additional arguments passed to the agent""",
-    description="""Create a new agent and optionally connect to it.
-
-This command sets up an agent's working directory, optionally provisions a
+    description="""This command sets up an agent's working directory, optionally provisions a
 new host (or uses an existing one), runs the specified agent process, and
 connects to it by default.
 
@@ -1684,10 +1687,7 @@ the working directory is copied to the remote host.""",
     ),
 )
 
-register_help_metadata("create", _CREATE_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CREATE_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CREATE_HELP_METADATA)
+_CREATE_HELP_METADATA.register()
 
 # Add pager-enabled help option to the create command
 add_pager_help_option(create)

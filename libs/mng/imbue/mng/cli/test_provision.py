@@ -1,5 +1,4 @@
 import json
-import subprocess
 import time
 from pathlib import Path
 
@@ -13,10 +12,12 @@ from imbue.mng.cli.stop import stop
 from imbue.mng.conftest import ModalSubprocessTestEnv
 from imbue.mng.utils.testing import create_test_agent_via_cli
 from imbue.mng.utils.testing import get_short_random_string
+from imbue.mng.utils.testing import run_mng_subprocess
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
 
 
+@pytest.mark.tmux
 def test_provision_existing_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -41,6 +42,7 @@ def test_provision_existing_agent(
         assert result.exit_code == 0, f"Provision failed with: {result.output}"
 
 
+@pytest.mark.tmux
 def test_provision_with_user_command(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -73,6 +75,7 @@ def test_provision_with_user_command(
         assert marker_file.read_text().strip() == "provisioned"
 
 
+@pytest.mark.tmux
 def test_provision_with_env_var(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -112,6 +115,7 @@ def test_provision_with_env_var(
         assert "MY_NEW_VAR=hello_world" in env_content
 
 
+@pytest.mark.tmux
 def test_provision_preserves_existing_env_vars(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -170,6 +174,7 @@ def test_provision_preserves_existing_env_vars(
         assert "ADDED_VAR=new_value" in env_content
 
 
+@pytest.mark.tmux
 def test_provision_with_upload_file(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -220,6 +225,7 @@ def test_provision_agent_not_found(
     assert result.exit_code != 0
 
 
+@pytest.mark.tmux
 def test_provision_with_agent_option(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -266,6 +272,7 @@ def test_provision_both_positional_and_option_raises_error(
     assert "Cannot specify both" in result.output
 
 
+@pytest.mark.tmux
 def test_provision_json_output(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -294,6 +301,7 @@ def test_provision_json_output(
         assert '"provisioned": true' in result.output
 
 
+@pytest.mark.tmux
 def test_provision_stopped_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -333,6 +341,7 @@ def test_provision_stopped_agent(
         assert result.exit_code == 0, f"Provision stopped agent failed with: {result.output}"
 
 
+@pytest.mark.tmux
 def test_provision_stopped_agent_with_user_command(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -380,6 +389,7 @@ def test_provision_stopped_agent_with_user_command(
         assert marker_file.read_text().strip() == "provisioned-while-stopped"
 
 
+@pytest.mark.tmux
 def test_provision_running_agent_restarts_by_default(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -415,6 +425,7 @@ def test_provision_running_agent_restarts_by_default(
         assert tmux_session_exists(session_name), "Agent should be running after provision with restart"
 
 
+@pytest.mark.tmux
 def test_provision_running_agent_no_restart_keeps_running(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -446,6 +457,7 @@ def test_provision_running_agent_no_restart_keeps_running(
         assert tmux_session_exists(session_name), "Agent should still be running after provision with --no-restart"
 
 
+@pytest.mark.tmux
 def test_provision_stopped_agent_stays_stopped_with_restart(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -495,24 +507,9 @@ def test_provision_stopped_agent_stays_stopped_with_restart(
 # =============================================================================
 
 
-def _run_mng_subprocess(
-    args: list[str],
-    env: dict[str, str],
-    timeout: int = 300,
-) -> subprocess.CompletedProcess[str]:
-    """Run a mng CLI command via subprocess."""
-    return subprocess.run(
-        ["uv", "run", "mng", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
-    )
-
-
 def _get_agent_info(agent_name: str, env: dict[str, str]) -> dict | None:
     """Get agent info from `mng list --format json`. Returns None if not found."""
-    result = _run_mng_subprocess(["list", "--format", "json"], env, timeout=60)
+    result = run_mng_subprocess("list", "--format", "json", env=env, timeout=60)
     assert result.returncode == 0, f"mng list failed: {result.stderr}\n{result.stdout}"
     data = json.loads(result.stdout)
     for agent in data.get("agents", []):
@@ -522,6 +519,7 @@ def _get_agent_info(agent_name: str, env: dict[str, str]) -> dict | None:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(600)
 def test_provision_stopped_modal_agent(
     tmp_path: Path,
@@ -547,25 +545,24 @@ def test_provision_stopped_modal_agent(
     env = modal_subprocess_env.env
 
     # Create agent with an env var we can check for preservation
-    result = _run_mng_subprocess(
-        [
-            "create",
-            agent_name,
-            "generic",
-            "--in",
-            "modal",
-            "--no-connect",
-            "--await-ready",
-            "--no-ensure-clean",
-            "--no-copy-work-dir",
-            "--source",
-            str(source_dir),
-            "--agent-cmd",
-            "sleep 999999",
-            "--env",
-            env_marker,
-        ],
-        env,
+    result = run_mng_subprocess(
+        "create",
+        agent_name,
+        "generic",
+        "--in",
+        "modal",
+        "--no-connect",
+        "--await-ready",
+        "--no-ensure-clean",
+        "--no-copy-work-dir",
+        "--source",
+        str(source_dir),
+        "--agent-cmd",
+        "sleep 999999",
+        "--env",
+        env_marker,
+        env=env,
+        timeout=300,
     )
     assert result.returncode == 0, f"Create failed: {result.stderr}\n{result.stdout}"
 
@@ -575,21 +572,20 @@ def test_provision_stopped_modal_agent(
     agent_id_before = agent_info_before["id"]
 
     # Stop the agent (destroys the Modal sandbox)
-    result = _run_mng_subprocess(["stop", agent_name], env, timeout=120)
+    result = run_mng_subprocess("stop", agent_name, env=env, timeout=120)
     assert result.returncode == 0, f"Stop failed: {result.stderr}\n{result.stdout}"
 
     # Provision the stopped agent with a new env var and a user command
     new_env_var = f"PROV_NEW_VAR={get_short_random_string()}"
-    result = _run_mng_subprocess(
-        [
-            "provision",
-            agent_name,
-            "--env",
-            new_env_var,
-            "--user-command",
-            "echo 'provision-ran' > /tmp/prov_marker.txt",
-        ],
-        env,
+    result = run_mng_subprocess(
+        "provision",
+        agent_name,
+        "--env",
+        new_env_var,
+        "--user-command",
+        "echo 'provision-ran' > /tmp/prov_marker.txt",
+        env=env,
+        timeout=300,
     )
     assert result.returncode == 0, f"Provision stopped agent failed: {result.stderr}\n{result.stdout}"
 

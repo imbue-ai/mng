@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Generator
+from typing import cast
 from uuid import uuid4
 
 import pluggy
@@ -19,10 +20,12 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
+from imbue.mng.config.consts import PROFILES_DIRNAME
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import PROFILES_DIRNAME
+from imbue.mng.hosts.host import Host
 from imbue.mng.plugins import hookspecs
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -31,13 +34,14 @@ from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
 from imbue.mng.utils.testing import cleanup_tmux_session
-from imbue.mng.utils.testing import isolated_tmux_server
 from imbue.mng.utils.testing import delete_modal_apps_in_environment
 from imbue.mng.utils.testing import delete_modal_environment
 from imbue.mng.utils.testing import delete_modal_volumes_in_environment
 from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_subprocess_test_env
 from imbue.mng.utils.testing import init_git_repo
+from imbue.mng.utils.testing import isolate_home
+from imbue.mng.utils.testing import isolated_tmux_server
 
 # The urwid import above triggers creation of deprecated module aliases.
 # These are the deprecated module aliases that urwid 3.x creates for backwards
@@ -191,8 +195,9 @@ def setup_test_mng_env(
                 "No active Modal token found in ~/.modal.toml for release tests. Please ensure you have an active token configured or set the env vars"
             )
 
-    monkeypatch.setenv("HOME", str(tmp_home_dir))
+    isolate_home(tmp_home_dir, monkeypatch)
     monkeypatch.setenv("MNG_HOST_DIR", str(temp_host_dir))
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
     monkeypatch.setenv("MNG_PREFIX", mng_test_prefix)
     monkeypatch.setenv("MNG_ROOT_NAME", mng_test_root_name)
 
@@ -253,6 +258,26 @@ def project_config_dir(temp_git_repo: Path, mng_test_root_name: str) -> Path:
     config_dir = temp_git_repo / f".{mng_test_root_name}"
     config_dir.mkdir(parents=True, exist_ok=True)
     return config_dir
+
+
+@pytest.fixture
+def disable_modal_for_subprocesses(
+    project_config_dir: Path, monkeypatch: pytest.MonkeyPatch, temp_git_repo: Path
+) -> Path:
+    """Disable the Modal provider for subprocesses spawned during a test.
+
+    Writes a settings.local.toml inside a temporary git repo's config directory
+    and chdir's into that repo. Spawned subprocesses inherit the CWD, so the
+    config loader's upward directory walk finds the settings file.
+
+    Use this when a test spawns a child process that runs ``mng`` commands
+    and would otherwise fail because Modal credentials are not available in
+    the test environment.
+    """
+    settings_path = project_config_dir / "settings.local.toml"
+    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+    monkeypatch.chdir(temp_git_repo)
+    return project_config_dir
 
 
 @pytest.fixture
@@ -356,6 +381,21 @@ def local_provider(temp_host_dir: Path, temp_mng_ctx: MngContext) -> LocalProvid
 
 
 @pytest.fixture
+def local_host(local_provider: LocalProviderInstance) -> Host:
+    """Create a local Host via the local provider.
+
+    This fixture eliminates the repeated pattern of:
+        host = local_provider.create_host(HostName("localhost"))
+
+    Use this when tests need a Host instance for creating agents,
+    executing commands, etc. The local provider always returns a Host
+    (the concrete OnlineHostInterface implementation).
+    """
+    host = local_provider.create_host(HostName("localhost"))
+    return cast(Host, host)
+
+
+@pytest.fixture
 def per_host_dir(temp_host_dir: Path) -> Path:
     """Get the host directory for the local provider.
 
@@ -388,18 +428,42 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
 
     This fixture is useful for tests that install/uninstall packages and
     need full isolation from the main workspace venv.
+
+    To avoid network access (and the flakiness that comes with it), we
+    export mng's pinned deps from the lockfile via ``uv export``, then
+    install them with ``--no-deps`` (uses uv cache, no resolution or
+    network needed).
     """
     venv_dir = tmp_path / "isolated-venv"
 
-    install_args: list[str] = []
+    workspace_install_args: list[str] = []
     for pkg in _WORKSPACE_PACKAGES:
-        install_args.extend(["-e", str(pkg)])
+        workspace_install_args.extend(["-e", str(pkg)])
+
+    python_path = str(venv_dir / "bin" / "python")
 
     cg = ConcurrencyGroup(name="isolated-venv-setup")
     with cg:
+        # Export mng's pinned transitive deps from the lockfile (no editable/comment lines)
+        export_result = cg.run_process_to_completion(
+            ("uv", "export", "--package", "mng", "--no-hashes", "--frozen"),
+            cwd=_REPO_ROOT,
+        )
+        reqs_file = tmp_path / "pinned-deps.txt"
+        reqs_file.write_text(
+            "\n".join(
+                line for line in export_result.stdout.splitlines() if line and not line.startswith(("#", " ", "-e"))
+            )
+        )
+
         cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        # Install pinned deps from cache (no resolution or network needed)
         cg.run_process_to_completion(
-            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
+            ("uv", "pip", "install", "--python", python_path, "--no-deps", "-r", str(reqs_file))
+        )
+        # Install workspace packages as editable (no-deps since deps are already installed)
+        cg.run_process_to_completion(
+            ("uv", "pip", "install", "--python", python_path, "--no-deps", *workspace_install_args)
         )
 
     return venv_dir

@@ -110,7 +110,7 @@ def _write_host_record_to_volume(app_name: str, host_id: str) -> None:
 
     content = json.dumps(host_record, indent=2).encode("utf-8")
     with volume.batch_upload() as batch:
-        batch.put_file(io.BytesIO(content), f"/{host_id}.json")
+        batch.put_file(io.BytesIO(content), f"/hosts/{host_id}.json")
 
 
 def _read_host_record_from_volume(app_name: str, host_id: str) -> dict[str, Any] | None:
@@ -120,7 +120,7 @@ def _read_host_record_from_volume(app_name: str, host_id: str) -> dict[str, Any]
     volume = modal.Volume.from_name(volume_name)
 
     try:
-        content = b"".join(volume.read_file(f"/{host_id}.json"))
+        content = b"".join(volume.read_file(f"/hosts/{host_id}.json"))
         return json.loads(content.decode("utf-8"))
     except modal.exception.NotFoundError:
         return None

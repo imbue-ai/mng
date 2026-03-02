@@ -9,33 +9,21 @@
 mng [message|msg] [AGENTS...] [--agent <AGENT>] [--all] [-m <MESSAGE>]
 ```
 
-
 Send a message to one or more agents.
 
-Agent IDs can be specified as positional arguments for convenience.
-The message is sent to the agent's stdin.
+Agent IDs can be specified as positional arguments for convenience. The
+message is sent to the agent's stdin.
 
 If no message is specified with --message, reads from stdin (if not a tty)
 or opens an editor (if interactive).
 
-Examples:
-
-  mng message my-agent --message "Hello"
-
-  mng message agent1 agent2 --message "Hello to all"
-
-  mng message --agent my-agent --agent another-agent --message "Hello"
-
-  mng message --all --message "Hello everyone"
-
-  echo "Hello" | mng message my-agent
+Alias: msg
 
 **Usage:**
 
 ```text
 mng message [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: The agents (optional)
@@ -81,11 +69,6 @@ mng message [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Related Documentation
@@ -121,4 +104,10 @@ $ mng message --all --message "Hello everyone"
 
 ```bash
 $ echo "Hello" | mng message my-agent
+```
+
+**Use --agent flag (repeatable)**
+
+```bash
+$ mng message --agent my-agent --agent another-agent --message "Hello"
 ```

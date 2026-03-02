@@ -9,30 +9,28 @@
 mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]
 ```
 
+Configure limits for agents and hosts [experimental].
 
-Configure limits for agents and hosts. [experimental]
+Agents effectively have permissions that are equivalent to the *union* of all
+permissions on the same host. Changing permissions for agents requires them
+to be restarted.
 
-Configures settings on existing agents and hosts: idle timeout, idle mode,
-activity sources, permissions, and start-on-boot.
+Changes to some limits for hosts (e.g. CPU, RAM, disk space, network) are
+handled by the provider.
+
+When targeting agents, host-level settings (idle-timeout, idle-mode,
+activity-sources) are applied to each agent's underlying host.
+
+Agent-level settings (start-on-boot, grant, revoke) require agent targeting
+and cannot be used with --host alone.
 
 Alias: lim
-
-Examples:
-
-  mng limit my-agent --idle-timeout 5m
-
-  mng limit my-agent --grant network --grant internet
-
-  mng limit --all --idle-mode disabled
-
-  mng limit --host my-host --idle-timeout 1h
 
 **Usage:**
 
 ```text
 mng limit [OPTIONS] [AGENTS]...
 ```
-
 ## Arguments
 
 - `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)
@@ -98,11 +96,6 @@ mng limit [OPTIONS] [AGENTS]...
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Idle Modes

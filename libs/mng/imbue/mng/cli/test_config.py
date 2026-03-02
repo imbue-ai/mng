@@ -211,7 +211,7 @@ def test_config_set_parses_boolean_values(
     # Set true value
     result = cli_runner.invoke(
         config,
-        ["set", "test_bool", "true", "--scope", "project"],
+        ["set", "is_nested_tmux_allowed", "true", "--scope", "project"],
         obj=plugin_manager,
         catch_exceptions=False,
     )
@@ -219,7 +219,7 @@ def test_config_set_parses_boolean_values(
 
     config_path = temp_git_repo / f".{mng_test_root_name}" / "settings.toml"
     content = config_path.read_text()
-    assert "test_bool = true" in content
+    assert "is_nested_tmux_allowed = true" in content
 
 
 def test_config_set_parses_integer_values(
@@ -234,7 +234,7 @@ def test_config_set_parses_integer_values(
 
     result = cli_runner.invoke(
         config,
-        ["set", "test_int", "42", "--scope", "project"],
+        ["set", "default_destroyed_host_persisted_seconds", "42", "--scope", "project"],
         obj=plugin_manager,
         catch_exceptions=False,
     )
@@ -242,7 +242,32 @@ def test_config_set_parses_integer_values(
 
     config_path = temp_git_repo / f".{mng_test_root_name}" / "settings.toml"
     content = config_path.read_text()
-    assert "test_int = 42" in content
+    assert "default_destroyed_host_persisted_seconds = 42" in content
+
+
+def test_config_set_rejects_unknown_top_level_field(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    temp_git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mng_test_root_name: str,
+) -> None:
+    """Test config set rejects unknown top-level configuration fields."""
+    monkeypatch.chdir(temp_git_repo)
+
+    result = cli_runner.invoke(
+        config,
+        ["set", "provider.default", "docker", "--scope", "project"],
+        obj=plugin_manager,
+    )
+    assert result.exit_code == 1
+    assert "Invalid configuration" in result.output
+
+    # Verify the file was NOT created/modified
+    config_path = temp_git_repo / f".{mng_test_root_name}" / "settings.toml"
+    if config_path.exists():
+        content = config_path.read_text()
+        assert "provider" not in content
 
 
 def test_config_unset_removes_value(

@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 
 from imbue.mng.utils.testing import get_short_random_string
+from imbue.mng.utils.testing import mng_agent_cleanup
+from imbue.mng.utils.testing import run_mng_subprocess
 from imbue.mng.utils.testing import setup_claude_trust_config_for_subprocess
 
 
@@ -49,20 +51,6 @@ def claude_test_env(temp_git_repo: Path) -> dict[str, str]:
     subprocess.run(["git", "commit", "-m", "Add gitignore"], cwd=temp_git_repo, check=True, capture_output=True)
 
     return setup_claude_trust_config_for_subprocess([temp_git_repo])
-
-
-def _run_mng(
-    *args: str, timeout: float = 120, env: dict[str, str] | None = None, cwd: Path | None = None
-) -> subprocess.CompletedProcess[str]:
-    """Run mng command and return the result."""
-    return subprocess.run(
-        ["uv", "run", "mng", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
-        cwd=cwd,
-    )
 
 
 def _create_agent(
@@ -98,19 +86,14 @@ def _create_agent(
         args.extend(["--message", message])
     if verbose:
         args.append("-v")
-    return _run_mng(*args, env=env, cwd=cwd)
-
-
-def _destroy_agent(name: str, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-    """Destroy a Claude agent."""
-    return _run_mng("destroy", name, "--force", "--disable-plugin", "modal", env=env)
+    return run_mng_subprocess(*args, env=env, cwd=cwd)
 
 
 def _send_message(
     agent_name: str, message: str, *, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Send a message to an existing Claude agent."""
-    return _run_mng("message", agent_name, "-m", message, "-v", "--disable-plugin", "modal", env=env)
+    return run_mng_subprocess("message", agent_name, "-m", message, "-v", "--disable-plugin", "modal", env=env)
 
 
 def _message_was_submitted(result: subprocess.CompletedProcess[str]) -> bool:
@@ -123,16 +106,17 @@ def claude_agent(claude_test_env: dict[str, str], temp_git_repo: Path) -> Genera
     """Create a Claude agent for testing and clean it up after."""
     agent_name = f"test-msg-{get_short_random_string()}"
 
-    result = _create_agent(agent_name, env=claude_test_env, cwd=temp_git_repo)
-    if result.returncode != 0:
-        pytest.fail(f"Failed to create agent: {result.stderr}")
+    with mng_agent_cleanup(agent_name, env=claude_test_env, disable_plugins=["modal"]):
+        result = _create_agent(agent_name, env=claude_test_env, cwd=temp_git_repo)
+        if result.returncode != 0:
+            pytest.fail(f"Failed to create agent: {result.stderr}")
 
-    yield agent_name
-
-    _destroy_agent(agent_name, env=claude_test_env)
+        yield agent_name
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_with_message_succeeds(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mng create --message` successfully sends a message to Claude.
@@ -142,18 +126,18 @@ def test_mng_create_with_message_succeeds(claude_test_env: dict[str, str], temp_
     agent_name = f"test-create-msg-{get_short_random_string()}"
     message = f"test message {get_short_random_string()}"
 
-    try:
+    with mng_agent_cleanup(agent_name, env=claude_test_env, disable_plugins=["modal"]):
         result = _create_agent(agent_name, message=message, verbose=True, env=claude_test_env, cwd=temp_git_repo)
 
         assert result.returncode == 0, f"mng create failed: {result.stderr}"
         assert _message_was_submitted(result), (
             f"Message submission not confirmed in output:\nstdout: {result.stdout}\nstderr: {result.stderr}"
         )
-    finally:
-        _destroy_agent(agent_name, env=claude_test_env)
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_create_with_message_multiple_times(claude_test_env: dict[str, str], temp_git_repo: Path) -> None:
     """Test that `mng create --message` works reliably across multiple trials.
@@ -169,17 +153,18 @@ def test_mng_create_with_message_multiple_times(claude_test_env: dict[str, str],
         agent_name = f"test-multi-{i}-{get_short_random_string()}"
         message = f"test message {i}"
 
-        try:
-            result = _create_agent(agent_name, message=message, verbose=True, env=claude_test_env, cwd=temp_git_repo)
+        with mng_agent_cleanup(agent_name, env=claude_test_env, disable_plugins=["modal"]):
+            try:
+                result = _create_agent(
+                    agent_name, message=message, verbose=True, env=claude_test_env, cwd=temp_git_repo
+                )
 
-            if result.returncode == 0 and _message_was_submitted(result):
-                successes += 1
-            else:
-                failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:500]}")
-        except subprocess.TimeoutExpired:
-            failures.append(f"Trial {i}: timeout")
-        finally:
-            _destroy_agent(agent_name, env=claude_test_env)
+                if result.returncode == 0 and _message_was_submitted(result):
+                    successes += 1
+                else:
+                    failures.append(f"Trial {i}: returncode={result.returncode}, stderr={result.stderr[:500]}")
+            except subprocess.TimeoutExpired:
+                failures.append(f"Trial {i}: timeout")
 
     # Require 100% success rate
     assert successes == trial_count, (

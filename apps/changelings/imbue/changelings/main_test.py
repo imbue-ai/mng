@@ -1,29 +1,46 @@
-# Tests for the changeling CLI entry point.
-
-import pytest
 from click.testing import CliRunner
 
 from imbue.changelings.main import cli
 
 
-@pytest.mark.parametrize("command_name", ["add", "remove", "list", "update", "run", "status"])
-def test_cli_has_expected_command(command_name: str) -> None:
-    """All expected subcommands should be registered on the CLI group."""
-    assert command_name in cli.commands
-
-
-def test_cli_help_includes_description() -> None:
-    """The CLI help text should describe what changelings are."""
+def test_cli_shows_help() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--help"])
 
     assert result.exit_code == 0
-    assert "nightly autonomous agents" in result.output
+    assert "deploy" in result.output
+    assert "forward" in result.output
+    assert "list" in result.output
+    assert "update" in result.output
 
 
-def test_cli_no_args_shows_usage() -> None:
-    """Invoking the CLI with no args should show usage information."""
+def test_cli_deploy_help() -> None:
     runner = CliRunner()
-    result = runner.invoke(cli, [])
+    result = runner.invoke(cli, ["deploy", "--help"])
 
-    assert "Usage" in result.output
+    assert result.exit_code == 0
+    assert "GIT_URL" in result.output
+
+
+def test_cli_forward_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["forward", "--help"])
+
+    assert result.exit_code == 0
+    assert "forwarding server" in result.output
+
+
+def test_cli_verbose_flag_shown_in_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "--verbose" in result.output or "-v" in result.output
+
+
+def test_cli_quiet_flag_shown_in_help() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+
+    assert result.exit_code == 0
+    assert "--quiet" in result.output or "-q" in result.output

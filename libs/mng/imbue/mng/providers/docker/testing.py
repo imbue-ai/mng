@@ -8,6 +8,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.docker.config import DockerProviderConfig
 from imbue.mng.providers.docker.instance import DockerProviderInstance
+from imbue.mng.providers.local.volume import LocalVolume
 from imbue.mng.utils.testing import get_short_random_string
 
 
@@ -19,6 +20,20 @@ def make_docker_provider(mng_ctx: MngContext, name: str = "test-docker") -> Dock
         mng_ctx=mng_ctx,
         config=config,
     )
+
+
+def make_docker_provider_with_local_volume(
+    mng_ctx: MngContext,
+    volume_root: Path,
+) -> DockerProviderInstance:
+    """Create a Docker provider using a LocalVolume instead of a real Docker volume.
+
+    This avoids needing a running Docker daemon for tests that only exercise
+    state-volume logic (list_volumes, delete_volume, host store, etc.).
+    """
+    provider = make_docker_provider(mng_ctx)
+    provider.__dict__["_state_volume"] = LocalVolume(root_path=volume_root)
+    return provider
 
 
 def make_docker_provider_with_cleanup(

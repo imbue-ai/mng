@@ -7,13 +7,14 @@ from click.testing import CliRunner
 from pydantic import Field
 
 import imbue.mng.cli.ask as ask_module
+from imbue.imbue_common.mutable_model import MutableModel
+from imbue.mng.cli.ask import _accumulate_chunks
 from imbue.mng.cli.ask import _build_ask_context
 from imbue.mng.cli.ask import _execute_response
+from imbue.mng.cli.ask import _show_command_summary
 from imbue.mng.cli.ask import ask
 from imbue.mng.errors import MngError
 from imbue.mng.primitives import OutputFormat
-
-from imbue.imbue_common.mutable_model import MutableModel
 
 
 class _FakeQueryStreaming(MutableModel):
@@ -177,3 +178,58 @@ def test_no_query_json_output(
     result = cli_runner.invoke(ask, ["--format", "json"], obj=plugin_manager, catch_exceptions=False)
     assert result.exit_code == 0
     assert '"commands"' in result.output
+
+
+# =============================================================================
+# Tests for _accumulate_chunks
+# =============================================================================
+
+
+def test_accumulate_chunks_joins_all_chunks() -> None:
+    """_accumulate_chunks should join all chunks into a single string."""
+    chunks = iter(["Hello ", "world", "!"])
+    result = _accumulate_chunks(chunks)
+    assert result == "Hello world!"
+
+
+def test_accumulate_chunks_empty_iterator() -> None:
+    """_accumulate_chunks should return empty string for empty iterator."""
+    chunks = iter([])
+    result = _accumulate_chunks(chunks)
+    assert result == ""
+
+
+def test_accumulate_chunks_single_chunk() -> None:
+    """_accumulate_chunks should work with a single chunk."""
+    chunks = iter(["Hello"])
+    result = _accumulate_chunks(chunks)
+    assert result == "Hello"
+
+
+# =============================================================================
+# Tests for _show_command_summary
+# =============================================================================
+
+
+def test_show_command_summary_human(capsys: pytest.CaptureFixture[str]) -> None:
+    """_show_command_summary should output command list in HUMAN format."""
+    _show_command_summary(OutputFormat.HUMAN)
+    captured = capsys.readouterr()
+    assert "Available mng commands" in captured.out
+    assert "mng ask" in captured.out
+
+
+def test_show_command_summary_json(capsys: pytest.CaptureFixture[str]) -> None:
+    """_show_command_summary should output JSON in JSON format."""
+    _show_command_summary(OutputFormat.JSON)
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert "commands" in data
+
+
+def test_show_command_summary_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
+    """_show_command_summary should output JSONL in JSONL format."""
+    _show_command_summary(OutputFormat.JSONL)
+    captured = capsys.readouterr()
+    data = json.loads(captured.out.strip())
+    assert data["event"] == "commands"

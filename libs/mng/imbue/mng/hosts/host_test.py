@@ -18,11 +18,13 @@ from imbue.mng.errors import AgentError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import ONBOARDING_TEXT
+from imbue.mng.hosts.host import ONBOARDING_TEXT_TMUX_USER
 from imbue.mng.hosts.host import _build_start_agent_shell_command
 from imbue.mng.hosts.host import _is_socket_closed_os_error
 from imbue.mng.hosts.host import _parse_boot_time_output
 from imbue.mng.hosts.host import _parse_uptime_output
 from imbue.mng.interfaces.data_types import PyinfraConnector
+from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import NamedCommand
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
@@ -309,6 +311,7 @@ def test_get_agent_references_skips_bad_records_but_loads_good_ones(
     assert bad_id not in ref_ids
 
 
+@pytest.mark.tmux
 def test_destroy_agent_calls_on_destroy(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -326,6 +329,7 @@ def test_destroy_agent_calls_on_destroy(
     assert not agent_dir.exists()
 
 
+@pytest.mark.tmux
 def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -343,6 +347,137 @@ def test_destroy_agent_continues_cleanup_when_on_destroy_raises(
 
     # State directory should still be cleaned up
     assert not agent_dir.exists()
+
+
+# =========================================================================
+# Tests for get_created_branch_name
+# =========================================================================
+
+
+def test_get_created_branch_name_returns_value_from_data_json(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns the value from data.json."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
+    data = json.loads((agent_dir / "data.json").read_text())
+    data["created_branch_name"] = "mng/test-branch-local"
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    assert agent.get_created_branch_name() == "mng/test-branch-local"
+
+
+def test_get_created_branch_name_returns_none_when_absent(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns None for agents without it."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    assert agent.get_created_branch_name() is None
+
+
+def test_create_agent_state_stores_created_branch_name(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state stores created_branch_name in data.json."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    options = CreateAgentOptions(
+        name=AgentName("test-branch-store"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options, created_branch_name="mng/my-branch-local")
+
+    assert agent.get_created_branch_name() == "mng/my-branch-local"
+
+
+def test_create_agent_state_uses_explicit_agent_id(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state uses the provided agent_id instead of generating one."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    explicit_id = AgentId()
+    options = CreateAgentOptions(
+        agent_id=explicit_id,
+        name=AgentName("test-explicit-id"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options)
+
+    assert agent.id == explicit_id
+
+
+def test_create_agent_state_generates_id_when_not_provided(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state auto-generates an agent ID when none is provided."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    options = CreateAgentOptions(
+        name=AgentName("test-auto-id"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options)
+
+    assert agent.id is not None
+    assert str(agent.id).startswith("agent-")
+
+
+def test_create_agent_state_stores_none_created_branch_name(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that create_agent_state stores null created_branch_name when not provided."""
+    host = local_provider.create_host(HostName("localhost"))
+    assert isinstance(host, Host)
+
+    options = CreateAgentOptions(
+        name=AgentName("test-no-branch"),
+        agent_type=AgentTypeName("generic"),
+        command=CommandString("sleep 1"),
+    )
+
+    agent = host.create_agent_state(temp_work_dir, options)
+
+    assert agent.get_created_branch_name() is None
+
+
+def test_get_created_branch_name_returns_none_when_null(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """Test that get_created_branch_name returns None when value is null in data.json."""
+    agent, host = _create_testable_agent(local_provider, temp_host_dir, temp_work_dir)
+
+    agent_dir = local_provider.host_dir / "agents" / str(agent.id)
+    data = json.loads((agent_dir / "data.json").read_text())
+    data["created_branch_name"] = None
+    (agent_dir / "data.json").write_text(json.dumps(data))
+
+    assert agent.get_created_branch_name() is None
 
 
 # =========================================================================
@@ -392,7 +527,7 @@ def _build_command_with_defaults(
     host_dir: Path,
     additional_commands: list[NamedCommand] | None = None,
     unset_vars: list[str] | None = None,
-    show_onboarding: bool = False,
+    onboarding_text: str | None = None,
 ) -> str:
     """Call _build_start_agent_shell_command with standard test defaults."""
     return _build_start_agent_shell_command(
@@ -404,7 +539,7 @@ def _build_command_with_defaults(
         tmux_config_path=Path("/tmp/tmux.conf"),
         unset_vars=unset_vars if unset_vars is not None else [],
         host_dir=host_dir,
-        show_onboarding=show_onboarding,
+        onboarding_text=onboarding_text,
     )
 
 
@@ -567,9 +702,9 @@ def test_build_start_agent_shell_command_includes_onboarding_hook(
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """When show_onboarding is True, the output should contain set-hook with display-popup."""
+    """When onboarding_text is provided, the output should contain set-hook with display-popup."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    result = _build_command_with_defaults(agent, temp_host_dir, show_onboarding=True)
+    result = _build_command_with_defaults(agent, temp_host_dir, onboarding_text=ONBOARDING_TEXT)
 
     assert "set-hook" in result
     assert "display-popup" in result
@@ -581,7 +716,7 @@ def test_build_start_agent_shell_command_no_onboarding_hook_by_default(
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """When show_onboarding is False (default), no hook or popup should appear."""
+    """When onboarding_text is None (default), no hook or popup should appear."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
@@ -602,6 +737,27 @@ def test_onboarding_text_contains_keybindings() -> None:
     assert "Ctrl-q" in ONBOARDING_TEXT
     assert "Ctrl-t" in ONBOARDING_TEXT
     assert "mng connect" in ONBOARDING_TEXT
+
+
+def test_onboarding_text_tmux_user_contains_keybindings() -> None:
+    """The tmux-user onboarding text should contain the custom keybindings and connect command."""
+    assert "Ctrl-q" in ONBOARDING_TEXT_TMUX_USER
+    assert "Ctrl-t" in ONBOARDING_TEXT_TMUX_USER
+    assert "mng connect" in ONBOARDING_TEXT_TMUX_USER
+
+
+def test_build_start_agent_shell_command_includes_onboarding_hook_tmux_user(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """When onboarding_text is ONBOARDING_TEXT_TMUX_USER, the hook should use that text."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir, onboarding_text=ONBOARDING_TEXT_TMUX_USER)
+
+    assert "set-hook" in result
+    assert "display-popup" in result
+    assert "client-attached" in result
 
 
 # =========================================================================

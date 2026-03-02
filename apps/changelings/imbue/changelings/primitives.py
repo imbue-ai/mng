@@ -1,42 +1,39 @@
-from enum import auto
+from pydantic import SecretStr
 
-from imbue.imbue_common.enums import UpperCaseStrEnum
 from imbue.imbue_common.primitives import NonEmptyStr
 
 
-class ChangelingName(NonEmptyStr):
-    """The unique name identifying a changeling (e.g., 'fixme-fairy', 'test-troll')."""
+class AgentName(NonEmptyStr):
+    """User-chosen name for a changeling agent."""
 
     ...
 
 
-class CronSchedule(NonEmptyStr):
-    """A cron expression defining when a changeling runs (e.g., '0 3 * * *' for 3am daily)."""
+class OneTimeCode(NonEmptyStr):
+    """A single-use authentication code for changeling access."""
 
     ...
 
 
-class GitRepoUrl(NonEmptyStr):
-    """A git repository URL (HTTPS or SSH) that a changeling targets."""
+class CookieSigningKey(SecretStr):
+    """Secret key used for signing authentication cookies."""
 
     ...
 
 
-class LogLevel(UpperCaseStrEnum):
-    """Log verbosity level."""
+class ServerName(NonEmptyStr):
+    """Name of a server run by a changeling agent (e.g. 'web', 'api')."""
 
-    TRACE = auto()
-    DEBUG = auto()
-    BUILD = auto()
-    INFO = auto()
-    WARN = auto()
-    ERROR = auto()
-    NONE = auto()
+    ...
 
 
-class OutputFormat(UpperCaseStrEnum):
-    """Output format mode."""
+class GitUrl(NonEmptyStr):
+    """A git URL to clone (local path, file://, https://, or ssh)."""
 
-    HUMAN = auto()
-    JSON = auto()
-    JSONL = auto()
+    ...
+
+
+class GitBranch(NonEmptyStr):
+    """A git branch name to clone."""
+
+    ...

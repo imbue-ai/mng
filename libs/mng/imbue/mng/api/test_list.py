@@ -6,6 +6,7 @@ from datetime import timezone
 from pathlib import Path
 
 import pluggy
+import pytest
 from click.testing import CliRunner
 
 from imbue.mng.api.list import AgentErrorInfo
@@ -130,7 +131,8 @@ def test_agent_to_cel_context_basic_fields() -> None:
 
     context = _agent_to_cel_context(agent_info)
 
-    assert context["type"] == "agent"
+    assert context["resource_type"] == "agent"
+    assert context["type"] == "claude"
     assert context["name"] == "test-agent"
     assert context["host"]["name"] == "test-host"
     assert context["host"]["provider"] == "local"
@@ -372,6 +374,7 @@ def test_list_agents_returns_empty_when_no_agents(
     assert result.errors == []
 
 
+@pytest.mark.tmux
 def test_list_agents_with_agent(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -412,6 +415,7 @@ def test_list_agents_with_agent(
         assert AgentName(agent_name) in agent_names
 
 
+@pytest.mark.tmux
 def test_list_agents_with_include_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -455,6 +459,7 @@ def test_list_agents_with_include_filter(
         assert result.agents[0].name == AgentName(agent_name)
 
 
+@pytest.mark.tmux
 def test_list_agents_with_exclude_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -498,6 +503,7 @@ def test_list_agents_with_exclude_filter(
         assert AgentName(agent_name) not in agent_names
 
 
+@pytest.mark.tmux
 def test_list_agents_with_callbacks(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -979,6 +985,7 @@ def test_apply_cel_filters_with_idle_seconds_filter() -> None:
     assert result is True
 
 
+@pytest.mark.tmux
 def test_list_agents_populates_idle_mode(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1023,6 +1030,7 @@ def test_list_agents_populates_idle_mode(
         assert our_agent.idle_mode == IdleMode.IO.value
 
 
+@pytest.mark.tmux
 def test_list_agents_populates_lock_fields_for_online_host(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1065,6 +1073,7 @@ def test_list_agents_populates_lock_fields_for_online_host(
         assert our_agent.host.is_locked is False
 
 
+@pytest.mark.tmux
 def test_list_agents_streaming_with_callback(
     cli_runner: CliRunner,
     temp_work_dir: Path,
@@ -1155,6 +1164,7 @@ def test_list_agents_streaming_with_error_behavior_continue(
     assert isinstance(result, ListResult)
 
 
+@pytest.mark.tmux
 def test_list_agents_with_provider_names_filter(
     cli_runner: CliRunner,
     temp_work_dir: Path,

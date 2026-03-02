@@ -9,28 +9,18 @@
 mng [list|ls] [OPTIONS]
 ```
 
-
 List all agents managed by mng.
 
 Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.
 
-Examples:
-
-  mng list
-
-  mng list --running
-
-  mng list --provider docker
-
-  mng list --format json
+Alias: ls
 
 **Usage:**
 
 ```text
 mng list [OPTIONS]
 ```
-
 **Options:**
 
 ## Filtering
@@ -86,11 +76,6 @@ mng list [OPTIONS]
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## CEL Filter Examples

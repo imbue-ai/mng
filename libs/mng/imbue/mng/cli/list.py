@@ -25,12 +25,12 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import AbortError
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import render_format_template
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.cli.watch_mode import run_watch_loop
+from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -39,8 +39,10 @@ from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.utils.terminal import ANSI_DIM_GRAY
 from imbue.mng.utils.terminal import ANSI_ERASE_LINE
+from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
 from imbue.mng.utils.terminal import ANSI_RESET
 from imbue.mng.utils.terminal import StderrInterceptor
+from imbue.mng.utils.terminal import ansi_cursor_up
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -217,26 +219,14 @@ class ListCliOptions(CommonCliOptions):
 @add_common_options
 @click.pass_context
 def list_command(ctx: click.Context, **kwargs) -> None:
-    """List all agents managed by mng.
-
-    Displays agents with their status, host information, and other metadata.
-    Supports filtering, sorting, and multiple output formats.
-
-    Examples:
-
-      mng list
-
-      mng list --running
-
-      mng list --provider docker
-
-      mng list --format json
-    """
     try:
         _list_impl(ctx, **kwargs)
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+
+    if ctx.parent is not None and isinstance(ctx.parent.command, click.Group):
+        write_cli_completions_cache(ctx.parent.command)
 
 
 def _list_impl(ctx: click.Context, **kwargs) -> None:
@@ -571,7 +561,12 @@ _EXPANDABLE_COLUMNS: Final[set[str]] = {"name", "labels"}
 _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
-# ANSI escape sequences for terminal control
+
+@pure
+def _format_status_line(count: int) -> str:
+    """Format the dim 'Searching...' status line with an optional count."""
+    count_text = f" ({count} found)" if count > 0 else ""
+    return f"{ANSI_DIM_GRAY}Searching...{count_text}{ANSI_RESET}"
 
 
 class _StreamingHumanRenderer(MutableModel):
@@ -606,8 +601,7 @@ class _StreamingHumanRenderer(MutableModel):
         self._column_widths = _compute_column_widths(self.fields, terminal_width)
 
         if self.is_tty:
-            status = f"{ANSI_DIM_GRAY}Searching...{ANSI_RESET}"
-            self.output.write(status)
+            self.output.write(_format_status_line(0))
             self.output.flush()
 
     def emit_warning(self, text: str) -> None:
@@ -623,9 +617,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             if self.is_tty:
                 # Re-write the status line below the warning
-                count_text = f" ({self._count} found)" if self._count > 0 else ""
-                status = f"{ANSI_DIM_GRAY}Searching...{count_text}{ANSI_RESET}"
-                self.output.write(status)
+                self.output.write(_format_status_line(self._count))
 
             self.output.flush()
 
@@ -643,8 +635,8 @@ class _StreamingHumanRenderer(MutableModel):
                 # past them and erase to end of screen. The warnings will be
                 # re-written after the new agent row so they stay at the bottom.
                 if self._warning_line_count > 0:
-                    self.output.write(f"\x1b[{self._warning_line_count}A")
-                    self.output.write("\x1b[J")
+                    self.output.write(ansi_cursor_up(self._warning_line_count))
+                    self.output.write(ANSI_ERASE_TO_END)
 
             # Write header on first agent
             if not self._is_header_written:
@@ -664,8 +656,7 @@ class _StreamingHumanRenderer(MutableModel):
                     self.output.write(warning_text)
 
                 # Write updated status line
-                status = f"{ANSI_DIM_GRAY}Searching... ({self._count} found){ANSI_RESET}"
-                self.output.write(status)
+                self.output.write(_format_status_line(self._count))
 
             self.output.flush()
 
@@ -679,7 +670,6 @@ class _StreamingHumanRenderer(MutableModel):
 
             if self._count == 0:
                 write_human_line("No agents found")
-
 
 
 @pure
@@ -1061,13 +1051,11 @@ def _render_format_template(template: str, agent: AgentInfo) -> str:
 
 
 # Register help metadata for git-style help formatting
-_LIST_HELP_METADATA = CommandHelpMetadata(
-    name="mng-list",
+CommandHelpMetadata(
+    key="list",
     one_line_description="List all agents managed by mng",
     synopsis="mng [list|ls] [OPTIONS]",
-    description="""List all agents managed by mng.
-
-Displays agents with their status, host information, and other metadata.
+    description="""Displays agents with their status, host information, and other metadata.
 Supports filtering, sorting, and multiple output formats.""",
     aliases=("ls",),
     examples=(
@@ -1182,13 +1170,7 @@ All agent fields from the "Available Fields" section can be used in filter expre
         ("connect", "Connect to an existing agent"),
         ("destroy", "Destroy agents"),
     ),
-)
-
-
-register_help_metadata("list", _LIST_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _LIST_HELP_METADATA.aliases:
-    register_help_metadata(alias, _LIST_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the list command
 add_pager_help_option(list_command)

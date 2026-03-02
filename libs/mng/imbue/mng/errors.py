@@ -65,6 +65,10 @@ class HostOfflineError(HostConnectionError):
     """Raised when unable to connect to a host because it is offline."""
 
 
+class HostAuthenticationError(HostConnectionError):
+    """Raised when unable to connect to a host because authentication failed."""
+
+
 class HostDataSchemaError(HostError):
     """Raised when host data.json has an incompatible schema.
 

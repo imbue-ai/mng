@@ -10,10 +10,8 @@ from imbue.mng.cli.agent_utils import parse_agent_spec
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.cli.output_helpers import write_human_line
@@ -76,7 +74,7 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 
 
 @click.command()
-@click.argument("source_pos", default=None, required=False, metavar="SOURCE", shell_complete=complete_agent_name)
+@click.argument("source_pos", default=None, required=False, metavar="SOURCE")
 @optgroup.group("Source Selection")
 @optgroup.option("--source", "source", help="Source specification: AGENT, AGENT:PATH, or PATH")
 @optgroup.option("--source-agent", help="Source agent name or ID")
@@ -131,28 +129,6 @@ def _emit_pair_stopped(output_opts: OutputOptions) -> None:
 @add_common_options
 @click.pass_context
 def pair(ctx: click.Context, **kwargs) -> None:
-    """Continuously sync files between an agent and local directory. [experimental]
-
-    This command establishes a bidirectional file sync between an agent's working
-    directory and a local directory. Changes are watched and synced in real-time.
-
-    If git repositories exist on both sides, the command first synchronizes git
-    state (branches and commits) before starting the continuous file sync.
-
-    Press Ctrl+C to stop the sync.
-
-    During rapid concurrent edits, changes will be debounced to avoid partial
-    writes [future].
-
-    \b
-    Examples:
-      mng pair my-agent
-      mng pair my-agent --target ./local-dir
-      mng pair --source-agent my-agent --target ./local-copy
-      mng pair my-agent --sync-direction=forward
-      mng pair my-agent --conflict=source
-      mng pair my-agent --source-host @local
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="pair",
@@ -240,25 +216,26 @@ def pair(ctx: click.Context, **kwargs) -> None:
 
 
 # Register help metadata for git-style help formatting
-_PAIR_HELP_METADATA = CommandHelpMetadata(
-    name="mng-pair",
+CommandHelpMetadata(
+    key="pair",
     one_line_description="Continuously sync files between an agent and local directory [experimental]",
     synopsis="mng pair [SOURCE] [--target <DIR>] [--sync-direction <DIR>] [--conflict <MODE>]",
-    description="""Continuously sync files between an agent and local directory.
-
-This command establishes a bidirectional file sync between an agent's working
+    description="""This command establishes a bidirectional file sync between an agent's working
 directory and a local directory. Changes are watched and synced in real-time.
 
 If git repositories exist on both sides, the command first synchronizes git
 state (branches and commits) before starting the continuous file sync.
 
-Press Ctrl+C to stop the sync.""",
+Press Ctrl+C to stop the sync.
+
+During rapid concurrent edits, changes will be debounced to avoid partial writes [future].""",
     examples=(
         ("Pair with an agent", "mng pair my-agent"),
         ("Pair to specific local directory", "mng pair my-agent --target ./local-dir"),
         ("One-way sync (source to target)", "mng pair my-agent --sync-direction=forward"),
         ("Prefer source on conflicts", "mng pair my-agent --conflict=source"),
         ("Filter to specific host", "mng pair my-agent --source-host @local"),
+        ("Use --source-agent flag", "mng pair --source-agent my-agent --target ./local-copy"),
     ),
     see_also=(
         ("push", "Push files or git commits to an agent"),
@@ -266,8 +243,6 @@ Press Ctrl+C to stop the sync.""",
         ("create", "Create a new agent"),
         ("list", "List agents to find one to pair with"),
     ),
-)
-
-register_help_metadata("pair", _PAIR_HELP_METADATA)
+).register()
 
 add_pager_help_option(pair)

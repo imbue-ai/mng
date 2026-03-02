@@ -12,10 +12,10 @@ from pyinfra.api.host import Host as PyinfraHost
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
 from imbue.imbue_common.mutable_model import MutableModel
-from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.interfaces.data_types import VolumeInfo
@@ -26,12 +26,14 @@ from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostNameStyle
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ImageReference
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotId
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import VolumeId
+from imbue.mng.utils.name_generator import generate_host_name
 
 
 class ProviderInstanceInterface(MutableModel, ABC):
@@ -47,6 +49,15 @@ class ProviderInstanceInterface(MutableModel, ABC):
     # =========================================================================
     # Capability Properties
     # =========================================================================
+
+    def get_host_name(self, style: HostNameStyle) -> HostName:
+        """Generate a name for a new host.
+
+        The default implementation auto-generates a name using the given style.
+        Providers that only support a fixed host name (e.g. "localhost" for the
+        local provider) should override this to return that name.
+        """
+        return generate_host_name(style)
 
     @property
     @abstractmethod
@@ -91,8 +102,14 @@ class ProviderInstanceInterface(MutableModel, ABC):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
+        snapshot: SnapshotName | None = None,
     ) -> OnlineHostInterface:
-        """Create and start a new host with the given name and configuration."""
+        """Create and start a new host with the given name and configuration.
+
+        If snapshot is provided, the host is created from the snapshot image
+        instead of building a new one.
+        """
         ...
 
     @abstractmethod
@@ -148,6 +165,9 @@ class ProviderInstanceInterface(MutableModel, ABC):
     ) -> HostInterface:
         """Retrieve a host by its ID or name, raising HostNotFoundError if not found."""
         ...
+
+    @abstractmethod
+    def to_offline_host(self, host_id: HostId) -> HostInterface: ...
 
     @abstractmethod
     def list_hosts(

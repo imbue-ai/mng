@@ -9,7 +9,7 @@
 mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]
 ```
 
-Move an agent to a different host by cloning it and destroying the original. [experimental]
+Move an agent to a different host by cloning and destroying the original [experimental].
 
 This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to

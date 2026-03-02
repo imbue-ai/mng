@@ -18,7 +18,6 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
@@ -341,25 +340,6 @@ def _resolve_host_identifiers(
 @add_common_options
 @click.pass_context
 def limit(ctx: click.Context, **kwargs: Any) -> None:
-    """Configure limits for agents and hosts. [experimental]
-
-    Configures settings on existing agents and hosts: idle timeout, idle mode,
-    activity sources, permissions, and start-on-boot.
-
-    \b
-    Alias: lim
-
-    \b
-    Examples:
-
-      mng limit my-agent --idle-timeout 5m
-
-      mng limit my-agent --grant network --grant internet
-
-      mng limit --all --idle-mode disabled
-
-      mng limit --host my-host --idle-timeout 1h
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="limit",
@@ -600,15 +580,12 @@ def _apply_agent_changes(
 
 
 # Register help metadata for git-style help formatting
-_LIMIT_HELP_METADATA = CommandHelpMetadata(
-    name="mng-limit",
+CommandHelpMetadata(
+    key="limit",
     one_line_description="Configure limits for agents and hosts [experimental]",
     synopsis="mng [limit|lim] [AGENTS...] [--agent <AGENT>] [--host <HOST>] [--all] [--idle-timeout <DURATION>] [--idle-mode <MODE>] [--grant <PERM>] [--revoke <PERM>]",
     arguments_description="- `AGENTS`: Agent name(s) or ID(s) to configure (can also be specified via `--agent`)",
-    description="""Configure settings on existing agents and hosts: idle timeout,
-idle mode, activity sources, permissions, and start-on-boot.
-
-Agents effectively have permissions that are equivalent to the *union* of all
+    description="""Agents effectively have permissions that are equivalent to the *union* of all
 permissions on the same host. Changing permissions for agents requires them
 to be restarted.
 
@@ -639,10 +616,6 @@ and cannot be used with --host alone.""",
             "See [Idle Detection](../../concepts/idle_detection.md) for details on idle modes and activity sources.",
         ),
     ),
-)
-
-register_help_metadata("limit", _LIMIT_HELP_METADATA)
-for alias in _LIMIT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _LIMIT_HELP_METADATA)
+).register()
 
 add_pager_help_option(limit)

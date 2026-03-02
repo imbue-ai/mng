@@ -2,6 +2,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from loguru import logger
 from modal import Function
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -21,10 +22,9 @@ def deploy_function(function: str, app_name: str, environment_name: str | None, 
         tmpdir_path = Path(tmpdir)
         with log_span("Deploying {} function for app: {}", function, app_name):
             try:
+                logger.trace("Currently running from {}", os.getcwd())
                 cg.run_process_to_completion(
                     [
-                        "uv",
-                        "run",
                         "modal",
                         "deploy",
                         *(["--env", environment_name] if environment_name else []),

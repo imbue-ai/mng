@@ -5,7 +5,6 @@ from imbue.mng.cli.clone import parse_source_and_invoke_create
 from imbue.mng.cli.destroy import destroy as destroy_cmd
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 
 
 @click.command(
@@ -14,13 +13,6 @@ from imbue.mng.cli.help_formatter import register_help_metadata
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 @click.pass_context
 def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
-    """Move an agent to a different host by cloning it and destroying the original. [experimental]
-
-    \b
-    This is equivalent to running `mng clone` followed by `mng destroy --force`.
-    All create options are supported. The source agent is force-destroyed after
-    a successful clone (including running agents).
-    """
     source_agent = parse_source_and_invoke_create(ctx, args, command_name="migrate")
 
     # Destroy the source agent with --force
@@ -40,13 +32,11 @@ def migrate(ctx: click.Context, args: tuple[str, ...]) -> None:
         raise
 
 
-_MIGRATE_HELP_METADATA = CommandHelpMetadata(
-    name="mng-migrate",
-    one_line_description="Move an agent to a different host [experimental]",
+CommandHelpMetadata(
+    key="migrate",
+    one_line_description="Move an agent to a different host by cloning and destroying the original [experimental]",
     synopsis="mng migrate <SOURCE_AGENT> [<AGENT_NAME>] [create-options...]",
-    description="""Move an agent to a different host by cloning it and destroying the original. [experimental]
-
-This is equivalent to running `mng clone <source>` followed by
+    description="""This is equivalent to running `mng clone <source>` followed by
 `mng destroy --force <source>`. The first argument is the source agent to
 migrate. An optional second positional argument sets the new agent's name.
 All remaining arguments are passed through to the create command.
@@ -65,7 +55,5 @@ manually clean up.""",
         ("create", "Create an agent (full option set)"),
         ("destroy", "Destroy an agent"),
     ),
-)
-
-register_help_metadata("migrate", _MIGRATE_HELP_METADATA)
+).register()
 add_pager_help_option(migrate)

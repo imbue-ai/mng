@@ -9,8 +9,7 @@
 mng pull [SOURCE] [DESTINATION] [--source-agent <AGENT>] [--dry-run] [--stop]
 ```
 
-
-Pull files or git commits from an agent to local machine. [experimental]
+Pull files or git commits from an agent to local machine [experimental].
 
 Syncs files or git state from an agent's working directory to a local directory.
 Default behavior uses rsync for efficient incremental file transfer.
@@ -18,20 +17,11 @@ Use --sync-mode=git to merge git branches instead of syncing files.
 
 If no source is specified, shows an interactive selector to choose an agent.
 
-Examples:
-  mng pull my-agent
-  mng pull my-agent ./local-copy
-  mng pull my-agent:src ./local-src
-  mng pull --source-agent my-agent
-  mng pull my-agent --sync-mode=git
-  mng pull my-agent --sync-mode=git --target-branch=main
-
 **Usage:**
 
 ```text
 mng pull [OPTIONS] SOURCE DESTINATION
 ```
-
 ## Arguments
 
 - `SOURCE`: The source (optional)
@@ -125,11 +115,6 @@ mng pull [OPTIONS] SOURCE DESTINATION
 | `--context` | path | Project context directory (for build context and loading project-specific config) [default: local .git root] | None |
 | `--plugin`, `--enable-plugin` | text | Enable a plugin [repeatable] | None |
 | `--disable-plugin` | text | Disable a plugin [repeatable] | None |
-
-## Other Options
-
-| Name | Type | Description | Default |
-| ---- | ---- | ----------- | ------- |
 | `-h`, `--help` | boolean | Show this message and exit. | `False` |
 
 ## Multi-target Behavior

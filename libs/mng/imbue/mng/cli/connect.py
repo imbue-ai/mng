@@ -28,10 +28,8 @@ from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
-from imbue.mng.cli.help_formatter import register_help_metadata
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -340,7 +338,7 @@ def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
 
 
 @click.command()
-@click.argument("agent", default=None, required=False, shell_complete=complete_agent_name)
+@click.argument("agent", default=None, required=False)
 @optgroup.group("General")
 @optgroup.option("--agent", "agent", help="The agent to connect to (by name or ID)")
 @optgroup.option(
@@ -380,18 +378,6 @@ def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
 @add_common_options
 @click.pass_context
 def connect(ctx: click.Context, **kwargs: Any) -> None:
-    """Connect to an existing agent via the terminal.
-
-    Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
-    the agent's machine and attaching to the tmux session. Use `mng open` to
-    open an agent's URLs in a web browser instead.
-
-    If no agent is specified, shows an interactive selector to choose from
-    available agents.
-
-    \b
-    Alias: conn
-    """
     mng_ctx, output_opts, opts = setup_command_context(
         ctx=ctx,
         command_name="connect",
@@ -486,13 +472,11 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
 
 
 # Register help metadata for git-style help formatting
-_CONNECT_HELP_METADATA = CommandHelpMetadata(
-    name="mng-connect",
+CommandHelpMetadata(
+    key="connect",
     one_line_description="Connect to an existing agent via the terminal",
     synopsis="mng [connect|conn] [OPTIONS] [AGENT]",
-    description="""Connect to an existing agent via the terminal.
-
-Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
+    description="""Attaches to the agent's tmux session, roughly equivalent to SSH'ing into
 the agent's machine and attaching to the tmux session. Use `mng open` to
 open an agent's URLs in a web browser instead.
 
@@ -513,12 +497,7 @@ The agent can be specified as a positional argument or via --agent:
         ("create", "Create and connect to a new agent"),
         ("list", "List available agents"),
     ),
-)
-
-register_help_metadata("connect", _CONNECT_HELP_METADATA)
-# Also register under alias for consistent help output
-for alias in _CONNECT_HELP_METADATA.aliases:
-    register_help_metadata(alias, _CONNECT_HELP_METADATA)
+).register()
 
 # Add pager-enabled help option to the connect command
 add_pager_help_option(connect)

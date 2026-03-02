@@ -1,154 +1,129 @@
-# Tests for the changelings logging setup.
+from collections.abc import Generator
+from typing import Any
 
-from pathlib import Path
-
+import pytest
 from loguru import logger
 
-from imbue.changelings.data_types import OutputOptions
-from imbue.changelings.primitives import LogLevel
-from imbue.changelings.primitives import OutputFormat
+from imbue.changelings.utils.logging import ConsoleLogLevel
 from imbue.changelings.utils.logging import _format_user_message
-from imbue.changelings.utils.logging import _get_default_log_dir
-from imbue.changelings.utils.logging import _rotate_old_logs
-from imbue.changelings.utils.logging import register_build_level
+from imbue.changelings.utils.logging import console_level_from_verbose_and_quiet
 from imbue.changelings.utils.logging import setup_logging
 
 
-def test_register_build_level_is_idempotent() -> None:
-    """Calling register_build_level multiple times should not raise."""
-    register_build_level()
-    register_build_level()
+def test_default_level_is_info() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=0, quiet=False)
 
-    # Verify the BUILD level exists
-    level = logger.level("BUILD")
-    assert level.no == 15
+    assert level == ConsoleLogLevel.INFO
 
 
-def test_format_user_message_warning() -> None:
-    """WARNING messages should get the WARNING prefix and gold color."""
-    record = {"level": type("Level", (), {"name": "WARNING"})()}
-    result = _format_user_message(record)
+def test_single_verbose_gives_debug() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=1, quiet=False)
+
+    assert level == ConsoleLogLevel.DEBUG
+
+
+def test_double_verbose_gives_trace() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=2, quiet=False)
+
+    assert level == ConsoleLogLevel.TRACE
+
+
+def test_triple_verbose_gives_trace() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=3, quiet=False)
+
+    assert level == ConsoleLogLevel.TRACE
+
+
+def test_quiet_gives_none() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=0, quiet=True)
+
+    assert level == ConsoleLogLevel.NONE
+
+
+def test_quiet_overrides_verbose() -> None:
+    level = console_level_from_verbose_and_quiet(verbose=2, quiet=True)
+
+    assert level == ConsoleLogLevel.NONE
+
+
+class _FakeLevel:
+    """Fake loguru level object for testing format functions."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+def _make_fake_record(level_name: str) -> dict[str, _FakeLevel]:
+    """Create a minimal dict matching the loguru record shape for _format_user_message."""
+    return {"level": _FakeLevel(level_name)}
+
+
+def test_format_user_message_info_returns_plain_format() -> None:
+    result = _format_user_message(_make_fake_record("INFO"))
+    assert result == "{message}\n"
+
+
+def test_format_user_message_warning_includes_prefix() -> None:
+    result = _format_user_message(_make_fake_record("WARNING"))
     assert "WARNING:" in result
     assert "{message}" in result
 
 
-def test_format_user_message_error() -> None:
-    """ERROR messages should get the ERROR prefix and red color."""
-    record = {"level": type("Level", (), {"name": "ERROR"})()}
-    result = _format_user_message(record)
+def test_format_user_message_error_includes_prefix() -> None:
+    result = _format_user_message(_make_fake_record("ERROR"))
     assert "ERROR:" in result
     assert "{message}" in result
 
 
-def test_format_user_message_build() -> None:
-    """BUILD messages should get gray color formatting."""
-    record = {"level": type("Level", (), {"name": "BUILD"})()}
-    result = _format_user_message(record)
-    assert "{message}" in result
-    # BUILD messages have gray color but no prefix
-    assert "BUILD" not in result
-
-
-def test_format_user_message_debug() -> None:
-    """DEBUG messages should get blue color formatting."""
-    record = {"level": type("Level", (), {"name": "DEBUG"})()}
-    result = _format_user_message(record)
+def test_format_user_message_debug_includes_message_placeholder() -> None:
+    result = _format_user_message(_make_fake_record("DEBUG"))
     assert "{message}" in result
 
 
-def test_format_user_message_trace() -> None:
-    """TRACE messages should get purple color formatting."""
-    record = {"level": type("Level", (), {"name": "TRACE"})()}
-    result = _format_user_message(record)
+def test_format_user_message_trace_includes_message_placeholder() -> None:
+    result = _format_user_message(_make_fake_record("TRACE"))
     assert "{message}" in result
 
 
-def test_format_user_message_info() -> None:
-    """INFO messages should get plain formatting (no color prefix)."""
-    record = {"level": type("Level", (), {"name": "INFO"})()}
-    result = _format_user_message(record)
-    assert result == "{message}\n"
+@pytest.fixture()
+def _isolated_logger() -> Generator[None, None, None]:
+    """Remove all loguru handlers before and after each test to isolate logger state."""
+    logger.remove()
+    yield
+    logger.remove()
 
 
-def test_get_default_log_dir() -> None:
-    """The default log directory should be under ~/.changelings/logs."""
-    log_dir = _get_default_log_dir()
-    assert log_dir == Path.home() / ".changelings" / "logs"
+@pytest.mark.usefixtures("_isolated_logger")
+def test_setup_logging_none_suppresses_output(capfd: Any) -> None:
+    setup_logging(ConsoleLogLevel.NONE)
+
+    logger.info("suppressed-marker-82734")
+
+    captured = capfd.readouterr()
+    assert "suppressed-marker-82734" not in captured.err
 
 
-def test_setup_logging_creates_log_file(tmp_path: Path) -> None:
-    """setup_logging should create a log file in the default log directory."""
-    output_opts = OutputOptions(
-        output_format=OutputFormat.HUMAN,
-        console_level=LogLevel.BUILD,
-        log_file_path=None,
-    )
+@pytest.mark.usefixtures("_isolated_logger")
+@pytest.mark.parametrize(
+    "level, loguru_level, marker",
+    [
+        (ConsoleLogLevel.INFO, "INFO", "info-marker-91827"),
+        (ConsoleLogLevel.DEBUG, "DEBUG", "debug-marker-73829"),
+        (ConsoleLogLevel.TRACE, "TRACE", "trace-marker-28374"),
+        (ConsoleLogLevel.WARN, "WARNING", "warn-marker-92837"),
+        (ConsoleLogLevel.ERROR, "ERROR", "error-marker-83729"),
+    ],
+)
+def test_setup_logging_shows_messages_at_configured_level(
+    level: ConsoleLogLevel,
+    loguru_level: str,
+    marker: str,
+    capfd: Any,
+) -> None:
+    """Verify that setup_logging configures loguru to emit messages at the given level."""
+    setup_logging(level)
 
-    setup_logging(output_opts)
+    logger.log(loguru_level, marker)
 
-    # Log directory should have been created (in HOME which is tmp_path for tests)
-    log_dir = Path.home() / ".changelings" / "logs"
-    assert log_dir.exists()
-
-    # There should be a .json log file
-    json_files = list(log_dir.glob("*.json"))
-    assert len(json_files) >= 1
-
-
-def test_setup_logging_uses_custom_log_file(tmp_path: Path) -> None:
-    """When log_file_path is set, logging should write to that path."""
-    custom_log_path = tmp_path / "custom" / "test.json"
-    output_opts = OutputOptions(
-        output_format=OutputFormat.HUMAN,
-        console_level=LogLevel.BUILD,
-        log_file_path=custom_log_path,
-    )
-
-    setup_logging(output_opts)
-
-    # The parent directory should have been created
-    assert custom_log_path.parent.exists()
-
-
-def test_setup_logging_with_none_console_level(tmp_path: Path) -> None:
-    """When console_level is NONE, no console handler should be added."""
-    output_opts = OutputOptions(
-        output_format=OutputFormat.HUMAN,
-        console_level=LogLevel.NONE,
-        log_file_path=None,
-    )
-
-    setup_logging(output_opts)
-
-    # Should not raise; logging is configured but console output is suppressed
-
-
-def test_rotate_old_logs_removes_excess_files(tmp_path: Path) -> None:
-    """Rotation should remove oldest log files when exceeding max_files."""
-    # Create more files than the max
-    for i in range(5):
-        log_file = tmp_path / f"test-{i:04d}.json"
-        log_file.write_text("{}")
-
-    _rotate_old_logs(tmp_path, max_files=2)
-
-    remaining = list(tmp_path.glob("*.json"))
-    assert len(remaining) == 2
-
-
-def test_rotate_old_logs_does_nothing_when_under_limit(tmp_path: Path) -> None:
-    """Rotation should not remove files when count is under max_files."""
-    for i in range(3):
-        log_file = tmp_path / f"test-{i:04d}.json"
-        log_file.write_text("{}")
-
-    _rotate_old_logs(tmp_path, max_files=10)
-
-    remaining = list(tmp_path.glob("*.json"))
-    assert len(remaining) == 3
-
-
-def test_rotate_old_logs_handles_nonexistent_directory() -> None:
-    """Rotation should handle a nonexistent directory gracefully."""
-    _rotate_old_logs(Path("/nonexistent/path"), max_files=10)
-    # Should not raise
+    captured = capfd.readouterr()
+    assert marker in captured.err

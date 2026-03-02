@@ -100,6 +100,11 @@ class AgentInterface(MutableModel, ABC):
         ...
 
     @abstractmethod
+    def get_created_branch_name(self) -> str | None:
+        """Return the git branch name that was created for this agent, or None if not applicable."""
+        ...
+
+    @abstractmethod
     def get_is_start_on_boot(self) -> bool:
         """Return whether this agent should start automatically on host boot."""
         ...
@@ -141,6 +146,15 @@ class AgentInterface(MutableModel, ABC):
     @abstractmethod
     def send_message(self, message: str) -> None:
         """Send a message to the running agent via its stdin."""
+        ...
+
+    @abstractmethod
+    def capture_pane_content(self) -> str | None:
+        """Capture the current tmux pane content for this agent.
+
+        Returns the pane content as a string, or None if capture fails
+        (e.g., the session doesn't exist or the host is unreachable).
+        """
         ...
 
     def wait_for_ready_signal(

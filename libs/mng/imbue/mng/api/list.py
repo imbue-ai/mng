@@ -1,5 +1,3 @@
-import json
-import os
 from collections.abc import Callable
 from collections.abc import Sequence
 from concurrent.futures import Future
@@ -8,7 +6,6 @@ from datetime import timezone
 from pathlib import Path
 from threading import Lock
 from typing import Any
-from typing import Final
 
 from loguru import logger
 from pydantic import Field
@@ -25,8 +22,11 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.providers import get_all_provider_instances
+from imbue.mng.config.completion_writer import get_completion_cache_dir
+from imbue.mng.config.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
+from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import ProviderInstanceNotFoundError
@@ -44,7 +44,9 @@ from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
+from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
+from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng.utils.cel_utils import apply_cel_filters_to_context
@@ -203,38 +205,10 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
-    _write_completion_cache(mng_ctx, result)
+    agent_names = [str(agent.name) for agent in result.agents]
+    write_agent_names_cache(get_completion_cache_dir(), agent_names)
 
     return result
-
-
-COMPLETION_CACHE_FILENAME: Final[str] = ".completion_cache.json"
-
-
-def _write_completion_cache(mng_ctx: MngContext, result: ListResult) -> None:
-    """Write agent names to the completion cache file (best-effort).
-
-    Writes a JSON file with all agent names from the list result so that
-    shell completion can read it without importing the mng config system.
-    The cache file is written to {host_dir}/.completion_cache.json.
-
-    This function never raises -- cache write failures must not break list_agents().
-    """
-    try:
-        env_host_dir = os.environ.get("MNG_HOST_DIR")
-        host_dir = Path(env_host_dir) if env_host_dir else mng_ctx.config.default_host_dir.expanduser()
-
-        names = sorted({str(agent.name) for agent in result.agents})
-        cache_data = {
-            "names": names,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        cache_path = host_dir / COMPLETION_CACHE_FILENAME
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(cache_data))
-    except OSError:
-        logger.debug("Failed to write completion cache")
 
 
 def _list_agents_batch(
@@ -341,6 +315,9 @@ def _process_provider_streaming(
         # Phase 1: list hosts and get agent refs
         provider_results = provider.load_agent_refs(cg=cg, include_destroyed=True)
 
+        # Warn if any host names are duplicated within this provider
+        _warn_on_duplicate_host_names(provider_results)
+
         # Phase 2: immediately process hosts (fire on_agent for this provider)
         host_futures: list[Future[None]] = []
         with ConcurrencyGroupExecutor(parent_cg=cg, name=f"stream_hosts_{provider.name}", max_workers=32) as executor:
@@ -389,26 +366,31 @@ def _assemble_host_info(
     result: ListResult,
     results_lock: Lock,
 ) -> None:
-    # Try the provider's optimized listing method first
-    listing_data = provider.build_host_listing_data(host_ref, agent_refs)
-    if listing_data is not None:
-        host_info, agent_infos = listing_data
-        for agent_info in agent_infos:
-            # Apply CEL filters if provided
-            if params.compiled_include_filters or params.compiled_exclude_filters:
-                if not _apply_cel_filters(
-                    agent_info, params.compiled_include_filters, params.compiled_exclude_filters
-                ):
-                    continue
-            with results_lock:
-                result.agents.append(agent_info)
-            if params.on_agent:
-                params.on_agent(agent_info)
-        return
+    is_authentication_failure = False
+    try:
+        # Try the provider's optimized listing method first
+        listing_data = provider.build_host_listing_data(host_ref, agent_refs)
+        if listing_data is not None:
+            host_info, agent_infos = listing_data
+            for agent_info in agent_infos:
+                # Apply CEL filters if provided
+                if params.compiled_include_filters or params.compiled_exclude_filters:
+                    if not _apply_cel_filters(
+                        agent_info, params.compiled_include_filters, params.compiled_exclude_filters
+                    ):
+                        continue
+                with results_lock:
+                    result.agents.append(agent_info)
+                if params.on_agent:
+                    params.on_agent(agent_info)
+            return
 
-    # Fall back to per-field collection
-    # get the host
-    host = provider.get_host(host_ref.host_id)
+        # Fall back to per-field collection
+        # get the host
+        host = provider.get_host(host_ref.host_id)
+    except HostAuthenticationError:
+        host = provider.to_offline_host(host_ref.host_id)
+        is_authentication_failure = True
 
     # Build SSH info if this is a remote host (only available for online hosts)
     ssh_info: SSHInfo | None = None
@@ -454,7 +436,7 @@ def _assemble_host_info(
         id=host.id,
         name=host_name,
         provider_name=host_ref.provider_name,
-        state=host.get_state(),
+        state=host.get_state() if not is_authentication_failure else HostState.UNAUTHENTICATED,
         image=host.get_image(),
         tags=host.get_tags(),
         boot_time=boot_time,
@@ -622,9 +604,6 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
     """
     result = agent.model_dump(mode="json")
 
-    # Add computed fields
-    result["type"] = "agent"
-
     # Add age from create_time
     if result.get("create_time"):
         if isinstance(result["create_time"], str):
@@ -678,6 +657,37 @@ def _apply_cel_filters(
         exclude_filters=exclude_filters,
         error_context_description=f"agent {agent.name}",
     )
+
+
+def _warn_on_duplicate_host_names(
+    agents_by_host: dict[HostReference, list[AgentReference]],
+) -> None:
+    """Emit a warning if any host names are duplicated within the same provider.
+
+    This should never happen in normal operation -- it indicates a bug or race condition
+    in host creation.
+
+    Only considers hosts that have at least one agent reference, since destroyed
+    hosts (which typically have no agents) may legitimately share a name with a
+    newly created host.
+    """
+    # Group host names by provider, tracking which host IDs share each name
+    host_ids_by_provider_and_name: dict[tuple[ProviderInstanceName, HostName], list[HostId]] = {}
+    for host_ref, agent_refs in agents_by_host.items():
+        if not agent_refs:
+            continue
+        key = (host_ref.provider_name, host_ref.host_name)
+        host_ids_by_provider_and_name.setdefault(key, []).append(host_ref.host_id)
+
+    for (provider_name, host_name), host_ids in host_ids_by_provider_and_name.items():
+        if len(host_ids) > 1:
+            logger.warning(
+                "Duplicate host name '{}' found on provider '{}' (host IDs: {}). "
+                "This should never happen -- it may indicate a bug or a race condition during host creation.",
+                host_name,
+                provider_name,
+                ", ".join(str(hid) for hid in host_ids),
+            )
 
 
 def _process_provider_for_host_listing(
@@ -735,5 +745,8 @@ def load_all_agents_grouped_by_host(
         # Re-raise any thread exceptions
         for future in futures:
             future.result()
+
+        # Warn if any host names are duplicated within the same provider
+        _warn_on_duplicate_host_names(agents_by_host)
 
         return (agents_by_host, providers)
