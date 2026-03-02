@@ -18,13 +18,13 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.errors import MngError
+from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CommandResult
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import SyncMode
 from imbue.mng.primitives import UncommittedChangesMode
 from imbue.mng.utils.deps import RSYNC
-from imbue.mng.utils.git_utils import add_safe_directory_on_remote
 from imbue.mng.utils.git_utils import count_commits_between
 from imbue.mng.utils.git_utils import get_current_branch
 from imbue.mng.utils.git_utils import get_head_commit

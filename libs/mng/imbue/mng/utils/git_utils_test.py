@@ -6,9 +6,9 @@ from typing import cast
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.api.test_fixtures import FakeHost
+from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.utils.git_utils import _parse_project_name_from_url
-from imbue.mng.utils.git_utils import add_safe_directory_on_remote
 from imbue.mng.utils.git_utils import derive_project_name_from_path
 from imbue.mng.utils.git_utils import find_git_common_dir
 from imbue.mng.utils.git_utils import find_git_worktree_root

@@ -49,6 +49,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.hosts.offline_host import BaseHost
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -71,7 +72,6 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.utils.env_utils import parse_env_file
-from imbue.mng.utils.git_utils import add_safe_directory_on_remote
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
 from imbue.mng.utils.git_utils import get_git_remote_url

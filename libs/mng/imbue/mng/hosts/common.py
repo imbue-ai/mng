@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import platform
+import shlex
 from datetime import datetime
 from datetime import timezone
+from pathlib import Path
 from typing import Final
 
 from loguru import logger
@@ -10,6 +12,7 @@ from loguru import logger
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.interfaces.data_types import ACTIVITY_SOURCES_BY_IDLE_MODE
+from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentTypeName
@@ -17,6 +20,22 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import IdleMode
 
 LOCAL_CONNECTOR_NAME: Final[str] = "LocalConnector"
+
+
+def add_safe_directory_on_remote(host: OnlineHostInterface, path: Path) -> None:
+    """Add a git safe.directory entry on a remote host.
+
+    On remote hosts (Docker/Modal), file ownership may differ from the SSH user
+    (e.g., after rsync from a local machine with a different UID). This tells
+    git to trust the given directory regardless of ownership.
+
+    No-op for local hosts, where the current user already owns the directories.
+    """
+    if host.is_local:
+        return
+    host.execute_command(
+        f"git config --global --add safe.directory {shlex.quote(str(path))}",
+    )
 
 
 @pure
