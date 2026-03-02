@@ -580,7 +580,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     result = _create_one_agent(mng_ctx, output_opts, resolved_opts, setup)
     if result is not None:
         create_result, connection_opts = result
-        _post_create_one_agent(create_result, connection_opts, resolved_opts, mng_ctx)
+        _post_create(create_result, connection_opts, resolved_opts, mng_ctx)
         _finish_create(create_result, setup, output_opts)
     else:
         _finish_create(None, setup, output_opts)
@@ -843,7 +843,7 @@ def _create_one_agent(
     return create_result, connection_opts
 
 
-def _post_create_one_agent(
+def _post_create(
     create_result: CreateAgentResult,
     connection_opts: ConnectionOptions,
     opts: CreateCliOptions,
