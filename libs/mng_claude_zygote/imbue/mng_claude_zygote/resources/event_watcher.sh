@@ -28,7 +28,15 @@ HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 # All event sources the watcher monitors for new events
 LOGS_DIR="$AGENT_DATA_DIR/logs"
 OFFSETS_DIR="$AGENT_DATA_DIR/logs/.event_offsets"
-LOG_FILE="$HOST_DIR/logs/event_watcher/events.jsonl"
+
+# Configure and source the shared logging library
+_MNG_LOG_TYPE="event_watcher"
+_MNG_LOG_SOURCE="event_watcher"
+_MNG_LOG_FILE="$HOST_DIR/logs/event_watcher/events.jsonl"
+# shellcheck source=../../../../mng/imbue/mng/resources/mng_log.sh
+source "$MNG_HOST_DIR/commands/mng_log.sh"
+
+LOG_FILE="$_MNG_LOG_FILE"
 
 # Read settings from settings.toml, fall back to defaults
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -45,7 +53,7 @@ try:
 except Exception as e:
     print(f'WARNING: failed to load settings: {e}', file=sys.stderr)
     print(json.dumps({'poll': 3, 'sources': ['messages', 'scheduled', 'mng_agents', 'stop']}))
-" 2>>"$LOG_FILE" || echo '{"poll": 3, "sources": ["messages", "scheduled", "mng_agents", "stop"]}')
+" 2>/dev/null || echo '{"poll": 3, "sources": ["messages", "scheduled", "mng_agents", "stop"]}')
 
 POLL_INTERVAL=$(echo "$_SETTINGS_JSON" | python3 -c "import json, sys; print(json.load(sys.stdin)['poll'])" 2>/dev/null || echo 3)
 
@@ -54,39 +62,11 @@ _SOURCES_STR=$(echo "$_SETTINGS_JSON" | python3 -c "import json, sys; print(' '.
 # shellcheck disable=SC2206
 WATCHED_SOURCES=($_SOURCES_STR)
 
-_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
-
-_log_jsonl() {
-    local level="$1"
-    local msg="$2"
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    local ns_ts
-    ns_ts=$(date +%s%N)
-    local escaped_msg
-    escaped_msg=$(_json_escape "$msg")
-    mkdir -p "$(dirname "$LOG_FILE")"
-    printf '{"timestamp":"%s","type":"event_watcher","event_id":"log-%s-%s","source":"event_watcher","level":"%s","message":"%s","pid":%s}\n' \
-        "$ts" "$ns_ts" "$$" "$level" "$escaped_msg" "$$" >> "$LOG_FILE"
-}
-
 log() {
     local ts
     ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
     echo "[$ts] $*"
-    _log_jsonl "INFO" "$*"
-}
-
-log_debug() {
-    _log_jsonl "DEBUG" "$*"
+    log_info "$*"
 }
 
 # Check for new lines in an events.jsonl file and send them to the primary agent.

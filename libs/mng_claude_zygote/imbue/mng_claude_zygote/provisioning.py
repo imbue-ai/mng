@@ -495,7 +495,6 @@ def create_event_log_directories(
         "stop",
         "monitor",
         "claude_transcript",
-        "common_transcript",
     ):
         source_dir = agent_state_dir / "logs" / source
         _execute_with_timing(

@@ -22,7 +22,15 @@ AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 MESSAGES_EVENTS="$AGENT_DATA_DIR/logs/messages/events.jsonl"
-LOG_FILE="$HOST_DIR/logs/conversation_watcher/events.jsonl"
+
+# Configure and source the shared logging library
+_MNG_LOG_TYPE="conversation_watcher"
+_MNG_LOG_SOURCE="conversation_watcher"
+_MNG_LOG_FILE="$HOST_DIR/logs/conversation_watcher/events.jsonl"
+# shellcheck source=../../../../mng/imbue/mng/resources/mng_log.sh
+source "$MNG_HOST_DIR/commands/mng_log.sh"
+
+LOG_FILE="$_MNG_LOG_FILE"
 
 # Read poll interval from settings.toml, fall back to default
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -35,41 +43,13 @@ try:
 except Exception as e:
     print(f'WARNING: failed to load settings: {e}', file=sys.stderr)
     print(5)
-" 2>>"$LOG_FILE" || echo 5)
-
-_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
-
-_log_jsonl() {
-    local level="$1"
-    local msg="$2"
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    local ns_ts
-    ns_ts=$(date +%s%N)
-    local escaped_msg
-    escaped_msg=$(_json_escape "$msg")
-    mkdir -p "$(dirname "$LOG_FILE")"
-    printf '{"timestamp":"%s","type":"conversation_watcher","event_id":"log-%s-%s","source":"conversation_watcher","level":"%s","message":"%s","pid":%s}\n' \
-        "$ts" "$ns_ts" "$$" "$level" "$escaped_msg" "$$" >> "$LOG_FILE"
-}
+" 2>/dev/null || echo 5)
 
 log() {
     local ts
     ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
     echo "[$ts] $*"
-    _log_jsonl "INFO" "$*"
-}
-
-log_debug() {
-    _log_jsonl "DEBUG" "$*"
+    log_info "$*"
 }
 
 get_llm_db_path() {

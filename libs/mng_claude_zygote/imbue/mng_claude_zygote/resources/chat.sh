@@ -25,8 +25,16 @@ set -euo pipefail
 AGENT_DATA_DIR="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}"
 CONVERSATIONS_EVENTS="$AGENT_DATA_DIR/logs/conversations/events.jsonl"
 LLM_TOOLS_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}/commands/llm_tools"
-LOG_FILE="${MNG_HOST_DIR}/logs/chat/events.jsonl"
 TALKING_PROMPT="${MNG_AGENT_WORK_DIR:-}/talking/PROMPT.md"
+
+# Configure and source the shared logging library
+_MNG_LOG_TYPE="chat"
+_MNG_LOG_SOURCE="chat"
+_MNG_LOG_FILE="${MNG_HOST_DIR}/logs/chat/events.jsonl"
+# shellcheck source=../../../../mng/imbue/mng/resources/mng_log.sh
+source "$MNG_HOST_DIR/commands/mng_log.sh"
+
+LOG_FILE="$_MNG_LOG_FILE"
 
 # Nanosecond-precision UTC timestamp in ISO 8601 format.
 iso_timestamp_ns() {
@@ -38,27 +46,9 @@ generate_event_id() {
     echo "evt-$(date +%s%N)-$(head -c 4 /dev/urandom | xxd -p)"
 }
 
-_json_escape() {
-    local s="$1"
-    s="${s//\\/\\\\}"
-    s="${s//\"/\\\"}"
-    s="${s//$'\n'/\\n}"
-    s="${s//$'\r'/\\r}"
-    s="${s//$'\t'/\\t}"
-    printf '%s' "$s"
-}
-
 # Log a message to the log file (not to stdout, since chat is interactive)
 log() {
-    local ts
-    ts=$(iso_timestamp_ns)
-    local ns_ts
-    ns_ts=$(date +%s%N)
-    local escaped_msg
-    escaped_msg=$(_json_escape "$*")
-    mkdir -p "$(dirname "$LOG_FILE")"
-    printf '{"timestamp":"%s","type":"chat","event_id":"log-%s-%s","source":"chat","level":"INFO","message":"%s","pid":%s}\n' \
-        "$ts" "$ns_ts" "$$" "$escaped_msg" "$$" >> "$LOG_FILE"
+    log_info "$*"
 }
 
 get_default_model() {
@@ -71,7 +61,7 @@ try:
 except Exception as e:
     print(f'WARNING: failed to load settings: {e}', file=sys.stderr)
     print('claude-opus-4-6')
-" 2>>"$LOG_FILE" || echo "claude-opus-4-6"
+" 2>/dev/null || echo "claude-opus-4-6"
 }
 
 generate_cid() {
