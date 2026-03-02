@@ -622,29 +622,51 @@ class _StreamingHumanRenderer(MutableModel):
             self.output.write(_format_status_line(0))
             self.output.flush()
 
-    def _compute_content_visual_lines(self, terminal_width: int) -> int:
-        """Compute total visual lines of all on-screen content at the given width."""
+    def _compute_content_visual_lines(
+        self,
+        terminal_width: int,
+        agent_count: int,
+        warning_count: int,
+    ) -> int:
+        """Compute total visual lines of on-screen content at the given width.
+
+        Only counts the first ``agent_count`` agents and ``warning_count``
+        warnings, since callers may have appended new items that are not yet
+        rendered on screen.
+        """
         total = 0
         if self._is_header_written:
             header_line = _format_streaming_header_row(self.fields, self._column_widths)
             total += count_visual_lines(header_line + "\n", terminal_width)
-        for agent in self._agents:
+        for agent in self._agents[:agent_count]:
             row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
             total += count_visual_lines(row_line + "\n", terminal_width)
-        for warning_text in self._warning_texts:
+        for warning_text in self._warning_texts[:warning_count]:
             total += count_visual_lines(warning_text, terminal_width)
         return total
 
-    def _full_redraw(self) -> None:
-        """Erase all on-screen content and redraw with recomputed column widths."""
+    def _full_redraw(self, on_screen_agent_count: int, on_screen_warning_count: int) -> None:
+        """Erase all on-screen content and redraw with recomputed column widths.
+
+        ``on_screen_agent_count`` / ``on_screen_warning_count`` specify how many
+        agents and warnings are currently rendered on the terminal. These may
+        differ from ``len(self._agents)`` / ``len(self._warning_texts)`` when a
+        new item has been appended but not yet written.
+        """
         new_width, terminal_height = self._get_size()
 
-        # Compute how many visual lines the old content occupies at the new width
-        # (the terminal already reflowed it)
-        content_lines = self._compute_content_visual_lines(new_width)
+        # Compute visual lines at the OLD width -- this is what the terminal is
+        # actually displaying. Using new_width would under-count when resizing
+        # wider (fewer wraps) and leave old content artifacts on screen.
+        content_lines = self._compute_content_visual_lines(
+            self._terminal_width, on_screen_agent_count, on_screen_warning_count
+        )
 
-        # Add 1 for the status line, cap at terminal_height - 1 (scrolled edge case)
-        lines_to_erase = min(content_lines + 1, terminal_height - 1)
+        # The cursor sits ON the status line, so content_lines is the exact
+        # distance from the cursor to the first content line (header). No +1
+        # needed -- the status line is the cursor's current line, not an
+        # additional line above.
+        lines_to_erase = min(content_lines, terminal_height - 1)
 
         # Recompute column widths for the new width
         new_column_widths = _compute_column_widths(self.fields, new_width)
@@ -674,11 +696,11 @@ class _StreamingHumanRenderer(MutableModel):
         self._column_widths = new_column_widths
 
         # Re-check terminal size; if it changed during the redraw (concurrent
-        # resize), redo. This converges quickly since resizes are slow relative
-        # to writes.
+        # resize), redo. After the write above, ALL agents and warnings are now
+        # on screen.
         recheck_width, _ = self._get_size()
         if recheck_width != self._terminal_width:
-            self._full_redraw()
+            self._full_redraw(len(self._agents), len(self._warning_texts))
 
     def emit_warning(self, text: str) -> None:
         """Write a warning, keeping it pinned below agent rows and above the status line."""
@@ -689,7 +711,12 @@ class _StreamingHumanRenderer(MutableModel):
                 # Check for resize
                 current_width, _ = self._get_size()
                 if current_width != self._terminal_width:
-                    self._full_redraw()
+                    # New warning was just appended but is not yet on screen.
+                    # All agents are on screen; previous warnings are on screen.
+                    self._full_redraw(
+                        on_screen_agent_count=len(self._agents),
+                        on_screen_warning_count=len(self._warning_texts) - 1,
+                    )
                     self.output.write(_format_status_line(self._count))
                     self.output.flush()
                     return
@@ -717,10 +744,16 @@ class _StreamingHumanRenderer(MutableModel):
                 # Check for resize
                 current_width, _ = self._get_size()
                 if current_width != self._terminal_width:
+                    # New agent was just appended but is not yet on screen.
+                    # All warnings are on screen; previous agents are on screen.
+                    on_screen_agents = len(self._agents) - 1
                     self._count += 1
                     if not self._is_header_written:
                         self._is_header_written = True
-                    self._full_redraw()
+                    self._full_redraw(
+                        on_screen_agent_count=on_screen_agents,
+                        on_screen_warning_count=len(self._warning_texts),
+                    )
                     self.output.write(_format_status_line(self._count))
                     self.output.flush()
                     return
