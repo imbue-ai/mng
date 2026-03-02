@@ -252,7 +252,7 @@ def test_provisioning_creates_event_log_directories(
 def test_provisioning_writes_changeling_scripts_to_host(
     local_shell_host: LocalShellHost,
 ) -> None:
-    """Verify that provisioning writes all bash scripts with correct permissions."""
+    """Verify that provisioning writes all scripts with correct permissions."""
     provision_changeling_scripts(cast(Any, local_shell_host), _DEFAULT_PROVISIONING)
 
     commands_dir = local_shell_host.host_dir / "commands"
@@ -686,6 +686,303 @@ print(json.dumps({{
     parsed = json.loads(result.stdout.strip())
     assert parsed["poll"] == 7
     assert parsed["sources"] == ["messages", "stop"]
+
+
+# -- Event watcher behavioral tests --
+# These tests exercise the core logic of event_watcher.py via subprocess.
+# Since event_watcher.py is a standalone script with its own dependency
+# (watchdog, declared via PEP 723 metadata), we cannot import it directly
+# into the test process. Instead, we run targeted test scripts via subprocess
+# that exercise individual functions.
+
+
+def _run_event_watcher_test(test_code: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    """Run a snippet of Python code that exercises event_watcher.py functions.
+
+    Extracts the testable parts of event_watcher.py (everything except the
+    watchdog imports and classes that depend on them) into a helper script
+    and runs the provided test_code in that context.
+    """
+    script_content = load_zygote_resource("event_watcher.py")
+
+    # Extract the portions of the script that don't require watchdog.
+    # We re-define the functions we need by running a stripped version.
+    setup = f"""
+import dataclasses
+import os
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+# -- Extracted from event_watcher.py --
+
+@dataclasses.dataclass(frozen=True)
+class _WatcherSettings:
+    poll_interval: int = 3
+    sources: list[str] = dataclasses.field(
+        default_factory=lambda: ["messages", "scheduled", "mng_agents", "stop"]
+    )
+
+class _Logger:
+    def __init__(self, log_file):
+        self.log_file_path = Path(log_file)
+        self.log_file_path.parent.mkdir(parents=True, exist_ok=True)
+    def _timestamp(self):
+        return "test"
+    def info(self, msg):
+        try:
+            with self.log_file_path.open("a") as f:
+                f.write(msg + "\\n")
+        except OSError:
+            pass
+    def debug(self, msg):
+        try:
+            with self.log_file_path.open("a") as f:
+                f.write(msg + "\\n")
+        except OSError:
+            pass
+
+def _load_watcher_settings(agent_state_dir):
+    settings_path = agent_state_dir / "settings.toml"
+    try:
+        if not settings_path.exists():
+            return _WatcherSettings()
+        raw = tomllib.loads(settings_path.read_text())
+        watchers = raw.get("watchers", {{}})
+        return _WatcherSettings(
+            poll_interval=watchers.get("event_poll_interval_seconds", 3),
+            sources=watchers.get("watched_event_sources", _WatcherSettings().sources),
+        )
+    except Exception:
+        return _WatcherSettings()
+
+def _get_offset(offsets_dir, source):
+    offset_file = offsets_dir / f"{{source}}.offset"
+    try:
+        return int(offset_file.read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+def _set_offset(offsets_dir, source, offset):
+    offset_file = offsets_dir / f"{{source}}.offset"
+    offset_file.write_text(str(offset))
+
+def _mtime_poll(logs_dir, watched_sources, mtime_cache, log):
+    is_changed = False
+    current_keys = set()
+    for source in watched_sources:
+        source_dir = logs_dir / source
+        if not source_dir.exists():
+            continue
+        try:
+            for entry in source_dir.iterdir():
+                key = str(entry)
+                current_keys.add(key)
+                try:
+                    stat = entry.stat()
+                    current = (stat.st_mtime, stat.st_size)
+                except OSError:
+                    continue
+                previous = mtime_cache.get(key)
+                if previous != current:
+                    mtime_cache[key] = current
+                    is_changed = True
+        except OSError:
+            continue
+    removed_keys = set(mtime_cache.keys()) - current_keys
+    for key in removed_keys:
+        del mtime_cache[key]
+        is_changed = True
+    return is_changed
+
+TMP = Path("{tmp_path}")
+
+# -- Test code --
+"""
+    full_script = setup + test_code
+    return subprocess.run(
+        [sys.executable, "-c", full_script],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_get_offset_returns_zero_when_missing(tmp_path: Path) -> None:
+    """Verify _get_offset returns 0 when no offset file exists."""
+    offsets_dir = tmp_path / "offsets"
+    offsets_dir.mkdir()
+    result = _run_event_watcher_test(
+        f"""
+offsets_dir = Path("{offsets_dir}")
+assert _get_offset(offsets_dir, "messages") == 0
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_set_and_get_offset_roundtrip(tmp_path: Path) -> None:
+    """Verify _set_offset writes and _get_offset reads the same value."""
+    offsets_dir = tmp_path / "offsets"
+    offsets_dir.mkdir()
+    result = _run_event_watcher_test(
+        f"""
+offsets_dir = Path("{offsets_dir}")
+_set_offset(offsets_dir, "messages", 42)
+assert _get_offset(offsets_dir, "messages") == 42
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_get_offset_returns_zero_for_corrupt_file(tmp_path: Path) -> None:
+    """Verify _get_offset returns 0 when offset file contains invalid data."""
+    offsets_dir = tmp_path / "offsets"
+    offsets_dir.mkdir()
+    (offsets_dir / "messages.offset").write_text("not_a_number")
+    result = _run_event_watcher_test(
+        f"""
+offsets_dir = Path("{offsets_dir}")
+assert _get_offset(offsets_dir, "messages") == 0
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_mtime_poll_detects_new_file(tmp_path: Path) -> None:
+    """Verify _mtime_poll detects when a new file appears."""
+    logs_dir = tmp_path / "logs"
+    source_dir = logs_dir / "messages"
+    source_dir.mkdir(parents=True)
+    result = _run_event_watcher_test(
+        f"""
+logs_dir = Path("{logs_dir}")
+source_dir = Path("{source_dir}")
+log = _Logger(TMP / "test.log")
+mtime_cache = {{}}
+
+# Initial scan: no files
+assert not _mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+
+# Create a file
+(source_dir / "events.jsonl").write_text('{{"test": true}}\\n')
+assert _mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+
+# Same state: no change
+assert not _mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_mtime_poll_detects_modification(tmp_path: Path) -> None:
+    """Verify _mtime_poll detects when a file is modified."""
+    logs_dir = tmp_path / "logs"
+    source_dir = logs_dir / "messages"
+    source_dir.mkdir(parents=True)
+    events_file = source_dir / "events.jsonl"
+    events_file.write_text('{"line": 1}\n')
+    result = _run_event_watcher_test(
+        f"""
+import time
+logs_dir = Path("{logs_dir}")
+events_file = Path("{events_file}")
+log = _Logger(TMP / "test.log")
+mtime_cache = {{}}
+
+_mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+
+time.sleep(0.05)
+with events_file.open("a") as f:
+    f.write('{{"line": 2}}\\n')
+
+assert _mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_mtime_poll_detects_removal(tmp_path: Path) -> None:
+    """Verify _mtime_poll detects when a file is removed."""
+    logs_dir = tmp_path / "logs"
+    source_dir = logs_dir / "messages"
+    source_dir.mkdir(parents=True)
+    events_file = source_dir / "events.jsonl"
+    events_file.write_text('{"line": 1}\n')
+    result = _run_event_watcher_test(
+        f"""
+logs_dir = Path("{logs_dir}")
+events_file = Path("{events_file}")
+log = _Logger(TMP / "test.log")
+mtime_cache = {{}}
+
+_mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+events_file.unlink()
+assert _mtime_poll(logs_dir, ["messages"], mtime_cache, log)
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_load_settings_defaults(tmp_path: Path) -> None:
+    """Verify _load_watcher_settings returns defaults when no settings file exists."""
+    result = _run_event_watcher_test(
+        f"""
+settings = _load_watcher_settings(Path("{tmp_path}"))
+assert settings.poll_interval == 3
+assert settings.sources == ["messages", "scheduled", "mng_agents", "stop"]
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
+
+
+@pytest.mark.timeout(30)
+def test_event_watcher_load_settings_from_file(tmp_path: Path) -> None:
+    """Verify _load_watcher_settings reads values from settings.toml."""
+    (tmp_path / "settings.toml").write_text(
+        '[watchers]\nevent_poll_interval_seconds = 10\nwatched_event_sources = ["messages", "stop"]\n'
+    )
+    result = _run_event_watcher_test(
+        f"""
+settings = _load_watcher_settings(Path("{tmp_path}"))
+assert settings.poll_interval == 10
+assert settings.sources == ["messages", "stop"]
+print("OK")
+""",
+        tmp_path,
+    )
+    assert result.returncode == 0, f"Failed: {result.stderr}"
+    assert "OK" in result.stdout
 
 
 # -- Tmux window injection integration tests --

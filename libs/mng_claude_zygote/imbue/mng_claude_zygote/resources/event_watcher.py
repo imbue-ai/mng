@@ -292,11 +292,12 @@ def _run_event_loop(
 
         if is_triggered_by_watchdog:
             log.debug("Woken by watchdog filesystem event")
-        else:
-            # Periodic poll: check mtimes for changes watchdog may have missed
-            is_mtime_changed = _mtime_poll(logs_dir, watched_sources, mtime_cache, log)
-            if is_mtime_changed:
-                log.info("Periodic mtime poll detected changes")
+
+        # Always update the mtime cache so it stays in sync. On timeout,
+        # this also serves as the safety-net poll for missed watchdog events.
+        is_mtime_changed = _mtime_poll(logs_dir, watched_sources, mtime_cache, log)
+        if not is_triggered_by_watchdog and is_mtime_changed:
+            log.info("Periodic mtime poll detected changes")
 
         _check_all_sources(logs_dir, watched_sources, offsets_dir, agent_name, log)
 

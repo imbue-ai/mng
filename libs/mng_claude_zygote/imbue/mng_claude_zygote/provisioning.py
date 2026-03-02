@@ -429,7 +429,7 @@ def _create_dir_symlink_if_target_exists(
 
 
 def provision_changeling_scripts(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
-    """Write changeling bash scripts to $MNG_HOST_DIR/commands/.
+    """Write changeling scripts to $MNG_HOST_DIR/commands/.
 
     Scripts are loaded from the resources package and written with execute permission.
     """
