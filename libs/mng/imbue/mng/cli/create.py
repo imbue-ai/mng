@@ -573,7 +573,7 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     resolved_opts = opts.model_copy_update(*overrides) if overrides else opts
 
-    # Per-invocation setup (validation, editor session, source resolution, etc.)
+    # Setup (validation, editor session, source resolution, etc.)
     setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
 
     # Create agent
@@ -608,7 +608,7 @@ def _setup_create(
     opts: CreateCliOptions,
     logging_config: LoggingConfig,
 ) -> _CreateSetup:
-    """Per-invocation setup: validation, message resolution, editor session, source resolution."""
+    """Validate options, resolve messages, start editor session, resolve source location."""
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -693,7 +693,7 @@ def _create_agent(
     opts: CreateCliOptions,
     setup: _CreateSetup,
 ) -> tuple[CreateAgentResult, ConnectionOptions] | None:
-    """Per-agent creation: parse opts, resolve host, create agent."""
+    """Parse opts, resolve host, create agent."""
     # Parse target host (existing or new)
     target_host = _parse_target_host(
         opts=opts,
@@ -849,7 +849,7 @@ def _post_create(
     opts: CreateCliOptions,
     mng_ctx: MngContext,
 ) -> None:
-    """Per-agent post-creation: await stopped, connect."""
+    """Post-creation: await stopped, connect."""
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
     if opts.connect:
@@ -871,7 +871,7 @@ def _finish_create(
     setup: _CreateSetup,
     output_opts: OutputOptions,
 ) -> None:
-    """Per-invocation wrap-up: editor cleanup, output result."""
+    """Wrap-up: editor cleanup, output result."""
     # Ensure editor cleanup on all exit paths (may already be cleaned up by _create_agent)
     if setup.editor_session is not None and not setup.editor_session.is_finished():
         setup.editor_session.cleanup()
