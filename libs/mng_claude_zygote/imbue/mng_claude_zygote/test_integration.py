@@ -14,6 +14,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -260,7 +261,7 @@ def test_provisioning_writes_changeling_scripts_to_host(
         assert script_path.exists(), f"Expected {script_name} to be written"
         assert script_path.stat().st_mode & 0o111, f"Expected {script_name} to be executable"
         content = script_path.read_text()
-        assert content.startswith("#!/bin/bash"), f"Expected {script_name} to have bash shebang"
+        assert content.startswith("#!"), f"Expected {script_name} to have a shebang"
 
 
 @pytest.mark.timeout(30)
@@ -503,13 +504,18 @@ def test_conversation_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> N
 
 
 @pytest.mark.timeout(30)
-def test_event_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> None:
-    """Verify that event_watcher.sh passes bash syntax check."""
-    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.sh"
+def test_event_watcher_script_is_valid_python(chat_env: ChatScriptEnv) -> None:
+    """Verify that event_watcher.py passes Python syntax check."""
+    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "event_watcher.py"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_zygote_resource("event_watcher.sh"))
+    watcher_script.write_text(load_zygote_resource("event_watcher.py"))
 
-    result = subprocess.run(["bash", "-n", str(watcher_script)], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(
+        [sys.executable, "-m", "py_compile", str(watcher_script)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
     assert result.returncode == 0, f"Syntax check failed: {result.stderr}"
 

@@ -51,7 +51,7 @@ CONV_WATCHER_WINDOW_NAME: Final[str] = "conv_watcher"
 CONV_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
 
 EVENT_WATCHER_WINDOW_NAME: Final[str] = "events"
-EVENT_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/event_watcher.sh"
+EVENT_WATCHER_COMMAND: Final[str] = "uv run $MNG_HOST_DIR/commands/event_watcher.py"
 
 # Conversation ttyd: a web terminal that runs the chat script for interactive
 # conversation access via the browser.

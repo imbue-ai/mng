@@ -45,8 +45,8 @@ def test_load_zygote_resource_loads_conversation_watcher() -> None:
 
 
 def test_load_zygote_resource_loads_event_watcher() -> None:
-    content = load_zygote_resource("event_watcher.sh")
-    assert "#!/bin/bash" in content
+    content = load_zygote_resource("event_watcher.py")
+    assert "#!/usr/bin/env python3" in content
     assert "event" in content.lower()
 
 
@@ -54,7 +54,7 @@ def test_all_declared_script_files_are_loadable() -> None:
     for script_name in _SCRIPT_FILES:
         content = load_zygote_resource(script_name)
         assert content, f"{script_name} is empty"
-        assert "#!/bin/bash" in content, f"{script_name} missing shebang"
+        assert content.startswith("#!"), f"{script_name} missing shebang"
 
 
 def test_all_declared_llm_tool_files_are_loadable() -> None:
@@ -193,51 +193,50 @@ def test_conversation_watcher_uses_adaptive_window() -> None:
 
 
 def test_event_watcher_sends_mng_message() -> None:
-    content = load_zygote_resource("event_watcher.sh")
-    assert "mng message" in content
+    content = load_zygote_resource("event_watcher.py")
+    assert "mng" in content and "message" in content
 
 
 def test_event_watcher_watches_messages_events() -> None:
-    content = load_zygote_resource("event_watcher.sh")
-    assert "messages/events.jsonl" in content
+    content = load_zygote_resource("event_watcher.py")
+    assert "messages" in content
 
 
 def test_event_watcher_watches_scheduled_events() -> None:
-    content = load_zygote_resource("event_watcher.sh")
+    content = load_zygote_resource("event_watcher.py")
     assert "scheduled" in content
 
 
 def test_event_watcher_watches_mng_agents_events() -> None:
-    content = load_zygote_resource("event_watcher.sh")
+    content = load_zygote_resource("event_watcher.py")
     assert "mng_agents" in content
 
 
 def test_event_watcher_watches_stop_events() -> None:
-    content = load_zygote_resource("event_watcher.sh")
+    content = load_zygote_resource("event_watcher.py")
     assert "stop" in content
 
 
 def test_event_watcher_tracks_offsets() -> None:
-    content = load_zygote_resource("event_watcher.sh")
+    content = load_zygote_resource("event_watcher.py")
     assert "offset" in content.lower()
 
 
-def test_event_watcher_supports_inotifywait() -> None:
-    content = load_zygote_resource("event_watcher.sh")
-    assert "inotifywait" in content
+def test_event_watcher_uses_watchdog() -> None:
+    content = load_zygote_resource("event_watcher.py")
+    assert "watchdog" in content
 
 
 def test_event_watcher_logs_to_file() -> None:
-    """Verify event_watcher.sh writes debug output to a log file."""
-    content = load_zygote_resource("event_watcher.sh")
-    assert "LOG_FILE" in content
+    """Verify event_watcher.py writes debug output to a log file."""
+    content = load_zygote_resource("event_watcher.py")
     assert "event_watcher.log" in content
 
 
 def test_event_watcher_logs_send_errors() -> None:
-    """Verify event_watcher.sh captures and logs mng message errors."""
-    content = load_zygote_resource("event_watcher.sh")
-    assert "send_stderr" in content or "ERROR" in content
+    """Verify event_watcher.py captures and logs mng message errors."""
+    content = load_zygote_resource("event_watcher.py")
+    assert "ERROR" in content
 
 
 # -- LLM tool content tests --

@@ -19,7 +19,7 @@ from imbue.mng_claude_zygote.data_types import ProvisioningSettings
 _SCRIPT_FILES: Final[tuple[str, ...]] = (
     "chat.sh",
     "conversation_watcher.sh",
-    "event_watcher.sh",
+    "event_watcher.py",
 )
 
 # Python tool files to provision to $MNG_HOST_DIR/commands/llm_tools/
@@ -260,7 +260,7 @@ def warn_if_mng_unavailable(
 ) -> None:
     """Warn if mng will not be available on the agent host.
 
-    Changeling scripts (event_watcher.sh, etc.) use 'uv run mng message' to
+    Changeling scripts (event_watcher.py, etc.) use 'uv run mng message' to
     communicate with the primary agent. If mng is not available on the host,
     these scripts will fail silently.
 
@@ -285,7 +285,7 @@ def warn_if_mng_unavailable(
     if not check_result.success:
         logger.warning(
             "mng is not available on the remote host and the mng_recursive plugin is not enabled. "
-            "Changeling scripts (event_watcher.sh, etc.) use 'uv run mng message' to communicate "
+            "Changeling scripts (event_watcher.py, etc.) use 'uv run mng message' to communicate "
             "with the primary agent and will fail without mng installed. "
             "Enable the mng_recursive plugin or install mng on the remote host manually."
         )
