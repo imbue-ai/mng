@@ -20,6 +20,7 @@ from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import load_zygote_resource
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
+from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 
@@ -277,20 +278,16 @@ def test_compute_claude_project_dir_name_replaces_dots() -> None:
     assert compute_claude_project_dir_name("/home/user/.changelings/agent") == "-home-user--changelings-agent"
 
 
-def test_link_memory_directory_creates_changelings_memory_dir() -> None:
+def test_link_memory_directory_creates_memory_dir() -> None:
     host = StubHost()
-    link_memory_directory(
-        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
-    )
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), _DEFAULT_PROVISIONING)
 
-    assert any("mkdir" in c and ".changelings/memory" in c for c in host.executed_commands)
+    assert any("mkdir" in c and "/memory" in c for c in host.executed_commands)
 
 
 def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> None:
     host = StubHost()
-    link_memory_directory(
-        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
-    )
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), _DEFAULT_PROVISIONING)
 
     # Must use $HOME (not ~) so tilde expansion works inside quotes
     mkdir_cmds = [c for c in host.executed_commands if "mkdir" in c and ".claude/projects" in c]
@@ -301,14 +298,12 @@ def test_link_memory_directory_creates_claude_project_dir_with_home_var() -> Non
 
 def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
     host = StubHost()
-    link_memory_directory(
-        cast(Any, host), Path("/home/user/.changelings/agent"), ".changelings", _DEFAULT_PROVISIONING
-    )
+    link_memory_directory(cast(Any, host), Path("/home/user/.changelings/agent"), _DEFAULT_PROVISIONING)
 
     ln_cmds = [c for c in host.executed_commands if "ln -sfn" in c]
     assert len(ln_cmds) == 1
-    # Symlink target should be the changelings memory dir
-    assert ".changelings/memory" in ln_cmds[0]
+    # Symlink target should be the memory dir
+    assert "/memory" in ln_cmds[0]
     # Symlink source should use $HOME for the Claude project dir
     assert "$HOME/.claude/projects/" in ln_cmds[0]
     assert "-home-user--changelings-agent" in ln_cmds[0]
@@ -317,7 +312,7 @@ def test_link_memory_directory_creates_symlink_with_correct_paths() -> None:
 def test_link_memory_directory_does_not_use_literal_tilde() -> None:
     """Verify that ~ is never used in paths (it doesn't expand inside single quotes)."""
     host = StubHost()
-    link_memory_directory(cast(Any, host), Path("/home/user/project"), ".changelings", _DEFAULT_PROVISIONING)
+    link_memory_directory(cast(Any, host), Path("/home/user/project"), _DEFAULT_PROVISIONING)
 
     for cmd in host.executed_commands:
         if ".claude/projects" in cmd:
@@ -375,25 +370,78 @@ def test_install_llm_toolchain_raises_on_plugin_install_failure() -> None:
         install_llm_toolchain(cast(Any, host), _DEFAULT_PROVISIONING)
 
 
-def test_create_changeling_symlinks_checks_entrypoint_md() -> None:
+def test_create_changeling_symlinks_checks_global_md() -> None:
     host = StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
-    assert any("entrypoint.md" in c for c in host.executed_commands)
+    assert any("GLOBAL.md" in c for c in host.executed_commands)
 
 
-def test_create_changeling_symlinks_checks_entrypoint_json() -> None:
+def test_create_changeling_symlinks_checks_thinking_prompt() -> None:
     host = StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
-    assert any("entrypoint.json" in c for c in host.executed_commands)
+    assert any("thinking/PROMPT.md" in c for c in host.executed_commands)
+
+
+def test_create_changeling_symlinks_checks_thinking_settings() -> None:
+    host = StubHost()
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    assert any("thinking/settings.json" in c for c in host.executed_commands)
+
+
+def test_create_changeling_symlinks_creates_claude_md() -> None:
+    host = StubHost()
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    assert any("ln -sf" in c and "CLAUDE.md" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_creates_claude_local_md() -> None:
     host = StubHost()
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     assert any("ln -sf" in c and "CLAUDE.local.md" in c for c in host.executed_commands)
+
+
+def test_create_changeling_symlinks_creates_skills_symlink() -> None:
+    host = StubHost()
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    assert any("ln -sfn" in c and "skills" in c for c in host.executed_commands)
+
+
+def test_provision_default_content_writes_global_md() -> None:
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    written_paths = [str(p) for p, _ in host.written_text_files]
+    assert any("GLOBAL.md" in p for p in written_paths)
+
+
+def test_provision_default_content_writes_thinking_prompt() -> None:
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    written_paths = [str(p) for p, _ in host.written_text_files]
+    assert any("thinking/PROMPT.md" in p for p in written_paths)
+
+
+def test_provision_default_content_writes_thinking_settings() -> None:
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    written_paths = [str(p) for p, _ in host.written_text_files]
+    assert any("thinking/settings.json" in p for p in written_paths)
+
+
+def test_provision_default_content_writes_skills_to_thinking() -> None:
+    host = StubHost(command_results={"test -f": StubCommandResult(success=False)})
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
+
+    written_paths = [str(p) for p, _ in host.written_text_files]
+    assert any("thinking/skills/send-message-to-user/SKILL.md" in p for p in written_paths)
 
 
 def test_provision_changeling_scripts_creates_commands_dir() -> None:
@@ -1035,12 +1083,14 @@ def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
     host = StubHost(
         command_results={
             "test -f": StubCommandResult(success=False),
+            "test -d": StubCommandResult(success=False),
         }
     )
-    create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     # No symlink commands should have been executed
     assert not any("ln -sf" in c for c in host.executed_commands)
+    assert not any("ln -sfn" in c for c in host.executed_commands)
 
 
 def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
@@ -1051,7 +1101,7 @@ def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to create symlink"):
-        create_changeling_symlinks(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+        create_changeling_symlinks(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
 
 def test_install_llm_toolchain_raises_on_plugin_install_failure_live_chat() -> None:
@@ -1073,7 +1123,7 @@ def test_link_memory_directory_raises_on_resolve_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to resolve absolute path"):
-        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+        link_memory_directory(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
 
 def test_link_memory_directory_raises_on_link_failure() -> None:
@@ -1084,7 +1134,7 @@ def test_link_memory_directory_raises_on_link_failure() -> None:
         }
     )
     with pytest.raises(RuntimeError, match="Failed to link memory directory"):
-        link_memory_directory(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+        link_memory_directory(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
 
 def test_provision_llm_tools_uses_correct_mode() -> None:
@@ -1364,11 +1414,11 @@ def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
 # -- Default content provisioning tests --
 
 
-def test_all_default_changeling_files_are_loadable() -> None:
-    """Verify all declared default changeling files can be loaded from resources."""
-    from imbue.mng_claude_zygote.provisioning import _DEFAULT_CHANGELINGS_DIR_FILES
+def test_all_default_thinking_files_are_loadable() -> None:
+    """Verify all declared default thinking dir files can be loaded from resources."""
+    from imbue.mng_claude_zygote.provisioning import _DEFAULT_THINKING_DIR_FILES
 
-    for resource_name, _ in _DEFAULT_CHANGELINGS_DIR_FILES:
+    for resource_name, _ in _DEFAULT_THINKING_DIR_FILES:
         content = load_zygote_resource(f"defaults/{resource_name}")
         assert content, f"defaults/{resource_name} is empty"
 
@@ -1387,35 +1437,35 @@ def test_all_default_skill_files_are_loadable() -> None:
     from imbue.mng_claude_zygote.provisioning import _DEFAULT_SKILL_DIRS
 
     for skill_name in _DEFAULT_SKILL_DIRS:
-        content = load_zygote_resource(f"defaults/skills/{skill_name}/SKILL.md")
-        assert content, f"defaults/skills/{skill_name}/SKILL.md is empty"
+        content = load_zygote_resource(f"defaults/thinking/skills/{skill_name}/SKILL.md")
+        assert content, f"defaults/thinking/skills/{skill_name}/SKILL.md is empty"
 
 
-def test_default_claude_md_mentions_changelings() -> None:
-    """Verify the default CLAUDE.md references the changelings framework."""
-    content = load_zygote_resource("defaults/CLAUDE.md")
+def test_default_global_md_describes_agent_role() -> None:
+    """Verify the default GLOBAL.md describes the agent's role in the changelings framework."""
+    content = load_zygote_resource("defaults/GLOBAL.md")
     assert "changelings" in content
 
 
-def test_default_entrypoint_md_describes_event_processing() -> None:
-    """Verify the default entrypoint.md describes the event processing role."""
-    content = load_zygote_resource("defaults/entrypoint.md")
+def test_default_thinking_prompt_describes_event_processing() -> None:
+    """Verify the default thinking/PROMPT.md describes the event processing role."""
+    content = load_zygote_resource("defaults/thinking/PROMPT.md")
     assert "event" in content.lower()
     assert "messages" in content
 
 
-def test_default_entrypoint_json_is_valid_json() -> None:
-    """Verify the default entrypoint.json is valid JSON."""
+def test_default_thinking_settings_json_is_valid_json() -> None:
+    """Verify the default thinking/settings.json is valid JSON."""
     import json
 
-    content = load_zygote_resource("defaults/entrypoint.json")
+    content = load_zygote_resource("defaults/thinking/settings.json")
     parsed = json.loads(content)
     assert "permissions" in parsed
 
 
 def test_default_new_chat_skill_has_frontmatter_and_references_chat_script() -> None:
     """Verify the send-message-to-user skill has YAML frontmatter and references the chat.sh script."""
-    content = load_zygote_resource("defaults/skills/send-message-to-user/SKILL.md")
+    content = load_zygote_resource("defaults/thinking/skills/send-message-to-user/SKILL.md")
     assert content.startswith("---")
     assert "name: send-message-to-user" in content
     assert "description:" in content
@@ -1426,7 +1476,7 @@ def test_default_new_chat_skill_has_frontmatter_and_references_chat_script() -> 
 
 def test_default_list_conversations_skill_has_frontmatter_and_references_chat_script() -> None:
     """Verify the list-conversations skill has YAML frontmatter and references chat.sh --list."""
-    content = load_zygote_resource("defaults/skills/list-conversations/SKILL.md")
+    content = load_zygote_resource("defaults/thinking/skills/list-conversations/SKILL.md")
     assert content.startswith("---")
     assert "name: list-conversations" in content
     assert "description:" in content
@@ -1441,14 +1491,14 @@ def test_provision_default_content_writes_missing_files() -> None:
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
-    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     written_paths = [str(path) for path, _ in host.written_text_files]
-    assert any("CLAUDE.md" in p for p in written_paths)
-    assert any("entrypoint.md" in p for p in written_paths)
-    assert any("entrypoint.json" in p for p in written_paths)
-    assert any("send-message-to-user/SKILL.md" in p for p in written_paths)
-    assert any("list-conversations/SKILL.md" in p for p in written_paths)
+    assert any("GLOBAL.md" in p for p in written_paths)
+    assert any("thinking/PROMPT.md" in p for p in written_paths)
+    assert any("thinking/settings.json" in p for p in written_paths)
+    assert any("thinking/skills/send-message-to-user/SKILL.md" in p for p in written_paths)
+    assert any("thinking/skills/list-conversations/SKILL.md" in p for p in written_paths)
 
 
 def test_provision_default_content_skips_existing_files() -> None:
@@ -1457,7 +1507,7 @@ def test_provision_default_content_skips_existing_files() -> None:
 
     # test -f returns success (file exists) by default in StubHost
     host = StubHost()
-    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     assert len(host.written_text_files) == 0
 
@@ -1469,21 +1519,21 @@ def test_provision_default_content_creates_parent_directories() -> None:
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
-    provision_default_content(cast(Any, host), Path("/test/work"), ".changelings", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     mkdir_cmds = [c for c in host.executed_commands if "mkdir -p" in c]
     assert len(mkdir_cmds) > 0
 
 
-def test_provision_default_content_uses_custom_changelings_dir() -> None:
-    """Verify provision_default_content respects a custom changelings directory name."""
+def test_provision_default_content_writes_to_thinking_dir() -> None:
+    """Verify provision_default_content writes thinking agent files to the thinking directory."""
     from imbue.mng_claude_zygote.provisioning import provision_default_content
 
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
-    provision_default_content(cast(Any, host), Path("/test/work"), ".custom_dir", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
 
     written_paths = [str(path) for path, _ in host.written_text_files]
-    assert any(".custom_dir/entrypoint.md" in p for p in written_paths)
-    assert any(".custom_dir/entrypoint.json" in p for p in written_paths)
+    assert any("thinking/PROMPT.md" in p for p in written_paths)
+    assert any("thinking/settings.json" in p for p in written_paths)

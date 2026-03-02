@@ -28,19 +28,22 @@ _LLM_TOOL_FILES: Final[tuple[str, ...]] = (
     "extra_context_tool.py",
 )
 
-# Default content files written to the changelings directory if missing.
-# Tuples of (resource path under defaults/, target path relative to changelings dir).
-_DEFAULT_CHANGELINGS_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (
-    ("entrypoint.md", "entrypoint.md"),
-    ("entrypoint.json", "entrypoint.json"),
-)
-
 # Default content files written to the work directory root if missing.
 # Tuples of (resource path under defaults/, target path relative to work dir).
-_DEFAULT_WORK_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (("CLAUDE.md", "CLAUDE.md"),)
+_DEFAULT_WORK_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (
+    ("GLOBAL.md", "GLOBAL.md"),
+    ("settings.json", "settings.json"),
+)
 
-# Default skill files written to .claude/skills/<name>/SKILL.md if missing.
-# Each entry is a skill directory name under defaults/skills/.
+# Default content files for the thinking agent (inner monologue).
+# Tuples of (resource path under defaults/, target path relative to work dir).
+_DEFAULT_THINKING_DIR_FILES: Final[tuple[tuple[str, str], ...]] = (
+    ("thinking/PROMPT.md", "thinking/PROMPT.md"),
+    ("thinking/settings.json", "thinking/settings.json"),
+)
+
+# Default skill files written to thinking/skills/<name>/SKILL.md if missing.
+# Each entry is a skill directory name under defaults/thinking/skills/.
 _DEFAULT_SKILL_DIRS: Final[tuple[str, ...]] = (
     "send-message-to-user",
     "list-conversations",
@@ -110,35 +113,33 @@ def _write_default_if_missing(
 def provision_default_content(
     host: OnlineHostInterface,
     work_dir: Path,
-    changelings_dir_name: str,
     settings: ProvisioningSettings,
 ) -> None:
     """Write default content files to the work directory if they don't already exist.
 
     Populates sensible defaults for:
-    - CLAUDE.md (shared project instructions for all agents)
-    - <changelings_dir>/entrypoint.md (primary agent inner monologue prompt)
-    - <changelings_dir>/entrypoint.json (primary agent Claude settings)
-    - .claude/skills/<name>/SKILL.md (skills)
+    - GLOBAL.md (shared project instructions for all agents)
+    - settings.json (shared Claude settings for all agents)
+    - thinking/PROMPT.md (primary/inner monologue agent prompt)
+    - thinking/settings.json (primary agent Claude settings)
+    - thinking/skills/<name>/SKILL.md (skills for the thinking agent)
 
     Only writes files that are missing -- existing files are never overwritten.
     This allows fresh deployments to work out of the box while preserving
     any customizations the user has already made.
     """
-    changelings_dir = work_dir / changelings_dir_name
-
-    for resource_name, relative_path in _DEFAULT_CHANGELINGS_DIR_FILES:
-        target_path = changelings_dir / relative_path
-        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
-
     for resource_name, relative_path in _DEFAULT_WORK_DIR_FILES:
         target_path = work_dir / relative_path
         _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
 
-    skills_dir = work_dir / ".claude" / "skills"
+    for resource_name, relative_path in _DEFAULT_THINKING_DIR_FILES:
+        target_path = work_dir / relative_path
+        _write_default_if_missing(host, target_path, f"defaults/{resource_name}", settings)
+
+    skills_dir = work_dir / "thinking" / "skills"
     for skill_name in _DEFAULT_SKILL_DIRS:
         target_path = skills_dir / skill_name / "SKILL.md"
-        _write_default_if_missing(host, target_path, f"defaults/skills/{skill_name}/SKILL.md", settings)
+        _write_default_if_missing(host, target_path, f"defaults/thinking/skills/{skill_name}/SKILL.md", settings)
 
 
 def install_llm_toolchain(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
@@ -236,28 +237,54 @@ def warn_if_mng_unavailable(
 def create_changeling_symlinks(
     host: OnlineHostInterface,
     work_dir: Path,
-    changelings_dir_name: str,
     settings: ProvisioningSettings,
 ) -> None:
-    """Create symlinks from changeling entrypoint files to their expected locations.
+    """Create symlinks so Claude Code discovers changeling files at standard locations.
 
     Creates:
-    - <work_dir>/CLAUDE.local.md -> <work_dir>/<changelings_dir>/entrypoint.md
-    - <work_dir>/.claude/settings.local.json -> <work_dir>/<changelings_dir>/entrypoint.json
+    - <work_dir>/CLAUDE.md -> <work_dir>/GLOBAL.md
+    - <work_dir>/CLAUDE.local.md -> <work_dir>/thinking/PROMPT.md
+    - <work_dir>/.claude/settings.json -> <work_dir>/settings.json
+    - <work_dir>/.claude/settings.local.json -> <work_dir>/thinking/settings.json
+    - <work_dir>/.claude/skills -> <work_dir>/thinking/skills  (directory symlink)
     """
-    changelings_dir = work_dir / changelings_dir_name
-
+    # CLAUDE.md -> GLOBAL.md (so Claude Code loads global instructions)
     _create_symlink_if_target_exists(
         host,
-        link_path=work_dir / "CLAUDE.local.md",
-        target_path=changelings_dir / "entrypoint.md",
+        link_path=work_dir / "CLAUDE.md",
+        target_path=work_dir / "GLOBAL.md",
         settings=settings,
     )
 
+    # CLAUDE.local.md -> thinking/PROMPT.md (inner monologue prompt)
+    _create_symlink_if_target_exists(
+        host,
+        link_path=work_dir / "CLAUDE.local.md",
+        target_path=work_dir / "thinking" / "PROMPT.md",
+        settings=settings,
+    )
+
+    # .claude/settings.json -> settings.json (global Claude settings)
+    _create_symlink_if_target_exists(
+        host,
+        link_path=work_dir / ".claude" / "settings.json",
+        target_path=work_dir / "settings.json",
+        settings=settings,
+    )
+
+    # .claude/settings.local.json -> thinking/settings.json (thinking agent settings)
     _create_symlink_if_target_exists(
         host,
         link_path=work_dir / ".claude" / "settings.local.json",
-        target_path=changelings_dir / "entrypoint.json",
+        target_path=work_dir / "thinking" / "settings.json",
+        settings=settings,
+    )
+
+    # .claude/skills -> thinking/skills (directory symlink)
+    _create_dir_symlink_if_target_exists(
+        host,
+        link_path=work_dir / ".claude" / "skills",
+        target_path=work_dir / "thinking" / "skills",
         settings=settings,
     )
 
@@ -300,6 +327,48 @@ def _create_symlink_if_target_exists(
         )
         if not result.success:
             raise RuntimeError(f"Failed to create symlink {link_path} -> {target_path}: {result.stderr}")
+
+
+def _create_dir_symlink_if_target_exists(
+    host: OnlineHostInterface,
+    link_path: Path,
+    target_path: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Create a directory symlink at link_path pointing to target_path, if target exists.
+
+    Uses ``ln -sfn`` so that an existing symlink to a directory is replaced
+    rather than creating a symlink inside the target directory.
+    """
+    check = _execute_with_timing(
+        host,
+        f"test -d {shlex.quote(str(target_path))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="dir check",
+    )
+    if not check.success:
+        return
+
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(link_path.parent))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="mkdir",
+    )
+
+    cmd = f"ln -sfn {shlex.quote(str(target_path))} {shlex.quote(str(link_path))}"
+    with log_span("Creating directory symlink: {} -> {}", link_path, target_path):
+        result = _execute_with_timing(
+            host,
+            cmd,
+            hard_timeout=settings.fs_hard_timeout_seconds,
+            warn_threshold=settings.fs_warn_threshold_seconds,
+            label="dir symlink",
+        )
+        if not result.success:
+            raise RuntimeError(f"Failed to create directory symlink {link_path} -> {target_path}: {result.stderr}")
 
 
 def provision_changeling_scripts(host: OnlineHostInterface, settings: ProvisioningSettings) -> None:
@@ -384,19 +453,18 @@ def compute_claude_project_dir_name(work_dir_abs: str) -> str:
 def link_memory_directory(
     host: OnlineHostInterface,
     work_dir: Path,
-    changelings_dir_name: str,
     settings: ProvisioningSettings,
 ) -> None:
-    """Symlink the changelings memory directory into the Claude project memory path.
+    """Symlink the memory directory into the Claude project memory path.
 
     Creates:
-    - <work_dir>/<changelings_dir>/memory/ (if it doesn't exist)
-    - ~/.claude/projects/<project_name>/memory/ -> <work_dir>/<changelings_dir>/memory/
+    - <work_dir>/memory/ (if it doesn't exist)
+    - ~/.claude/projects/<project_name>/memory/ -> <work_dir>/memory/
 
     This ensures all Claude agents share the same project memory, and that
     memories are version-controlled in the agent's git repo.
     """
-    changelings_memory = work_dir / changelings_dir_name / "memory"
+    memory_dir = work_dir / "memory"
 
     # Get the absolute path of work_dir on the host
     abs_result = _execute_with_timing(
@@ -411,13 +479,13 @@ def link_memory_directory(
     abs_work_dir = abs_result.stdout.strip()
     project_dir_name = compute_claude_project_dir_name(abs_work_dir)
 
-    # Create the changelings memory directory
+    # Create the memory directory
     _execute_with_timing(
         host,
-        f"mkdir -p {shlex.quote(str(changelings_memory))}",
+        f"mkdir -p {shlex.quote(str(memory_dir))}",
         hard_timeout=settings.fs_hard_timeout_seconds,
         warn_threshold=settings.fs_warn_threshold_seconds,
-        label="mkdir changelings memory",
+        label="mkdir memory",
     )
 
     # Create the Claude project directory and symlink memory into it.
@@ -427,8 +495,8 @@ def link_memory_directory(
     project_dir_shell = f'"$HOME/.claude/projects/"{quoted_project_dir_name}'
     memory_link_shell = f'"$HOME/.claude/projects/"{quoted_project_dir_name}/memory'
 
-    cmd = f"mkdir -p {project_dir_shell} && ln -sfn {shlex.quote(str(changelings_memory))} {memory_link_shell}"
-    with log_span("Linking memory: $HOME/.claude/projects/{}/memory -> {}", project_dir_name, changelings_memory):
+    cmd = f"mkdir -p {project_dir_shell} && ln -sfn {shlex.quote(str(memory_dir))} {memory_link_shell}"
+    with log_span("Linking memory: $HOME/.claude/projects/{}/memory -> {}", project_dir_name, memory_dir):
         result = _execute_with_timing(
             host,
             cmd,

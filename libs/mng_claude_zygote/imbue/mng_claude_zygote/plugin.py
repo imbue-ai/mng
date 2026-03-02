@@ -93,10 +93,10 @@ class ClaudeZygoteAgent(ClaudeAgent):
 
     During provisioning:
     - Installs the llm toolchain (llm, llm-anthropic, llm-live-chat)
-    - Creates symlinks for changeling entrypoint files
+    - Creates symlinks for Claude Code discovery (CLAUDE.md, settings, skills)
     - Provisions watcher scripts and chat utilities
     - Sets up event log directories (logs/<source>/events.jsonl)
-    - Symlinks .changelings/memory/ into Claude project memory
+    - Symlinks memory/ into Claude project memory
 
     Via tmux windows (injected by override_command_options):
     - Conversation watcher (syncs llm DB to logs/messages/events.jsonl)
@@ -128,8 +128,8 @@ class ClaudeZygoteAgent(ClaudeAgent):
         Extends ClaudeAgent provisioning with:
         1. Settings loading from .changelings/settings.toml
         2. llm + plugin installation
-        3. Default content (CLAUDE.md, entrypoint files, skills) if missing
-        4. Symlinks for .changelings/entrypoint.md -> CLAUDE.local.md
+        3. Default content (GLOBAL.md, thinking/PROMPT.md, thinking/settings.json, skills)
+        4. Symlinks for Claude Code discovery (CLAUDE.md, settings, skills)
         5. Watcher scripts and chat utilities
         6. Event log directory structure (logs/<source>/events.jsonl)
         7. LLM tool scripts for conversation context
@@ -149,15 +149,15 @@ class ClaudeZygoteAgent(ClaudeAgent):
         if config.install_llm:
             install_llm_toolchain(host, provisioning)
 
-        provision_default_content(host, self.work_dir, config.changelings_dir_name, provisioning)
-        create_changeling_symlinks(host, self.work_dir, config.changelings_dir_name, provisioning)
+        provision_default_content(host, self.work_dir, provisioning)
+        create_changeling_symlinks(host, self.work_dir, provisioning)
         provision_changeling_scripts(host, provisioning)
         provision_llm_tools(host, provisioning)
 
         agent_state_dir = self._get_agent_dir()
         create_event_log_directories(host, agent_state_dir, provisioning)
 
-        link_memory_directory(host, self.work_dir, config.changelings_dir_name, provisioning)
+        link_memory_directory(host, self.work_dir, provisioning)
 
         # Provision settings.toml to agent state dir so scripts can access it
         provision_settings_file(host, self.work_dir, config.changelings_dir_name, agent_state_dir)

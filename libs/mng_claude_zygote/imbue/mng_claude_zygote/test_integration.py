@@ -34,8 +34,8 @@ from imbue.mng_claude_zygote.conftest import LocalShellHost
 from imbue.mng_claude_zygote.conftest import StubCommandResult
 from imbue.mng_claude_zygote.conftest import StubHost
 from imbue.mng_claude_zygote.data_types import ProvisioningSettings
-from imbue.mng_claude_zygote.provisioning import _DEFAULT_CHANGELINGS_DIR_FILES
 from imbue.mng_claude_zygote.provisioning import _DEFAULT_SKILL_DIRS
+from imbue.mng_claude_zygote.provisioning import _DEFAULT_THINKING_DIR_FILES
 from imbue.mng_claude_zygote.provisioning import _DEFAULT_WORK_DIR_FILES
 from imbue.mng_claude_zygote.provisioning import _LLM_TOOL_FILES
 from imbue.mng_claude_zygote.provisioning import _SCRIPT_FILES
@@ -299,7 +299,7 @@ def test_provisioning_creates_default_content_when_missing(
 
     host.write_text_file = tracking_write  # type: ignore[assignment]
 
-    provision_default_content(cast(Any, host), temp_git_repo, ".changelings", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), temp_git_repo, _DEFAULT_PROVISIONING)
 
     written_path_strings = [str(p) for p, _ in written_paths]
 
@@ -307,12 +307,12 @@ def test_provisioning_creates_default_content_when_missing(
         expected = str(temp_git_repo / relative_path)
         assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
 
-    for _, relative_path in _DEFAULT_CHANGELINGS_DIR_FILES:
-        expected = str(temp_git_repo / ".changelings" / relative_path)
-        assert expected in written_path_strings, f"Expected {relative_path} to be written to changelings dir"
+    for _, relative_path in _DEFAULT_THINKING_DIR_FILES:
+        expected = str(temp_git_repo / relative_path)
+        assert expected in written_path_strings, f"Expected {relative_path} to be written to work dir"
 
     for skill_name in _DEFAULT_SKILL_DIRS:
-        expected = str(temp_git_repo / ".claude" / "skills" / skill_name / "SKILL.md")
+        expected = str(temp_git_repo / "thinking" / "skills" / skill_name / "SKILL.md")
         assert expected in written_path_strings, f"Expected skill {skill_name}/SKILL.md to be written"
 
 
@@ -324,7 +324,7 @@ def test_provisioning_does_not_overwrite_existing_content(
     """Verify that provisioning does not overwrite files that already exist."""
     host = StubHost(host_dir=temp_host_dir)
 
-    provision_default_content(cast(Any, host), temp_git_repo, ".changelings", _DEFAULT_PROVISIONING)
+    provision_default_content(cast(Any, host), temp_git_repo, _DEFAULT_PROVISIONING)
 
     assert len(host.written_text_files) == 0, "Should not overwrite existing files"
 
@@ -335,21 +335,44 @@ def test_provisioning_creates_symlinks(
     local_shell_host: LocalShellHost,
 ) -> None:
     """Verify that provisioning creates the expected symlinks."""
-    changelings_dir = temp_git_repo / ".changelings"
-    changelings_dir.mkdir()
-    (changelings_dir / "entrypoint.md").write_text("# Test entrypoint")
-    (changelings_dir / "entrypoint.json").write_text("{}")
-    (temp_git_repo / ".claude").mkdir()
+    # Set up the new directory structure
+    (temp_git_repo / "GLOBAL.md").write_text("# Global instructions")
+    (temp_git_repo / "settings.json").write_text("{}")
+    thinking_dir = temp_git_repo / "thinking"
+    thinking_dir.mkdir()
+    (thinking_dir / "PROMPT.md").write_text("# Thinking prompt")
+    (thinking_dir / "settings.json").write_text("{}")
+    skills_dir = thinking_dir / "skills"
+    skills_dir.mkdir()
+    (skills_dir / "test-skill").mkdir()
+    (skills_dir / "test-skill" / "SKILL.md").write_text("# Test skill")
 
-    create_changeling_symlinks(cast(Any, local_shell_host), temp_git_repo, ".changelings", _DEFAULT_PROVISIONING)
+    create_changeling_symlinks(cast(Any, local_shell_host), temp_git_repo, _DEFAULT_PROVISIONING)
 
+    # CLAUDE.md -> GLOBAL.md
+    claude_md = temp_git_repo / "CLAUDE.md"
+    assert claude_md.is_symlink(), "CLAUDE.md should be a symlink"
+    assert claude_md.resolve() == (temp_git_repo / "GLOBAL.md").resolve()
+
+    # CLAUDE.local.md -> thinking/PROMPT.md
     local_md = temp_git_repo / "CLAUDE.local.md"
     assert local_md.is_symlink(), "CLAUDE.local.md should be a symlink"
-    assert local_md.resolve() == (changelings_dir / "entrypoint.md").resolve()
+    assert local_md.resolve() == (thinking_dir / "PROMPT.md").resolve()
 
-    settings_json = temp_git_repo / ".claude" / "settings.local.json"
-    assert settings_json.is_symlink(), "settings.local.json should be a symlink"
-    assert settings_json.resolve() == (changelings_dir / "entrypoint.json").resolve()
+    # .claude/settings.json -> settings.json
+    settings_json = temp_git_repo / ".claude" / "settings.json"
+    assert settings_json.is_symlink(), "settings.json should be a symlink"
+    assert settings_json.resolve() == (temp_git_repo / "settings.json").resolve()
+
+    # .claude/settings.local.json -> thinking/settings.json
+    settings_local_json = temp_git_repo / ".claude" / "settings.local.json"
+    assert settings_local_json.is_symlink(), "settings.local.json should be a symlink"
+    assert settings_local_json.resolve() == (thinking_dir / "settings.json").resolve()
+
+    # .claude/skills -> thinking/skills
+    skills_link = temp_git_repo / ".claude" / "skills"
+    assert skills_link.is_symlink(), ".claude/skills should be a symlink"
+    assert skills_link.resolve() == skills_dir.resolve()
 
 
 @pytest.mark.timeout(30)
@@ -358,16 +381,16 @@ def test_provisioning_links_memory_directory(
     local_shell_host: LocalShellHost,
 ) -> None:
     """Verify that provisioning creates the memory symlink into Claude project directory."""
-    link_memory_directory(cast(Any, local_shell_host), temp_git_repo, ".changelings", _DEFAULT_PROVISIONING)
+    link_memory_directory(cast(Any, local_shell_host), temp_git_repo, _DEFAULT_PROVISIONING)
 
-    changelings_memory = temp_git_repo / ".changelings" / "memory"
-    assert changelings_memory.is_dir(), "changelings memory dir should exist"
+    memory_dir = temp_git_repo / "memory"
+    assert memory_dir.is_dir(), "memory dir should exist"
 
     abs_work_dir = str(temp_git_repo.resolve())
     project_dir_name = compute_claude_project_dir_name(abs_work_dir)
     project_memory = Path.home() / ".claude" / "projects" / project_dir_name / "memory"
     assert project_memory.is_symlink(), "Claude project memory should be a symlink"
-    assert project_memory.resolve() == changelings_memory.resolve()
+    assert project_memory.resolve() == memory_dir.resolve()
 
 
 # -- Chat script tests --
