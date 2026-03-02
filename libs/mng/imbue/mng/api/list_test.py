@@ -6,10 +6,12 @@ from datetime import timezone
 from io import StringIO
 from pathlib import Path
 
+import pytest
 from loguru import logger
 
 from imbue.mng.api.list import _warn_on_duplicate_host_names
 from imbue.mng.config.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
+from imbue.mng.config.completion_writer import add_agent_name_to_cache
 from imbue.mng.config.completion_writer import write_agent_names_cache
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import HostInfo
@@ -89,6 +91,56 @@ def test_write_agent_names_cache_deduplicates_names(
     cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
     cache_data = json.loads(cache_path.read_text())
     assert cache_data["names"] == ["same-name"]
+
+
+# =============================================================================
+# add_agent_name_to_cache Tests
+# =============================================================================
+
+
+def test_add_agent_name_to_cache_appends_to_existing(
+    temp_host_dir: Path,
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    """add_agent_name_to_cache should append a new name to the existing cache."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
+    write_agent_names_cache(temp_host_dir, ["alpha-agent", "beta-agent"])
+
+    add_agent_name_to_cache("gamma-agent")
+
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == ["alpha-agent", "beta-agent", "gamma-agent"]
+
+
+def test_add_agent_name_to_cache_creates_cache_when_missing(
+    temp_host_dir: Path,
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    """add_agent_name_to_cache should create the cache file if it does not exist."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
+
+    add_agent_name_to_cache("new-agent")
+
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+    assert cache_path.is_file()
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == ["new-agent"]
+
+
+def test_add_agent_name_to_cache_skips_duplicate(
+    temp_host_dir: Path,
+    monkeypatch: "pytest.MonkeyPatch",
+) -> None:
+    """add_agent_name_to_cache should not duplicate a name already in the cache."""
+    monkeypatch.setenv("MNG_COMPLETION_CACHE_DIR", str(temp_host_dir))
+    write_agent_names_cache(temp_host_dir, ["existing-agent"])
+
+    add_agent_name_to_cache("existing-agent")
+
+    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
+    cache_data = json.loads(cache_path.read_text())
+    assert cache_data["names"] == ["existing-agent"]
 
 
 # =============================================================================

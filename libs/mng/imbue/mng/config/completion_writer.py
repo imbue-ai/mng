@@ -213,3 +213,38 @@ def write_agent_names_cache(host_dir: Path, agent_names: list[str]) -> None:
         atomic_write(cache_path, json.dumps(cache_data))
     except OSError:
         logger.debug("Failed to write agent name completion cache")
+
+
+def add_agent_name_to_cache(agent_name: str) -> None:
+    """Add a single agent name to the completion cache (best-effort).
+
+    Reads the existing agent completions cache, appends the new name if not
+    already present, and writes the updated cache back. This avoids a full
+    provider query just to update completions after creating a single agent.
+
+    The cache is eventually consistent: the next background refresh will
+    reconcile the full list from all providers.
+
+    Catches OSError and json.JSONDecodeError so failures do not break the
+    caller.
+    """
+    try:
+        cache_path = get_completion_cache_dir() / AGENT_COMPLETIONS_CACHE_FILENAME
+        existing_names: list[str] = []
+        if cache_path.is_file():
+            data = json.loads(cache_path.read_text())
+            names = data.get("names")
+            if isinstance(names, list):
+                existing_names = [n for n in names if isinstance(n, str) and n]
+
+        if agent_name in existing_names:
+            return
+
+        existing_names.append(agent_name)
+        cache_data = {
+            "names": sorted(set(existing_names)),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        atomic_write(cache_path, json.dumps(cache_data))
+    except (OSError, json.JSONDecodeError):
+        logger.debug("Failed to add agent name to completion cache")

@@ -40,6 +40,7 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.completion_writer import add_agent_name_to_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
@@ -805,6 +806,9 @@ def _handle_create(
             created_branch_name=early_created_branch_name,
         )
 
+        # Update tab completion cache so the new agent name is immediately available
+        add_agent_name_to_cache(str(create_result.agent.name))
+
         # If --edit-message was used, wait for editor and send the message
         if editor_session is not None:
             _handle_editor_message(
@@ -919,6 +923,11 @@ def _create_agent_in_background(
         # Parent process: output message and exit immediately
         logger.info("Agent creation started in background (PID: {})", pid)
         logger.info("Agent name: {}", agent_options.name)
+        # Optimistically update tab completion cache with the new agent name.
+        # If creation fails in the child, the stale entry will be cleaned up
+        # on the next background refresh.
+        if agent_options.name is not None:
+            add_agent_name_to_cache(str(agent_options.name))
         return
 
     # Child process: detach from parent and continue
