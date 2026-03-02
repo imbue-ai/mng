@@ -15,6 +15,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -162,7 +163,7 @@ def _run_sync_script(conversations_file: Path, messages_file: Path, db_path: Pat
     """
     common_setup = _load_watcher_common_stdlib()
     watcher_source = load_zygote_resource("conversation_watcher.py")
-    watcher_setup = _strip_to_stdlib_only(watcher_source)
+    watcher_setup = _strip_module_header(_strip_to_stdlib_only(watcher_source))
     test_code = f"""
 import pathlib
 _log = Logger(pathlib.Path("/tmp/test-conv-watcher.log"))
@@ -174,12 +175,18 @@ count = _sync_messages(
 )
 print(count)
 """
-    result = subprocess.run(
-        [sys.executable, "-c", common_setup + "\n" + watcher_setup + test_code],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
+    full_script = common_setup + "\n" + watcher_setup + test_code
+    script_file = Path(tempfile.mktemp(suffix=".py"))
+    script_file.write_text(full_script)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_file)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    finally:
+        script_file.unlink(missing_ok=True)
     assert result.returncode == 0, f"Sync failed: {result.stderr}"
     return int(result.stdout.strip())
 
@@ -694,7 +701,14 @@ def _strip_to_stdlib_only(source: str) -> str:
     - ``sys.path.insert`` lines (used to find watcher_common)
     - Everything below the WATCHDOG-DEPENDENT marker
     """
-    marker_idx = source.find(_WATCHDOG_MARKER)
+    # Find the marker as a line-starting comment (not inside a docstring reference)
+    marker_idx = -1
+    for line_start in range(len(source)):
+        if line_start > 0 and source[line_start - 1] != "\n":
+            continue
+        if source[line_start:].startswith(_WATCHDOG_MARKER):
+            marker_idx = line_start
+            break
     truncated = source[:marker_idx] if marker_idx != -1 else source
     stripped_lines = [
         line
@@ -710,23 +724,51 @@ def _strip_to_stdlib_only(source: str) -> str:
 def _load_watcher_common_stdlib() -> str:
     """Load the stdlib-only portion of watcher_common.py."""
     source = load_zygote_resource("watcher_common.py")
-    return "from __future__ import annotations\n" + _strip_to_stdlib_only(source)
+    return "from __future__ import annotations\n" + _strip_module_header(_strip_to_stdlib_only(source))
+
+
+def _strip_module_header(source: str) -> str:
+    """Remove shebang, PEP 723 metadata, and module docstring from Python source."""
+    lines = source.splitlines()
+    # Skip shebang and PEP 723 comment lines at the top
+    start_idx = 0
+    while start_idx < len(lines):
+        line = lines[start_idx].strip()
+        if line.startswith("#") or line == "":
+            start_idx += 1
+        else:
+            break
+    # If the next non-empty line starts a docstring, remove it
+    if start_idx < len(lines) and lines[start_idx].strip().startswith('"""'):
+        docstring_line = lines[start_idx].strip()
+        if docstring_line.endswith('"""') and len(docstring_line) > 3:
+            start_idx += 1
+        else:
+            start_idx += 1
+            while start_idx < len(lines):
+                if '"""' in lines[start_idx]:
+                    start_idx += 1
+                    break
+                start_idx += 1
+    return "\n".join(lines[start_idx:])
 
 
 def _run_event_watcher_test(test_code: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     """Run a snippet of Python code that exercises event_watcher.py functions.
 
     Loads the actual production code from watcher_common.py and event_watcher.py,
-    strips out watchdog-dependent portions, and runs the provided test_code.
+    strips out watchdog-dependent portions, writes to a temp file, and runs it.
     """
     common_setup = _load_watcher_common_stdlib()
     watcher_source = load_zygote_resource("event_watcher.py")
-    watcher_setup = _strip_to_stdlib_only(watcher_source)
+    watcher_setup = _strip_module_header(_strip_to_stdlib_only(watcher_source))
     full_script = (
         common_setup + "\n" + watcher_setup + f"\nTMP = __import__('pathlib').Path('{tmp_path}')\n" + test_code
     )
+    script_file = tmp_path / "_test_script.py"
+    script_file.write_text(full_script)
     return subprocess.run(
-        [sys.executable, "-c", full_script],
+        [sys.executable, str(script_file)],
         capture_output=True,
         text=True,
         timeout=10,

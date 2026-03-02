@@ -5,9 +5,10 @@ conversation_watcher.py) to $MNG_HOST_DIR/commands/ and imported by them at
 runtime. It provides the common watchdog integration, logging, and polling
 infrastructure that all watchers share.
 
-This file must NOT import watchdog at module level since it is also loaded
-by test helpers that strip watchdog-dependent code. All watchdog-dependent
-code is in the functions below the WATCHDOG-DEPENDENT marker.
+Watchdog imports and classes that depend on them are placed below the
+``# --- WATCHDOG-DEPENDENT CODE BELOW`` marker. Test helpers strip
+everything below this marker so they can exec the stdlib-only portion
+without the watchdog dependency installed.
 """
 
 from __future__ import annotations

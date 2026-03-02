@@ -1,6 +1,9 @@
 """Unit tests for the mng_claude_zygote provisioning module."""
 
+import json
 import os
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -150,10 +153,6 @@ def _run_conversion(
     tmp_path: Path = Path("/tmp"),
 ) -> list[dict[str, Any]]:
     """Run the conversion logic on the given input and return output events."""
-    import json
-    import subprocess
-    import tempfile
-
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = Path(tmpdir) / "input.jsonl"
         output_file = Path(tmpdir) / "output.jsonl"
@@ -192,8 +191,6 @@ def _run_conversion(
 
 
 def test_conversion_handles_user_text_message() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "user",
@@ -211,8 +208,6 @@ def test_conversion_handles_user_text_message() -> None:
 
 
 def test_conversion_handles_assistant_message_with_text() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "assistant",
@@ -235,8 +230,6 @@ def test_conversion_handles_assistant_message_with_text() -> None:
 
 
 def test_conversion_handles_tool_results() -> None:
-    import json
-
     assistant = json.dumps(
         {
             "type": "assistant",
@@ -279,8 +272,6 @@ def test_conversion_handles_tool_results() -> None:
 
 
 def test_conversion_skips_progress_events() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "progress",
@@ -294,8 +285,6 @@ def test_conversion_skips_progress_events() -> None:
 
 
 def test_conversion_deduplicates_by_event_id() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "user",
@@ -319,8 +308,6 @@ def test_conversion_deduplicates_by_event_id() -> None:
 
 
 def test_conversion_handles_malformed_lines_gracefully() -> None:
-    import json
-
     valid = json.dumps(
         {
             "type": "user",
@@ -335,11 +322,9 @@ def test_conversion_handles_malformed_lines_gracefully() -> None:
 
 
 def test_conversion_user_message_validates_against_pydantic_schema() -> None:
-    import json as json_mod
-
     from imbue.mng_claude_zygote.data_types import CommonUserMessageEvent
 
-    raw = json_mod.dumps(
+    raw = json.dumps(
         {
             "type": "user",
             "uuid": "contract-user-1",
@@ -355,11 +340,9 @@ def test_conversion_user_message_validates_against_pydantic_schema() -> None:
 
 
 def test_conversion_assistant_message_validates_against_pydantic_schema() -> None:
-    import json as json_mod
-
     from imbue.mng_claude_zygote.data_types import CommonAssistantMessageEvent
 
-    raw = json_mod.dumps(
+    raw = json.dumps(
         {
             "type": "assistant",
             "uuid": "contract-asst-1",
@@ -381,11 +364,9 @@ def test_conversion_assistant_message_validates_against_pydantic_schema() -> Non
 
 
 def test_conversion_tool_result_validates_against_pydantic_schema() -> None:
-    import json as json_mod
-
     from imbue.mng_claude_zygote.data_types import CommonToolResultEvent
 
-    assistant = json_mod.dumps(
+    assistant = json.dumps(
         {
             "type": "assistant",
             "uuid": "contract-asst-2",
@@ -399,7 +380,7 @@ def test_conversion_tool_result_validates_against_pydantic_schema() -> None:
             },
         }
     )
-    user_result = json_mod.dumps(
+    user_result = json.dumps(
         {
             "type": "user",
             "uuid": "contract-user-2",
@@ -1642,7 +1623,6 @@ def test_default_thinking_prompt_describes_event_processing() -> None:
 
 def test_default_thinking_settings_json_is_valid_json() -> None:
     """Verify the default thinking/settings.json is valid JSON."""
-    import json
 
     content = load_zygote_resource("defaults/thinking/settings.json")
     parsed = json.loads(content)
