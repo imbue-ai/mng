@@ -2,12 +2,20 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from datetime import timedelta
 from datetime import timezone
 from io import StringIO
 from pathlib import Path
 
 from loguru import logger
 
+from imbue.mng.api.list import AgentErrorInfo
+from imbue.mng.api.list import ErrorInfo
+from imbue.mng.api.list import HostErrorInfo
+from imbue.mng.api.list import ListResult
+from imbue.mng.api.list import ProviderErrorInfo
+from imbue.mng.api.list import _agent_to_cel_context
+from imbue.mng.api.list import _apply_cel_filters
 from imbue.mng.api.list import _warn_on_duplicate_host_names
 from imbue.mng.config.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
 from imbue.mng.config.completion_writer import write_agent_names_cache
@@ -22,6 +30,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.cel_utils import compile_cel_filters
 
 # =============================================================================
 # Helpers
@@ -200,3 +209,241 @@ def test_warn_on_duplicate_host_names_no_warning_when_destroyed_host_shares_name
         _warn_on_duplicate_host_names(agents_by_host)
 
     assert "Duplicate host name" not in log_output.getvalue()
+
+
+# =============================================================================
+# ErrorInfo Tests
+# =============================================================================
+
+
+def test_error_info_build_creates_correct_error_from_exception() -> None:
+    """ErrorInfo.build() should capture the exception type and message."""
+    exception = RuntimeError("something went wrong")
+    error = ErrorInfo.build(exception)
+    assert error.exception_type == "RuntimeError"
+    assert error.message == "something went wrong"
+
+
+def test_error_info_build_captures_custom_exception_type() -> None:
+    """ErrorInfo.build() should capture custom exception class names."""
+    exception = ValueError("bad value")
+    error = ErrorInfo.build(exception)
+    assert error.exception_type == "ValueError"
+    assert error.message == "bad value"
+
+
+# =============================================================================
+# ProviderErrorInfo Tests
+# =============================================================================
+
+
+def test_provider_error_info_build_for_provider() -> None:
+    """ProviderErrorInfo.build_for_provider() should include the provider name."""
+    exception = ConnectionError("cannot connect")
+    provider_name = ProviderInstanceName("my-provider")
+    error = ProviderErrorInfo.build_for_provider(exception, provider_name)
+    assert error.exception_type == "ConnectionError"
+    assert error.message == "cannot connect"
+    assert error.provider_name == provider_name
+
+
+# =============================================================================
+# HostErrorInfo Tests
+# =============================================================================
+
+
+def test_host_error_info_build_for_host() -> None:
+    """HostErrorInfo.build_for_host() should include the host ID."""
+    exception = TimeoutError("host unreachable")
+    host_id = HostId.generate()
+    error = HostErrorInfo.build_for_host(exception, host_id)
+    assert error.exception_type == "TimeoutError"
+    assert error.message == "host unreachable"
+    assert error.host_id == host_id
+
+
+# =============================================================================
+# AgentErrorInfo Tests
+# =============================================================================
+
+
+def test_agent_error_info_build_for_agent() -> None:
+    """AgentErrorInfo.build_for_agent() should include the agent ID."""
+    exception = OSError("agent process died")
+    agent_id = AgentId.generate()
+    error = AgentErrorInfo.build_for_agent(exception, agent_id)
+    assert error.exception_type == "OSError"
+    assert error.message == "agent process died"
+    assert error.agent_id == agent_id
+
+
+# =============================================================================
+# ListResult Tests
+# =============================================================================
+
+
+def test_list_result_initializes_with_empty_lists() -> None:
+    """ListResult should initialize with empty agents and errors lists."""
+    result = ListResult()
+    assert result.agents == []
+    assert result.errors == []
+
+
+def test_list_result_allows_appending() -> None:
+    """ListResult agents and errors lists should be mutable."""
+    result = ListResult()
+    host_info = _make_host_info()
+    agent = _make_agent_info("test-agent", host_info)
+    result.agents.append(agent)
+    assert len(result.agents) == 1
+    assert result.agents[0].name == AgentName("test-agent")
+
+    error = ErrorInfo.build(RuntimeError("oops"))
+    result.errors.append(error)
+    assert len(result.errors) == 1
+
+
+# =============================================================================
+# _agent_to_cel_context Tests
+# =============================================================================
+
+
+def test_agent_to_cel_context_basic_fields() -> None:
+    """_agent_to_cel_context should convert AgentInfo to a dict with basic fields."""
+    host_info = _make_host_info()
+    agent = _make_agent_info("my-agent", host_info)
+    context = _agent_to_cel_context(agent)
+
+    assert context["name"] == "my-agent"
+    assert context["type"] == "claude"
+    assert context["state"] == "RUNNING"
+    assert context["command"] == "sleep 100"
+
+
+def test_agent_to_cel_context_computes_age() -> None:
+    """_agent_to_cel_context should compute 'age' from create_time."""
+    host_info = _make_host_info()
+    create_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    agent = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("aging-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work"),
+        create_time=create_time,
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        host=host_info,
+    )
+    context = _agent_to_cel_context(agent)
+
+    assert "age" in context
+    # Age should be approximately 7200 seconds (2 hours), with some tolerance
+    assert context["age"] > 7000
+    assert context["age"] < 7400
+
+
+def test_agent_to_cel_context_computes_runtime() -> None:
+    """_agent_to_cel_context should set 'runtime' from runtime_seconds."""
+    host_info = _make_host_info()
+    agent = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("running-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        runtime_seconds=3600.0,
+        host=host_info,
+    )
+    context = _agent_to_cel_context(agent)
+
+    assert context["runtime"] == 3600.0
+
+
+def test_agent_to_cel_context_computes_idle() -> None:
+    """_agent_to_cel_context should compute 'idle' from activity times."""
+    host_info = _make_host_info()
+    activity_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+    agent = AgentInfo(
+        id=AgentId.generate(),
+        name=AgentName("idle-agent"),
+        type="claude",
+        command=CommandString("sleep 100"),
+        work_dir=Path("/work"),
+        create_time=datetime.now(timezone.utc),
+        start_on_boot=False,
+        state=AgentLifecycleState.RUNNING,
+        user_activity_time=activity_time,
+        host=host_info,
+    )
+    context = _agent_to_cel_context(agent)
+
+    assert "idle" in context
+    # Idle should be approximately 300 seconds (5 minutes)
+    assert context["idle"] > 280
+    assert context["idle"] < 320
+
+
+def test_agent_to_cel_context_normalizes_host_provider() -> None:
+    """_agent_to_cel_context should rename host.provider_name to host.provider."""
+    host_info = HostInfo(
+        id=HostId.generate(),
+        name="test-host",
+        provider_name=ProviderInstanceName("modal"),
+    )
+    agent = _make_agent_info("test-agent", host_info)
+    context = _agent_to_cel_context(agent)
+
+    assert "host" in context
+    host = context["host"]
+    assert "provider" in host
+    assert "provider_name" not in host
+    assert host["provider"] == "modal"
+
+
+# =============================================================================
+# _apply_cel_filters Tests
+# =============================================================================
+
+
+def test_apply_cel_filters_includes_matching_agent() -> None:
+    """_apply_cel_filters should return True when agent matches include filter."""
+    host_info = _make_host_info()
+    agent = _make_agent_info("target-agent", host_info)
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('name == "target-agent"',),
+        exclude_filters=(),
+    )
+    assert _apply_cel_filters(agent, include_filters, exclude_filters) is True
+
+
+def test_apply_cel_filters_excludes_non_matching_agent() -> None:
+    """_apply_cel_filters should return False when agent does not match include filter."""
+    host_info = _make_host_info()
+    agent = _make_agent_info("other-agent", host_info)
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=('name == "target-agent"',),
+        exclude_filters=(),
+    )
+    assert _apply_cel_filters(agent, include_filters, exclude_filters) is False
+
+
+def test_apply_cel_filters_exclude_filter_removes_agent() -> None:
+    """_apply_cel_filters should return False when agent matches exclude filter."""
+    host_info = _make_host_info()
+    agent = _make_agent_info("unwanted-agent", host_info)
+    include_filters, exclude_filters = compile_cel_filters(
+        include_filters=(),
+        exclude_filters=('name == "unwanted-agent"',),
+    )
+    assert _apply_cel_filters(agent, include_filters, exclude_filters) is False
+
+
+def test_apply_cel_filters_no_filters_includes_all() -> None:
+    """_apply_cel_filters should return True when no filters are provided."""
+    host_info = _make_host_info()
+    agent = _make_agent_info("any-agent", host_info)
+    assert _apply_cel_filters(agent, [], []) is True
