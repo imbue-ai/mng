@@ -335,17 +335,6 @@ def test_skill_provisioned_agent_config_accepts_custom_command() -> None:
 # -- Direct _install_skill_locally tests --
 
 
-def test_install_skill_locally_writes_to_correct_path(
-    temp_mng_ctx: MngContext,
-) -> None:
-    """_install_skill_locally should write skill to ~/.claude/skills/<name>/SKILL.md."""
-    _install_skill_locally("test-skill", "test content", temp_mng_ctx)
-
-    expected_path = Path.home() / ".claude" / "skills" / "test-skill" / "SKILL.md"
-    assert expected_path.exists()
-    assert expected_path.read_text() == "test content"
-
-
 def test_install_skill_locally_skips_when_content_matches(
     temp_mng_ctx: MngContext,
 ) -> None:

@@ -14,6 +14,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.providers.local.instance import LocalProviderInstance
+from imbue.mng.utils.env_utils import parse_env_file
 
 # =============================================================================
 # _read_existing_env_content Tests
@@ -155,6 +156,12 @@ def test_provision_agent_with_env_vars(
         is_restart=False,
     )
 
+    # Verify the env vars were written to the agent's env file
+    env_path = host.get_agent_env_path(agent)
+    assert env_path.exists(), "Env file should exist after provisioning with env_files"
+    env_vars = parse_env_file(env_path.read_text())
+    assert env_vars["PROV_VAR"] == "provision_value"
+
     host.destroy_agent(agent)
 
 
@@ -193,6 +200,11 @@ def test_provision_agent_merges_existing_env_content(
         mng_ctx=temp_mng_ctx,
         is_restart=False,
     )
+
+    # Verify the existing env content is preserved after provisioning
+    env_content = env_path.read_text()
+    env_vars = parse_env_file(env_content)
+    assert env_vars["EXISTING_VAR"] == "existing_value"
 
     host.destroy_agent(agent)
 

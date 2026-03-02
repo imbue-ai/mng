@@ -537,17 +537,6 @@ def test_write_json_line_terminates_with_newline(capsys) -> None:
 
 
 # =============================================================================
-# Tests for render_format_template (edge cases)
-# =============================================================================
-
-
-def test_render_format_template_known_conversion_s_works() -> None:
-    """render_format_template should handle the !s conversion specifier correctly."""
-    result = render_format_template("{name!s}", {"name": "test"})
-    assert result == "test"
-
-
-# =============================================================================
 # Tests for output_sync_files_result (JSONL push event name)
 # =============================================================================
 

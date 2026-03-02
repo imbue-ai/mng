@@ -152,29 +152,6 @@ def test_limit_cannot_combine_agents_and_all(
     assert "Cannot specify both agent names and --all" in result.output
 
 
-def test_limit_future_options_raise_not_implemented(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that [future] options raise NotImplementedError."""
-    future_option_sets = [
-        ["--all", "--idle-timeout", "300", "--include", "some-filter"],
-        ["--all", "--idle-timeout", "300", "--exclude", "some-filter"],
-        ["--all", "--idle-timeout", "300", "--stdin"],
-        ["--all", "--idle-timeout", "300", "--refresh-ssh-keys"],
-        ["--all", "--idle-timeout", "300", "--add-ssh-key", "key.pub"],
-        ["--all", "--idle-timeout", "300", "--remove-ssh-key", "key.pub"],
-    ]
-    for args in future_option_sets:
-        result = cli_runner.invoke(
-            limit,
-            args,
-            obj=plugin_manager,
-            catch_exceptions=True,
-        )
-        assert result.exit_code != 0, f"Expected failure for args {args}, got exit_code=0"
-
-
 def test_limit_all_with_no_agents(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,

@@ -1,10 +1,12 @@
 """Unit tests for the exec CLI command."""
 
 import json
+from io import StringIO
 
 import pluggy
 import pytest
 from click.testing import CliRunner
+from loguru import logger
 
 from imbue.mng.api.exec import ExecResult
 from imbue.mng.api.exec import MultiExecResult
@@ -64,6 +66,21 @@ def test_exec_requires_command(
         catch_exceptions=True,
     )
     assert result.exit_code != 0
+
+
+def test_exec_requires_agent_or_all(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that exec requires at least one agent or --all."""
+    result = cli_runner.invoke(
+        exec_command,
+        ["echo hello"],
+        obj=plugin_manager,
+        catch_exceptions=True,
+    )
+    assert result.exit_code != 0
+    assert "Must specify at least one agent or use --all" in result.output
 
 
 def test_exec_nonexistent_agent(
@@ -186,6 +203,36 @@ def test_exec_all_with_no_agents(
     assert result.exit_code == 0
 
 
+def test_exec_all_jsonl_format_with_no_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test exec --all --format jsonl with no running agents exits 0."""
+    result = cli_runner.invoke(
+        exec_command,
+        ["--all", "--format", "jsonl", "echo hello"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+
+
+def test_exec_all_json_format_with_no_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test exec --all --format json with no running agents exits 0 and outputs valid JSON."""
+    result = cli_runner.invoke(
+        exec_command,
+        ["--all", "--format", "json", "echo hello"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    data = json.loads(result.output.strip())
+    assert data["total_executed"] == 0
+
+
 def test_exec_cannot_combine_agents_and_all(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
@@ -306,11 +353,20 @@ def test_emit_human_output_stderr_without_trailing_newline(capsys: pytest.Captur
     assert "error output" in captured.err
 
 
-def test_emit_human_output_failed_agents_in_multi(capsys: pytest.CaptureFixture[str]) -> None:
-    """Test human output shows failed agents."""
+def test_emit_human_output_failed_agents_logs_errors() -> None:
+    """Test that _emit_human_output logs error messages for failed agents."""
     multi_result = MultiExecResult(
         successful_results=[],
         failed_agents=[("agent-x", "host offline"), ("agent-y", "timeout")],
     )
-    _emit_human_output(multi_result)
-    # Error messages go to logger (stderr) not stdout
+    log_output = StringIO()
+    sink_id = logger.add(log_output, level="ERROR", format="{message}")
+    try:
+        _emit_human_output(multi_result)
+    finally:
+        logger.remove(sink_id)
+    output = log_output.getvalue()
+    assert "agent-x" in output
+    assert "host offline" in output
+    assert "agent-y" in output
+    assert "timeout" in output

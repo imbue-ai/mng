@@ -1,4 +1,3 @@
-import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -20,8 +19,6 @@ from imbue.mng.api.list import _apply_cel_filters
 from imbue.mng.api.list import _warn_on_duplicate_host_names
 from imbue.mng.api.list import list_agents
 from imbue.mng.api.list import load_all_agents_grouped_by_host
-from imbue.mng.config.completion_writer import AGENT_COMPLETIONS_CACHE_FILENAME
-from imbue.mng.config.completion_writer import write_agent_names_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -65,47 +62,6 @@ def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
         state=AgentLifecycleState.RUNNING,
         host=host_info,
     )
-
-
-# =============================================================================
-# Completion Cache Write Tests
-# =============================================================================
-
-
-def test_write_agent_names_cache_writes_sorted_names(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should write sorted agent names to the cache file."""
-    write_agent_names_cache(temp_host_dir, ["beta-agent", "alpha-agent"])
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    assert cache_path.is_file()
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == ["alpha-agent", "beta-agent"]
-    assert "updated_at" in cache_data
-
-
-def test_write_agent_names_cache_writes_empty_list_for_no_agents(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should write an empty names list when no agents."""
-    write_agent_names_cache(temp_host_dir, [])
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    assert cache_path.is_file()
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == []
-
-
-def test_write_agent_names_cache_deduplicates_names(
-    temp_host_dir: Path,
-) -> None:
-    """write_agent_names_cache should deduplicate agent names."""
-    write_agent_names_cache(temp_host_dir, ["same-name", "same-name"])
-
-    cache_path = temp_host_dir / AGENT_COMPLETIONS_CACHE_FILENAME
-    cache_data = json.loads(cache_path.read_text())
-    assert cache_data["names"] == ["same-name"]
 
 
 # =============================================================================

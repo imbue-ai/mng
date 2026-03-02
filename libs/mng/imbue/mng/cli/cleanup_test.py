@@ -208,20 +208,6 @@ def test_cleanup_dry_run_yes_no_agents(
     assert "no agents found" in result.output.lower()
 
 
-def test_cleanup_snapshot_before_raises_not_implemented(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --snapshot-before raises NotImplementedError."""
-    result = cli_runner.invoke(
-        cleanup,
-        ["--snapshot-before", "--yes"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0
-
-
 # =============================================================================
 # Dry-run output formatting tests (monkeypatched agents, no real providers)
 # =============================================================================

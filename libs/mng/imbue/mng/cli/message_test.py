@@ -76,27 +76,6 @@ def test_get_message_content_returns_option_when_provided() -> None:
     assert result == "Hello World"
 
 
-def test_emit_human_output_logs_successful_agents(capsys: pytest.CaptureFixture) -> None:
-    """Test that _emit_human_output logs successful agents."""
-    result = MessageResult()
-    result.successful_agents = ["agent1", "agent2"]
-
-    _emit_human_output(result)
-
-    # The output is logged via loguru, not printed directly
-    # We can't easily capture it here, but we can verify no exception is raised
-
-
-def test_emit_human_output_logs_failed_agents(capsys: pytest.CaptureFixture) -> None:
-    """Test that _emit_human_output logs failed agents."""
-    result = MessageResult()
-    result.failed_agents = [("agent1", "error1"), ("agent2", "error2")]
-
-    _emit_human_output(result)
-
-    # The output is logged via loguru
-
-
 def test_emit_human_output_handles_no_agents() -> None:
     """Test that _emit_human_output handles no agents case."""
     result = MessageResult()
@@ -326,3 +305,38 @@ def test_emit_human_output_only_failed_agents() -> None:
         _emit_human_output(result)
     output = buf.getvalue()
     assert "Failed to send message to 2 agent(s)" in output
+
+
+# =============================================================================
+# Tests for message --stdin path
+# =============================================================================
+
+
+def test_message_stdin_flag_reads_agent_names_from_input(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test message --stdin reads agent names from stdin and reports them not found."""
+    result = cli_runner.invoke(
+        message,
+        ["--stdin", "-m", "hello"],
+        input="nonexistent-stdin-agent-1\nnonexistent-stdin-agent-2\n",
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
+    assert "No agents found" in result.output
+
+
+def test_message_all_jsonl_format_no_agents(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test message --all --format jsonl with no agents exits 0."""
+    result = cli_runner.invoke(
+        message,
+        ["--all", "-m", "hello", "--format", "jsonl"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0

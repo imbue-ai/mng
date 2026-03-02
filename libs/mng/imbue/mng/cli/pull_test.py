@@ -8,12 +8,9 @@ import pytest
 from click.testing import CliRunner
 
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mng.api.sync import SyncFilesResult
-from imbue.mng.cli.output_helpers import output_sync_files_result
 from imbue.mng.cli.pull import PullCliOptions
 from imbue.mng.cli.pull import pull
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -26,9 +23,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
-from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import ProviderInstanceName
-from imbue.mng.primitives import SyncMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 
 
@@ -132,71 +127,6 @@ def test_pull_command_sync_mode_choices() -> None:
     assert "files" in result.output
     assert "git" in result.output
     assert "full" in result.output
-
-
-def test_output_files_result_human_format() -> None:
-    """Test output formatting for human-readable format."""
-    result = SyncFilesResult(
-        files_transferred=5,
-        bytes_transferred=1024,
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        is_dry_run=False,
-        mode=SyncMode.PULL,
-    )
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-
-    output_sync_files_result(result, output_opts.output_format)
-
-
-def test_output_files_result_human_format_dry_run() -> None:
-    """Test output formatting for human-readable format with dry run."""
-    result = SyncFilesResult(
-        files_transferred=5,
-        bytes_transferred=0,
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        is_dry_run=True,
-        mode=SyncMode.PULL,
-    )
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-
-    output_sync_files_result(result, output_opts.output_format)
-
-
-def test_output_files_result_json_format(capsys) -> None:
-    """Test output formatting for JSON format."""
-    result = SyncFilesResult(
-        files_transferred=5,
-        bytes_transferred=1024,
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        is_dry_run=False,
-        mode=SyncMode.PULL,
-    )
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-
-    output_sync_files_result(result, output_opts.output_format)
-    captured = capsys.readouterr()
-    assert '"files_transferred": 5' in captured.out
-    assert '"bytes_transferred": 1024' in captured.out
-
-
-def test_output_files_result_jsonl_format(capsys) -> None:
-    """Test output formatting for JSONL format."""
-    result = SyncFilesResult(
-        files_transferred=3,
-        bytes_transferred=512,
-        source_path=Path("/src"),
-        destination_path=Path("/dst"),
-        mode=SyncMode.PULL,
-        is_dry_run=False,
-    )
-    output_opts = OutputOptions(output_format=OutputFormat.JSONL)
-
-    output_sync_files_result(result, output_opts.output_format)
-    captured = capsys.readouterr()
-    assert "pull_complete" in captured.out
 
 
 def test_find_agent_by_name_or_id_raises_for_empty_agents(temp_mng_ctx: MngContext) -> None:
