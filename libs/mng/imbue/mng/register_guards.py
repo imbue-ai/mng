@@ -6,9 +6,10 @@ from modal._grpc_client import UnaryUnaryWrapper
 
 from imbue.imbue_common.conftest_hooks import register_marker
 from imbue.imbue_common.resource_guards import enforce_sdk_guard
+from imbue.imbue_common.resource_guards import register_resource_guard
 from imbue.imbue_common.resource_guards import register_sdk_guard
 
-# Each guard pair manages its own originals dict so install/cleanup are symmetric.
+# Stores original methods so they can be restored by cleanup.
 # Typed as Any because the values are method references with heterogeneous signatures.
 _modal_originals: dict[str, Any] = {}
 _docker_originals: dict[str, Any] = {}
@@ -66,14 +67,13 @@ def _cleanup_modal_guards() -> None:
     _modal_originals.clear()
 
 
-def _install_docker_guards() -> None:
+def _install_docker_sdk_guards() -> None:
     """Monkeypatch Docker's APIClient.send to enforce resource guards.
 
     APIClient inherits send from requests.Session. We shadow it on APIClient
     so that all Docker HTTP requests are guarded without affecting other
     requests.Session usage.
     """
-    # Capture whatever send() APIClient currently resolves to (via MRO).
     _docker_originals["send_original_resolved"] = APIClient.send
     _docker_originals["send_existed"] = "send" in APIClient.__dict__
     if "send" in APIClient.__dict__:
@@ -82,7 +82,7 @@ def _install_docker_guards() -> None:
     APIClient.send = _guarded_docker_send  # ty: ignore[invalid-assignment]
 
 
-def _cleanup_docker_guards() -> None:
+def _cleanup_docker_sdk_guards() -> None:
     if "send_existed" not in _docker_originals:
         return
 
@@ -99,7 +99,7 @@ def _cleanup_docker_guards() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Per-SDK registration (called from each project's conftest.py)
+# Registration (called from each project's conftest.py)
 # ---------------------------------------------------------------------------
 
 
@@ -109,7 +109,20 @@ def register_modal_guard() -> None:
     register_sdk_guard("modal", _install_modal_guards, _cleanup_modal_guards)
 
 
-def register_docker_guard() -> None:
-    """Register the Docker SDK guard and marker. Safe to call multiple times."""
-    register_marker("docker: marks tests that require a running Docker daemon")
-    register_sdk_guard("docker", _install_docker_guards, _cleanup_docker_guards)
+def register_docker_cli_guard() -> None:
+    """Register the Docker CLI binary guard and marker. Safe to call multiple times.
+
+    Uses a PATH wrapper to intercept docker CLI subprocess calls, including
+    from child processes launched by mng create.
+    """
+    register_marker("docker: marks tests that invoke the docker CLI via subprocess")
+    register_resource_guard("docker")
+
+
+def register_docker_sdk_guard() -> None:
+    """Register the Docker SDK guard and marker. Safe to call multiple times.
+
+    Monkeypatches APIClient.send to intercept in-process Docker SDK HTTP calls.
+    """
+    register_marker("docker_sdk: marks tests that use the Docker Python SDK in-process")
+    register_sdk_guard("docker_sdk", _install_docker_sdk_guards, _cleanup_docker_sdk_guards)

@@ -11,7 +11,8 @@ and this file's register_conftest_hooks() call is a no-op (guarded by a module-l
 from imbue.imbue_common.conftest_hooks import register_conftest_hooks
 from imbue.imbue_common.conftest_hooks import register_marker
 from imbue.imbue_common.resource_guards import register_resource_guard
-from imbue.mng.register_guards import register_docker_guard
+from imbue.mng.register_guards import register_docker_cli_guard
+from imbue.mng.register_guards import register_docker_sdk_guard
 from imbue.mng.register_guards import register_modal_guard
 from imbue.mng.utils.logging import suppress_warnings
 
@@ -25,6 +26,7 @@ register_resource_guard("tmux")
 register_resource_guard("rsync")
 register_resource_guard("unison")
 register_modal_guard()
-register_docker_guard()
+register_docker_cli_guard()
+register_docker_sdk_guard()
 
 register_conftest_hooks(globals())

@@ -4,7 +4,7 @@ These tests require a running Docker daemon but do NOT require networking
 (port publishing). They test container management, exec, labels, discovery,
 snapshots, and host store integration using the Docker API directly.
 
-Marked with @pytest.mark.docker and @pytest.mark.acceptance so they only
+Marked with @pytest.mark.docker_sdk and @pytest.mark.acceptance so they only
 run in CI acceptance test shards (not in the default local test suite).
 """
 
@@ -35,7 +35,7 @@ from imbue.mng.providers.docker.instance import build_container_labels
 from imbue.mng.providers.docker.testing import make_docker_provider_with_cleanup
 from imbue.mng.utils.testing import get_short_random_string
 
-pytestmark = [pytest.mark.docker, pytest.mark.acceptance]
+pytestmark = [pytest.mark.docker_sdk, pytest.mark.acceptance]
 
 # Use a longer timeout since Docker operations can be slow (image pulls, etc.)
 DOCKER_TEST_TIMEOUT = 120
@@ -180,6 +180,7 @@ def test_pull_image_not_found_raises(docker_provider: DockerProviderInstance) ->
         docker_provider._pull_image("nonexistent-image-that-does-not-exist:99999")
 
 
+@pytest.mark.docker
 @pytest.mark.timeout(DOCKER_TEST_TIMEOUT)
 def test_build_image_from_dockerfile(docker_provider: DockerProviderInstance, tmp_path: Path) -> None:
     dockerfile = tmp_path / "Dockerfile"

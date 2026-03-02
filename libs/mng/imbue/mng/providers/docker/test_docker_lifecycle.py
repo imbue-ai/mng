@@ -19,7 +19,7 @@ from imbue.mng.providers.docker.instance import DockerProviderInstance
 from imbue.mng.providers.docker.testing import make_docker_provider
 from imbue.mng.providers.docker.testing import make_docker_provider_with_cleanup
 
-pytestmark = [pytest.mark.docker, pytest.mark.acceptance, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.docker_sdk, pytest.mark.acceptance, pytest.mark.timeout(120)]
 
 
 @pytest.fixture

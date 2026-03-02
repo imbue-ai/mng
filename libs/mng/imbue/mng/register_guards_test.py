@@ -1,7 +1,8 @@
 import pytest
 
 import imbue.imbue_common.resource_guards as rg
-from imbue.mng.register_guards import register_docker_guard
+from imbue.mng.register_guards import register_docker_cli_guard
+from imbue.mng.register_guards import register_docker_sdk_guard
 from imbue.mng.register_guards import register_modal_guard
 
 
@@ -24,13 +25,21 @@ def test_register_modal_guard_adds_modal(
     assert "modal" in registered_names
 
 
-def test_register_docker_guard_adds_docker(
+def test_register_docker_sdk_guard_adds_docker_sdk(
     isolated_guard_state: None,
 ) -> None:
-    register_docker_guard()
+    register_docker_sdk_guard()
 
     registered_names = [entry[0] for entry in rg._registered_sdk_guards]
-    assert "docker" in registered_names
+    assert "docker_sdk" in registered_names
+
+
+def test_register_docker_cli_guard_adds_docker_binary(
+    isolated_guard_state: None,
+) -> None:
+    register_docker_cli_guard()
+
+    assert "docker" in rg._guarded_resources
 
 
 def test_register_modal_guard_deduplicates_on_repeated_calls(
@@ -47,8 +56,8 @@ def test_create_sdk_resource_guards_populates_guarded_resources(
     isolated_guard_state: None,
 ) -> None:
     register_modal_guard()
-    register_docker_guard()
+    register_docker_sdk_guard()
     rg.create_sdk_resource_guards()
 
     assert "modal" in rg._guarded_resources
-    assert "docker" in rg._guarded_resources
+    assert "docker_sdk" in rg._guarded_resources

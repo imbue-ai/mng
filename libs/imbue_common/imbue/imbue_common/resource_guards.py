@@ -270,7 +270,8 @@ def create_sdk_resource_guards() -> None:
     set up env vars for them.
     """
     for name, install, _cleanup in _registered_sdk_guards:
-        _guarded_resources.append(name)
+        if name not in _guarded_resources:
+            _guarded_resources.append(name)
         install()
 
 
