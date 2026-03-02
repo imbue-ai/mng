@@ -40,7 +40,35 @@ trap 'rm -f "$_MNG_ACT_LOCK"' EXIT
 mkdir -p "$MNG_AGENT_STATE_DIR/activity"
 mkdir -p "$MNG_AGENT_STATE_DIR/logs"
 
+LOG_FILE="$MNG_HOST_DIR/logs/claude_background_tasks/events.jsonl"
+
+_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+_log_jsonl() {
+    local level="$1"
+    local msg="$2"
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    local ns_ts
+    ns_ts=$(date +%s%N)
+    local escaped_msg
+    escaped_msg=$(_json_escape "$msg")
+    mkdir -p "$(dirname "$LOG_FILE")"
+    printf '{"timestamp":"%s","type":"claude_background_tasks","event_id":"log-%s-%s","source":"claude_background_tasks","level":"%s","message":"%s","pid":%s}\n' \
+        "$ts" "$ns_ts" "$$" "$level" "$escaped_msg" "$$" >> "$LOG_FILE"
+}
+
 EXPORT_SCRIPT="$MNG_HOST_DIR/commands/export_transcript.sh"
+
+_log_jsonl "INFO" "Background tasks started for session $SESSION_NAME"
 
 while tmux has-session -t "$SESSION_NAME" 2>/dev/null; do
     # Task 1: Update activity timestamp if agent is actively processing
@@ -56,12 +84,15 @@ while tmux has-session -t "$SESSION_NAME" 2>/dev/null; do
         _TRANSCRIPT_TMP="$MNG_AGENT_STATE_DIR/logs/claude_transcript/events.jsonl.tmp"
         if "$EXPORT_SCRIPT" > "$_TRANSCRIPT_TMP" 2>/dev/null; then
             mv "$_TRANSCRIPT_TMP" "$MNG_AGENT_STATE_DIR/logs/claude_transcript/events.jsonl"
+            _log_jsonl "DEBUG" "Transcript export complete"
         else
             rm -f "$_TRANSCRIPT_TMP"
+            _log_jsonl "WARN" "Transcript export failed"
         fi
     fi
 
     sleep 15
 done
 
+_log_jsonl "INFO" "Background tasks finished for session $SESSION_NAME (session ended)"
 rm -f "$_MNG_ACT_LOCK"

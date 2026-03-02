@@ -141,7 +141,7 @@ def test_chat_script_logs_to_file() -> None:
     """Verify chat.sh writes debug output to a log file."""
     content = load_zygote_resource("chat.sh")
     assert "LOG_FILE" in content
-    assert "chat.log" in content
+    assert "chat/events.jsonl" in content
 
 
 # -- Conversation watcher content tests --
@@ -161,7 +161,7 @@ def test_conversation_watcher_logs_to_file() -> None:
     """Verify conversation_watcher.sh writes debug output to a log file."""
     content = load_zygote_resource("conversation_watcher.sh")
     assert "LOG_FILE" in content
-    assert "conversation_watcher.log" in content
+    assert "conversation_watcher/events.jsonl" in content
 
 
 def test_conversation_watcher_logs_sqlite_errors() -> None:
@@ -231,7 +231,7 @@ def test_event_watcher_logs_to_file() -> None:
     """Verify event_watcher.sh writes debug output to a log file."""
     content = load_zygote_resource("event_watcher.sh")
     assert "LOG_FILE" in content
-    assert "event_watcher.log" in content
+    assert "event_watcher/events.jsonl" in content
 
 
 def test_event_watcher_logs_send_errors() -> None:

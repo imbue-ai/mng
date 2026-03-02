@@ -21,17 +21,33 @@ fi
 
 # File logging: all log functions write to $STOP_HOOK_LOG if set.
 # Each sourcing script should set STOP_HOOK_LOG before calling log functions.
-# Format: [YYYY-MM-DD HH:MM:SS] [PID] [SCRIPT_NAME] [LEVEL] message
+# Format: JSONL with standard envelope
 STOP_HOOK_LOG="${STOP_HOOK_LOG:-}"
 STOP_HOOK_SCRIPT_NAME="${STOP_HOOK_SCRIPT_NAME:-unknown}"
+
+_stop_hook_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
 
 _log_to_file() {
     local level="$1"
     local msg="$2"
     if [[ -n "$STOP_HOOK_LOG" ]]; then
         local ts
-        ts=$(date '+%Y-%m-%d %H:%M:%S')
-        echo "[$ts] [$$] [$STOP_HOOK_SCRIPT_NAME] [$level] $msg" >> "$STOP_HOOK_LOG"
+        ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+        local ns_ts
+        ns_ts=$(date +%s%N)
+        local escaped_msg
+        escaped_msg=$(_stop_hook_json_escape "$msg")
+        mkdir -p "$(dirname "$STOP_HOOK_LOG")"
+        printf '{"timestamp":"%s","type":"stop_hook","event_id":"log-%s-%s","source":"stop_hook","level":"%s","message":"%s","pid":%s}\n' \
+            "$ts" "$ns_ts" "$$" "$level" "$escaped_msg" "$$" >> "$STOP_HOOK_LOG"
     fi
 }
 

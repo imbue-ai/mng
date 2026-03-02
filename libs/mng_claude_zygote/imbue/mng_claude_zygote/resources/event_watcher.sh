@@ -28,7 +28,7 @@ HOST_DIR="${MNG_HOST_DIR:?MNG_HOST_DIR must be set}"
 # All event sources the watcher monitors for new events
 LOGS_DIR="$AGENT_DATA_DIR/logs"
 OFFSETS_DIR="$AGENT_DATA_DIR/logs/.event_offsets"
-LOG_FILE="$HOST_DIR/logs/event_watcher.log"
+LOG_FILE="$HOST_DIR/logs/event_watcher/events.jsonl"
 
 # Read settings from settings.toml, fall back to defaults
 mkdir -p "$(dirname "$LOG_FILE")"
@@ -54,20 +54,39 @@ _SOURCES_STR=$(echo "$_SETTINGS_JSON" | python3 -c "import json, sys; print(' '.
 # shellcheck disable=SC2206
 WATCHED_SOURCES=($_SOURCES_STR)
 
+_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+_log_jsonl() {
+    local level="$1"
+    local msg="$2"
+    local ts
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    local ns_ts
+    ns_ts=$(date +%s%N)
+    local escaped_msg
+    escaped_msg=$(_json_escape "$msg")
+    mkdir -p "$(dirname "$LOG_FILE")"
+    printf '{"timestamp":"%s","type":"event_watcher","event_id":"log-%s-%s","source":"event_watcher","level":"%s","message":"%s","pid":%s}\n' \
+        "$ts" "$ns_ts" "$$" "$level" "$escaped_msg" "$$" >> "$LOG_FILE"
+}
+
 log() {
     local ts
     ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    local msg="[$ts] $*"
-    echo "$msg"
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "$msg" >> "$LOG_FILE"
+    echo "[$ts] $*"
+    _log_jsonl "INFO" "$*"
 }
 
 log_debug() {
-    local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
-    mkdir -p "$(dirname "$LOG_FILE")"
-    echo "[$ts] [debug] $*" >> "$LOG_FILE"
+    _log_jsonl "DEBUG" "$*"
 }
 
 # Check for new lines in an events.jsonl file and send them to the primary agent.
