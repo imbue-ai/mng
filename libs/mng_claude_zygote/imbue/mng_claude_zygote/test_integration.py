@@ -16,11 +16,13 @@ import sqlite3
 import subprocess
 import sys
 import time
+import types
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from typing import cast
+from unittest.mock import patch
 
 import pluggy
 import pytest
@@ -48,6 +50,15 @@ from imbue.mng_claude_zygote.provisioning import load_zygote_resource
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
+from imbue.mng_claude_zygote.resources.conversation_watcher import _sync_messages
+from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_events
+from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
+from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
+from imbue.mng_claude_zygote.resources.event_watcher import _set_offset
+from imbue.mng_claude_zygote.resources.watcher_common import Logger
+from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
+
+_EVENT_WATCHER_SUBPROCESS_RUN = "imbue.mng_claude_zygote.resources.event_watcher.subprocess.run"
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -155,9 +166,6 @@ def _create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str,
 
 def _run_sync_script(conversations_file: Path, messages_file: Path, db_path: Path) -> int:
     """Run the conversation watcher's sync logic and return the count of synced events."""
-    from imbue.mng_claude_zygote.resources.conversation_watcher import _sync_messages
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-
     log = Logger(Path("/tmp/test-conv-watcher.log"))
     return _sync_messages(db_path, conversations_file, messages_file, log)
 
@@ -656,8 +664,6 @@ print(json.dumps({{
 
 @pytest.mark.timeout(30)
 def test_event_watcher_get_offset_returns_zero_when_missing(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     assert _get_offset(offsets_dir, "messages") == 0
@@ -665,9 +671,6 @@ def test_event_watcher_get_offset_returns_zero_when_missing(tmp_path: Path) -> N
 
 @pytest.mark.timeout(30)
 def test_event_watcher_set_and_get_offset_roundtrip(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-    from imbue.mng_claude_zygote.resources.event_watcher import _set_offset
-
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     _set_offset(offsets_dir, "messages", 42)
@@ -676,8 +679,6 @@ def test_event_watcher_set_and_get_offset_roundtrip(tmp_path: Path) -> None:
 
 @pytest.mark.timeout(30)
 def test_event_watcher_get_offset_returns_zero_for_corrupt_file(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     (offsets_dir / "messages.offset").write_text("not_a_number")
@@ -686,9 +687,6 @@ def test_event_watcher_get_offset_returns_zero_for_corrupt_file(tmp_path: Path) 
 
 @pytest.mark.timeout(30)
 def test_event_watcher_mtime_poll_detects_new_file(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
-
     source_dir = tmp_path / "messages"
     source_dir.mkdir()
     log = Logger(tmp_path / "test.log")
@@ -704,9 +702,6 @@ def test_event_watcher_mtime_poll_detects_new_file(tmp_path: Path) -> None:
 
 @pytest.mark.timeout(30)
 def test_event_watcher_mtime_poll_detects_modification(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
-
     source_dir = tmp_path / "messages"
     source_dir.mkdir()
     events_file = source_dir / "events.jsonl"
@@ -725,9 +720,6 @@ def test_event_watcher_mtime_poll_detects_modification(tmp_path: Path) -> None:
 
 @pytest.mark.timeout(30)
 def test_event_watcher_mtime_poll_detects_removal(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
-
     source_dir = tmp_path / "messages"
     source_dir.mkdir()
     events_file = source_dir / "events.jsonl"
@@ -743,8 +735,6 @@ def test_event_watcher_mtime_poll_detects_removal(tmp_path: Path) -> None:
 
 @pytest.mark.timeout(30)
 def test_event_watcher_load_settings_defaults(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
-
     settings = _load_watcher_settings(tmp_path)
     assert settings.poll_interval == 3
     assert settings.sources == ["messages", "scheduled", "mng_agents", "stop"]
@@ -752,8 +742,6 @@ def test_event_watcher_load_settings_defaults(tmp_path: Path) -> None:
 
 @pytest.mark.timeout(30)
 def test_event_watcher_load_settings_from_file(tmp_path: Path) -> None:
-    from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
-
     (tmp_path / "settings.toml").write_text(
         '[watchers]\nevent_poll_interval_seconds = 10\nwatched_event_sources = ["messages", "stop"]\n'
     )
@@ -765,69 +753,47 @@ def test_event_watcher_load_settings_from_file(tmp_path: Path) -> None:
 @pytest.mark.timeout(30)
 def test_event_watcher_check_and_send_sends_new_events_and_updates_offset(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify _check_and_send_new_events reads new lines, sends them, and updates the offset."""
-    import types
-
-    from imbue.mng_claude_zygote.resources import event_watcher
-    from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_events
-    from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     events_file.write_text('{"event": 1}\n{"event": 2}\n{"event": 3}\n')
     (offsets_dir / "test_source.offset").write_text("1")
 
-    captured_calls: list[tuple[list[str], dict[str, Any]]] = []
-
-    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
-        captured_calls.append((cmd, kwargs))
-        return types.SimpleNamespace(returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr(event_watcher.subprocess, "run", mock_run)
-
     log = Logger(tmp_path / "test.log")
-    _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
+    with patch(
+        _EVENT_WATCHER_SUBPROCESS_RUN,
+        return_value=types.SimpleNamespace(returncode=0, stdout="", stderr=""),
+    ) as mock_run:
+        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
 
-    assert len(captured_calls) == 1
-    cmd = captured_calls[0][0]
-    assert "mng" in cmd and "message" in cmd
-    assert "my-agent" in cmd
-    assert '{"event": 2}' in cmd[-1]
-    assert '{"event": 3}' in cmd[-1]
-    assert _get_offset(offsets_dir, "test_source") == 3
+        assert mock_run.call_count == 1
+        cmd = mock_run.call_args[0][0]
+        assert "mng" in cmd and "message" in cmd
+        assert "my-agent" in cmd
+        assert '{"event": 2}' in cmd[-1]
+        assert '{"event": 3}' in cmd[-1]
+        assert _get_offset(offsets_dir, "test_source") == 3
 
 
 @pytest.mark.timeout(30)
 def test_event_watcher_check_and_send_does_not_update_offset_on_failure(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify _check_and_send_new_events does not update offset when mng message fails."""
-    import types
-
-    from imbue.mng_claude_zygote.resources import event_watcher
-    from imbue.mng_claude_zygote.resources.event_watcher import _check_and_send_new_events
-    from imbue.mng_claude_zygote.resources.event_watcher import _get_offset
-    from imbue.mng_claude_zygote.resources.watcher_common import Logger
-
     offsets_dir = tmp_path / "offsets"
     offsets_dir.mkdir()
     events_file = tmp_path / "events.jsonl"
     events_file.write_text('{"event": 1}\n{"event": 2}\n')
 
-    def mock_run(cmd: list[str], **kwargs: Any) -> types.SimpleNamespace:
-        return types.SimpleNamespace(returncode=1, stdout="", stderr="send failed")
-
-    monkeypatch.setattr(event_watcher.subprocess, "run", mock_run)
-
     log = Logger(tmp_path / "test.log")
-    _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
-
-    assert _get_offset(offsets_dir, "test_source") == 0
+    with patch(
+        _EVENT_WATCHER_SUBPROCESS_RUN,
+        return_value=types.SimpleNamespace(returncode=1, stdout="", stderr="send failed"),
+    ):
+        _check_and_send_new_events(events_file, "test_source", offsets_dir, "my-agent", log)
+        assert _get_offset(offsets_dir, "test_source") == 0
 
 
 # -- Tmux window injection integration tests --

@@ -1,7 +1,12 @@
 """Unit tests for the mng_claude_zygote provisioning module."""
 
+import importlib
 import json
 import os
+import subprocess
+import sys
+import tempfile
+import types
 from pathlib import Path
 from typing import Any
 from typing import cast
@@ -27,6 +32,8 @@ from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import validate_talking_role_constraints
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
+from imbue.mng_claude_zygote.resources import context_tool as context_tool_module
+from imbue.mng_claude_zygote.resources import extra_context_tool as extra_context_tool_module
 
 _DEFAULT_PROVISIONING = ProvisioningSettings()
 
@@ -61,10 +68,6 @@ def _run_conversion(
     tmp_path: Path = Path("/tmp"),
 ) -> list[dict[str, Any]]:
     """Run the conversion logic on the given input and return output events."""
-    import json
-    import subprocess
-    import tempfile
-
     with tempfile.TemporaryDirectory() as tmpdir:
         input_file = Path(tmpdir) / "input.jsonl"
         output_file = Path(tmpdir) / "output.jsonl"
@@ -103,8 +106,6 @@ def _run_conversion(
 
 
 def test_conversion_handles_user_text_message() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "user",
@@ -122,8 +123,6 @@ def test_conversion_handles_user_text_message() -> None:
 
 
 def test_conversion_handles_assistant_message_with_text() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "assistant",
@@ -146,8 +145,6 @@ def test_conversion_handles_assistant_message_with_text() -> None:
 
 
 def test_conversion_handles_tool_results() -> None:
-    import json
-
     assistant = json.dumps(
         {
             "type": "assistant",
@@ -190,8 +187,6 @@ def test_conversion_handles_tool_results() -> None:
 
 
 def test_conversion_skips_progress_events() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "progress",
@@ -205,8 +200,6 @@ def test_conversion_skips_progress_events() -> None:
 
 
 def test_conversion_deduplicates_by_event_id() -> None:
-    import json
-
     raw = json.dumps(
         {
             "type": "user",
@@ -230,8 +223,6 @@ def test_conversion_deduplicates_by_event_id() -> None:
 
 
 def test_conversion_handles_malformed_lines_gracefully() -> None:
-    import json
-
     valid = json.dumps(
         {
             "type": "user",
@@ -290,13 +281,10 @@ def _load_transcript_watcher_module() -> dict[str, Any]:
     exec(compile(watcher_common_stripped, "watcher_common.py", "exec"), watcher_common_ns)
 
     # Patch sys.modules so `from watcher_common import ...` works during exec
-    import types
-
     watcher_common_mod = types.ModuleType("watcher_common")
     for key, value in watcher_common_ns.items():
         if not key.startswith("__"):
             setattr(watcher_common_mod, key, value)
-    import sys
 
     old_mod = sys.modules.get("watcher_common")
     sys.modules["watcher_common"] = watcher_common_mod
@@ -634,12 +622,8 @@ def _load_fresh_context_tool(name: str) -> Any:
     importlib.reload to reinitialize module-level state like _last_file_sizes.
     The ``name`` parameter is accepted for backward-compatibility but unused.
     """
-    import importlib
-
-    from imbue.mng_claude_zygote.resources import context_tool
-
-    importlib.reload(context_tool)
-    return context_tool
+    importlib.reload(context_tool_module)
+    return context_tool_module
 
 
 def test_context_tool_gather_context_returns_no_context_when_env_not_set(
@@ -1243,12 +1227,8 @@ def test_compute_claude_project_dir_name_no_dots_or_slashes() -> None:
 
 def _load_fresh_extra_context_tool() -> Any:
     """Import extra_context_tool as a proper package module and reset its state."""
-    import importlib
-
-    from imbue.mng_claude_zygote.resources import extra_context_tool
-
-    importlib.reload(extra_context_tool)
-    return extra_context_tool
+    importlib.reload(extra_context_tool_module)
+    return extra_context_tool_module
 
 
 def _setup_fake_uv(
@@ -1497,8 +1477,6 @@ def test_warn_if_mng_unavailable_warns_when_missing_on_remote() -> None:
 
 def test_provision_default_content_writes_missing_files() -> None:
     """Verify provision_default_content writes all default files when none exist."""
-    from imbue.mng_claude_zygote.provisioning import provision_default_content
-
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
@@ -1518,8 +1496,6 @@ def test_provision_default_content_writes_missing_files() -> None:
 
 def test_provision_default_content_skips_existing_files() -> None:
     """Verify provision_default_content does not overwrite existing files."""
-    from imbue.mng_claude_zygote.provisioning import provision_default_content
-
     # test -f returns success (file exists) by default in StubHost
     host = StubHost()
     provision_default_content(cast(Any, host), Path("/test/work"), _DEFAULT_PROVISIONING)
@@ -1529,8 +1505,6 @@ def test_provision_default_content_skips_existing_files() -> None:
 
 def test_provision_default_content_creates_parent_directories() -> None:
     """Verify provision_default_content creates parent directories for missing files."""
-    from imbue.mng_claude_zygote.provisioning import provision_default_content
-
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
@@ -1542,8 +1516,6 @@ def test_provision_default_content_creates_parent_directories() -> None:
 
 def test_provision_default_content_writes_to_thinking_dir() -> None:
     """Verify provision_default_content writes thinking agent files to the thinking directory."""
-    from imbue.mng_claude_zygote.provisioning import provision_default_content
-
     host = StubHost(
         command_results={"test -f": StubCommandResult(success=False)},
     )
