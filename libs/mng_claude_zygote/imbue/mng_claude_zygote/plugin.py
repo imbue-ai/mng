@@ -238,7 +238,8 @@ def _is_claude_zygote_agent_type(agent_type_name: str) -> bool:
     """Check whether the given agent type name resolves to a ClaudeZygoteAgent subclass."""
     try:
         agent_class = get_agent_class(agent_type_name)
-    except Exception:
+    except Exception as e:
+        logger.debug("Could not resolve agent type '{}': {}", agent_type_name, e)
         return False
     return issubclass(agent_class, ClaudeZygoteAgent)
 
