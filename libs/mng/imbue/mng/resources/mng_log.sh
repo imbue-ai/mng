@@ -32,8 +32,13 @@ _json_escape() {
 _log_jsonl() {
     local level="$1"
     local msg="$2"
+    # GNU date supports %N (nanoseconds); macOS BSD date does not.
+    # Fall back to zero-padded microseconds on macOS.
     local ts
-    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ")
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%S.%NZ" 2>/dev/null)
+    if [[ "$ts" == *"%N"* ]]; then
+        ts=$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z")
+    fi
     local eid
     eid="evt-$(head -c 16 /dev/urandom | xxd -p)"
     local escaped_msg

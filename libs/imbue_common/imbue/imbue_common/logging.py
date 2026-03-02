@@ -7,6 +7,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from datetime import timezone
 from typing import Any
 from typing import Final
 from typing import ParamSpec
@@ -137,8 +138,13 @@ def trace_span(message: str, *args: Any, _is_trace_span_enabled: bool = True, **
 
 @pure
 def format_nanosecond_iso_timestamp(dt: datetime) -> str:
-    """Format a datetime as ISO 8601 with nanosecond precision in UTC."""
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond * 1000:09d}Z"
+    """Format a datetime as ISO 8601 with nanosecond precision in UTC.
+
+    Converts to UTC first so the trailing 'Z' is always correct, even when
+    loguru provides a local-timezone datetime.
+    """
+    utc_dt = dt.astimezone(timezone.utc)
+    return utc_dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc_dt.microsecond * 1000:09d}Z"
 
 
 def generate_log_event_id() -> str:
