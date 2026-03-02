@@ -22,7 +22,7 @@ Spawn a Task subagent (`subagent_type: "general-purpose"`, `model: "haiku"`) to 
 >
 > Skim this diff and answer three questions:
 > 1. Is the diff empty?
-> 2. Does it include unrelated changes (e.g. from merged-in feature branches)? If so, describe what seems unrelated.
+> 2. Does it include significant unrelated changes (e.g. from merged-in feature branches)? Ignore minor cleanups or small incidental fixes -- only flag changes that look like a separate logical effort. If so, describe what seems unrelated.
 > 3. At a glance, does the scope of the changes look roughly complete for the stated goal, or does it look like only a partial solution or a work in progress?
 >
 > ```
@@ -33,87 +33,38 @@ Spawn a Task subagent (`subagent_type: "general-purpose"`, `model: "haiku"`) to 
 
 Based on the subagent's response:
 - If the diff is empty, STOP and ask the user whether the work has been committed yet or whether the base branch is wrong.
-- If it reports unrelated changes, STOP and explain to the user that this skill can only verify one logical change at a time. Ask which change they want to focus on (e.g. the main goal of the branch vs. an incidental fix). Then when spawning the analysis subagent in Phase 4, explicitly tell it to ignore the changes that are not part of the chosen focus.
+- If it reports significant unrelated changes, STOP and explain to the user that this skill can only verify one logical change at a time. Ask which change they want to focus on (e.g. the main goal of the branch vs. an incidental fix). Then when spawning the analysis subagent in Phase 4, explicitly tell it to ignore the changes that are not part of the chosen focus.
 - If it reports the work looks incomplete, flag that to the user and ask whether to proceed anyway.
 
 ## Phase 3: Prepare a Worktree
 
-Create a temporary worktree so the analysis subagent can read the pre-change codebase:
+Resolve both commit hashes now, before spawning anything:
 
 ```bash
-git worktree add --detach .worktree/arch-verify ${GIT_BASE_BRANCH:-main}
+base_hash=$(git rev-parse {base_branch})
+tip_hash=$(git rev-parse HEAD)
+```
+
+Create a temporary worktree with a unique name so the analysis subagent can read the pre-change codebase:
+
+```bash
+worktree_path=".worktree/arch-verify-$(head -c 8 /dev/urandom | xxd -p)"
+git worktree add --detach $worktree_path $base_hash
 ```
 
 ## Phase 4: Spawn Analysis Subagent
 
-Spawn a single Task subagent (`subagent_type: "general-purpose"`) and give it:
+Read the subagent prompt from [analyze-architecture.md](analyze-architecture.md). Spawn a single Task subagent (`subagent_type: "general-purpose"`, leaving model as default) with that prompt, prepending:
 - The problem description from Phase 1
-- The base branch worktree path (`.worktree/arch-verify`)
-- The feature branch tip hash (`git rev-parse HEAD`)
-- The base branch name
-
-The subagent prompt should instruct it to perform these steps in order:
-
-### Step 1: Understand the existing codebase
-
-Working in the base branch worktree, build a thorough understanding of the code before looking at any changes. Read:
-- Project instructions and conventions: CLAUDE.md, style_guide.md, AGENTS.md
-- Design and architecture docs (anything in docs/ describing system design)
-- The files that were changed on the feature branch, plus their surrounding context (use `git diff --name-only {base}...{tip}` to identify them, then read the base-branch versions and neighboring files)
-
-The goal is to understand not just what the code does, but how the codebase is organized: what patterns it uses, how modules relate to each other, and where the boundaries are.
-
-### Step 2: Generate independent approaches
-
-Before looking at the actual changes, think of at least 3 ways you would solve the stated problem. For each, write one or two paragraphs covering the strategy, its tradeoffs, and which existing codebase patterns it leverages. This establishes an unbiased baseline for evaluating the actual implementation later.
-
-### Step 3: Study the actual changes
-
-Now read the diff (`git diff {base}...{tip}`) and the modified files on the feature branch in detail.
-
-### Step 4: Characterize the structural footprint
-
-Describe what the changes add to the codebase at a structural level:
-- New functions, classes, modules, or external dependencies
-- How data flows through the new code and connects to existing data flows
-- Any new coupling between previously independent parts of the codebase (new imports, shared state, cross-module calls)
-- Any new reliance on side information: environment variables, files on disk, global/mutable state, wall-clock time, process-level state, or anything else that is not passed in as an explicit argument. This is especially important to flag.
-
-### Step 5: Evaluate fit with existing codebase
-
-Judge whether the changes feel like they belong in this codebase:
-- Do they follow the same patterns used for similar functionality elsewhere?
-- Is there existing code they could have extended or reused instead of building something new?
-- Where they diverge from established patterns, note it explicitly -- even if the divergence seems justified.
-
-### Step 6: Compare against your independent approaches
-
-Now compare the actual implementation to the approaches you proposed in Step 2:
-- Which of your approaches does it most resemble, and how closely?
-- Does it do anything you would not have predicted? Flag anything unexpected, even if it turns out to be well-motivated.
-- Does it address the root cause of the problem, or work around it? Does it fully solve the stated goal, or only part of it?
-
-### Step 7: Verdict
-
-State whether you think this is the right approach. If you think there is a meaningfully better alternative -- one that fits the codebase more naturally, avoids unnecessary side information, or maintains cleaner boundaries -- describe it concretely.
-
-### Step 8: Report
-
-Return a structured report:
-- **Structural footprint** -- what the changes add and how data flows through them (Step 4)
-- **Fit with existing code** -- where the changes follow or break from established patterns (Step 5)
-- **Unexpected choices** -- anything surprising relative to your independent approaches (Step 6)
-- **Verdict** -- overall judgment and any concrete alternatives (Step 7)
+- The base commit hash ($base_hash) and feature branch tip hash ($tip_hash)
+- An instruction to `cd` into `$worktree_path` before starting
 
 ## Phase 5: Cleanup and Report
 
 Remove the temporary worktree:
 
 ```bash
-git worktree remove .worktree/arch-verify
+git worktree remove $worktree_path
 ```
 
-Summarize the subagent's findings for the user. Focus on what matters most for deciding whether to keep or rethink the current approach:
-- Where the implementation diverges from how the codebase normally does things
-- Anything unexpected about the approach that deserves scrutiny
-- The overall verdict, and any concrete alternatives worth considering
+Relay the subagent's findings to the user. Report every point from the fit, unexpected choices, and verdict sections. Don't reproduce the structural footprint section on its own -- the user already knows what they built -- but reference specific details from it where needed to make the other points clear.
