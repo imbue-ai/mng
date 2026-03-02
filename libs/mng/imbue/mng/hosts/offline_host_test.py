@@ -559,7 +559,7 @@ def test_set_certified_data_asserts_callback_is_set(
 
 
 # =============================================================================
-# Tests for get_state with non-shutdown providers (lines 209-215)
+# Tests for get_state with non-shutdown providers
 # =============================================================================
 
 

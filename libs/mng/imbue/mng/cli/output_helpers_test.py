@@ -541,12 +541,8 @@ def test_write_json_line_terminates_with_newline(capsys) -> None:
 # =============================================================================
 
 
-def test_render_format_template_unknown_conversion_raises() -> None:
-    """render_format_template should raise on unknown conversion specifier."""
-    # Python's string.Formatter only supports s, r, a conversions.
-    # We test the assertionError path for unknown conversions.
-    # Since Python's parser doesn't allow unknown conversions in regular format strings,
-    # we can verify the known paths work correctly instead.
+def test_render_format_template_known_conversion_s_works() -> None:
+    """render_format_template should handle the !s conversion specifier correctly."""
     result = render_format_template("{name!s}", {"name": "test"})
     assert result == "test"
 

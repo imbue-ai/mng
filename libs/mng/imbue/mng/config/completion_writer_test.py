@@ -22,6 +22,17 @@ def test_get_completion_cache_dir_uses_env_var(monkeypatch: pytest.MonkeyPatch, 
     assert cache_dir.exists()
 
 
+def test_get_completion_cache_dir_falls_back_to_default_host_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """get_completion_cache_dir should use read_default_host_dir when env var is unset."""
+    monkeypatch.delenv("MNG_COMPLETION_CACHE_DIR", raising=False)
+    monkeypatch.setenv("MNG_HOST_DIR", str(tmp_path / "default_host"))
+    result = get_completion_cache_dir()
+    assert result == tmp_path / "default_host"
+    assert result.exists()
+
+
 def test_write_agent_names_cache_writes_json(tmp_path: Path) -> None:
     """write_agent_names_cache should write a JSON file with sorted unique names."""
     write_agent_names_cache(tmp_path, ["beta", "alpha", "alpha"])

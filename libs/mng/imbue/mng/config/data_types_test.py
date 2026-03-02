@@ -961,6 +961,22 @@ def test_get_or_create_user_id_validates_env_var_matches_existing(
         get_or_create_user_id(profile_dir)
 
 
+def test_get_or_create_user_id_accepts_env_var_matching_existing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """get_or_create_user_id should succeed when MNG_USER_ID matches the existing file."""
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    existing_id = "d" * 32
+    user_id_file = profile_dir / "user_id"
+    user_id_file.write_text(existing_id)
+
+    monkeypatch.setenv("MNG_USER_ID", existing_id)
+
+    result = get_or_create_user_id(profile_dir)
+    assert result == existing_id
+
+
 def test_mng_context_get_profile_user_id(temp_mng_ctx: MngContext) -> None:
     """MngContext.get_profile_user_id should return a non-empty user ID."""
     user_id = temp_mng_ctx.get_profile_user_id()

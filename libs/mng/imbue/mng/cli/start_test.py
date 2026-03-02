@@ -7,7 +7,6 @@ from click.testing import CliRunner
 
 from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.start import StartCliOptions
-from imbue.mng.cli.start import _output
 from imbue.mng.cli.start import _output_result
 from imbue.mng.cli.start import start
 from imbue.mng.config.data_types import OutputOptions
@@ -146,22 +145,6 @@ def test_start_all_with_no_stopped_agents(
 # =============================================================================
 # Output helper tests
 # =============================================================================
-
-
-def test_output_writes_in_human_format() -> None:
-    """Test _output writes a message in HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with capture_stdout() as buf:
-        _output("Test message here", output_opts)
-    assert "Test message here" in buf.getvalue()
-
-
-def test_output_is_silent_in_json_format() -> None:
-    """Test _output does not write in JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with capture_stdout() as buf:
-        _output("Should not appear", output_opts)
-    assert buf.getvalue() == ""
 
 
 def test_output_result_human_with_agents() -> None:

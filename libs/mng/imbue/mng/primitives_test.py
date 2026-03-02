@@ -144,3 +144,9 @@ def test_agent_reference_labels_returns_empty_when_missing() -> None:
     """labels should return empty dict when not in certified_data."""
     ref = _make_agent_reference()
     assert ref.labels == {}
+
+
+def test_agent_reference_labels_returns_values_when_present() -> None:
+    """labels should return dict from certified_data when present."""
+    ref = _make_agent_reference({"labels": {"env": "prod", "team": "infra"}})
+    assert ref.labels == {"env": "prod", "team": "infra"}

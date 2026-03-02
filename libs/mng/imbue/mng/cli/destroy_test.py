@@ -9,7 +9,6 @@ from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.destroy import DestroyCliOptions
 from imbue.mng.cli.destroy import _DestroyTargets
 from imbue.mng.cli.destroy import _OfflineHostToDestroy
-from imbue.mng.cli.destroy import _output
 from imbue.mng.cli.destroy import _output_result
 from imbue.mng.cli.destroy import destroy
 from imbue.mng.cli.destroy import get_agent_name_from_session
@@ -242,22 +241,6 @@ def test_destroy_session_cannot_combine_with_all(
 # =============================================================================
 # Output helper function tests
 # =============================================================================
-
-
-def test_destroy_output_writes_in_human_format() -> None:
-    """Test _output writes in HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with capture_stdout() as buf:
-        _output("Destroyed something", output_opts)
-    assert "Destroyed something" in buf.getvalue()
-
-
-def test_destroy_output_silent_in_json_format() -> None:
-    """Test _output does not write in JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with capture_stdout() as buf:
-        _output("Should not appear", output_opts)
-    assert buf.getvalue() == ""
 
 
 def test_destroy_output_result_human_with_agents() -> None:

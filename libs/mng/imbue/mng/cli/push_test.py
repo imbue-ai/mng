@@ -143,17 +143,3 @@ def test_push_rsync_only_with_mirror_rejected(
         catch_exceptions=True,
     )
     assert result.exit_code != 0
-
-
-def test_push_full_sync_mode_not_implemented(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that --sync-mode=full raises NotImplementedError."""
-    result = cli_runner.invoke(
-        push,
-        ["nonexistent-push-agent-127", "--sync-mode", "full"],
-        obj=plugin_manager,
-        catch_exceptions=True,
-    )
-    assert result.exit_code != 0

@@ -992,7 +992,7 @@ def test_normalize_cli_args_other_type_passes_through() -> None:
 
 
 # =============================================================================
-# Tests for _parse_command_env_vars edge cases (lines 544, 557)
+# Tests for _parse_command_env_vars edge cases
 # =============================================================================
 
 
@@ -1011,7 +1011,7 @@ def test_parse_command_env_vars_empty_command_name() -> None:
 
 
 # =============================================================================
-# Tests for load_config pytest guard (lines 188-190)
+# Tests for load_config pytest guard
 # =============================================================================
 
 
@@ -1041,7 +1041,7 @@ def test_load_config_raises_when_in_pytest_and_not_allowed(
 
 
 # =============================================================================
-# Tests for load_config with env command overrides (line 155)
+# Tests for load_config with env command overrides
 # =============================================================================
 
 

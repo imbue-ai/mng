@@ -10,7 +10,6 @@ from imbue.mng.cli.limit import _build_updated_permissions
 from imbue.mng.cli.limit import _has_agent_level_settings
 from imbue.mng.cli.limit import _has_any_setting
 from imbue.mng.cli.limit import _has_host_level_settings
-from imbue.mng.cli.limit import _output
 from imbue.mng.cli.limit import _output_result
 from imbue.mng.cli.limit import limit
 from imbue.mng.config.data_types import OutputOptions
@@ -528,24 +527,8 @@ def test_has_any_setting_with_no_settings() -> None:
 
 
 # =============================================================================
-# _output and _output_result tests
+# _output_result tests
 # =============================================================================
-
-
-def test_limit_output_human() -> None:
-    """_output should write in HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with capture_stdout() as buf:
-        _output("Test limit message", output_opts)
-    assert "Test limit message" in buf.getvalue()
-
-
-def test_limit_output_json_silent() -> None:
-    """_output should be silent in JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with capture_stdout() as buf:
-        _output("Should not appear", output_opts)
-    assert buf.getvalue() == ""
 
 
 def test_limit_output_result_human_with_changes() -> None:

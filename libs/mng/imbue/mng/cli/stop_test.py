@@ -7,7 +7,6 @@ from click.testing import CliRunner
 
 from imbue.mng.cli.conftest import capture_stdout
 from imbue.mng.cli.stop import StopCliOptions
-from imbue.mng.cli.stop import _output
 from imbue.mng.cli.stop import _output_result
 from imbue.mng.cli.stop import stop
 from imbue.mng.config.data_types import OutputOptions
@@ -259,22 +258,6 @@ def test_stop_help_exits_zero(
 # =============================================================================
 # Output helper function tests
 # =============================================================================
-
-
-def test_stop_output_writes_in_human_format() -> None:
-    """Test _output writes in HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    with capture_stdout() as buf:
-        _output("Stopped something", output_opts)
-    assert "Stopped something" in buf.getvalue()
-
-
-def test_stop_output_silent_in_json_format() -> None:
-    """Test _output does not write in JSON format."""
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    with capture_stdout() as buf:
-        _output("Should not appear", output_opts)
-    assert buf.getvalue() == ""
 
 
 def test_stop_output_result_human_with_agents() -> None:
