@@ -1,6 +1,4 @@
 import json
-import os
-import tempfile
 from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime
@@ -17,22 +15,6 @@ from imbue.mng.primitives import HostReference
 from imbue.mng.utils.file_utils import atomic_write
 
 AGENT_COMPLETIONS_CACHE_FILENAME: Final[str] = ".agent_completions.json"
-
-
-def get_completion_cache_dir() -> Path:
-    """Return the directory used for completion cache files.
-
-    Uses MNG_COMPLETION_CACHE_DIR if set, otherwise a fixed path under the
-    system temp directory namespaced by uid to avoid collisions between users.
-    The directory is created if it does not exist.
-    """
-    env_dir = os.environ.get("MNG_COMPLETION_CACHE_DIR")
-    if env_dir:
-        cache_dir = Path(env_dir)
-    else:
-        cache_dir = Path(tempfile.gettempdir()) / f"mng-completions-{os.getuid()}"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    return cache_dir
 
 
 class AgentSummaryUntyped(FrozenModel):
