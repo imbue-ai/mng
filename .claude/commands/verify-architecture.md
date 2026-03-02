@@ -1,40 +1,57 @@
 ---
-description: Investigate the architectural choices of a branch and highlight concerns.
+description: Assess whether the approach taken on a branch is the right way to solve the problem.
 ---
 
-look at the /autofix skill in ~/hammer-verify; im writing this as instructions to the subagent but it should actually be framed by instructions to the top level agent
+# Architecture Verification
 
-the base branch is by default main, but if any other feature branches were merged in during the session, it should probably be that feature branch. you should diff your current changes vs the base branch and have a subagent skim to see if they look right; if they include changes that seem to not be yours, STOP and ask the user what the base branch is. then the top level agent should give the subagent a worktree checked out on the base branch (with detatched head).
+Assess whether the approach taken on this branch is the right way to solve its problem. Specifically: does it fit existing codebase patterns and information flow, does it introduce unnecessary coupling or implicit dependencies, and is there a better alternative?
 
-input to this skill (from the top level agent) should include a CONCISE description of the problem that the branch was trying to solve. it should say NOTHING about the 'how' - it should only say the desired behavior for a feature/current bad behavior for a bugfix/code-level problem e.g. 'the code in <> has a confusing inheritance structure' for a refactor, etc.
-also it should have the hash of the tip of the feature branch so it can also check that out (with detached head) or diff against the base branch
+## Phase 1: Summarize the Problem
 
+If you do not already know what the changes on this branch are supposed to accomplish, STOP and ask the user before continuing.
 
-then for the subagent:
+Write a CONCISE description of the problem the branch is trying to solve, based on your knowledge of the work done so far. This description must contain ONLY the problem -- not any part of the solution. Describe what should work differently afterward, what is currently broken, or what structural problem exists in the code. Do not mention any mechanism, technique, data structure, or approach used to fix it. The analysis subagent needs to evaluate the approach independently, so any hint about the implementation will bias its judgment.
 
-1. read the BASE BRANCH code thoroughly (basically take this from verify-branch.md, e.g. it has 
-Also be sure to:
-- Understand the existing codebase patterns around the changed files
-- Read any relevant instruction files (CLAUDE.md, style_guide.md) that might apply to the changed code
+## Phase 2: Validate the Diff
 
-but also it should explicitly mention architecture docs as well)
+Determine the base branch: use `$GIT_BASE_BRANCH` if set, otherwise default to `main`.
 
-2. think of at least 3, but prefereably more, top-level approaches to address the problem. each approach should have a medium level of detail - think one or two paragraphs.
+Read the diff validation prompt from [validate-diff.md](validate-diff.md). Spawn a Task subagent (`subagent_type: "general-purpose"`, `model: "haiku"`) with that prompt, providing the base branch name and the problem description from Phase 1.
 
-3. read the diff/new code thoroughly (check out the feature branch and/or diff it against the base branch)
+Based on the subagent's response:
+- If the diff is empty, STOP and ask the user whether the work has been committed yet or whether the base branch is wrong.
+- If it reports significant unrelated changes, STOP and explain to the user that this skill can only verify one logical change at a time. Ask which change they want to focus on (e.g. the main goal of the branch vs. an incidental fix). Then when spawning the analysis subagent in Phase 4, explicitly tell it to ignore the changes that are not part of the chosen focus.
+- If it reports the work looks incomplete, flag that to the user and ask whether to proceed anyway.
 
-4. map out the 'how' of the fix at the architectural level - what new functions/classes/dependencies/etc does it introduce? here you should pay attention to the overall 'structure' and 'information flow' - the new objects that are defined, any new imports between parts of the codebase that didn't have a direct dpeendency before, and ESPECIALLY side-information (any new files, env vars, or other types of global state (including e.g. dependencies on the current time - anything that's not @pure (editor, fix this to not say @pure because at this point not everything will be marked with that yet. just put a description of what @pure does))). 
+## Phase 3: Prepare a Worktree
 
-5. examine how the changes integrate with existing code; do they match the way similar things are already done in the codebase? ARE there similar things already done in teh codebase? (even if it's a reasonable thing to do, it's important to note anything that is quite different from teh existing code)
+Resolve both commit hashes now, before spawning anything:
 
-6. think about how the changes relate to the original approaches you suggested; does it match one of them? is there anything it does that seems 'weird' compared to your original suggestions? (note this even if there is good justification for why it's 'weird') does it fully solve the problem at the root, or just patch it (or only solve part of it)?
+```bash
+base_hash=$(git rev-parse {base_branch})
+tip_hash=$(git rev-parse HEAD)
+```
 
-7. think on a high level about the diff - is this 'the right way' to achieve the original goal? is there another method that's more in line with the style guide and existing code patterns/better respects existing information flow/uses less side information/etc?
+Create a temporary worktree with a unique name so the analysis subagent can read the pre-change codebase:
 
-8. report back to the top level agent with a detailed report of your findings from 4-6; include
-  - the architectural strategy + information flow of the changes from step 4
-  - any ways the code deviates from how similar things are done / is unlike things that are done from step 5
-  - any notes on how the code is 'weird' from step 6
-  - high-level thoughts from step 7
+```bash
+worktree_path=".worktree/arch-verify-$(head -c 8 /dev/urandom | xxd -p)"
+git worktree add --detach $worktree_path $base_hash
+```
 
-then the top-level agent should return a concise version of the report to the user, focusing on the results from steps 5-7
+## Phase 4: Spawn Analysis Subagent
+
+Read the subagent prompt from [analyze-architecture.md](analyze-architecture.md). Spawn a single Task subagent (`subagent_type: "general-purpose"`, leaving model as default) with that prompt, prepending:
+- The problem description from Phase 1
+- The base commit hash ($base_hash) and feature branch tip hash ($tip_hash)
+- The worktree path ($worktree_path)
+
+## Phase 5: Cleanup and Report
+
+Remove the temporary worktree:
+
+```bash
+git worktree remove $worktree_path
+```
+
+Relay the subagent's findings to the user. Report every point from the fit, unexpected choices, and verdict sections. Don't reproduce the structural footprint section on its own -- the user already knows what they built -- but reference specific details from it where needed to make the other points clear.
