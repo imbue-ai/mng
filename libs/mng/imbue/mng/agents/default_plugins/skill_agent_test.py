@@ -18,6 +18,7 @@ from imbue.mng.agents.default_plugins.fixme_fairy_agent import FixmeFairyAgentCo
 from imbue.mng.agents.default_plugins.fixme_fairy_agent import _FIXME_FAIRY_SKILL_CONTENT
 from imbue.mng.agents.default_plugins.fixme_fairy_agent import _SKILL_NAME as FIXME_FAIRY_SKILL_NAME
 from imbue.mng.agents.default_plugins.skill_agent import SkillProvisionedAgent
+from imbue.mng.agents.default_plugins.skill_agent import SkillProvisionedAgentConfig
 from imbue.mng.agents.default_plugins.skill_agent import _install_skill_locally
 from imbue.mng.config.agent_class_registry import get_agent_class
 from imbue.mng.config.agent_config_registry import get_agent_config_class
@@ -313,3 +314,48 @@ def test_install_skill_locally_auto_approve_installs_without_prompting(
 
         assert skill_path.exists()
         assert skill_path.read_text() == skill_content
+
+
+# -- SkillProvisionedAgentConfig tests --
+
+
+def test_skill_provisioned_agent_config_can_be_instantiated() -> None:
+    """SkillProvisionedAgentConfig can be instantiated with default values."""
+    config = SkillProvisionedAgentConfig()
+    assert config.command == CommandString("claude")
+    assert isinstance(config, ClaudeAgentConfig)
+
+
+def test_skill_provisioned_agent_config_accepts_custom_command() -> None:
+    """SkillProvisionedAgentConfig should accept a custom command override."""
+    config = SkillProvisionedAgentConfig(command=CommandString("custom-agent"))
+    assert config.command == CommandString("custom-agent")
+
+
+# -- Direct _install_skill_locally tests --
+
+
+def test_install_skill_locally_writes_to_correct_path(
+    temp_mng_ctx: MngContext,
+) -> None:
+    """_install_skill_locally should write skill to ~/.claude/skills/<name>/SKILL.md."""
+    _install_skill_locally("test-skill", "test content", temp_mng_ctx)
+
+    expected_path = Path.home() / ".claude" / "skills" / "test-skill" / "SKILL.md"
+    assert expected_path.exists()
+    assert expected_path.read_text() == "test content"
+
+
+def test_install_skill_locally_skips_when_content_matches(
+    temp_mng_ctx: MngContext,
+) -> None:
+    """_install_skill_locally should skip writing when the existing content matches."""
+    skill_path = Path.home() / ".claude" / "skills" / "test-skill" / "SKILL.md"
+    skill_path.parent.mkdir(parents=True, exist_ok=True)
+    skill_path.write_text("same content")
+    original_mtime = skill_path.stat().st_mtime
+
+    _install_skill_locally("test-skill", "same content", temp_mng_ctx)
+
+    assert skill_path.stat().st_mtime == original_mtime
+    assert skill_path.read_text() == "same content"
