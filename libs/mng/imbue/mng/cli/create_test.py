@@ -1,12 +1,17 @@
 """Tests for create module helper functions."""
 
+import json
 from pathlib import Path
 from typing import cast
 
 import pytest
 
 from imbue.imbue_common.model_update import to_update
+from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.cli.create import CreateCliOptions
+from imbue.mng.cli.create import _CachedAgentHostLoader
+from imbue.mng.cli.create import _CreateSetup
+from imbue.mng.cli.create import _finish_create
 from imbue.mng.cli.create import _parse_agent_opts
 from imbue.mng.cli.create import _parse_host_lifecycle_options
 from imbue.mng.cli.create import _parse_project_name
@@ -15,8 +20,10 @@ from imbue.mng.cli.create import _resolve_target_host
 from imbue.mng.cli.create import _split_cli_args
 from imbue.mng.cli.create import _try_reuse_existing_agent
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import HostLocation
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ActivitySource
@@ -29,6 +36,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import IdleMode
+from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
 
@@ -640,3 +648,138 @@ def test_parse_agent_opts_agent_id_none_by_default(
     )
 
     assert result.agent_id is None
+
+
+# =============================================================================
+# Tests for _finish_create output
+# =============================================================================
+
+
+def _make_test_setup(
+    temp_mng_ctx: MngContext,
+    local_provider: LocalProviderInstance,
+    temp_work_dir: Path,
+) -> _CreateSetup:
+    """Create a minimal _CreateSetup for output tests."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+    return _CreateSetup(
+        initial_message=None,
+        resume_message=None,
+        editor_session=None,
+        agent_and_host_loader=_CachedAgentHostLoader(mng_ctx=temp_mng_ctx),
+        source_location=HostLocation(host=local_host, path=temp_work_dir),
+        project_name="test",
+        host_lifecycle=HostLifecycleOptions(),
+    )
+
+
+@pytest.mark.tmux
+def test_finish_create_json_format_batch(
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Batch results in JSON format produce a structured output with agents array."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+
+    agent_opts_1 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-json-test-1"),
+        command=CommandString("sleep 582947"),
+    )
+    agent_opts_2 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-json-test-2"),
+        command=CommandString("sleep 847291"),
+    )
+    agent_1 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_1)
+    agent_2 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_2)
+
+    results = [
+        CreateAgentResult(agent=agent_1, host=local_host),
+        CreateAgentResult(agent=agent_2, host=local_host),
+    ]
+    setup = _make_test_setup(temp_mng_ctx, local_provider, temp_work_dir)
+    output_opts = OutputOptions(output_format=OutputFormat.JSON)
+
+    try:
+        _finish_create(results, setup, output_opts)
+
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["count"] == 2
+        assert len(data["agents"]) == 2
+        assert data["agents"][0]["agent_id"] == str(agent_1.id)
+        assert data["agents"][1]["agent_id"] == str(agent_2.id)
+    finally:
+        local_host.stop_agents([agent_1.id, agent_2.id])
+
+
+@pytest.mark.tmux
+def test_finish_create_human_format_single(
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Single result in HUMAN format produces 'Done.'."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+
+    agent_opts = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("single-human-test-1"),
+        command=CommandString("sleep 394718"),
+    )
+    agent = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts)
+
+    results = [CreateAgentResult(agent=agent, host=local_host)]
+    setup = _make_test_setup(temp_mng_ctx, local_provider, temp_work_dir)
+    output_opts = OutputOptions()
+
+    try:
+        _finish_create(results, setup, output_opts)
+
+        captured = capsys.readouterr()
+        assert "Done." in captured.out
+    finally:
+        local_host.stop_agents([agent.id])
+
+
+@pytest.mark.tmux
+def test_finish_create_human_format_batch(
+    local_provider: LocalProviderInstance,
+    temp_mng_ctx: MngContext,
+    temp_work_dir: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Multiple results in HUMAN format produce 'Created N agents.'."""
+    local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
+
+    agent_opts_1 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-human-test-1"),
+        command=CommandString("sleep 394718"),
+    )
+    agent_opts_2 = CreateAgentOptions(
+        agent_type=AgentTypeName("generic"),
+        name=AgentName("batch-human-test-2"),
+        command=CommandString("sleep 283947"),
+    )
+    agent_1 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_1)
+    agent_2 = local_host.create_agent_state(work_dir_path=temp_work_dir, options=agent_opts_2)
+
+    results = [
+        CreateAgentResult(agent=agent_1, host=local_host),
+        CreateAgentResult(agent=agent_2, host=local_host),
+    ]
+    setup = _make_test_setup(temp_mng_ctx, local_provider, temp_work_dir)
+    output_opts = OutputOptions()
+
+    try:
+        _finish_create(results, setup, output_opts)
+
+        captured = capsys.readouterr()
+        assert "Created 2 agents." in captured.out
+    finally:
+        local_host.stop_agents([agent_1.id, agent_2.id])

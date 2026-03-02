@@ -1,5 +1,6 @@
 """Tests for the create CLI command."""
 
+import json
 import os
 import subprocess
 import time
@@ -11,7 +12,8 @@ from click.testing import CliRunner
 
 from imbue.imbue_common.model_update import to_update
 from imbue.mng.cli.create import CreateCliOptions
-from imbue.mng.cli.create import _handle_create
+from imbue.mng.cli.create import _create_one_agent
+from imbue.mng.cli.create import _setup_create
 from imbue.mng.cli.create import create
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
@@ -127,9 +129,9 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
 ) -> None:
     """Test that --connect flag results in connection options that would attach to the tmux session.
 
-    Calls _handle_create directly (bypassing _post_create) so we can verify the agent
-    was created and the returned options indicate a connect should happen, without
-    actually calling os.execvp to attach to tmux.
+    Calls _setup_create + _create_one_agent directly (bypassing _post_create_one_agent) so we
+    can verify the agent was created and the returned options indicate a connect should happen,
+    without actually calling os.execvp to attach to tmux.
     """
     agent_name = f"test-connect-local-{int(time.time())}"
     session_name = f"{mng_test_prefix}{agent_name}"
@@ -146,10 +148,11 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
     output_opts = OutputOptions()
 
     with tmux_session_cleanup(session_name):
-        result = _handle_create(temp_mng_ctx, output_opts, opts, LoggingConfig())
+        setup = _setup_create(temp_mng_ctx, output_opts, opts, LoggingConfig())
+        result = _create_one_agent(temp_mng_ctx, output_opts, opts, setup)
 
         assert result is not None
-        create_result, connection_opts, _, returned_opts, _ = result
+        create_result, connection_opts = result
 
         # Verify the agent was created and the tmux session is running
         assert create_result.agent is not None
@@ -157,8 +160,8 @@ def test_connect_flag_calls_tmux_attach_for_local_agent(
         assert tmux_session_exists(session_name)
 
         # Verify the returned options indicate connect should happen
-        # (_post_create would call connect_to_agent -> os.execvp with tmux attach)
-        assert returned_opts.connect is True
+        # (_post_create_one_agent would call connect_to_agent -> os.execvp with tmux attach)
+        assert opts.connect is True
         assert connection_opts.is_reconnect is True
 
 
@@ -1094,3 +1097,160 @@ def test_ensure_clean_skipped_with_explicit_base_branch(
 
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
         assert "uncommitted changes" not in result.output
+
+
+# =============================================================================
+# Tests for batch create (-n/--count)
+# =============================================================================
+
+
+@pytest.mark.tmux
+def test_batch_create_creates_multiple_agents(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    temp_host_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that -n creates the specified number of agents."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "-n",
+            "2",
+            "--agent-cmd",
+            "sleep 793581",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-ensure-clean",
+            "--no-copy-work-dir",
+        ],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, f"CLI failed with: {result.output}"
+    assert "Created 2 agents." in result.output
+
+
+def test_batch_create_with_name_raises_error(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that -n with --name raises an error."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "-n",
+            "3",
+            "--name",
+            "my-agent",
+            "--agent-cmd",
+            "sleep 846271",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot specify --name" in result.output
+
+
+def test_batch_create_with_positional_name_raises_error(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that -n with a positional name raises an error."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "my-agent",
+            "-n",
+            "3",
+            "--agent-cmd",
+            "sleep 738291",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot specify agent name" in result.output
+
+
+def test_batch_create_with_explicit_connect_raises_error(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that -n with explicit --connect raises an error."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "-n",
+            "2",
+            "--connect",
+            "--agent-cmd",
+            "sleep 495827",
+            "--source",
+            str(temp_work_dir),
+            "--no-ensure-clean",
+        ],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Cannot use --connect" in result.output
+
+
+@pytest.mark.tmux
+def test_batch_create_json_output(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """Test that batch create with --json outputs proper JSON."""
+    result = cli_runner.invoke(
+        create,
+        [
+            "-n",
+            "2",
+            "--agent-cmd",
+            "sleep 637284",
+            "--source",
+            str(temp_work_dir),
+            "--no-connect",
+            "--no-ensure-clean",
+            "--no-copy-work-dir",
+            "--json",
+        ],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0, f"CLI failed with: {result.output}"
+
+    # Parse the JSON output (it's on stdout, mixed with log lines on stderr)
+    # The CliRunner captures everything in result.output
+    for line in result.output.strip().split("\n"):
+        try:
+            data = json.loads(line)
+            if "agents" in data:
+                assert data["count"] == 2
+                assert len(data["agents"]) == 2
+                assert "agent_id" in data["agents"][0]
+                assert "host_id" in data["agents"][0]
+                break
+        except json.JSONDecodeError:
+            continue
+    else:
+        pytest.fail(f"No JSON output found in: {result.output}")
