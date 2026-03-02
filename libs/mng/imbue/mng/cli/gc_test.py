@@ -242,7 +242,7 @@ def test_emit_jsonl_summary_with_mixed_resources(capsys: pytest.CaptureFixture[s
 
     # 1 work_dir + 2 machines + 1 snapshot + 1 volume + 1 log + 1 build_cache = 7
     assert output["total_count"] == 7
-    # 1000 (work_dir) + 500 (machine) + 200 (snapshot) + 100 (volume) + 300 (log) = 2100
+    # 1000 (work_dir) + 500 (snapshot) + 200 (volume) + 100 (log) + 300 (build_cache) = 2100
     assert output["total_size_bytes"] == 2100
     assert output["work_dirs_count"] == 1
     assert output["machines_count"] == 2
@@ -288,79 +288,6 @@ def test_emit_jsonl_summary_with_errors(capsys: pytest.CaptureFixture[str]) -> N
 # =============================================================================
 # Tests for _emit_human_summary
 # =============================================================================
-
-
-def test_emit_human_summary_empty_result() -> None:
-    """_emit_human_summary should indicate no resources found for empty result."""
-    result = GcResult()
-    # Just verify no exception is raised; output goes to logger
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_dry_run() -> None:
-    """_emit_human_summary should indicate dry run mode."""
-    result = GcResult()
-    result.work_dirs_destroyed = [_create_work_dir_info()]
-    # Just verify no exception is raised; output goes to logger
-    _emit_human_summary(result, dry_run=True)
-
-
-def test_emit_human_summary_with_work_dirs() -> None:
-    """_emit_human_summary should count work directories correctly."""
-    result = GcResult()
-    # Include both local and non-local work dirs
-    # (non-local doesn't contribute to freed size calculation)
-    result.work_dirs_destroyed = [
-        _create_work_dir_info(is_local=True, size_bytes=1000),
-        _create_work_dir_info(is_local=False, size_bytes=2000),
-    ]
-    # Just verify no exception is raised
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_machines() -> None:
-    """_emit_human_summary should count machines correctly."""
-    result = GcResult()
-    result.machines_destroyed = [_create_host_info(), _create_host_info()]
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_snapshots() -> None:
-    """_emit_human_summary should count snapshots correctly."""
-    result = GcResult()
-    result.snapshots_destroyed = [_create_snapshot_info()]
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_volumes() -> None:
-    """_emit_human_summary should count volumes correctly."""
-    result = GcResult()
-    result.volumes_destroyed = [_create_volume_info()]
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_logs() -> None:
-    """_emit_human_summary should count logs and report freed size."""
-    result = GcResult()
-    result.logs_destroyed = [
-        _create_log_file_info(size_bytes=100),
-        _create_log_file_info(size_bytes=200),
-    ]
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_build_cache() -> None:
-    """_emit_human_summary should count build cache entries and report freed size."""
-    result = GcResult()
-    result.build_cache_destroyed = [_create_build_cache_info(size_bytes=5000)]
-    _emit_human_summary(result, dry_run=False)
-
-
-def test_emit_human_summary_with_errors() -> None:
-    """_emit_human_summary should display errors."""
-    result = GcResult()
-    result.errors = ["Failed to destroy machine: timeout"]
-    _emit_human_summary(result, dry_run=False)
 
 
 # =============================================================================

@@ -55,14 +55,14 @@ def test_abort_error_is_base_exception() -> None:
 # =============================================================================
 
 
-def test_emit_info_human_format(capsys) -> None:
+def test_emit_info_human_format(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_info with HUMAN format should output to stdout."""
     emit_info("test message", OutputFormat.HUMAN)
     captured = capsys.readouterr()
     assert "test message" in captured.out
 
 
-def test_emit_info_jsonl_format(capsys) -> None:
+def test_emit_info_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_info with JSONL format should output JSON line."""
     emit_info("test message", OutputFormat.JSONL)
     captured = capsys.readouterr()
@@ -71,7 +71,7 @@ def test_emit_info_jsonl_format(capsys) -> None:
     assert output["message"] == "test message"
 
 
-def test_emit_info_json_format(capsys) -> None:
+def test_emit_info_json_format(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_info with JSON format should be silent."""
     emit_info("test message", OutputFormat.JSON)
     captured = capsys.readouterr()
@@ -83,20 +83,20 @@ def test_emit_info_json_format(capsys) -> None:
 # =============================================================================
 
 
-def test_emit_event_human_format_with_message(capsys) -> None:
+def test_emit_event_human_format_with_message(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_event with HUMAN format should output message to stdout."""
     emit_event("destroyed", {"message": "Agent destroyed"}, OutputFormat.HUMAN)
     captured = capsys.readouterr()
     assert "Agent destroyed" in captured.out
 
 
-def test_emit_event_human_format_without_message(capsys) -> None:
+def test_emit_event_human_format_without_message(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_event with HUMAN format without message should not output."""
     emit_event("destroyed", {"other": "data"}, OutputFormat.HUMAN)
     # No exception should be raised
 
 
-def test_emit_event_jsonl_format(capsys) -> None:
+def test_emit_event_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_event with JSONL format should output JSON line with event type."""
     emit_event("destroyed", {"agent_id": "agent-123"}, OutputFormat.JSONL)
     captured = capsys.readouterr()
@@ -105,7 +105,7 @@ def test_emit_event_jsonl_format(capsys) -> None:
     assert output["agent_id"] == "agent-123"
 
 
-def test_emit_event_json_format(capsys) -> None:
+def test_emit_event_json_format(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_event with JSON format should be silent."""
     emit_event("destroyed", {"agent_id": "agent-123"}, OutputFormat.JSON)
     captured = capsys.readouterr()
@@ -130,7 +130,7 @@ def test_on_error_human_format_abort() -> None:
     assert exc_info.value.message == "test error"
 
 
-def test_on_error_jsonl_format(capsys) -> None:
+def test_on_error_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
     """on_error with JSONL format should output error event."""
     on_error("test error", ErrorBehavior.CONTINUE, OutputFormat.JSONL)
     captured = capsys.readouterr()
@@ -139,7 +139,7 @@ def test_on_error_jsonl_format(capsys) -> None:
     assert output["message"] == "test error"
 
 
-def test_on_error_json_format_continue(capsys) -> None:
+def test_on_error_json_format_continue(capsys: pytest.CaptureFixture[str]) -> None:
     """on_error with JSON format and CONTINUE should be silent."""
     on_error("test error", ErrorBehavior.CONTINUE, OutputFormat.JSON)
     captured = capsys.readouterr()
@@ -159,7 +159,7 @@ def test_on_error_stores_original_exception() -> None:
 # =============================================================================
 
 
-def test_emit_final_json_outputs_json(capsys) -> None:
+def test_emit_final_json_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_final_json should output JSON data."""
     emit_final_json({"status": "success", "count": 5})
     captured = capsys.readouterr()
@@ -314,7 +314,7 @@ def test_render_format_template_format_spec_left_align() -> None:
 # =============================================================================
 
 
-def test_emit_format_template_lines_outputs_one_line_per_item(capsys) -> None:
+def test_emit_format_template_lines_outputs_one_line_per_item(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_format_template_lines should output one line per item."""
     items = [
         {"name": "agent-1", "state": "RUNNING"},
@@ -328,7 +328,7 @@ def test_emit_format_template_lines_outputs_one_line_per_item(capsys) -> None:
     assert lines[1] == "agent-2\tSTOPPED"
 
 
-def test_emit_format_template_lines_empty_list(capsys) -> None:
+def test_emit_format_template_lines_empty_list(capsys: pytest.CaptureFixture[str]) -> None:
     """emit_format_template_lines should produce no output for empty list."""
     emit_format_template_lines("{name}", [])
     captured = capsys.readouterr()
@@ -340,7 +340,7 @@ def test_emit_format_template_lines_empty_list(capsys) -> None:
 # =============================================================================
 
 
-def test_output_sync_files_result_json(capsys) -> None:
+def test_output_sync_files_result_json(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_files_result with JSON should output structured data."""
     result = SyncFilesResult(
         files_transferred=5,
@@ -357,7 +357,7 @@ def test_output_sync_files_result_json(capsys) -> None:
     assert output["bytes_transferred"] == 1024
 
 
-def test_output_sync_files_result_jsonl(capsys) -> None:
+def test_output_sync_files_result_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_files_result with JSONL should emit event."""
     result = SyncFilesResult(
         files_transferred=3,
@@ -373,7 +373,7 @@ def test_output_sync_files_result_jsonl(capsys) -> None:
     assert output["event"] == "pull_complete"
 
 
-def test_output_sync_files_result_human(capsys) -> None:
+def test_output_sync_files_result_human(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_files_result with HUMAN should output human-readable line."""
     result = SyncFilesResult(
         files_transferred=5,
@@ -389,7 +389,7 @@ def test_output_sync_files_result_human(capsys) -> None:
     assert "5 files" in captured.out
 
 
-def test_output_sync_files_result_human_dry_run(capsys) -> None:
+def test_output_sync_files_result_human_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_files_result dry run should say would be transferred."""
     result = SyncFilesResult(
         files_transferred=2,
@@ -410,7 +410,7 @@ def test_output_sync_files_result_human_dry_run(capsys) -> None:
 # =============================================================================
 
 
-def test_output_sync_git_result_json(capsys) -> None:
+def test_output_sync_git_result_json(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result with JSON should output structured data."""
     result = SyncGitResult(
         source_branch="main",
@@ -428,7 +428,7 @@ def test_output_sync_git_result_json(capsys) -> None:
     assert output["source_branch"] == "main"
 
 
-def test_output_sync_git_result_jsonl(capsys) -> None:
+def test_output_sync_git_result_jsonl(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result with JSONL should emit event."""
     result = SyncGitResult(
         source_branch="main",
@@ -445,7 +445,7 @@ def test_output_sync_git_result_jsonl(capsys) -> None:
     assert output["event"] == "pull_git_complete"
 
 
-def test_output_sync_git_result_human_push(capsys) -> None:
+def test_output_sync_git_result_human_push(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result with HUMAN should output push message."""
     result = SyncGitResult(
         source_branch="main",
@@ -462,7 +462,7 @@ def test_output_sync_git_result_human_push(capsys) -> None:
     assert "pushed" in captured.out
 
 
-def test_output_sync_git_result_human_pull(capsys) -> None:
+def test_output_sync_git_result_human_pull(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result with HUMAN should output merge message."""
     result = SyncGitResult(
         source_branch="feature",
@@ -479,7 +479,7 @@ def test_output_sync_git_result_human_pull(capsys) -> None:
     assert "merged" in captured.out
 
 
-def test_output_sync_git_result_human_dry_run(capsys) -> None:
+def test_output_sync_git_result_human_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result dry run should say would push/merge."""
     result = SyncGitResult(
         source_branch="main",
@@ -501,14 +501,14 @@ def test_output_sync_git_result_human_dry_run(capsys) -> None:
 # =============================================================================
 
 
-def test_write_human_line_no_args(capsys) -> None:
+def test_write_human_line_no_args(capsys: pytest.CaptureFixture[str]) -> None:
     """write_human_line should write plain message without args."""
     write_human_line("Hello world")
     captured = capsys.readouterr()
     assert captured.out == "Hello world\n"
 
 
-def test_write_human_line_with_args(capsys) -> None:
+def test_write_human_line_with_args(capsys: pytest.CaptureFixture[str]) -> None:
     """write_human_line should format message with positional args."""
     write_human_line("Created {} agent(s) on {}", 3, "modal")
     captured = capsys.readouterr()
@@ -520,7 +520,7 @@ def test_write_human_line_with_args(capsys) -> None:
 # =============================================================================
 
 
-def test_write_json_line_outputs_json(capsys) -> None:
+def test_write_json_line_outputs_json(capsys: pytest.CaptureFixture[str]) -> None:
     """_write_json_line should output valid JSON followed by newline."""
     _write_json_line({"key": "value", "number": 42})
     captured = capsys.readouterr()
@@ -529,7 +529,7 @@ def test_write_json_line_outputs_json(capsys) -> None:
     assert output["number"] == 42
 
 
-def test_write_json_line_terminates_with_newline(capsys) -> None:
+def test_write_json_line_terminates_with_newline(capsys: pytest.CaptureFixture[str]) -> None:
     """_write_json_line should terminate output with newline."""
     _write_json_line({"a": 1})
     captured = capsys.readouterr()
@@ -541,7 +541,7 @@ def test_write_json_line_terminates_with_newline(capsys) -> None:
 # =============================================================================
 
 
-def test_output_sync_files_result_jsonl_push(capsys) -> None:
+def test_output_sync_files_result_jsonl_push(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_files_result with JSONL for PUSH should emit push_complete event."""
     result = SyncFilesResult(
         files_transferred=3,
@@ -562,7 +562,7 @@ def test_output_sync_files_result_jsonl_push(capsys) -> None:
 # =============================================================================
 
 
-def test_output_sync_git_result_jsonl_push(capsys) -> None:
+def test_output_sync_git_result_jsonl_push(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result with JSONL for PUSH should emit push_git_complete event."""
     result = SyncGitResult(
         source_branch="main",
@@ -579,7 +579,7 @@ def test_output_sync_git_result_jsonl_push(capsys) -> None:
     assert output["event"] == "push_git_complete"
 
 
-def test_output_sync_git_result_human_pull_dry_run(capsys) -> None:
+def test_output_sync_git_result_human_pull_dry_run(capsys: pytest.CaptureFixture[str]) -> None:
     """output_sync_git_result dry run with PULL should say would merge."""
     result = SyncGitResult(
         source_branch="feature",
@@ -607,7 +607,7 @@ def test_on_error_json_format_abort() -> None:
     assert exc_info.value.message == "json error"
 
 
-def test_on_error_jsonl_format_abort(capsys) -> None:
+def test_on_error_jsonl_format_abort(capsys: pytest.CaptureFixture[str]) -> None:
     """on_error with JSONL format and ABORT should emit error and then raise."""
     with pytest.raises(AbortError):
         on_error("jsonl error", ErrorBehavior.ABORT, OutputFormat.JSONL)
