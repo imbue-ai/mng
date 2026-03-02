@@ -12,7 +12,6 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyExceptionGroup
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ConcurrencyGroupError
 from imbue.mng.cli.common_opts import CommonCliOptions
-from imbue.mng.cli.common_opts import _SIGINT_HANDLER_NOT_INSTALLED
 from imbue.mng.cli.common_opts import _close_concurrency_group
 from imbue.mng.cli.common_opts import _install_sigint_shutdown_handler
 from imbue.mng.cli.common_opts import _process_template_escapes
@@ -467,7 +466,7 @@ def test_close_concurrency_group_suppresses_when_shutting_down() -> None:
     cg.shutdown_event.set()
 
     # Should not raise -- the ConcurrencyExceptionGroup from the failed thread is suppressed
-    _close_concurrency_group(cg, _SIGINT_HANDLER_NOT_INSTALLED)
+    _close_concurrency_group(cg, None)
 
 
 def test_close_concurrency_group_raises_when_not_shutting_down() -> None:
@@ -479,7 +478,7 @@ def test_close_concurrency_group_raises_when_not_shutting_down() -> None:
 
     # Should raise because the CG is NOT shutting down -- this is a real failure
     with pytest.raises(ConcurrencyExceptionGroup):
-        _close_concurrency_group(cg, _SIGINT_HANDLER_NOT_INSTALLED)
+        _close_concurrency_group(cg, None)
 
 
 def test_close_concurrency_group_restores_signal_handler() -> None:
@@ -518,7 +517,7 @@ def test_install_sigint_handler_sets_shutdown_event() -> None:
         cg = ConcurrencyGroup(name="test-sigint-handler")
 
         saved_handler = _install_sigint_shutdown_handler(cg)
-        assert saved_handler is not _SIGINT_HANDLER_NOT_INSTALLED
+        assert saved_handler is not None
 
         # Simulate SIGINT by calling the installed handler directly
         handler = signal.getsignal(signal.SIGINT)
@@ -534,8 +533,8 @@ def test_install_sigint_handler_sets_shutdown_event() -> None:
         signal.signal(signal.SIGINT, original_handler)
 
 
-def test_install_sigint_handler_returns_sentinel_from_non_main_thread() -> None:
-    """_install_sigint_shutdown_handler should return sentinel when called from non-main thread."""
+def test_install_sigint_handler_returns_none_from_non_main_thread() -> None:
+    """_install_sigint_shutdown_handler should return None when called from non-main thread."""
     cg = ConcurrencyGroup(name="test-non-main-thread")
     result_holder: list[Any] = []
 
@@ -546,4 +545,4 @@ def test_install_sigint_handler_returns_sentinel_from_non_main_thread() -> None:
     thread.start()
     thread.join()
 
-    assert result_holder[0] is _SIGINT_HANDLER_NOT_INSTALLED
+    assert result_holder[0] is None

@@ -8,7 +8,6 @@ from concurrent.futures import Future
 from pathlib import Path
 from types import FrameType
 from typing import Any
-from typing import Final
 from typing import TypeVar
 
 import click
@@ -148,8 +147,6 @@ def add_common_options(command: TDecorated) -> TDecorated:
     return command
 
 
-_SIGINT_HANDLER_NOT_INSTALLED: Final = object()
-
 # Module-level state for the active SIGINT handler. Signal handlers are inherently global
 # (one per process), so module-level state is the natural representation. We use a dict
 # so we can mutate in place without the `global` keyword.
@@ -174,11 +171,11 @@ def _install_sigint_shutdown_handler(cg: ConcurrencyGroup) -> Any:
     This lets _close_concurrency_group distinguish Ctrl+C cleanup failures (safe to suppress)
     from real failures (must propagate).
 
-    Returns the original handler so it can be restored later, or _SIGINT_HANDLER_NOT_INSTALLED
-    if installation failed (e.g. called from a non-main thread).
+    Returns the original handler so it can be restored later, or None if installation failed
+    (e.g. called from a non-main thread).
     """
     if threading.current_thread() is not threading.main_thread():
-        return _SIGINT_HANDLER_NOT_INSTALLED
+        return None
 
     original_handler = signal.getsignal(signal.SIGINT)
     _sigint_handler_state["shutdown_event"] = cg.shutdown_event
@@ -194,7 +191,7 @@ def _restore_sigint_handler(handler: Any) -> None:
     Silently ignores ValueError from signal.signal() if called from a non-main thread during
     cleanup (defensive, should not happen in practice).
     """
-    if handler is _SIGINT_HANDLER_NOT_INSTALLED:
+    if handler is None:
         return
     try:
         signal.signal(signal.SIGINT, handler)
