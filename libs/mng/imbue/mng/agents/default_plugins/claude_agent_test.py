@@ -2122,14 +2122,11 @@ def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
 # =============================================================================
 
 
-_OnBeforeCreateInput = OnBeforeCreateArgs
-
-
 def _make_on_before_create_input(
     agent_options: CreateAgentOptions,
-) -> _OnBeforeCreateInput:
+) -> OnBeforeCreateArgs:
     """Build a hook input with a dummy target host for testing."""
-    return _OnBeforeCreateInput(
+    return OnBeforeCreateArgs(
         target_host=NewHostOptions(provider=ProviderInstanceName("local")),
         agent_options=agent_options,
         create_work_dir=True,
