@@ -103,15 +103,29 @@ Logs are rotated by loguru when the file exceeds `max_log_size_mb`. Rotated file
 
 ### Format
 
-Each line is a JSON object following the EventEnvelope schema:
+Each line uses loguru's native JSON serialization (`serialize=True`). The event envelope fields are injected into `record.extra` via a patcher, so each line is:
+
+```json
+{"text": "...", "record": {"elapsed": {...}, "exception": null, "extra": {"timestamp": "...", "type": "mng", "event_id": "evt-...", "source": "mng", "pid": 12345, "command": "list"}, "file": {...}, "function": "...", "level": {"name": "INFO", ...}, "line": 42, "message": "...", "module": "...", "name": "...", "process": {...}, "thread": {...}, "time": {...}}}
+```
+
+The envelope fields live in `record.extra`:
 - `timestamp`: ISO 8601 with nanosecond precision (e.g., `2026-03-01T12:00:00.123456789Z`)
 - `type`: Program/component name (e.g., `mng`, `event_watcher`, `stop_hook`)
 - `event_id`: Unique identifier (e.g., `evt-a1b2c3d4e5f67890a1b2c3d4e5f67890`)
 - `source`: Matches the folder under `logs/` (e.g., `mng`, `event_watcher`)
-- `level`: Log level (`TRACE`, `DEBUG`, `BUILD`, `INFO`, `WARNING`, `ERROR`)
-- `message`: The log message text
 - `pid`: Process ID
 - `command`: CLI subcommand (optional, present for `mng` and `changelings`)
+
+Standard loguru fields are also present in the record:
+- `level`: Log level object with `name` (`TRACE`, `DEBUG`, `BUILD`, `INFO`, `WARNING`, `ERROR`)
+- `message`: The formatted log message text
+- `function`, `line`, `module`, `name`: Source code location
+- `file`: Source file path
+- `process`, `thread`: Process and thread info
+- `time`: Timestamp object with `repr` and `timestamp`
+- `elapsed`: Time since logger was first used
+- `exception`: Exception info (when present)
 
 ## Sensitive Data
 

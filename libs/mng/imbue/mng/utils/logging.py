@@ -12,7 +12,7 @@ from loguru import logger
 from pydantic import Field
 
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.imbue_common.logging import format_loguru_record_as_jsonl_event
+from imbue.imbue_common.logging import make_envelope_patcher
 from imbue.imbue_common.primitives import NonEmptyStr
 from imbue.mng.primitives import LogLevel
 
@@ -207,26 +207,6 @@ def suppress_warnings() -> None:
     pyinfra_logger.propagate = False
 
 
-class _JsonlLogFormatter(FrozenModel):
-    """Callable that formats loguru records as JSONL event envelope lines.
-
-    Used as the loguru format parameter for file sinks. Stores the event type,
-    source, and command so they are included in every log line.
-    """
-
-    event_type: str = Field(description="Event type for the log line (e.g. 'mng')")
-    event_source: str = Field(description="Event source matching logs/<source>/")
-    command: str | None = Field(description="CLI subcommand that produced this log")
-
-    def __call__(self, record: Any) -> str:
-        return format_loguru_record_as_jsonl_event(
-            record=record,
-            event_type=self.event_type,
-            event_source=self.event_source,
-            command=self.command,
-        )
-
-
 def setup_logging(
     config: LoggingConfig,
     default_host_dir: Path,
@@ -265,7 +245,17 @@ def setup_logging(
             diagnose=False,
         )
 
-    # Set up file logging in JSONL event envelope format
+    # Configure the patcher to inject event envelope fields into every record.
+    # These appear in record.extra and are included in loguru's serialize=True output.
+    logger.configure(
+        patcher=make_envelope_patcher(
+            event_type=config.event_type,
+            event_source=config.event_source,
+            command=command,
+        ),
+    )
+
+    # Set up file logging using loguru's built-in JSON serialization
     if config.log_file_path is not None:
         log_file = config.log_file_path.expanduser()
         log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -280,12 +270,8 @@ def setup_logging(
     logger.add(
         log_file,
         level=loguru_file_level,
-        format=_JsonlLogFormatter(
-            event_type=config.event_type,
-            event_source=config.event_source,
-            command=command,
-        ),
-        colorize=False,
+        format="{message}",
+        serialize=True,
         diagnose=False,
         rotation=f"{config.max_log_size_mb} MB",
     )

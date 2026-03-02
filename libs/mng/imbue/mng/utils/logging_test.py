@@ -70,7 +70,7 @@ def test_setup_logging_creates_events_jsonl_file(temp_mng_ctx: MngContext) -> No
 
 
 def test_setup_logging_writes_jsonl_event_envelope(temp_mng_ctx: MngContext) -> None:
-    """setup_logging should write log events in JSONL event envelope format."""
+    """setup_logging should write log events using loguru's serialize=True with envelope fields in extra."""
     log_dir = temp_mng_ctx.config.default_host_dir / temp_mng_ctx.config.logging.log_dir
     logging_config = LoggingConfig(console_level=LogLevel.INFO)
 
@@ -82,21 +82,29 @@ def test_setup_logging_writes_jsonl_event_envelope(temp_mng_ctx: MngContext) -> 
     content = events_file.read_text().strip()
     assert content, "events.jsonl should not be empty"
 
-    # Parse the last line as JSON
+    # Parse the last line as loguru's serialized JSON
     last_line = content.split("\n")[-1]
     parsed = json.loads(last_line)
 
-    # Verify envelope fields
-    assert "timestamp" in parsed
-    assert parsed["type"] == "mng"
-    assert "event_id" in parsed
-    assert parsed["source"] == "mng"
+    # Loguru serialized format: {"text": ..., "record": {...}}
+    assert "record" in parsed
+    record = parsed["record"]
+    extra = record["extra"]
 
-    # Verify log-specific fields
-    assert parsed["level"] == "INFO"
-    assert parsed["message"] == "Listed 3 agents"
-    assert "pid" in parsed
-    assert parsed["command"] == "list"
+    # Verify envelope fields are in extra
+    assert "timestamp" in extra
+    assert extra["type"] == "mng"
+    assert extra["event_id"].startswith("evt-")
+    assert extra["source"] == "mng"
+    assert extra["command"] == "list"
+    assert "pid" in extra
+
+    # Verify standard loguru fields are present
+    assert record["message"] == "Listed 3 agents"
+    assert record["level"]["name"] == "INFO"
+    assert "function" in record
+    assert "line" in record
+    assert "module" in record
 
 
 def test_setup_logging_uses_custom_log_file_path(tmp_path: Path, temp_mng_ctx: MngContext) -> None:

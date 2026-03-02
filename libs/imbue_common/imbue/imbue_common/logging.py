@@ -1,6 +1,5 @@
 import functools
 import inspect
-import json
 import os
 import sys
 import time
@@ -133,7 +132,7 @@ def trace_span(message: str, *args: Any, _is_trace_span_enabled: bool = True, **
                 logger.trace(done_message, *args, elapsed)
 
 
-# -- JSONL event envelope formatting for loguru file sinks --
+# -- Event envelope patcher for loguru's built-in JSON serialization --
 
 
 @pure
@@ -147,34 +146,30 @@ def generate_log_event_id() -> str:
     return f"evt-{uuid4().hex}"
 
 
-def format_loguru_record_as_jsonl_event(
-    record: Any,
+def make_envelope_patcher(
     event_type: str,
     event_source: str,
     command: str | None,
-) -> str:
-    """Format a loguru record as a JSONL line using the event envelope schema.
+) -> Callable[..., None]:
+    """Create a loguru patcher that injects event envelope fields into record['extra'].
 
-    Returns a format string with braces doubled ({{ / }}) so that loguru's
-    format_map does not interpret them as placeholders. The final output
-    after loguru processing is valid single-line JSON.
+    The patcher adds timestamp, type, event_id, source, pid (and optionally
+    command) to every log record's extra dict. When loguru serializes the
+    record with serialize=True, these fields appear inside record.extra
+    alongside all standard loguru fields (level, message, function, line, etc).
     """
-    iso_ts = format_nanosecond_iso_timestamp(record["time"])
-    event_id = generate_log_event_id()
+    bound_type = event_type
+    bound_source = event_source
+    bound_command = command
 
-    event_dict: dict[str, Any] = {
-        "timestamp": iso_ts,
-        "type": event_type,
-        "event_id": event_id,
-        "source": event_source,
-        "level": record["level"].name,
-        "message": record["message"],
-        "pid": os.getpid(),
-    }
-    if command is not None:
-        event_dict["command"] = command
+    def patcher(record: Any) -> None:
+        dt = record["time"]
+        record["extra"]["timestamp"] = format_nanosecond_iso_timestamp(dt)
+        record["extra"]["type"] = bound_type
+        record["extra"]["event_id"] = generate_log_event_id()
+        record["extra"]["source"] = bound_source
+        record["extra"]["pid"] = os.getpid()
+        if bound_command is not None:
+            record["extra"]["command"] = bound_command
 
-    json_line = json.dumps(event_dict, separators=(",", ":"))
-    # Escape braces so loguru's format_map does not interpret them
-    escaped = json_line.replace("{", "{{").replace("}", "}}")
-    return escaped + "\n"
+    return patcher

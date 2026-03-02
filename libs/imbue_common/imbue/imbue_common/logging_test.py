@@ -1,5 +1,6 @@
 """Tests for logging module."""
 
+import io
 import json
 from datetime import datetime
 from datetime import timezone
@@ -7,10 +8,10 @@ from typing import Any
 
 from loguru import logger
 
-from imbue.imbue_common.logging import format_loguru_record_as_jsonl_event
 from imbue.imbue_common.logging import format_nanosecond_iso_timestamp
 from imbue.imbue_common.logging import generate_log_event_id
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.logging import make_envelope_patcher
 from imbue.imbue_common.logging import setup_logging
 from imbue.mng.errors import BaseMngError
 
@@ -193,95 +194,74 @@ def test_generate_log_event_id_returns_unique_ids() -> None:
     assert len(id_a) == 4 + 32
 
 
-def test_format_loguru_record_as_jsonl_event_produces_valid_json_after_unescape() -> None:
-    """The format function returns double-braced output; after loguru's format_map
-    unescapes {{ -> { and }} -> }, the result must be valid JSON."""
-    captured_format_strings: list[str] = []
+def test_make_envelope_patcher_injects_fields_into_record_extra() -> None:
+    """The patcher should inject envelope fields into the loguru record's extra dict."""
+    captured_extras: list[dict[str, Any]] = []
 
     def sink(message: Any) -> None:
-        record = message.record
-        fmt = format_loguru_record_as_jsonl_event(
-            record=record,
-            event_type="mng",
-            event_source="mng",
-            command="create",
-        )
-        captured_format_strings.append(fmt)
+        captured_extras.append(dict(message.record["extra"]))
 
+    patcher = make_envelope_patcher(event_type="mng", event_source="mng", command="create")
+    logger.configure(patcher=patcher)
     handler_id = logger.add(sink, level="TRACE", format="{message}")
     try:
         logger.info("Created agent {}", "test-agent")
     finally:
         logger.remove(handler_id)
+        logger.configure(patcher=lambda r: None)
 
-    assert len(captured_format_strings) == 1
-    # Simulate loguru's unescape by replacing {{ -> { and }} -> }
-    raw = captured_format_strings[0]
-    unescaped = raw.replace("{{", "{").replace("}}", "}")
-    parsed = json.loads(unescaped)
-
-    assert parsed["type"] == "mng"
-    assert parsed["source"] == "mng"
-    assert parsed["level"] == "INFO"
-    assert parsed["message"] == "Created agent test-agent"
-    assert parsed["command"] == "create"
-    assert "timestamp" in parsed
-    assert "event_id" in parsed
-    assert "pid" in parsed
+    assert len(captured_extras) == 1
+    extra = captured_extras[0]
+    assert extra["type"] == "mng"
+    assert extra["source"] == "mng"
+    assert extra["command"] == "create"
+    assert extra["event_id"].startswith("evt-")
+    assert "timestamp" in extra
+    assert "pid" in extra
 
 
-def test_format_loguru_record_as_jsonl_event_omits_command_key_when_none() -> None:
-    """When command is None, the command key should not appear in the JSON."""
-    captured_format_strings: list[str] = []
+def test_make_envelope_patcher_omits_command_when_none() -> None:
+    """When command is None, the patcher should not add a command key to extra."""
+    captured_extras: list[dict[str, Any]] = []
 
     def sink(message: Any) -> None:
-        record = message.record
-        fmt = format_loguru_record_as_jsonl_event(
-            record=record,
-            event_type="event_watcher",
-            event_source="event_watcher",
-            command=None,
-        )
-        captured_format_strings.append(fmt)
+        captured_extras.append(dict(message.record["extra"]))
 
+    patcher = make_envelope_patcher(event_type="event_watcher", event_source="event_watcher", command=None)
+    logger.configure(patcher=patcher)
     handler_id = logger.add(sink, level="TRACE", format="{message}")
     try:
         logger.debug("Watching events")
     finally:
         logger.remove(handler_id)
+        logger.configure(patcher=lambda r: None)
 
-    raw = captured_format_strings[0]
-    unescaped = raw.replace("{{", "{").replace("}}", "}")
-    parsed = json.loads(unescaped)
-
-    assert parsed["type"] == "event_watcher"
-    assert "command" not in parsed
+    extra = captured_extras[0]
+    assert extra["type"] == "event_watcher"
+    assert "command" not in extra
 
 
-def test_format_loguru_record_as_jsonl_event_handles_special_chars_in_message() -> None:
-    """Messages with quotes, newlines, and braces should be properly JSON-escaped."""
-    captured_format_strings: list[str] = []
-
-    def sink(message: Any) -> None:
-        record = message.record
-        fmt = format_loguru_record_as_jsonl_event(
-            record=record,
-            event_type="mng",
-            event_source="mng",
-            command=None,
-        )
-        captured_format_strings.append(fmt)
-
-    handler_id = logger.add(sink, level="TRACE", format="{message}")
+def test_make_envelope_patcher_works_with_serialize_true() -> None:
+    """The patcher should produce valid serialized JSON via loguru's serialize=True."""
+    buf = io.StringIO()
+    patcher = make_envelope_patcher(event_type="mng", event_source="mng", command="list")
+    logger.configure(patcher=patcher)
+    handler_id = logger.add(buf, level="TRACE", format="{message}", serialize=True)
     try:
-        logger.info('Path is "C:\\Users\\test"\nLine 2\t{{braces}}')
+        logger.info('Path with "quotes" and {{braces}}')
     finally:
         logger.remove(handler_id)
+        logger.configure(patcher=lambda r: None)
 
-    raw = captured_format_strings[0]
-    unescaped = raw.replace("{{", "{").replace("}}", "}")
-    parsed = json.loads(unescaped)
-    assert '"C:\\Users\\test"' in parsed["message"]
-    assert "\n" in parsed["message"]
-    assert "\t" in parsed["message"]
-    assert "{braces}" in parsed["message"]
+    parsed = json.loads(buf.getvalue())
+    record = parsed["record"]
+    extra = record["extra"]
+
+    assert extra["type"] == "mng"
+    assert extra["source"] == "mng"
+    assert extra["command"] == "list"
+    assert extra["event_id"].startswith("evt-")
+    # Standard loguru fields should still be present
+    assert "function" in record
+    assert "level" in record
+    assert "message" in record
