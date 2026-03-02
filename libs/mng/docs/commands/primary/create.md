@@ -54,6 +54,7 @@ mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 | ---- | ---- | ----------- | ------- |
 | `-t`, `--template` | text | Use a named template from create_templates config [repeatable, stacks in order] | None |
 | `-n`, `--name` | text | Agent name (alternative to positional argument) [default: auto-generated] | None |
+| `--agent-id` | text | Explicit agent ID [default: auto-generated] | None |
 | `--name-style` | choice (`english` &#x7C; `fantasy` &#x7C; `scifi` &#x7C; `painters` &#x7C; `authors` &#x7C; `artists` &#x7C; `musicians` &#x7C; `animals` &#x7C; `scientists` &#x7C; `demons`) | Auto-generated name style | `english` |
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
 | `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |

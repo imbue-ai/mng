@@ -62,8 +62,12 @@ addopts = [
   "--cov=imbue.mng_opencode",
   "--cov=imbue.mng_pair",
   "--cov=imbue.mng_schedule",
+  "--cov=imbue.mng_ttyd",
   "--cov=imbue.mng_tutor",
+  "--cov=imbue.mng_claude_zygote",
+  "--cov=imbue.mng_elena_code",
   "--cov=imbue.mng_kanpan",
+  "--cov=imbue.mng_recursive",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -126,7 +130,7 @@ extra-paths = ["scripts"]
 [tool.coverage.run]
 source = ["imbue"]
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["multiprocessing", "thread"]
 omit = [
     "*_test.py",
     "test_*.py",
@@ -182,12 +186,15 @@ layers = [
 name = "changelings layers contract"
 type = "layers"
 layers = [
-    "imbue.changelings.main",
+    "imbue.changelings.desktop_client",
     "imbue.changelings.cli",
-    "imbue.changelings.deploy",
+    "imbue.changelings.deployment",
+    "imbue.changelings.forwarding_server",
+    "imbue.changelings.core",
+    "imbue.changelings.interfaces",
     "imbue.changelings.config",
-    "imbue.changelings.mng_commands",
-    "imbue.changelings.data_types",
     "imbue.changelings.errors",
+    "imbue.changelings.data_types",
+    "imbue.changelings.utils",
     "imbue.changelings.primitives",
 ]
