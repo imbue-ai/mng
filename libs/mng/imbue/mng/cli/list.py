@@ -43,6 +43,7 @@ from imbue.mng.utils.terminal import ANSI_ERASE_TO_END
 from imbue.mng.utils.terminal import ANSI_RESET
 from imbue.mng.utils.terminal import StderrInterceptor
 from imbue.mng.utils.terminal import ansi_cursor_up
+from imbue.mng.utils.terminal import count_visual_lines
 
 _DEFAULT_HUMAN_DISPLAY_FIELDS: Final[tuple[str, ...]] = (
     "name",
@@ -562,6 +563,12 @@ _MAX_COLUMN_WIDTHS: Final[dict[str, int]] = {}
 _COLUMN_SEPARATOR: Final[str] = "  "
 
 
+def _get_terminal_size() -> tuple[int, int]:
+    """Return (columns, lines) of the terminal. Wrapper for testability."""
+    size = shutil.get_terminal_size((120, 24))
+    return (size.columns, size.lines)
+
+
 @pure
 def _format_status_line(count: int) -> str:
     """Format the dim 'Searching...' status line with an optional count."""
@@ -580,6 +587,9 @@ class _StreamingHumanRenderer(MutableModel):
     bottom of the table output, above the status line. When new agent rows arrive,
     the warnings are moved down so they always remain at the bottom.
 
+    Detects terminal resizes by polling shutil.get_terminal_size() and performs a
+    full redraw with recomputed column widths when the width changes.
+
     When limit is set, stops displaying agents after the limit is reached. Results
     are non-deterministic since streaming does not sort.
     """
@@ -593,27 +603,101 @@ class _StreamingHumanRenderer(MutableModel):
     _is_header_written: bool = PrivateAttr(default=False)
     _column_widths: dict[str, int] = PrivateAttr(default_factory=dict)
     _warning_texts: list[str] = PrivateAttr(default_factory=list)
-    _warning_line_count: int = PrivateAttr(default=0)
+    _agents: list[AgentInfo] = PrivateAttr(default_factory=list)
+    _terminal_width: int = PrivateAttr(default=0)
+    _get_terminal_size_fn: Any = PrivateAttr(default=None)
+
+    def _get_size(self) -> tuple[int, int]:
+        if self._get_terminal_size_fn is not None:
+            return self._get_terminal_size_fn()
+        return _get_terminal_size()
 
     def start(self) -> None:
         """Compute column widths and write the initial status line (TTY only)."""
-        terminal_width = shutil.get_terminal_size((120, 24)).columns
-        self._column_widths = _compute_column_widths(self.fields, terminal_width)
+        terminal_width, _ = self._get_size()
+        self._terminal_width = terminal_width
+        self._column_widths = _compute_column_widths(self.fields, self._terminal_width)
 
         if self.is_tty:
             self.output.write(_format_status_line(0))
             self.output.flush()
 
+    def _compute_content_visual_lines(self, terminal_width: int) -> int:
+        """Compute total visual lines of all on-screen content at the given width."""
+        total = 0
+        if self._is_header_written:
+            header_line = _format_streaming_header_row(self.fields, self._column_widths)
+            total += count_visual_lines(header_line + "\n", terminal_width)
+        for agent in self._agents:
+            row_line = _format_streaming_agent_row(agent, self.fields, self._column_widths)
+            total += count_visual_lines(row_line + "\n", terminal_width)
+        for warning_text in self._warning_texts:
+            total += count_visual_lines(warning_text, terminal_width)
+        return total
+
+    def _full_redraw(self) -> None:
+        """Erase all on-screen content and redraw with recomputed column widths."""
+        new_width, terminal_height = self._get_size()
+
+        # Compute how many visual lines the old content occupies at the new width
+        # (the terminal already reflowed it)
+        content_lines = self._compute_content_visual_lines(new_width)
+
+        # Add 1 for the status line, cap at terminal_height - 1 (scrolled edge case)
+        lines_to_erase = min(content_lines + 1, terminal_height - 1)
+
+        # Recompute column widths for the new width
+        new_column_widths = _compute_column_widths(self.fields, new_width)
+
+        # Build the entire redraw as a single string buffer to minimize flicker
+        buf: list[str] = []
+        if lines_to_erase > 0:
+            buf.append(ansi_cursor_up(lines_to_erase))
+        buf.append(ANSI_ERASE_TO_END)
+
+        if self._is_header_written:
+            header_line = _format_streaming_header_row(self.fields, new_column_widths)
+            buf.append(header_line + "\n")
+
+        for agent in self._agents:
+            row_line = _format_streaming_agent_row(agent, self.fields, new_column_widths)
+            buf.append(row_line + "\n")
+
+        for warning_text in self._warning_texts:
+            buf.append(warning_text)
+
+        self.output.write("".join(buf))
+        self.output.flush()
+
+        # Update stored state
+        self._terminal_width = new_width
+        self._column_widths = new_column_widths
+
+        # Re-check terminal size; if it changed during the redraw (concurrent
+        # resize), redo. This converges quickly since resizes are slow relative
+        # to writes.
+        recheck_width, _ = self._get_size()
+        if recheck_width != self._terminal_width:
+            self._full_redraw()
+
     def emit_warning(self, text: str) -> None:
         """Write a warning, keeping it pinned below agent rows and above the status line."""
         with self._lock:
+            self._warning_texts.append(text)
+
             if self.is_tty:
+                # Check for resize
+                current_width, _ = self._get_size()
+                if current_width != self._terminal_width:
+                    self._full_redraw()
+                    self.output.write(_format_status_line(self._count))
+                    self.output.flush()
+                    return
+
                 # Erase the status line so the warning appears cleanly
                 self.output.write(ANSI_ERASE_LINE)
 
             self.output.write(text)
-            self._warning_texts.append(text)
-            self._warning_line_count += text.count("\n")
 
             if self.is_tty:
                 # Re-write the status line below the warning
@@ -624,18 +708,32 @@ class _StreamingHumanRenderer(MutableModel):
     def __call__(self, agent: AgentInfo) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
+            self._agents.append(agent)
+
             if self.limit is not None and self._count >= self.limit:
                 return
 
             if self.is_tty:
+                # Check for resize
+                current_width, _ = self._get_size()
+                if current_width != self._terminal_width:
+                    self._count += 1
+                    if not self._is_header_written:
+                        self._is_header_written = True
+                    self._full_redraw()
+                    self.output.write(_format_status_line(self._count))
+                    self.output.flush()
+                    return
+
                 # Erase the current status line
                 self.output.write(ANSI_ERASE_LINE)
 
                 # If there are warnings below the agent rows, move cursor up
                 # past them and erase to end of screen. The warnings will be
                 # re-written after the new agent row so they stay at the bottom.
-                if self._warning_line_count > 0:
-                    self.output.write(ansi_cursor_up(self._warning_line_count))
+                warning_visual_lines = sum(count_visual_lines(w, self._terminal_width) for w in self._warning_texts)
+                if warning_visual_lines > 0:
+                    self.output.write(ansi_cursor_up(warning_visual_lines))
                     self.output.write(ANSI_ERASE_TO_END)
 
             # Write header on first agent
@@ -724,7 +822,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
         width = column_widths.get(field, _DEFAULT_MIN_COLUMN_WIDTH)
         value = _get_header_label(field)
         parts.append(value.ljust(width))
-    return _COLUMN_SEPARATOR.join(parts)
+    return _COLUMN_SEPARATOR.join(parts).rstrip()
 
 
 @pure
@@ -737,7 +835,7 @@ def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_
         # Values are padded but intentionally not truncated: full values are preferred
         # over truncated ones, so columns may appear ragged when values exceed the width.
         parts.append(value.ljust(width))
-    return _COLUMN_SEPARATOR.join(parts)
+    return _COLUMN_SEPARATOR.join(parts).rstrip()
 
 
 class _ListIterationParams(BaseModel):

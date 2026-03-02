@@ -1585,3 +1585,115 @@ def test_list_command_human_streaming_with_agents(
     assert result.exit_code == 0
     assert "stream-agent" in result.output
     assert "NAME" in result.output
+
+
+# =============================================================================
+# Tests for visual line counting in streaming renderer (wrapping and resize)
+# =============================================================================
+
+
+def test_streaming_renderer_long_warning_uses_visual_line_count() -> None:
+    """A warning wider than terminal should use visual (wrapped) line count for cursor-up."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+
+    # Emit a warning that is 200 chars wide (at default 120-col terminal this wraps)
+    long_warning = "W" * 200 + "\n"
+    renderer.emit_warning(long_warning)
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # agent-2 should appear in the output (not overwritten by incorrect cursor-up)
+    assert "agent-2" in output
+    # Warning should be re-written after agent-2 (pinned to bottom)
+    assert output.rfind("W" * 200) > output.rfind("agent-2")
+
+
+def test_streaming_renderer_stores_agents_for_redraw() -> None:
+    """Renderer should store all agents for potential re-rendering on resize."""
+    captured = StringIO()
+    renderer = _create_streaming_renderer(fields=["name"], is_tty=True, output=captured)
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+    renderer(make_test_agent_info(name="agent-2"))
+
+    assert len(renderer._agents) == 2
+
+
+class _ControllableTerminalSize:
+    """Controllable terminal size for tests."""
+
+    def __init__(self, initial_columns: int, initial_lines: int) -> None:
+        self._columns = initial_columns
+        self._lines = initial_lines
+
+    def resize(self, columns: int, lines: int) -> None:
+        self._columns = columns
+        self._lines = lines
+
+    def __call__(self) -> tuple[int, int]:
+        return (self._columns, self._lines)
+
+
+def _create_streaming_renderer_with_fake_size(
+    fields: list[str],
+    is_tty: bool,
+    output: StringIO,
+    fake_size: _ControllableTerminalSize,
+) -> _StreamingHumanRenderer:
+    """Create a streaming renderer with an injectable terminal size function."""
+    renderer = _StreamingHumanRenderer(fields=fields, is_tty=is_tty, output=output)
+    renderer._get_terminal_size_fn = fake_size
+    return renderer
+
+
+def test_streaming_renderer_resize_triggers_full_redraw() -> None:
+    """Simulated terminal resize should trigger a full redraw with new column widths."""
+    captured = StringIO()
+    fake_size = _ControllableTerminalSize(120, 24)
+    renderer = _create_streaming_renderer_with_fake_size(
+        fields=["name", "state"], is_tty=True, output=captured, fake_size=fake_size
+    )
+
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+
+    # Resize the terminal before next agent
+    fake_size.resize(80, 24)
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer(make_test_agent_info(name="agent-3"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    # All agents should be present in the output after redraw
+    assert "agent-1" in output
+    assert "agent-2" in output
+    assert "agent-3" in output
+    # After resize, column widths should be recomputed (renderer state updated)
+    assert renderer._terminal_width == 80
+
+
+def test_streaming_renderer_resize_with_warnings() -> None:
+    """Resize with existing warnings should redraw everything including warnings."""
+    captured = StringIO()
+    fake_size = _ControllableTerminalSize(120, 24)
+    renderer = _create_streaming_renderer_with_fake_size(
+        fields=["name"], is_tty=True, output=captured, fake_size=fake_size
+    )
+
+    renderer.start()
+    renderer(make_test_agent_info(name="agent-1"))
+
+    # Resize before emitting warning
+    fake_size.resize(80, 24)
+    renderer.emit_warning("WARNING: test warning\n")
+    renderer(make_test_agent_info(name="agent-2"))
+    renderer.finish()
+
+    output = captured.getvalue()
+    assert "agent-1" in output
+    assert "agent-2" in output
+    assert "WARNING: test warning" in output
