@@ -577,7 +577,7 @@ def create(ctx: click.Context, **kwargs) -> None:
     setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
 
     # Create agent
-    result = _create_one_agent(mng_ctx, output_opts, resolved_opts, setup)
+    result = _create_agent(mng_ctx, output_opts, resolved_opts, setup)
     if result is not None:
         create_result, connection_opts = result
         _post_create(create_result, connection_opts, resolved_opts, mng_ctx)
@@ -687,7 +687,7 @@ def _setup_create(
     )
 
 
-def _create_one_agent(
+def _create_agent(
     mng_ctx: MngContext,
     output_opts: OutputOptions,
     opts: CreateCliOptions,
@@ -872,7 +872,7 @@ def _finish_create(
     output_opts: OutputOptions,
 ) -> None:
     """Per-invocation wrap-up: editor cleanup, output result."""
-    # Ensure editor cleanup on all exit paths (may already be cleaned up by _create_one_agent)
+    # Ensure editor cleanup on all exit paths (may already be cleaned up by _create_agent)
     if setup.editor_session is not None and not setup.editor_session.is_finished():
         setup.editor_session.cleanup()
     if LoggingSuppressor.is_suppressed():
