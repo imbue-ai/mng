@@ -18,9 +18,11 @@ Environment:
     MNG_HOST_NAME        - Name of the host this agent runs on
 """
 
+import html
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -71,7 +73,7 @@ _is_shutting_down = False
 
 
 def _html_escape(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    return html.escape(text, quote=True)
 
 
 def _log(message: str) -> None:
@@ -115,7 +117,8 @@ def _read_conversations() -> list[dict[str, str]]:
                         "created_at": event.get("timestamp", ""),
                         "updated_at": event.get("timestamp", ""),
                     }
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                _log(f"Skipping malformed conversation event line: {e}")
                 continue
 
     # Update with latest message timestamps
@@ -131,7 +134,8 @@ def _read_conversations() -> list[dict[str, str]]:
                 if cid and ts and cid in conversations_by_id:
                     if ts > conversations_by_id[cid]["updated_at"]:
                         conversations_by_id[cid]["updated_at"] = ts
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                _log(f"Skipping malformed message event line: {e}")
                 continue
 
     # Sort by most recently updated first
@@ -223,6 +227,7 @@ def _start_ttyd_for_command(server_name: str, command: list[str]) -> dict[str, o
     if port is None:
         _log(f"Failed to detect ttyd port for {server_name}")
         process.kill()
+        process.wait()
         return None
 
     _log(f"ttyd for {server_name} listening on port {port}")
@@ -250,9 +255,11 @@ def _ensure_conversation_ttyd(conversation_id: str) -> str | None:
         _log("CHAT_SCRIPT_PATH not set, cannot spawn conversation ttyd")
         return None
 
+    quoted_cid = shlex.quote(conversation_id)
+    quoted_script = shlex.quote(str(CHAT_SCRIPT_PATH))
     result = _start_ttyd_for_command(
         server_name=server_name,
-        command=["bash", "-c", f'exec "{CHAT_SCRIPT_PATH}" --resume "{conversation_id}"'],
+        command=["bash", "-c", f"exec {quoted_script} --resume {quoted_cid}"],
     )
     return server_name if result is not None else None
 
@@ -266,9 +273,10 @@ def _ensure_new_conversation_ttyd() -> str | None:
         _log("CHAT_SCRIPT_PATH not set, cannot spawn new conversation ttyd")
         return None
 
+    quoted_script = shlex.quote(str(CHAT_SCRIPT_PATH))
     result = _start_ttyd_for_command(
         server_name=server_name,
-        command=["bash", "-c", f'exec "{CHAT_SCRIPT_PATH}" --new'],
+        command=["bash", "-c", f"exec {quoted_script} --new"],
     )
     return server_name if result is not None else None
 
@@ -277,11 +285,11 @@ def _ensure_agent_tmux_ttyd(agent_name: str) -> str | None:
     """Ensure a ttyd is running for the given agent's tmux session. Returns the server name."""
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
     server_name = f"tmux-{safe_name}"
-    tmux_session = f"mng-{agent_name}"
+    quoted_session = shlex.quote(f"mng-{agent_name}")
 
     result = _start_ttyd_for_command(
         server_name=server_name,
-        command=["bash", "-c", f'unset TMUX && exec tmux attach -t "{tmux_session}":0'],
+        command=["bash", "-c", f"unset TMUX && exec tmux attach -t {quoted_session}:0"],
     )
     return server_name if result is not None else None
 

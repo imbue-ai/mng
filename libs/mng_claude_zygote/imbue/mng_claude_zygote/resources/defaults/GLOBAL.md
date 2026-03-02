@@ -28,6 +28,20 @@ All roles (other than `talking`) may have the following files:
 
 See [the docs](../../../../README.md) for a high-level overview of how the system works.
 
+### Event system
+
+Agents communicate and coordinate through an event log system. Events are stored as append-only JSONL files under `logs/<source>/events.jsonl` in the agent state directory. The event sources are:
+
+- `messages` - conversation messages (user and assistant messages across all conversations)
+- `conversations` - conversation lifecycle events (created, model changed)
+- `scheduled` - scheduled trigger events
+- `mng_agents` - agent state transition events (agents starting, stopping, etc.)
+- `stop` - agent stop events
+- `monitor` - monitoring events
+- `claude_transcript` - inner monologue from the thinking agent
+
+The event watcher monitors these sources and delivers new events to the primary (thinking) agent via `mng message`.
+
 ### Agent management
 
 Sub-agents for specific roles are managed via `mng`.
