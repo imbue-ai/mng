@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["watchdog"]
-# ///
 """Transcript watcher for changeling agents.
 
 Converts raw Claude Code transcript events from
@@ -21,7 +17,7 @@ derived from the source event's uuid, so re-processing the same input
 (which happens every 15s when claude_background_tasks.sh rewrites the
 full file) never produces duplicate output.
 
-Usage: uv run transcript_watcher.py
+Usage: python3 transcript_watcher.py
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
@@ -36,13 +32,19 @@ import sys
 import threading
 import tomllib
 from pathlib import Path
+from typing import Any
 
-# watcher_common.py is provisioned alongside this script to the same directory
-sys.path.insert(0, str(Path(__file__).parent))
-from watcher_common import Logger
-from watcher_common import mtime_poll_files
-from watcher_common import require_env
-from watcher_common import setup_watchdog_for_files
+try:
+    from imbue.mng_claude_zygote.resources.watcher_common import Logger
+    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_files
+    from imbue.mng_claude_zygote.resources.watcher_common import require_env
+    from imbue.mng_claude_zygote.resources.watcher_common import setup_watchdog_for_files
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from watcher_common import Logger  # type: ignore[no-redef]
+    from watcher_common import mtime_poll_files  # type: ignore[no-redef]
+    from watcher_common import require_env  # type: ignore[no-redef]
+    from watcher_common import setup_watchdog_for_files  # type: ignore[no-redef]
 
 # Maximum length for tool input preview and tool output
 _MAX_INPUT_PREVIEW_LENGTH = 200
@@ -72,34 +74,36 @@ def _load_watcher_settings(agent_state_dir: Path) -> _WatcherSettings:
         return _WatcherSettings()
 
 
-def _extract_text_content(content: object) -> str:
+def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
     """Extract plain text from a message content field (string or list of blocks)."""
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return ""
-    parts = []
+    parts: list[str] = []
     for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text = block.get("text", "")
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            text = str(block.get("text", ""))
             if text:
                 parts.append(text)
     return "\n".join(parts)
 
 
-def _has_tool_results_only(content: object) -> bool:
+def _has_tool_results_only(content: str | list[dict[str, Any]]) -> bool:
     """Check if a content list contains only tool_result blocks (no user text)."""
     if isinstance(content, str):
         return False
     if not isinstance(content, list):
         return True
     for block in content:
+        if isinstance(block, str):
+            return False
         if isinstance(block, dict):
-            block_type = block.get("type", "")
+            block_type = str(block.get("type", ""))
             if block_type not in ("tool_result",):
                 return False
-        elif isinstance(block, str):
-            return False
     return True
 
 
@@ -325,9 +329,6 @@ def _convert_new_events(
             f.write(json.dumps(event, separators=(",", ":")) + "\n")
 
     return len(new_events)
-
-
-# --- WATCHDOG-DEPENDENT CODE BELOW (not importable without watchdog) ---
 
 
 def main() -> None:

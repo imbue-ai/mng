@@ -1,14 +1,9 @@
 """Shared utilities for changeling watcher scripts.
 
 This module is provisioned alongside the watcher scripts (event_watcher.py,
-conversation_watcher.py) to $MNG_HOST_DIR/commands/ and imported by them at
-runtime. It provides the common watchdog integration, logging, and polling
-infrastructure that all watchers share.
-
-Watchdog imports and classes that depend on them are placed below the
-``# --- WATCHDOG-DEPENDENT CODE BELOW`` marker. Test helpers strip
-everything below this marker so they can exec the stdlib-only portion
-without the watchdog dependency installed.
+conversation_watcher.py, transcript_watcher.py) to $MNG_HOST_DIR/commands/
+and imported by them at runtime. It provides the common watchdog integration,
+logging, and polling infrastructure that all watchers share.
 """
 
 from __future__ import annotations
@@ -18,6 +13,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 
 class Logger:
@@ -147,8 +143,6 @@ def mtime_poll_directories(
     return is_changed
 
 
-# --- WATCHDOG-DEPENDENT CODE BELOW (not importable without watchdog) ---
-
 from watchdog.events import FileSystemEvent
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -169,7 +163,7 @@ def setup_watchdog_for_directories(
     watch_dirs: list[Path],
     wake_event: threading.Event,
     log: Logger,
-) -> tuple[Observer, bool]:
+) -> tuple[Any, bool]:
     """Create and start a watchdog Observer for the given directories.
 
     Returns (observer, is_active). If the observer fails to start,
@@ -191,7 +185,7 @@ def setup_watchdog_for_files(
     watch_paths: list[Path],
     wake_event: threading.Event,
     log: Logger,
-) -> tuple[Observer, bool]:
+) -> tuple[Any, bool]:
     """Create and start a watchdog Observer for the parent directories of watched files.
 
     Returns (observer, is_active). If the observer fails to start,

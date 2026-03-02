@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["watchdog"]
-# ///
 """Event watcher for changeling agents.
 
 Watches event log files for new entries and sends unhandled events to
 the primary agent. Uses watchdog for fast filesystem event detection,
 with periodic mtime-based polling as a safety net.
 
-Usage: uv run event_watcher.py
+Usage: python3 event_watcher.py
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
@@ -26,12 +22,19 @@ import threading
 import tomllib
 from pathlib import Path
 
-# watcher_common.py is provisioned alongside this script to the same directory
-sys.path.insert(0, str(Path(__file__).parent))
-from watcher_common import Logger
-from watcher_common import mtime_poll_directories
-from watcher_common import require_env
-from watcher_common import setup_watchdog_for_directories
+try:
+    from imbue.mng_claude_zygote.resources.watcher_common import Logger
+    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_directories
+    from imbue.mng_claude_zygote.resources.watcher_common import require_env
+    from imbue.mng_claude_zygote.resources.watcher_common import setup_watchdog_for_directories
+except ImportError:
+    # When provisioned as a standalone script on a remote host, watcher_common.py
+    # is in the same directory but not in the imbue package
+    sys.path.insert(0, str(Path(__file__).parent))
+    from watcher_common import Logger  # type: ignore[no-redef]
+    from watcher_common import mtime_poll_directories  # type: ignore[no-redef]
+    from watcher_common import require_env  # type: ignore[no-redef]
+    from watcher_common import setup_watchdog_for_directories  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,9 +151,6 @@ def _check_all_sources(
     for source in watched_sources:
         events_file = logs_dir / source / "events.jsonl"
         _check_and_send_new_events(events_file, source, offsets_dir, agent_name, log)
-
-
-# --- WATCHDOG-DEPENDENT CODE BELOW (not importable without watchdog) ---
 
 
 def main() -> None:

@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["watchdog"]
-# ///
 """Conversation watcher for changeling agents.
 
 Syncs messages from the llm database to the standard event log at
 logs/messages/events.jsonl. Uses watchdog for fast filesystem event
 detection, with periodic mtime-based polling as a safety net.
 
-Usage: uv run conversation_watcher.py
+Usage: python3 conversation_watcher.py
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains logs/)
@@ -27,12 +23,17 @@ import threading
 import tomllib
 from pathlib import Path
 
-# watcher_common.py is provisioned alongside this script to the same directory
-sys.path.insert(0, str(Path(__file__).parent))
-from watcher_common import Logger
-from watcher_common import mtime_poll_files
-from watcher_common import require_env
-from watcher_common import setup_watchdog_for_files
+try:
+    from imbue.mng_claude_zygote.resources.watcher_common import Logger
+    from imbue.mng_claude_zygote.resources.watcher_common import mtime_poll_files
+    from imbue.mng_claude_zygote.resources.watcher_common import require_env
+    from imbue.mng_claude_zygote.resources.watcher_common import setup_watchdog_for_files
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from watcher_common import Logger  # type: ignore[no-redef]
+    from watcher_common import mtime_poll_files  # type: ignore[no-redef]
+    from watcher_common import require_env  # type: ignore[no-redef]
+    from watcher_common import setup_watchdog_for_files  # type: ignore[no-redef]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -233,9 +234,6 @@ def _sync_messages(
             f.write(event_json + "\n")
 
     return len(missing_events)
-
-
-# --- WATCHDOG-DEPENDENT CODE BELOW (not importable without watchdog) ---
 
 
 def main() -> None:
