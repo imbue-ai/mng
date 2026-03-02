@@ -53,30 +53,10 @@ fi
 
 BRANCH_OR_PR="$1"
 
-# Colors for output (disabled if not a terminal)
-if [[ -t 2 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    NC='\033[0m'
-else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    NC=''
-fi
+STOP_HOOK_SCRIPT_NAME="poll_pr_checks"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
 
-log_info() {
-    echo -e "${GREEN}$1${NC}"
-}
-
-log_warn() {
-    echo -e "${YELLOW}$1${NC}" >&2
-}
-
-log_error() {
-    echo -e "${RED}ERROR: $1${NC}" >&2
-}
+_log_to_file "INFO" "poll_pr_checks started (pid=$$, ppid=$PPID, arg=$BRANCH_OR_PR, timeout=$TIMEOUT, interval=$INTERVAL)"
 
 # Resolve PR number from branch name if needed
 PR_NUMBER=""
@@ -104,6 +84,7 @@ while true; do
 
     if [[ $CURRENT_TIME -ge $END_TIME ]]; then
         log_error "Timeout waiting for checks to complete after ${TIMEOUT}s"
+        _log_to_file "ERROR" "Timeout after ${TIMEOUT}s, exiting with 1"
         exit 1
     fi
 
@@ -147,14 +128,18 @@ while true; do
         continue
     fi
 
+    _log_to_file "INFO" "Check status (${ELAPSED}s): passed=$PASSED_COUNT, failed=$FAILED_COUNT, pending=$PENDING_COUNT"
+
     # All checks have completed
     if [[ $FAILED_COUNT -gt 0 ]]; then
         log_error "Some checks failed"
+        _log_to_file "ERROR" "Some checks failed, exiting with 1"
         echo "failure"
         exit 1
     fi
 
     log_info "All checks passed"
+    _log_to_file "INFO" "All checks passed, exiting with 0"
     echo "success"
     exit 0
 done

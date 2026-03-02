@@ -1,5 +1,3 @@
-"""JSONL transcript parser for Claude Code sessions."""
-
 import json
 from pathlib import Path
 from typing import Any

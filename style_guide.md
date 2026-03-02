@@ -10,6 +10,8 @@ Each aspect of python software engineering is covered below in more detail in th
 
 Always follow these style directives. Keep the style consistent throughout the codebase
 
+Note that individual projects may have their own style_guide.md files--if they do, those are to be treated as *deltas* to this style guide (any directives there override the rules here) 
+
 # Primitives
 
 Avoid using primitives directly
@@ -308,6 +310,8 @@ def categorize_todo_by_priority_and_age(
 
 Never write if/elif chains without a final else clause. The else clause ensures all cases are handled and makes it explicit when an unexpected condition occurs.
 
+Prefer to use match statements when matching against enums or other finite sets of values.
+
 # Validation
 
 All validation should be done purely through pydantic and types, not with ad-hoc code
@@ -367,6 +371,8 @@ Prefer creating validated primitive types (like `TodoTitle` or domain-specific n
 Never validate data using ad-hoc code in functions--always use pydantic models or validated primitive types
 
 # Errors
+
+## Exception hierarchy
 
 All raised Exceptions should inherit from a base class that is specific to that library or app.
 
@@ -438,7 +444,13 @@ def example_exception_handling_with_chaining() -> None:
         raise TodoError(f"Invalid value: {user_input}") from None
 ```
 
-Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point
+Never use a blanket `except:` clause! Always catch the narrowest specific exception type that can be caught at a given point.
+
+Always log errors that are caught (at the appropriate level--trace or debug if this is expected, or warning if this is from us trying to make the code more robust and there's no other choice, error only if this is a more general top level error handler)
+
+## Try/except
+
+Each try/except blocks should only span a single statement, and should catch precisely the errors that we want to handle from that statement.
 
 ```python
 from pathlib import Path
@@ -529,6 +541,15 @@ class TodoNotificationService(MutableModel):
 
 Be very conservative with what exceptions are caught. Prefer to crash instead of catching errors.
 
+## Timeouts
+
+When calling external commands or making network requests, always use a two-threshold timeout pattern:
+
+1. **Hard timeout**: Set a generous timeout that represents "this is definitely broken" (e.g. 15s for filesystem ops, 60s for network calls, 300s for installations). This prevents infinite hangs.
+2. **Warning threshold**: After the command completes successfully, check if it took longer than a "suspicious" duration (e.g. 2s for filesystem ops, 15s for network calls). If so, emit a warning so we notice things becoming slow *before* they become totally broken.
+
+This pattern allows us to notice degradation and diagnose slowdowns before they become outright failures.
+
 # Docstrings
 
 We want our code to be self-documenting as much as possible
@@ -576,7 +597,7 @@ Always create docstrings for classes. The docstring for a class should contain *
 
 Never include the attributes of a class in the class docstring
 
-Never create docstrings for modules
+Never create docstrings for modules (unless they are completely standalone scripts).
 
 # Comments
 
@@ -653,7 +674,7 @@ Public function, class, and variable names should be globally unique (within the
 
 Avoid abbreviations (except for the very most common like "max" or "len")
 
-Always prefix booleans with `is_` (unless they are part of eg a user-facing CLI, or attributes of an object that directly correspond to those args)
+Always prefix *internal boolean variables* with `is_`. Variables that are part of 3rd-party libraries, or which are user-facing configuration (eg, settings or CLI args) do *not* need to follow that convention, but all *internal* variables should (eg, when we convert from the settings to our internal representation, we should convert the names)
 
 ```python
 class TodoFilter(FrozenModel):
@@ -1376,6 +1397,42 @@ def main() -> None:
 
 ```
 
+# Event logging to disk
+
+When persisting structured event data (conversations, agent actions, state transitions, etc.), always use append-only JSONL files following these conventions:
+
+## Standard directory structure
+
+Store event files at `logs/<source>/events.jsonl` where `<source>` is a static, human-readable name describing the category of events:
+- Source names should be lowercase, use underscores for multi-word names
+- Source names must NOT contain dates, IDs, or dynamically generated values
+- Source CAN be nested folders (e.g. `logs/foo/bar/events.jsonl`) with source field `"foo/bar"`, but prefer flat structure when possible
+
+## Standard event envelope
+
+Every JSONL line must include these envelope fields:
+
+```json
+{"timestamp": "2026-02-28T12:00:00.123456789Z", "type": "message", "event_id": "evt-1709...", "source": "messages", ...}
+```
+
+- `timestamp`: nanosecond-precision UTC ISO 8601 (always include full precision even if the source doesn't provide it)
+- `type`: what kind of event this is (e.g. `"conversation_created"`, `"message"`, `"scheduled"`)
+- `event_id`: unique identifier for this specific event
+- `source`: must match the folder name under `logs/` where this event is stored
+
+## Self-describing events
+
+Include enough context in each line to be self-describing. Every event should have a timestamp, an event type, and enough identifiers (conversation ID, agent name, source, etc.) that you could split the data in different ways later if you change your mind. This is the most important principle: if each line is self-contained, your file organization becomes a performance/convenience choice rather than a correctness one. You should never need to know the name of the file that an event came from.
+
+## Append-only semantics
+
+Event log files are always append-only. Never modify or delete individual lines. If an event needs to be "corrected", append a new event that supersedes it (e.g. a `model_changed` event rather than editing a `conversation_created` event).
+
+## Rotation
+
+Event files can be rotated (by date, by size) if they get too large. Rotation should preserve the file naming convention (`events.jsonl`) and archive old files with a date suffix (e.g. `events.2026-02-28.jsonl.gz`). Not all sources should (or even can) be rotated.
+
 # Configuration
 
 Always use .toml files for configuration
@@ -1662,7 +1719,7 @@ There are 4 types of tests: unit tests, integration tests, acceptance tests, and
 1. unit tests: put them in `(src)/**/*_test.py`. They test small, isolated pieces of functionality (ex: a single function or method). They answer the question: "is this code mostly working?" Run locally and are super fast.
 2. integration tests: put them in `(src)/**/test_*.py`. They answer the question: "does our program behave in the way that we want?" by testing "end to end" functionality. Run locally with no network access, don't take too long, and are used for calculating coverage.
 3. acceptance tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.acceptance`. They answer the question: "does the application work under realistic conditions?" by testing with real dependencies (network access, credentials, etc). Run on all branches in CI.
-4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to main. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
+4. release tests: put them in `(src)/**/test_*.py` and mark with `@pytest.mark.release`. They answer the question: "is the application ready for release?" These are more comprehensive acceptance-style tests that only run when pushing to release. The idea is to have them fixed up overnight/before release rather than as a precondition for merging PRs.
 
 ### Unit Tests
 
@@ -1778,13 +1835,13 @@ def test_sync_todos_to_remote_server_succeeds_with_valid_credentials() -> None:
     ...
 ```
 
-Acceptance tests run on all branches in CI (except main, since release tests are a superset). They must pass before a PR can be merged.
+Acceptance tests run on all branches in CI. They must pass before a PR can be merged.
 
 Acceptance tests can sometimes be flaky. This is ok. Make it possible to easily retry and re-run them if they fail.
 
 ### Release Tests
 
-Release tests are comprehensive tests that only run when pushing to main. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
+Release tests are comprehensive tests that only run when pushing to the special "release" branch. They verify the application is ready for release and may include slower, more thorough tests that would be too time-consuming to run on every PR.
 
 Create release tests in the source package folder, using files that start with "test_" (same location as integration tests).
 

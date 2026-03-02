@@ -236,18 +236,32 @@ frontend-dist/
 # Local Claude settings backup files
 .claude/*.bak
 
-# Local mngr settings (not committed)
-.mngr/settings.local.toml
+# Local mng settings (not committed)
+.mng/settings.local.toml
 
 # so the user can make their own notification script
 scripts/notify_user.local.sh
 
-# Test output files (slow tests, coverage summaries) for agent consumption
-.claude/tests_outputs/
+# Test output files (slow tests, coverage summaries)
+.test_output/
 
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
 
 # we stick the image build artifacts here
-.mngr/dev/build/
-.mngr/dev/secrets/
+.mng/dev/build/
+.mng/dev/secrets/
+
+# Offload caches and local files
+.offload/**
+test-results/**
+current.tar.gz
+
+# Changelings deploy-time build artifacts
+.changelings/
+
+# Autofix working artifacts
+.autofix/
+
+# for git worktrees from other repos
+.external_worktrees/
