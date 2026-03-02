@@ -20,6 +20,26 @@ register_plugin_test_fixtures(globals())
 
 
 @pytest.fixture(autouse=True)
+def _reset_loguru() -> Generator[None, None, None]:
+    """Reset loguru handlers before and after each test to prevent handler leakage."""
+    logger.remove()
+    yield
+    logger.remove()
+
+
+def write_changelings_settings_toml(base_dir: Path, content: str) -> Path:
+    """Write a settings.toml file under .changelings/ for watcher tests.
+
+    Returns the path to the written file.
+    """
+    changelings_dir = base_dir / ".changelings"
+    changelings_dir.mkdir(parents=True, exist_ok=True)
+    settings_path = changelings_dir / "settings.toml"
+    settings_path.write_text(content)
+    return settings_path
+
+
+@pytest.fixture(autouse=True)
 def _isolate_tmux_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Generator[None, None, None]:
