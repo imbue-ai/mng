@@ -48,7 +48,7 @@ AGENT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_AGENT_TTYD_INVOCATIO
 # Watcher tmux window names and commands.
 # These are run as additional tmux windows alongside the primary agent.
 CONV_WATCHER_WINDOW_NAME: Final[str] = "conv_watcher"
-CONV_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/conversation_watcher.sh"
+CONV_WATCHER_COMMAND: Final[str] = "uv run $MNG_HOST_DIR/commands/conversation_watcher.py"
 
 EVENT_WATCHER_WINDOW_NAME: Final[str] = "events"
 EVENT_WATCHER_COMMAND: Final[str] = "uv run $MNG_HOST_DIR/commands/event_watcher.py"

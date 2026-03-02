@@ -153,51 +153,45 @@ def _create_test_llm_db(db_path: Path, rows: list[tuple[str, str, str, str, str,
         conn.commit()
 
 
-def _extract_sync_script_from_watcher() -> str:
-    """Extract the Python sync script from conversation_watcher.sh.
+_CONV_WATCHER_WATCHDOG_MARKER = "# --- WATCHDOG-DEPENDENT CODE BELOW"
 
-    The watcher embeds a Python heredoc between 'SYNC_SCRIPT' markers.
-    This function extracts it so tests run the actual production algorithm
-    rather than a potentially-stale copy.
+
+def _strip_watchdog_from_conversation_watcher() -> str:
+    """Load conversation_watcher.py and return only the stdlib-only portion.
+
+    Uses the same marker-based approach as event_watcher.py tests.
     """
-    watcher_content = load_zygote_resource("conversation_watcher.sh")
-    start_marker = "python3 << 'SYNC_SCRIPT'"
-    end_marker = "SYNC_SCRIPT"
-
-    start_idx = watcher_content.index(start_marker)
-    # Find the content after the start marker line
-    script_start = watcher_content.index("\n", start_idx) + 1
-    # Find the closing SYNC_SCRIPT marker (it's on its own line after the heredoc)
-    remaining = watcher_content[script_start:]
-    # The end marker is on a line by itself (possibly with leading whitespace)
-    script_end = None
-    for i, line in enumerate(remaining.split("\n")):
-        if line.strip() == end_marker:
-            script_end = sum(len(l) + 1 for l in remaining.split("\n")[:i])
-            break
-    assert script_end is not None, "Could not find SYNC_SCRIPT end marker in conversation_watcher.sh"
-    return remaining[:script_end]
+    source = load_zygote_resource("conversation_watcher.py")
+    marker_idx = source.find(_CONV_WATCHER_WATCHDOG_MARKER)
+    assert marker_idx != -1, "conversation_watcher.py is missing the WATCHDOG-DEPENDENT marker comment"
+    truncated = source[:marker_idx]
+    stripped_lines = [line for line in truncated.splitlines() if not line.startswith("from watchdog.")]
+    return "\n".join(stripped_lines)
 
 
 def _run_sync_script(conversations_file: Path, messages_file: Path, db_path: Path) -> int:
     """Run the conversation watcher's sync logic and return the count of synced events.
 
-    Extracts the Python sync script embedded in conversation_watcher.sh and
-    runs it directly, testing the actual production algorithm without needing
-    the full bash watcher loop infrastructure.
+    Loads the actual _sync_messages function from conversation_watcher.py
+    (stripped of watchdog dependencies) and runs it directly, testing the
+    real production algorithm.
     """
-    sync_env = os.environ.copy()
-    sync_env["_CONVERSATIONS_FILE"] = str(conversations_file)
-    sync_env["_MESSAGES_FILE"] = str(messages_file)
-    sync_env["_DB_PATH"] = str(db_path)
-
-    sync_script = _extract_sync_script_from_watcher()
-
+    setup = _strip_watchdog_from_conversation_watcher()
+    test_code = f"""
+import pathlib
+_log = _Logger(pathlib.Path("/tmp/test-conv-watcher.log"))
+count = _sync_messages(
+    pathlib.Path("{db_path}"),
+    pathlib.Path("{conversations_file}"),
+    pathlib.Path("{messages_file}"),
+    _log,
+)
+print(count)
+"""
     result = subprocess.run(
-        ["python3", "-c", sync_script],
+        [sys.executable, "-c", setup + test_code],
         capture_output=True,
         text=True,
-        env=sync_env,
         timeout=10,
     )
     assert result.returncode == 0, f"Sync failed: {result.stderr}"
@@ -492,13 +486,18 @@ def test_chat_script_list_handles_malformed_events(chat_env: ChatScriptEnv) -> N
 
 
 @pytest.mark.timeout(30)
-def test_conversation_watcher_script_is_valid_bash(chat_env: ChatScriptEnv) -> None:
-    """Verify that conversation_watcher.sh passes bash syntax check."""
-    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "conversation_watcher.sh"
+def test_conversation_watcher_script_is_valid_python(chat_env: ChatScriptEnv) -> None:
+    """Verify that conversation_watcher.py passes Python syntax check."""
+    watcher_script = chat_env.agent_state_dir.parent.parent / "commands" / "conversation_watcher.py"
     watcher_script.parent.mkdir(parents=True, exist_ok=True)
-    watcher_script.write_text(load_zygote_resource("conversation_watcher.sh"))
+    watcher_script.write_text(load_zygote_resource("conversation_watcher.py"))
 
-    result = subprocess.run(["bash", "-n", str(watcher_script)], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(
+        [sys.executable, "-m", "py_compile", str(watcher_script)],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
     assert result.returncode == 0, f"Syntax check failed: {result.stderr}"
 

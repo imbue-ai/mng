@@ -39,8 +39,8 @@ def test_load_zygote_resource_loads_chat_script() -> None:
 
 
 def test_load_zygote_resource_loads_conversation_watcher() -> None:
-    content = load_zygote_resource("conversation_watcher.sh")
-    assert "#!/bin/bash" in content
+    content = load_zygote_resource("conversation_watcher.py")
+    assert "#!/usr/bin/env python3" in content
     assert "conversation" in content.lower()
 
 
@@ -148,43 +148,42 @@ def test_chat_script_logs_to_file() -> None:
 
 
 def test_conversation_watcher_queries_sqlite() -> None:
-    content = load_zygote_resource("conversation_watcher.sh")
+    content = load_zygote_resource("conversation_watcher.py")
     assert "sqlite3" in content
 
 
 def test_conversation_watcher_writes_to_messages_events() -> None:
-    content = load_zygote_resource("conversation_watcher.sh")
+    content = load_zygote_resource("conversation_watcher.py")
     assert "messages/events.jsonl" in content
 
 
 def test_conversation_watcher_logs_to_file() -> None:
-    """Verify conversation_watcher.sh writes debug output to a log file."""
-    content = load_zygote_resource("conversation_watcher.sh")
-    assert "LOG_FILE" in content
+    """Verify conversation_watcher.py writes debug output to a log file."""
+    content = load_zygote_resource("conversation_watcher.py")
     assert "conversation_watcher.log" in content
 
 
 def test_conversation_watcher_logs_sqlite_errors() -> None:
-    """Verify conversation_watcher.sh captures and logs sqlite3 errors."""
-    content = load_zygote_resource("conversation_watcher.sh")
+    """Verify conversation_watcher.py logs sqlite3 errors."""
+    content = load_zygote_resource("conversation_watcher.py")
     assert "WARNING" in content
 
 
-def test_conversation_watcher_supports_inotifywait() -> None:
-    content = load_zygote_resource("conversation_watcher.sh")
-    assert "inotifywait" in content
+def test_conversation_watcher_uses_watchdog() -> None:
+    content = load_zygote_resource("conversation_watcher.py")
+    assert "watchdog" in content
 
 
 def test_conversation_watcher_uses_id_based_dedup() -> None:
-    """Verify conversation_watcher.sh deduplicates events by event_id."""
-    content = load_zygote_resource("conversation_watcher.sh")
+    """Verify conversation_watcher.py deduplicates events by event_id."""
+    content = load_zygote_resource("conversation_watcher.py")
     assert "file_event_ids" in content
-    assert "event_id" in content
+    assert '"event_id"' in content
 
 
 def test_conversation_watcher_uses_adaptive_window() -> None:
-    """Verify conversation_watcher.sh uses an adaptive window for batch sync."""
-    content = load_zygote_resource("conversation_watcher.sh")
+    """Verify conversation_watcher.py uses an adaptive window for batch sync."""
+    content = load_zygote_resource("conversation_watcher.py")
     assert "window" in content
     assert "window *= 2" in content
 
