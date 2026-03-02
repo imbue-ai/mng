@@ -22,6 +22,7 @@ from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
+from imbue.imbue_common.model_update import to_update
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
@@ -50,6 +51,7 @@ from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.data_types import RelativePath
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
@@ -1002,7 +1004,8 @@ class ClaudeAgent(BaseAgent):
         overwrites the session ID (since _transfer_claude_session writes the
         most recent session, which may differ from the one being adopted).
         """
-        if options.adopt_session_id is None:
+        adopt_session_id = options.plugin_data.get("adopt_session_id")
+        if adopt_session_id is None:
             return
 
         if options.source_work_dir is None:
@@ -1015,7 +1018,7 @@ class ClaudeAgent(BaseAgent):
             )
 
         # Auto-detect session if empty string
-        session_id = options.adopt_session_id
+        session_id = adopt_session_id
         if session_id == "":
             session_id = _find_most_recent_session(source_project_dir)
             logger.info("Auto-detected session: {}", session_id)
@@ -1208,6 +1211,36 @@ def _generate_claude_json(version: str | None, current_time: datetime | None = N
 def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentTypeConfig]]:
     """Register the claude agent type."""
     return ("claude", ClaudeAgent, ClaudeAgentConfig)
+
+
+@hookimpl
+def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
+    """Validate and enrich create args when --adopt-session is used.
+
+    When plugin_data contains "adopt_session_id":
+    - Validates the agent type is claude (or unset/default)
+    - Sets source_work_dir = Path.cwd() if not already set (clone/migrate sets
+      it separately; standalone adopt uses the current directory)
+    """
+    adopt_session_id = args.agent_options.plugin_data.get("adopt_session_id")
+    if adopt_session_id is None:
+        return None
+
+    # Validate agent type is claude or unset (defaults to claude)
+    agent_type = args.agent_options.agent_type
+    if agent_type is not None and str(agent_type) != "claude":
+        raise UserInputError(f"--adopt-session can only be used with the claude agent type, not '{agent_type}'.")
+
+    # Set source_work_dir if not already set (e.g. by --source-agent)
+    if args.agent_options.source_work_dir is not None:
+        return None
+
+    new_options = args.agent_options.model_copy_update(
+        to_update(args.agent_options.field_ref().source_work_dir, Path.cwd()),
+    )
+    return args.model_copy_update(
+        to_update(args.field_ref().agent_options, new_options),
+    )
 
 
 @hookimpl

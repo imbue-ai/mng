@@ -27,6 +27,7 @@ from imbue.mng.agents.default_plugins.claude_agent import _install_claude
 from imbue.mng.agents.default_plugins.claude_agent import _parse_claude_version_output
 from imbue.mng.agents.default_plugins.claude_agent import _read_macos_keychain_credential
 from imbue.mng.agents.default_plugins.claude_agent import get_files_for_deploy
+from imbue.mng.agents.default_plugins.claude_agent import on_before_create
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
@@ -44,12 +45,15 @@ from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.host import AgentEnvironmentOptions
 from imbue.mng.interfaces.host import AgentGitOptions
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.testing import init_git_repo
@@ -2114,6 +2118,82 @@ def test_find_most_recent_session_no_sessions_raises(tmp_path: Path) -> None:
 
 
 # =============================================================================
+# on_before_create Hook Tests
+# =============================================================================
+
+
+_OnBeforeCreateInput = OnBeforeCreateArgs
+
+
+def _make_on_before_create_input(
+    agent_options: CreateAgentOptions,
+) -> _OnBeforeCreateInput:
+    """Build a hook input with a dummy target host for testing."""
+    return _OnBeforeCreateInput(
+        target_host=NewHostOptions(provider=ProviderInstanceName("local")),
+        agent_options=agent_options,
+        create_work_dir=True,
+    )
+
+
+def test_on_before_create_returns_none_when_no_adopt_session() -> None:
+    """on_before_create should pass through when plugin_data has no adopt_session_id."""
+    args = _make_on_before_create_input(CreateAgentOptions(agent_type=AgentTypeName("claude")))
+    result = on_before_create(args)
+    assert result is None
+
+
+def test_on_before_create_raises_for_non_claude_agent_type() -> None:
+    """on_before_create should raise UserInputError when adopt is used with non-claude type."""
+    args = _make_on_before_create_input(
+        CreateAgentOptions(
+            agent_type=AgentTypeName("generic"),
+            plugin_data={"adopt_session_id": "some-id"},
+        )
+    )
+    with pytest.raises(UserInputError, match="--adopt-session can only be used with the claude agent type"):
+        on_before_create(args)
+
+
+def test_on_before_create_sets_source_work_dir_when_not_set() -> None:
+    """on_before_create should set source_work_dir to cwd when adopt is used without source."""
+    args = _make_on_before_create_input(
+        CreateAgentOptions(
+            agent_type=AgentTypeName("claude"),
+            plugin_data={"adopt_session_id": "some-id"},
+        )
+    )
+    result = on_before_create(args)
+    assert result is not None
+    assert result.agent_options.source_work_dir == Path.cwd()
+
+
+def test_on_before_create_passes_through_when_source_work_dir_already_set(tmp_path: Path) -> None:
+    """on_before_create should not override an existing source_work_dir."""
+    args = _make_on_before_create_input(
+        CreateAgentOptions(
+            agent_type=AgentTypeName("claude"),
+            plugin_data={"adopt_session_id": "some-id"},
+            source_work_dir=tmp_path,
+        )
+    )
+    result = on_before_create(args)
+    assert result is None
+
+
+def test_on_before_create_allows_unset_agent_type_with_adopt() -> None:
+    """on_before_create should allow adopt when agent_type is None (defaults to claude)."""
+    args = _make_on_before_create_input(
+        CreateAgentOptions(
+            plugin_data={"adopt_session_id": ""},
+        )
+    )
+    result = on_before_create(args)
+    assert result is not None
+    assert result.agent_options.source_work_dir == Path.cwd()
+
+
+# =============================================================================
 # on_after_provisioning Session Adoption Tests
 # =============================================================================
 
@@ -2156,7 +2236,7 @@ def test_on_after_provisioning_adopts_specific_session(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id=target_session_id,
+        plugin_data={"adopt_session_id": target_session_id},
         source_work_dir=source_path,
     )
 
@@ -2190,7 +2270,7 @@ def test_on_after_provisioning_auto_detects_session(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id="",
+        plugin_data={"adopt_session_id": ""},
         source_work_dir=source_path,
     )
 
@@ -2209,7 +2289,7 @@ def test_on_after_provisioning_raises_when_source_path_missing(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id="some-id",
+        plugin_data={"adopt_session_id": "some-id"},
         source_work_dir=None,
     )
 
@@ -2229,7 +2309,7 @@ def test_on_after_provisioning_raises_when_project_dir_not_found(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id="some-id",
+        plugin_data={"adopt_session_id": "some-id"},
         source_work_dir=source_path,
     )
 
@@ -2250,7 +2330,7 @@ def test_on_after_provisioning_raises_when_session_not_found(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id="nonexistent-session",
+        plugin_data={"adopt_session_id": "nonexistent-session"},
         source_work_dir=source_path,
     )
 
@@ -2300,7 +2380,7 @@ def test_on_after_provisioning_copies_and_rewrites_for_cross_worktree_adoption(
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
-        adopt_session_id=session_id,
+        plugin_data={"adopt_session_id": session_id},
         source_work_dir=source_path,
     )
 

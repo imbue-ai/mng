@@ -3,6 +3,7 @@ import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 from typing import assert_never
 from typing import cast
 
@@ -1402,19 +1403,19 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
-    # Validate --adopt-session is only used with claude agent type (or default).
-    # This check runs after agent type resolution so that positional agent types
-    # (e.g. "mng create my-agent generic --adopt-session") are caught too.
-    if opts.adopt_session is not None:
-        if resolved_agent_type is not None and resolved_agent_type != "claude":
-            raise UserInputError(
-                f"--adopt-session can only be used with the claude agent type, not '{resolved_agent_type}'."
-            )
+    # (--adopt-session agent-type validation is handled by the ClaudeAgent
+    # plugin's on_before_create hook, not here in core infrastructure.)
 
     # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
-    # This is set when cloning from an existing agent (--source-agent) or adopting a session (--adopt-session).
-    is_session_transfer = opts.source_agent is not None or opts.adopt_session is not None
+    # This is set when cloning from an existing agent (--source-agent).
+    # For --adopt-session, the plugin's on_before_create hook sets source_work_dir.
+    is_session_transfer = opts.source_agent is not None
     parsed_source_work_dir = source_location.path if is_session_transfer else None
+
+    # Put adopt_session into plugin_data so the ClaudeAgent plugin can access it
+    plugin_data: dict[str, Any] = {}
+    if opts.adopt_session is not None:
+        plugin_data["adopt_session_id"] = opts.adopt_session
 
     agent_opts = CreateAgentOptions(
         agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
@@ -1436,7 +1437,7 @@ def _parse_agent_opts(
         permissions=permissions,
         label_options=label_options,
         provisioning=provisioning,
-        adopt_session_id=opts.adopt_session,
+        plugin_data=plugin_data,
         source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
