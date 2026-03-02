@@ -5,6 +5,8 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 
+import pytest
+
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.hosts.host import Host
@@ -72,6 +74,7 @@ def create_test_agent(
     return agent
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_stopped_when_no_tmux_session(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -112,6 +115,7 @@ def _create_running_agent(
     return test_agent, session_name
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_running_when_expected_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -129,6 +133,7 @@ def test_lifecycle_state_running_when_expected_process_exists(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.tmux
 def test_is_running_true_when_tmux_session_running(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -146,6 +151,7 @@ def test_is_running_true_when_tmux_session_running(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_replaced_when_different_process_exists(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -174,6 +180,7 @@ def test_lifecycle_state_replaced_when_different_process_exists(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_done_when_no_process_in_pane(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -203,6 +210,7 @@ def test_lifecycle_state_done_when_no_process_in_pane(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_waiting_when_no_active_file(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -231,6 +239,7 @@ def test_lifecycle_state_waiting_when_no_active_file(
         cleanup_tmux_session(session_name)
 
 
+@pytest.mark.tmux
 def test_lifecycle_state_running_when_active_file_created(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -384,6 +393,7 @@ def test_get_tui_ready_indicator_returns_none_by_default(
     assert test_agent.get_tui_ready_indicator() is None
 
 
+@pytest.mark.tmux
 def test_send_backspace_with_noop_sends_keys_to_tmux(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -435,6 +445,7 @@ def test_send_backspace_with_noop_sends_keys_to_tmux(
         )
 
 
+@pytest.mark.tmux
 def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -469,6 +480,7 @@ def test_send_enter_and_wait_for_signal_returns_true_when_signal_received(
         )
 
 
+@pytest.mark.tmux
 def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,

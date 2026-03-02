@@ -1590,6 +1590,7 @@ def test_create_work_dir_same_path_no_transfer(host_with_temp_dir: tuple[Host, P
     assert (work_dir / "test_file.txt").read_text() == "original content"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_without_git(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test copying a directory without git."""
     host, temp_dir = host_with_temp_dir
@@ -1656,6 +1657,7 @@ def test_create_work_dir_copy_with_git(
     assert "Initial commit" in result.stdout
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_with_git_copies_info_exclude(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1688,6 +1690,7 @@ def test_create_work_dir_copy_with_git_copies_info_exclude(
     assert target_exclude.read_text() == "my_custom_pattern\n"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_copy_excludes_git_when_disabled(host_with_temp_dir: tuple[Host, Path]) -> None:
     """Test that .git is excluded when not syncing git data."""
     host, temp_dir = host_with_temp_dir
@@ -1827,6 +1830,7 @@ def test_create_work_dir_copy_with_renamed_file(
     assert (work_dir / "new_name.txt").read_text() == "content"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_generates_new_branch(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1866,6 +1870,7 @@ def test_create_work_dir_generates_new_branch(
     assert result.stdout.strip().startswith("test/")
 
 
+@pytest.mark.rsync
 def test_create_work_dir_preserves_origin_remote(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -1913,6 +1918,7 @@ def test_create_work_dir_preserves_origin_remote(
     assert result.stdout.strip() == "https://github.com/owner/repo.git"
 
 
+@pytest.mark.rsync
 def test_create_work_dir_works_without_origin_remote(
     host_with_temp_dir: tuple[Host, Path],
     setup_git_config: None,
@@ -2367,6 +2373,7 @@ def test_transfer_extra_files_with_many_files(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_files_from_handling(
     host_with_temp_dir: tuple[Host, Path],
@@ -2421,6 +2428,7 @@ def test_rsync_files_remote_files_from_handling(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_to_remote(
     ssh_host_factory: Callable[[str], Host],
@@ -2460,6 +2468,7 @@ def test_rsync_files_remote_to_remote(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(60)
 def test_rsync_files_remote_to_remote_with_files_from(
     ssh_host_factory: Callable[[str], Host],
@@ -2563,6 +2572,7 @@ def test_rsync_with_delete_removes_extra_files(host_with_temp_dir: tuple[Host, P
     assert not (work_dir / "existing_file.txt").exists()
 
 
+@pytest.mark.rsync
 def test_create_work_dir_cross_host_generates_unique_paths(
     host_with_temp_dir: tuple[Host, Path],
     tmp_path: Path,

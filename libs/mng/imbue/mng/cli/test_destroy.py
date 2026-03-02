@@ -525,6 +525,7 @@ def _git_branch_exists(repo_path: Path, branch_name: str) -> bool:
     return branch_name in result.stdout
 
 
+@pytest.mark.tmux
 def test_destroy_remove_created_branch_deletes_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
@@ -573,6 +574,7 @@ def test_destroy_remove_created_branch_deletes_branch(
         )
 
 
+@pytest.mark.tmux
 def test_destroy_without_remove_created_branch_leaves_branch(
     cli_runner: CliRunner,
     temp_git_repo: Path,
@@ -620,6 +622,7 @@ def test_destroy_without_remove_created_branch_leaves_branch(
         )
 
 
+@pytest.mark.tmux
 def test_destroy_remove_created_branch_graceful_when_no_branch(
     cli_runner: CliRunner,
     temp_work_dir: Path,

@@ -292,6 +292,7 @@ def temp_source_dir(tmp_path: Path) -> Path:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
 @pytest.mark.timeout(400)
 def test_snapshot_create_then_list_on_modal(
     temp_source_dir: Path,
@@ -343,6 +344,7 @@ def test_snapshot_create_then_list_on_modal(
 
 
 @pytest.mark.release
+@pytest.mark.rsync
 @pytest.mark.skip(
     "Just not worth the extra testing time right now (above and beyond what we're already getting via the above)"
 )

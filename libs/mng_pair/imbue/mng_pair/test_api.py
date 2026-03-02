@@ -174,7 +174,6 @@ def test_pair_files_raises_when_git_required_but_not_present(
 
 
 @pytest.mark.unison
-@pytest.mark.git
 def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files properly starts and stops the unison syncer."""
     with pair_files(
@@ -212,7 +211,6 @@ def test_pair_files_starts_and_stops_syncer(pair_ctx: SyncTestContext, cg: Concu
         assert syncer.is_running is False
 
 
-@pytest.mark.git
 @pytest.mark.unison
 def test_pair_files_syncs_git_state_before_starting(pair_ctx: SyncTestContext, cg: ConcurrencyGroup) -> None:
     """Test that pair_files syncs git state before starting continuous sync."""
@@ -488,6 +486,7 @@ def test_unison_syncer_handles_process_crash(tmp_path: Path, cg: ConcurrencyGrou
         syncer.stop()
 
 
+@pytest.mark.acceptance
 @pytest.mark.unison
 def test_unison_syncer_handles_large_files(tmp_path: Path, cg: ConcurrencyGroup) -> None:
     """Test that UnisonSyncer correctly syncs large files (50MB)."""

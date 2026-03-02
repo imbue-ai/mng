@@ -124,6 +124,7 @@ def test_exec_result_failure() -> None:
     assert result.stderr == "command not found\n"
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agent_runs_command(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
@@ -140,6 +141,7 @@ def test_exec_command_on_agent_runs_command(
     assert result.success is True
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agent_uses_custom_cwd(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
@@ -161,6 +163,7 @@ def test_exec_command_on_agent_uses_custom_cwd(
     assert result.success is True
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agent_returns_failure(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
@@ -194,6 +197,7 @@ def test_multi_exec_result_accumulates_results() -> None:
     assert result.failed_agents[0] == ("agent-2", "host offline")
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agents_single_agent(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
@@ -226,6 +230,7 @@ def test_exec_command_on_agents_nonexistent_agent(
         )
 
 
+@pytest.mark.tmux
 def test_exec_command_on_agents_invokes_callbacks(
     temp_mng_ctx: MngContext,
     running_test_agent: RunningTestAgent,
