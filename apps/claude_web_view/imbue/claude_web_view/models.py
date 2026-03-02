@@ -1,5 +1,3 @@
-"""Pydantic models for Claude Code transcript parsing."""
-
 from enum import Enum
 from typing import Any
 from typing import Literal

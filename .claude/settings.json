@@ -10,6 +10,16 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -rf .claude/reviewed_commits"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "hooks": [
@@ -25,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "[ -e .git ] || { echo \"You should never change directories! Return to the repo root\" >&2; exit 2; }"
+            "command": "[ -e .git ] || { echo \"Be sure to return to the repo root when you finish! Otherwise the other stop hooks cannot run correctly.\" >&2; exit 2; }"
           }
         ]
       }

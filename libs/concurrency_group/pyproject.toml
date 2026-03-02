@@ -1,13 +1,29 @@
 [project]
 name = "concurrency-group"
-version = "0.1.0"
+version = "0.1.4"
 description = "Utilities for managing threads and processes in a structured way"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "Imbue"},
+    {name = "Josh Albrecht"},
+    {name = "Hynek Urban"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+]
 dependencies = [
-    "imbue-common",
+    "imbue-common==0.1.4",
     "loguru>=0.7",
     "pydantic>=2.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/imbue-ai/mng"
+Repository = "https://github.com/imbue-ai/mng"
 
 [build-system]
 requires = ["hatchling"]
@@ -15,6 +31,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["imbue"]
+exclude = ["*_test.py", "test_*.py", "**/conftest.py", "**/utils/testing.py"]
 
 [tool.uv.sources]
 imbue-common = { workspace = true }
