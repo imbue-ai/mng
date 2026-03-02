@@ -16,7 +16,6 @@ from typing import IO
 from typing import Iterator
 from typing import Mapping
 from typing import Sequence
-from typing import cast
 
 from loguru import logger
 from paramiko import SSHException
@@ -37,8 +36,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mng.agents.agent_registry import resolve_agent_type
-from imbue.mng.agents.base_agent import BaseAgent
+from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
 from imbue.mng.errors import AgentStartError
@@ -51,6 +49,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.hosts.offline_host import BaseHost
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import CertifiedHostData
@@ -908,7 +907,7 @@ class Host(BaseHost, OnlineHostInterface):
         agent_type = AgentTypeName(data["type"])
         resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
-        return cast(type[BaseAgent], resolved.agent_class)(
+        return resolved.agent_class(
             id=AgentId(data["id"]),
             name=AgentName(data["name"]),
             agent_type=agent_type,
@@ -1080,6 +1079,7 @@ class Host(BaseHost, OnlineHostInterface):
                     result = self.execute_command(f"git init --bare {shlex.quote(str(target_path / '.git'))}")
                     if not result.success:
                         raise MngError(f"Failed to initialize git repo on target: {result.stderr}")
+                    add_safe_directory_on_remote(self, target_path)
 
             self._git_push_to_target(source_host, source_path, target_path)
 
@@ -1101,7 +1101,29 @@ class Host(BaseHost, OnlineHostInterface):
                 if not result.success:
                     raise MngError(f"Failed to configure git repo on target: {result.stderr}")
 
+            # Copy .git/info/exclude from source to target. This file is not
+            # transferred by git push --mirror since it lives outside the git
+            # object store.
+            self._transfer_git_info_exclude(source_host, source_path, target_path)
+
         return new_branch_name
+
+    def _transfer_git_info_exclude(
+        self,
+        source_host: OnlineHostInterface,
+        source_path: Path,
+        target_path: Path,
+    ) -> None:
+        """Copy .git/info/exclude from source to target if it exists."""
+        exclude_path = Path(".git") / "info" / "exclude"
+        try:
+            content = source_host.read_file(source_path / exclude_path)
+        except FileNotFoundError:
+            logger.trace("No .git/info/exclude in source, skipping")
+            return
+
+        with log_span("Copying .git/info/exclude to target"):
+            self.write_file(target_path / exclude_path, content)
 
     def _git_push_to_target(
         self,
@@ -1446,7 +1468,7 @@ class Host(BaseHost, OnlineHostInterface):
 
             create_time = datetime.now(timezone.utc)
 
-            agent = cast(type[BaseAgent], resolved.agent_class)(
+            agent = resolved.agent_class(
                 id=agent_id,
                 name=agent_name,
                 agent_type=agent_type,

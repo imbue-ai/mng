@@ -253,9 +253,9 @@ scripts/notify_user.local.sh
 .mng/dev/secrets/
 
 # Offload caches and local files
-.offload-image-cache
 .offload/**
-test-results/junit.xml
+test-results/**
+current.tar.gz
 
 # Changelings deploy-time build artifacts
 .changelings/
