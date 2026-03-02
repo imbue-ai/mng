@@ -655,12 +655,13 @@ class _StreamingHumanRenderer(MutableModel):
         """
         new_width, terminal_height = self._get_size()
 
-        # Compute visual lines at the OLD width -- this is what the terminal is
-        # actually displaying. Using new_width would under-count when resizing
-        # wider (fewer wraps) and leave old content artifacts on screen.
-        content_lines = self._compute_content_visual_lines(
-            self._terminal_width, on_screen_agent_count, on_screen_warning_count
-        )
+        # Compute visual lines at the NEW width. On reflowing terminals (iTerm2,
+        # Terminal.app) this is exact. On non-reflowing terminals (xterm, tmux)
+        # this under-counts when going wider, but the \r below ensures we start
+        # at column 0 so the worst case is stale lines above -- not garbled
+        # mid-line output. Over-counting (old width) would erase content above
+        # our output (shell prompt, etc.) on reflowing terminals, which is worse.
+        content_lines = self._compute_content_visual_lines(new_width, on_screen_agent_count, on_screen_warning_count)
 
         # The cursor sits ON the status line, so content_lines is the exact
         # distance from the cursor to the first content line (header). No +1
@@ -675,6 +676,11 @@ class _StreamingHumanRenderer(MutableModel):
         buf: list[str] = []
         if lines_to_erase > 0:
             buf.append(ansi_cursor_up(lines_to_erase))
+        # \r ensures we start at column 0. Without this, cursor_up preserves the
+        # column position from the status line, and any mismatch in the cursor_up
+        # distance (e.g. due to terminal reflow) would splice old and new content
+        # on the same line.
+        buf.append("\r")
         buf.append(ANSI_ERASE_TO_END)
 
         if self._is_header_written:

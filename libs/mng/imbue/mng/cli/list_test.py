@@ -1701,13 +1701,15 @@ def test_streaming_renderer_resize_with_warnings() -> None:
     assert "WARNING: test warning" in output
 
 
-def test_streaming_renderer_resize_narrow_to_wide_erases_all_wrapped_lines() -> None:
-    """Resize from narrow (rows wrap) to wide must cursor_up enough to erase all old visual lines.
+def test_streaming_renderer_resize_narrow_to_wide_uses_cr_before_erase() -> None:
+    r"""Resize from narrow to wide must use \r before erase to start at column 0.
 
-    When rows wrap at narrow width, the cursor_up distance for full redraw must be
-    computed at the OLD width (where the content actually wraps), not the new width
-    (where it would fit on fewer lines). Using the new width under-counts and leaves
-    old content artifacts on screen.
+    cursor_up preserves the column position from the status line. Without \r,
+    erase-to-end and new content start mid-line, garbling old and new content
+    on the same line. With \r, the worst case on non-reflowing terminals is
+    stale lines above, not mid-line corruption.
+
+    The cursor_up distance uses new-width (correct for reflowing terminals).
     """
     captured = StringIO()
     narrow = 40
@@ -1723,39 +1725,39 @@ def test_streaming_renderer_resize_narrow_to_wide_erases_all_wrapped_lines() -> 
     renderer(make_test_agent_info(name="agent-1"))
     renderer(make_test_agent_info(name="agent-2"))
 
-    # Compute how many visual lines the old content occupies at the old (narrow) width
+    # Verify content actually wraps at narrow vs wide width
     old_widths = renderer._column_widths
     header_text = _format_streaming_header_row(fields, old_widths) + "\n"
     row1_text = _format_streaming_agent_row(make_test_agent_info(name="agent-1"), fields, old_widths) + "\n"
     row2_text = _format_streaming_agent_row(make_test_agent_info(name="agent-2"), fields, old_widths) + "\n"
-
-    old_content_visual_lines = (
+    old_visual = (
         count_visual_lines(header_text, narrow)
         + count_visual_lines(row1_text, narrow)
         + count_visual_lines(row2_text, narrow)
     )
-    # At 40-col width with 6 fields, content wraps: 6 visual lines vs 3 at 120
-    assert old_content_visual_lines > count_visual_lines(header_text, wide) + count_visual_lines(
-        row1_text, wide
-    ) + count_visual_lines(row2_text, wide), f"Test setup: expected wrapping at width {narrow}"
+    new_visual = (
+        count_visual_lines(header_text, wide)
+        + count_visual_lines(row1_text, wide)
+        + count_visual_lines(row2_text, wide)
+    )
+    assert old_visual > new_visual, f"Test setup: expected wrapping at width {narrow}"
 
-    # Now resize wider and add another agent (triggers full redraw)
+    # Resize wider and add another agent (triggers full redraw)
     fake_size.resize(wide, 24)
     renderer(make_test_agent_info(name="agent-3"))
 
     output = captured.getvalue()
 
-    # The full-redraw cursor_up must go back at least old_content_visual_lines
-    # (the number of visual lines at the old/narrow width). Extract all cursor_up
-    # values from the output after the resize.
+    # cursor_up should use new-width line count (correct for reflowing terminals)
     cursor_ups = [int(m.group(1)) for m in re.finditer(r"\x1b\[(\d+)A", output)]
-    # The last cursor_up (from _full_redraw) should be based on old width
     assert len(cursor_ups) > 0, "Expected at least one cursor_up in output"
     redraw_cursor_up = cursor_ups[-1]
-    assert redraw_cursor_up >= old_content_visual_lines, (
-        f"cursor_up({redraw_cursor_up}) is too small; old content occupied "
-        f"{old_content_visual_lines} visual lines at width {narrow}"
+    assert redraw_cursor_up == new_visual, (
+        f"Expected cursor_up({new_visual}) for new-width line count, got cursor_up({redraw_cursor_up})"
     )
+
+    # \r must appear between cursor_up and erase-to-end to reset column to 0
+    assert f"\x1b[{redraw_cursor_up}A\r\x1b[J" in output
 
 
 def test_streaming_renderer_resize_cursor_up_not_off_by_one() -> None:
