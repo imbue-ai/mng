@@ -153,13 +153,16 @@ new_conversation() {
     else
         local tool_args
         tool_args=$(build_tool_args)
-        log "Starting live-chat session: cid=$cid model=$model tool_args='$tool_args'"
+        # Start a new live-chat session. Do NOT pass --cid since that means
+        # "continue existing". The conversation_watcher will detect the new
+        # conversation from llm's database and write events for it.
+        log "Starting live-chat session: model=$model tool_args='$tool_args'"
         if [ -n "$message" ]; then
             # shellcheck disable=SC2086
-            exec llm live-chat --cid "$cid" -m "$model" "${sys_args[@]}" $tool_args "$message"
+            exec llm live-chat -m "$model" "${sys_args[@]}" $tool_args "$message"
         else
             # shellcheck disable=SC2086
-            exec llm live-chat --cid "$cid" -m "$model" "${sys_args[@]}" $tool_args
+            exec llm live-chat -m "$model" "${sys_args[@]}" $tool_args
         fi
     fi
 }
