@@ -244,8 +244,8 @@ def _start_ttyd_for_command(server_name: str, command: list[str]) -> _TtydEntry 
             stderr=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
         )
-    except FileNotFoundError:
-        _log("ttyd not found in PATH")
+    except OSError as e:
+        _log(f"Failed to start ttyd: {e}")
         with _ttyd_lock:
             _ttyd_by_server_name.pop(server_name, None)
         return None
