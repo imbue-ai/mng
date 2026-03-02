@@ -6,8 +6,8 @@ deeper context information beyond what gather_context() returns.
 All event data follows the standard envelope format with timestamp, type,
 event_id, and source fields. Events are read from logs/<source>/events.jsonl.
 
-Settings are read from $MNG_AGENT_STATE_DIR/settings.toml (provisioned
-during agent setup). Missing file or keys fall back to built-in defaults.
+Settings are read from $MNG_AGENT_WORK_DIR/.changelings/settings.toml.
+Missing file or keys fall back to built-in defaults.
 
 NOTE: _format_extra_events() is duplicated in context_tool.py because these
 files are deployed as standalone scripts to the agent host via --functions,
@@ -23,7 +23,7 @@ import time
 
 
 def _load_extra_settings() -> dict:
-    """Load settings from .changelings/settings.toml in the work dir or agent state dir.
+    """Load settings from .changelings/settings.toml in the agent's work dir.
 
     NOTE: This is the same logic as _load_settings in context_tool.py,
     renamed to avoid duplicate tool registration by llm --functions.
@@ -33,22 +33,18 @@ def _load_extra_settings() -> dict:
     except ImportError:
         print("WARNING: tomllib not available, using default settings", file=sys.stderr)
         return {}
-    candidates = []
     work_dir = os.environ.get("MNG_AGENT_WORK_DIR", "")
-    if work_dir:
-        candidates.append(pathlib.Path(work_dir) / ".changelings" / "settings.toml")
-    state_dir = os.environ.get("MNG_AGENT_STATE_DIR", "")
-    if state_dir:
-        candidates.append(pathlib.Path(state_dir) / "settings.toml")
-    for settings_path in candidates:
-        if not settings_path.exists():
-            continue
-        try:
-            with settings_path.open("rb") as f:
-                return tomllib.load(f)
-        except (OSError, ValueError) as e:
-            print(f"WARNING: failed to load settings from {settings_path}: {e}", file=sys.stderr)
-    return {}
+    if not work_dir:
+        return {}
+    settings_path = pathlib.Path(work_dir) / ".changelings" / "settings.toml"
+    if not settings_path.exists():
+        return {}
+    try:
+        with settings_path.open("rb") as f:
+            return tomllib.load(f)
+    except (OSError, ValueError) as e:
+        print(f"WARNING: failed to load settings from {settings_path}: {e}", file=sys.stderr)
+        return {}
 
 
 _SETTINGS = _load_extra_settings()

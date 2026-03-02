@@ -26,7 +26,6 @@ from imbue.mng_claude_zygote.provisioning import provision_llm_tools
 from imbue.mng_claude_zygote.provisioning import validate_talking_role_constraints
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.settings import load_settings_from_host
-from imbue.mng_claude_zygote.settings import provision_settings_file
 from imbue.mng_ttyd.plugin import build_ttyd_server_command
 
 AGENT_TTYD_WINDOW_NAME: Final[str] = "agent"
@@ -158,7 +157,6 @@ class ClaudeZygoteAgent(ClaudeAgent):
         7. Event log directory structure (logs/<source>/events.jsonl)
         8. LLM tool scripts for conversation context
         9. Memory directory symlink into Claude project
-        10. Settings file provisioned to agent state dir for script access
         """
         super().provision(host, options, mng_ctx)
 
@@ -183,9 +181,6 @@ class ClaudeZygoteAgent(ClaudeAgent):
         create_event_log_directories(host, agent_state_dir, provisioning)
 
         link_memory_directory(host, self.work_dir, provisioning)
-
-        # Provision settings.toml to agent state dir so scripts can access it
-        provision_settings_file(host, self.work_dir, config.changelings_dir_name, agent_state_dir)
 
 
 def inject_agent_ttyd(params: dict[str, Any]) -> None:

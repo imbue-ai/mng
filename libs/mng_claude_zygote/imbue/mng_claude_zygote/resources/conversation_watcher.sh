@@ -28,7 +28,7 @@ LOG_FILE="$HOST_DIR/logs/conversation_watcher.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 POLL_INTERVAL=$(python3 -c "
 import tomllib, pathlib, sys
-p = pathlib.Path('${MNG_AGENT_STATE_DIR}/settings.toml')
+p = pathlib.Path('${MNG_AGENT_WORK_DIR:-}/.changelings/settings.toml')
 try:
     s = tomllib.loads(p.read_text()) if p.exists() else {}
     print(s.get('watchers', {}).get('conversation_poll_interval_seconds', 5))
