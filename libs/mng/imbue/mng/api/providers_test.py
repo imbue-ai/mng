@@ -186,10 +186,18 @@ def test_get_all_provider_instances_provider_names_with_configured_provider(
     assert "my-filtered-local" not in provider_names
 
 
-def test_reset_provider_instances_clears_tracking() -> None:
-    """reset_provider_instances should clear all tracked instances."""
-    # Just verify it doesn't raise
+def test_reset_provider_instances_clears_tracking(temp_mng_ctx: MngContext) -> None:
+    """reset_provider_instances should clear cached instances so next call rebuilds them."""
+    # Populate the cache by loading providers
+    providers_before = get_all_provider_instances(temp_mng_ctx)
+    assert len(providers_before) > 0
+
+    # Reset should clear the cache
     reset_provider_instances()
+
+    # Loading again should succeed (rebuilds from scratch)
+    providers_after = get_all_provider_instances(temp_mng_ctx)
+    assert len(providers_after) > 0
 
 
 def test_is_backend_enabled_returns_true_when_no_enabled_backends(temp_mng_ctx: MngContext) -> None:

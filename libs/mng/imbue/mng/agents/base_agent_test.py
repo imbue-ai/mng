@@ -29,51 +29,49 @@ def create_test_agent(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
+    agent_config: AgentTypeConfig | None = None,
+    agent_type: AgentTypeName | None = None,
 ) -> BaseAgent:
-    """Create a test agent for lifecycle state testing with unique name."""
+    """Create a test agent backed by a real local host filesystem.
+
+    Accepts optional agent_config and agent_type overrides for tests that
+    need non-default configuration (e.g., assemble_command tests).
+    """
     host = local_provider.create_host(HostName("localhost"))
     assert isinstance(host, Host)
 
     agent_id = AgentId.generate()
-    # Use unique agent name to avoid conflicts in parallel tests
     agent_name = AgentName(f"test-agent-{get_short_random_string()}")
-    agent_type = AgentTypeName("test")
+    resolved_type = agent_type or AgentTypeName("test")
+    resolved_config = agent_config or AgentTypeConfig(command=CommandString("sleep 1000"))
 
-    # Create agent directory and data.json (under the per-host host_dir)
     agent_dir = local_provider.host_dir / "agents" / str(agent_id)
     agent_dir.mkdir(parents=True, exist_ok=True)
 
-    agent_config = AgentTypeConfig(
-        command=CommandString("sleep 1000"),
-    )
-
-    # Create the data.json file with the agent's command
-    data = {
+    data: dict = {
         "id": str(agent_id),
         "name": str(agent_name),
-        "type": str(agent_type),
-        "command": "sleep 1000",
+        "type": str(resolved_type),
         "work_dir": str(temp_work_dir),
         "create_time": datetime.now(timezone.utc).isoformat(),
         "start_on_boot": False,
     }
+    if resolved_config.command is not None:
+        data["command"] = str(resolved_config.command)
     data_path = agent_dir / "data.json"
     data_path.write_text(json.dumps(data, indent=2))
 
-    # Use the mng_ctx from the local_provider (which has profile_dir set)
-    agent = BaseAgent(
+    return BaseAgent(
         id=agent_id,
         name=agent_name,
-        agent_type=agent_type,
+        agent_type=resolved_type,
         work_dir=temp_work_dir,
         create_time=datetime.now(timezone.utc),
         host_id=host.id,
         host=host,
         mng_ctx=local_provider.mng_ctx,
-        agent_config=agent_config,
+        agent_config=resolved_config,
     )
-
-    return agent
 
 
 @pytest.fixture
@@ -480,50 +478,6 @@ def test_send_enter_and_wait_for_signal_returns_false_on_timeout(
 # =========================================================================
 
 
-def _create_agent_with_config(
-    local_provider: LocalProviderInstance,
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-    agent_config: AgentTypeConfig,
-    agent_type: AgentTypeName | None = None,
-) -> BaseAgent:
-    """Create a test agent with a specific AgentTypeConfig."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent_id = AgentId.generate()
-    agent_name = AgentName(f"test-agent-{get_short_random_string()}")
-    resolved_type = agent_type or AgentTypeName("test")
-
-    agent_dir = local_provider.host_dir / "agents" / str(agent_id)
-    agent_dir.mkdir(parents=True, exist_ok=True)
-
-    data = {
-        "id": str(agent_id),
-        "name": str(agent_name),
-        "type": str(resolved_type),
-        "work_dir": str(temp_work_dir),
-        "create_time": datetime.now(timezone.utc).isoformat(),
-        "start_on_boot": False,
-    }
-    if agent_config.command is not None:
-        data["command"] = str(agent_config.command)
-    data_path = agent_dir / "data.json"
-    data_path.write_text(json.dumps(data, indent=2))
-
-    return BaseAgent(
-        id=agent_id,
-        name=agent_name,
-        agent_type=resolved_type,
-        work_dir=temp_work_dir,
-        create_time=datetime.now(timezone.utc),
-        host_id=host.id,
-        host=host,
-        mng_ctx=local_provider.mng_ctx,
-        agent_config=agent_config,
-    )
-
-
 def test_assemble_command_uses_command_override(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
@@ -531,7 +485,7 @@ def test_assemble_command_uses_command_override(
 ) -> None:
     """Test that command_override takes highest priority."""
     config = AgentTypeConfig(command=CommandString("configured-cmd"))
-    agent = _create_agent_with_config(local_provider, temp_host_dir, temp_work_dir, config)
+    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, agent_config=config)
 
     result = agent.assemble_command(
         host=agent.host,
@@ -548,7 +502,7 @@ def test_assemble_command_uses_config_command_when_no_override(
 ) -> None:
     """Test that agent_config.command is used when no command_override is given."""
     config = AgentTypeConfig(command=CommandString("configured-cmd"))
-    agent = _create_agent_with_config(local_provider, temp_host_dir, temp_work_dir, config)
+    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, agent_config=config)
 
     result = agent.assemble_command(
         host=agent.host,
@@ -565,8 +519,8 @@ def test_assemble_command_falls_back_to_agent_type(
 ) -> None:
     """Test that agent_type is used as command when neither override nor config command is set."""
     config = AgentTypeConfig()
-    agent = _create_agent_with_config(
-        local_provider, temp_host_dir, temp_work_dir, config, agent_type=AgentTypeName("my-custom-type")
+    agent = create_test_agent(
+        local_provider, temp_host_dir, temp_work_dir, agent_config=config, agent_type=AgentTypeName("my-custom-type")
     )
 
     result = agent.assemble_command(
@@ -584,7 +538,7 @@ def test_assemble_command_appends_cli_args(
 ) -> None:
     """Test that cli_args from config are appended to the command."""
     config = AgentTypeConfig(command=CommandString("my-cmd"), cli_args=("--flag", "value"))
-    agent = _create_agent_with_config(local_provider, temp_host_dir, temp_work_dir, config)
+    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, agent_config=config)
 
     result = agent.assemble_command(
         host=agent.host,
@@ -601,7 +555,7 @@ def test_assemble_command_appends_agent_args(
 ) -> None:
     """Test that agent_args are appended to the command."""
     config = AgentTypeConfig(command=CommandString("my-cmd"))
-    agent = _create_agent_with_config(local_provider, temp_host_dir, temp_work_dir, config)
+    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, agent_config=config)
 
     result = agent.assemble_command(
         host=agent.host,
@@ -618,7 +572,7 @@ def test_assemble_command_appends_both_cli_and_agent_args(
 ) -> None:
     """Test that both cli_args and agent_args are appended in order."""
     config = AgentTypeConfig(command=CommandString("my-cmd"), cli_args=("--cli-flag",))
-    agent = _create_agent_with_config(local_provider, temp_host_dir, temp_work_dir, config)
+    agent = create_test_agent(local_provider, temp_host_dir, temp_work_dir, agent_config=config)
 
     result = agent.assemble_command(
         host=agent.host,
