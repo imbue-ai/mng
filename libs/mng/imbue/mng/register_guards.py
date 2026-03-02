@@ -35,7 +35,7 @@ async def _guarded_modal_unary_stream(self, *args, **kwargs):
 
 
 def _guarded_docker_send(self, *args, **kwargs):
-    enforce_sdk_guard("docker")
+    enforce_sdk_guard("docker_sdk")
     original = _docker_originals["send_original_resolved"]
     return original(self, *args, **kwargs)
 
