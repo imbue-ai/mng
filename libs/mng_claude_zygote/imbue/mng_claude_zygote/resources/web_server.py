@@ -3,17 +3,16 @@
 
 Serves a web interface with:
 - Main page: conversation selector dropdown + iframe for the active conversation
-- All Agents page: list of agents on this host with tmux session links
+- All Agents page: list of agents on this host with links to connect
 
-Manages ttyd processes for on-demand terminal access to conversations
-and agent tmux sessions. Each ttyd is registered in servers.jsonl so the
-changelings forwarding server can discover and proxy to it.
+The actual terminal sessions are handled by companion ttyd processes (started
+as separate tmux windows with --url-arg):
+- Chat ttyd: accessed via ?arg=<conversation_id> to resume a conversation
+- Agent-tmux ttyd: accessed via ?arg=<agent_name> to attach to an agent's tmux
 
 Environment:
     MNG_AGENT_STATE_DIR  - Agent state directory (contains logs/)
     MNG_HOST_DIR         - Host data directory (contains commands/)
-    MNG_AGENT_WORK_DIR   - Agent work directory
-    MNG_AGENT_ID         - This agent's ID
     MNG_AGENT_NAME       - This agent's name
     MNG_HOST_NAME        - Name of the host this agent runs on
 """
@@ -21,8 +20,6 @@ Environment:
 import html
 import json
 import os
-import re
-import shlex
 import signal
 import subprocess
 import sys
@@ -32,7 +29,6 @@ from http.server import BaseHTTPRequestHandler
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Final
-from urllib.parse import unquote
 from urllib.parse import urlparse
 
 # -- Environment and paths --
@@ -49,39 +45,13 @@ MESSAGES_EVENTS_PATH: Final[Path | None] = (
 CONVERSATIONS_EVENTS_PATH: Final[Path | None] = (
     Path(AGENT_STATE_DIR) / "logs" / "conversations" / "events.jsonl" if AGENT_STATE_DIR else None
 )
-CHAT_SCRIPT_PATH: Final[Path | None] = Path(HOST_DIR) / "commands" / "chat.sh" if HOST_DIR else None
 
 # -- Constants --
 
 WEB_SERVER_NAME: Final[str] = "web"
 AGENT_LIST_POLL_INTERVAL_SECONDS: Final[int] = 30
-MAX_TTYD_PROCESSES: Final[int] = 20
-TTYD_PORT_DETECT_TIMEOUT_SECONDS: Final[int] = 15
-
-# -- Typed ttyd entry --
-
-
-class _TtydEntry:
-    """Tracks a spawned ttyd process and the port it is listening on."""
-
-    __slots__ = ("process", "port")
-
-    def __init__(self, process: subprocess.Popen[bytes], port: int) -> None:
-        self.process = process
-        self.port = port
-
-    def is_alive(self) -> bool:
-        return self.process.poll() is None
-
-
-# Sentinel value stored in the dict while a ttyd is being spawned,
-# preventing a second thread from spawning a duplicate for the same key.
-_SPAWNING_SENTINEL = object()
 
 # -- Global state (protected by locks) --
-
-_ttyd_lock = threading.Lock()
-_ttyd_by_server_name: dict[str, _TtydEntry | object] = {}
 
 _agent_list_lock = threading.Lock()
 _cached_agents: list[dict[str, object]] = []
@@ -166,177 +136,6 @@ def _read_conversations() -> list[dict[str, str]]:
     )
 
 
-# -- ttyd process management --
-
-
-def _detect_ttyd_port(process: subprocess.Popen[bytes]) -> int | None:
-    """Read ttyd stderr to detect the listening port."""
-    deadline = time.monotonic() + TTYD_PORT_DETECT_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        if process.stderr is None:
-            return None
-        line = process.stderr.readline()
-        if not line:
-            if process.poll() is not None:
-                return None
-            continue
-        line_str = line.decode("utf-8", errors="replace").strip()
-        _log(f"[ttyd] {line_str}")
-        if "Listening on port:" in line_str:
-            parts = line_str.split()
-            if parts:
-                try:
-                    return int(parts[-1])
-                except ValueError:
-                    continue
-    return None
-
-
-def _drain_ttyd_stderr(process: subprocess.Popen[bytes], server_name: str) -> None:
-    """Background thread: drain ttyd stderr to prevent pipe buffer blocking."""
-    try:
-        while process.stderr and process.poll() is None:
-            line = process.stderr.readline()
-            if line:
-                _log(f"[ttyd:{server_name}] {line.decode('utf-8', errors='replace').rstrip()}")
-    except (ValueError, OSError) as e:
-        _log(f"[ttyd:{server_name}] Stderr drain ended: {e}")
-
-
-def _start_ttyd_for_command(server_name: str, command: list[str]) -> _TtydEntry | None:
-    """Spawn a ttyd process for the given command and register it.
-
-    Uses a sentinel pattern to prevent concurrent spawns for the same server_name:
-    a placeholder is stored in the dict under the lock, so any second request for
-    the same name will see the sentinel and wait rather than spawning a duplicate.
-    """
-    with _ttyd_lock:
-        # Reuse existing if alive
-        existing = _ttyd_by_server_name.get(server_name)
-        if existing is _SPAWNING_SENTINEL:
-            # Another thread is already spawning this server
-            return None
-        if isinstance(existing, _TtydEntry):
-            if existing.is_alive():
-                return existing
-            del _ttyd_by_server_name[server_name]
-
-        # Enforce max limit (clean up dead processes first)
-        dead_keys = [k for k, v in _ttyd_by_server_name.items() if isinstance(v, _TtydEntry) and not v.is_alive()]
-        for k in dead_keys:
-            del _ttyd_by_server_name[k]
-
-        alive_count = sum(1 for v in _ttyd_by_server_name.values() if v is not _SPAWNING_SENTINEL)
-        if alive_count >= MAX_TTYD_PROCESSES:
-            _log(f"Max ttyd processes ({MAX_TTYD_PROCESSES}) reached, cannot spawn {server_name}")
-            return None
-
-        # Reserve the slot so no other thread tries to spawn the same server
-        _ttyd_by_server_name[server_name] = _SPAWNING_SENTINEL
-
-    # Spawn ttyd (outside the lock to avoid holding it during process start)
-    ttyd_cmd = ["ttyd", "-p", "0", "-t", "disableLeaveAlert=true", "-W", *command]
-    _log(f"Spawning ttyd: {' '.join(ttyd_cmd)}")
-
-    try:
-        process = subprocess.Popen(
-            ttyd_cmd,
-            stderr=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-        )
-    except OSError as e:
-        _log(f"Failed to start ttyd: {e}")
-        with _ttyd_lock:
-            _ttyd_by_server_name.pop(server_name, None)
-        return None
-
-    # Detect port (blocking, but only during initial spawn)
-    port = _detect_ttyd_port(process)
-    if port is None:
-        _log(f"Failed to detect ttyd port for {server_name}")
-        process.kill()
-        process.wait()
-        with _ttyd_lock:
-            _ttyd_by_server_name.pop(server_name, None)
-        return None
-
-    _log(f"ttyd for {server_name} listening on port {port}")
-
-    # Start stderr drain thread
-    drain_thread = threading.Thread(target=_drain_ttyd_stderr, args=(process, server_name), daemon=True)
-    drain_thread.start()
-
-    ttyd_entry = _TtydEntry(process=process, port=port)
-
-    with _ttyd_lock:
-        _ttyd_by_server_name[server_name] = ttyd_entry
-
-    # Register in servers.jsonl so the forwarding server discovers it
-    _register_server(server_name, port)
-
-    return ttyd_entry
-
-
-def _ensure_conversation_ttyd(conversation_id: str) -> str | None:
-    """Ensure a ttyd is running for the given conversation. Returns the server name."""
-    server_name = f"conv-{conversation_id}"
-
-    if CHAT_SCRIPT_PATH is None:
-        _log("CHAT_SCRIPT_PATH not set, cannot spawn conversation ttyd")
-        return None
-
-    quoted_cid = shlex.quote(conversation_id)
-    quoted_script = shlex.quote(str(CHAT_SCRIPT_PATH))
-    result = _start_ttyd_for_command(
-        server_name=server_name,
-        command=["bash", "-c", f"exec {quoted_script} --resume {quoted_cid}"],
-    )
-    return server_name if result is not None else None
-
-
-def _ensure_new_conversation_ttyd() -> str | None:
-    """Spawn a ttyd for a new conversation. Returns the server name."""
-    timestamp = int(time.time() * 1000)
-    server_name = f"new-conv-{timestamp}"
-
-    if CHAT_SCRIPT_PATH is None:
-        _log("CHAT_SCRIPT_PATH not set, cannot spawn new conversation ttyd")
-        return None
-
-    quoted_script = shlex.quote(str(CHAT_SCRIPT_PATH))
-    result = _start_ttyd_for_command(
-        server_name=server_name,
-        command=["bash", "-c", f"exec {quoted_script} --new"],
-    )
-    return server_name if result is not None else None
-
-
-def _ensure_agent_tmux_ttyd(agent_name: str) -> str | None:
-    """Ensure a ttyd is running for the given agent's tmux session. Returns the server name."""
-    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", agent_name)
-    server_name = f"tmux-{safe_name}"
-    quoted_session = shlex.quote(f"mng-{agent_name}")
-
-    result = _start_ttyd_for_command(
-        server_name=server_name,
-        command=["bash", "-c", f"unset TMUX && exec tmux attach -t {quoted_session}:0"],
-    )
-    return server_name if result is not None else None
-
-
-def _cleanup_all_ttyd_processes() -> None:
-    """Kill all managed ttyd processes."""
-    with _ttyd_lock:
-        for server_name, entry in _ttyd_by_server_name.items():
-            if isinstance(entry, _TtydEntry):
-                try:
-                    entry.process.terminate()
-                except ProcessLookupError:
-                    pass
-                _log(f"Terminated ttyd for {server_name}")
-        _ttyd_by_server_name.clear()
-
-
 # -- Agent list polling --
 
 
@@ -379,6 +178,10 @@ def _poll_agent_list_forever() -> None:
 
 
 # -- HTML Templates --
+#
+# The main page shows a conversation selector with an iframe that loads the
+# chat ttyd via ../chat/?arg=<cid>. The agents page lists all agents on
+# this host with links to ../agent-tmux/?arg=<name>.
 
 _MAIN_PAGE_HTML: Final[str] = """<!DOCTYPE html>
 <html>
@@ -501,9 +304,6 @@ _MAIN_PAGE_HTML: Final[str] = """<!DOCTYPE html>
   <iframe id="conv-frame" style="display:none"></iframe>
 
   <script>
-    var currentServerName = null;
-    var isLoading = false;
-
     function showStatus(msg) {{
       document.getElementById('status').textContent = msg;
       document.getElementById('status').style.display = 'flex';
@@ -554,8 +354,7 @@ _MAIN_PAGE_HTML: Final[str] = """<!DOCTYPE html>
         // Restore previous selection if it still exists, otherwise select first
         if (previousValue && Array.from(select.options).some(function(o) {{ return o.value === previousValue; }})) {{
           select.value = previousValue;
-        }} else if (!currentServerName) {{
-          // Only auto-select on first load
+        }} else {{
           select.selectedIndex = 0;
           onConversationSelected();
         }}
@@ -566,55 +365,19 @@ _MAIN_PAGE_HTML: Final[str] = """<!DOCTYPE html>
       }}
     }}
 
-    async function onConversationSelected() {{
+    function onConversationSelected() {{
       var select = document.getElementById('conv-select');
       var cid = select.value;
-      if (!cid || isLoading) return;
-
-      isLoading = true;
-      showStatus('Connecting to conversation...');
-
-      try {{
-        var resp = await fetch('api/ensure-conversation-ttyd/' + encodeURIComponent(cid), {{ method: 'POST' }});
-        var data = await resp.json();
-
-        if (data.server_name) {{
-          currentServerName = data.server_name;
-          // Use sibling server path: ../server_name/ resolves to /agents/<id>/server_name/
-          showFrame('../' + data.server_name + '/');
-        }} else {{
-          showStatus('Failed to start conversation terminal.');
-        }}
-      }} catch (e) {{
-        console.error('Failed to ensure conversation ttyd:', e);
-        showStatus('Failed to connect. Retrying...');
-        setTimeout(function() {{ isLoading = false; onConversationSelected(); }}, 3000);
-        return;
-      }}
-
-      isLoading = false;
+      if (!cid) return;
+      // Load the chat ttyd with the conversation id as a URL arg
+      showFrame('../chat/?arg=' + encodeURIComponent(cid));
     }}
 
-    async function onNewConversation() {{
-      showStatus('Starting new conversation...');
-
-      try {{
-        var resp = await fetch('api/new-conversation', {{ method: 'POST' }});
-        var data = await resp.json();
-
-        if (data.server_name) {{
-          currentServerName = data.server_name;
-          showFrame('../' + data.server_name + '/');
-
-          // Refresh the conversation list after a short delay to pick up the new one
-          setTimeout(loadConversations, 5000);
-        }} else {{
-          showStatus('Failed to create new conversation.');
-        }}
-      }} catch (e) {{
-        console.error('Failed to create new conversation:', e);
-        showStatus('Failed to create conversation.');
-      }}
+    function onNewConversation() {{
+      // Load the chat ttyd with no arg (starts a new conversation)
+      showFrame('../chat/');
+      // Refresh the conversation list after a delay to pick up the new one
+      setTimeout(loadConversations, 5000);
     }}
 
     // Periodically refresh the conversation list
@@ -683,17 +446,16 @@ _AGENTS_PAGE_HTML: Final[str] = """<!DOCTYPE html>
     .agent-state.waiting {{ background: #fff3cd; color: #856404; }}
     .agent-state.done {{ background: #cce5ff; color: #004085; }}
     .agent-connect {{
+      display: inline-block;
       padding: 6px 14px;
       background: rgb(26, 26, 46);
       color: white;
       text-decoration: none;
       border-radius: 4px;
       font-size: 14px;
-      border: none;
-      cursor: pointer;
     }}
     .agent-connect:hover {{ background: rgb(42, 42, 78); }}
-    .agent-connect:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+    .agent-connect.disabled {{ opacity: 0.5; pointer-events: none; }}
     .empty-state {{ color: #666; font-size: 15px; margin-top: 16px; }}
     .loading {{ color: #666; font-size: 15px; margin-top: 16px; }}
   </style>
@@ -749,44 +511,23 @@ _AGENTS_PAGE_HTML: Final[str] = """<!DOCTYPE html>
 
           li.appendChild(info);
 
-          var btn = document.createElement('button');
-          btn.className = 'agent-connect';
-          btn.textContent = 'Connect';
+          var link = document.createElement('a');
+          link.className = 'agent-connect';
+          link.textContent = 'Connect';
           if (state === 'running' || state === 'waiting') {{
-            btn.onclick = (function(agentName) {{
-              return function() {{ connectToAgent(agentName, this); }};
-            }})(agent.name);
+            // Link to the agent-tmux ttyd with the agent name as a URL arg
+            link.href = '../agent-tmux/?arg=' + encodeURIComponent(agent.name);
           }} else {{
-            btn.disabled = true;
-            btn.title = 'Agent is not running';
+            link.className += ' disabled';
+            link.title = 'Agent is not running';
           }}
-          li.appendChild(btn);
+          li.appendChild(link);
 
           list.appendChild(li);
         }});
       }} catch (e) {{
         document.getElementById('loading').textContent = 'Failed to load agents. Retrying...';
         setTimeout(loadAgents, 5000);
-      }}
-    }}
-
-    async function connectToAgent(agentName, btn) {{
-      btn.textContent = 'Connecting...';
-      btn.disabled = true;
-
-      try {{
-        var resp = await fetch('api/ensure-agent-ttyd/' + encodeURIComponent(agentName), {{ method: 'POST' }});
-        var data = await resp.json();
-        if (data.server_name) {{
-          // Navigate to the sibling server (the agent's tmux ttyd)
-          window.location.href = '../' + data.server_name + '/';
-        }} else {{
-          btn.textContent = 'Failed';
-          setTimeout(function() {{ btn.textContent = 'Connect'; btn.disabled = false; }}, 2000);
-        }}
-      }} catch (e) {{
-        btn.textContent = 'Failed';
-        setTimeout(function() {{ btn.textContent = 'Connect'; btn.disabled = false; }}, 2000);
       }}
     }}
 
@@ -822,34 +563,16 @@ class _WebServerHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/")
-
-        if path == "/api/new-conversation":
-            server_name = _ensure_new_conversation_ttyd()
-            self._serve_json({"server_name": server_name})
-        elif path.startswith("/api/ensure-conversation-ttyd/"):
-            cid = unquote(path.split("/")[-1])
-            server_name = _ensure_conversation_ttyd(cid)
-            self._serve_json({"server_name": server_name})
-        elif path.startswith("/api/ensure-agent-ttyd/"):
-            agent_name = unquote(path.split("/")[-1])
-            server_name = _ensure_agent_tmux_ttyd(agent_name)
-            self._serve_json({"server_name": server_name})
-        else:
-            self.send_error(404)
-
     def _serve_main_page(self) -> None:
-        html = _MAIN_PAGE_HTML.format(agent_name=_html_escape(AGENT_NAME or "Agent"))
-        self._send_html(html)
+        page_html = _MAIN_PAGE_HTML.format(agent_name=_html_escape(AGENT_NAME or "Agent"))
+        self._send_html(page_html)
 
     def _serve_agents_page(self) -> None:
-        html = _AGENTS_PAGE_HTML.format(agent_name=_html_escape(AGENT_NAME or "Agent"))
-        self._send_html(html)
+        page_html = _AGENTS_PAGE_HTML.format(agent_name=_html_escape(AGENT_NAME or "Agent"))
+        self._send_html(page_html)
 
-    def _send_html(self, html: str) -> None:
-        encoded = html.encode("utf-8")
+    def _send_html(self, content: str) -> None:
+        encoded = content.encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(encoded)))
@@ -891,9 +614,7 @@ def main() -> None:
 
     # Handle shutdown signals.
     # server.shutdown() must be called from a different thread than
-    # serve_forever() to avoid deadlock (it waits for the serve loop
-    # to exit, which cannot happen if the signal handler is blocking
-    # the same thread).
+    # serve_forever() to avoid deadlock.
     def _shutdown_handler(signum: int, frame: object) -> None:
         global _is_shutting_down
         _is_shutting_down = True
@@ -907,7 +628,6 @@ def main() -> None:
         server.serve_forever()
     finally:
         _is_shutting_down = True
-        _cleanup_all_ttyd_processes()
 
 
 if __name__ == "__main__":

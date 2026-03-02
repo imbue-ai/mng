@@ -9,9 +9,13 @@ import pytest
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
 from imbue.mng.interfaces.host import NamedCommand
+from imbue.mng_claude_zygote.plugin import AGENT_TMUX_TTYD_COMMAND
+from imbue.mng_claude_zygote.plugin import AGENT_TMUX_TTYD_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_COMMAND
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_SERVER_NAME
 from imbue.mng_claude_zygote.plugin import AGENT_TTYD_WINDOW_NAME
+from imbue.mng_claude_zygote.plugin import CHAT_TTYD_COMMAND
+from imbue.mng_claude_zygote.plugin import CHAT_TTYD_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import CONV_WATCHER_COMMAND
 from imbue.mng_claude_zygote.plugin import CONV_WATCHER_WINDOW_NAME
 from imbue.mng_claude_zygote.plugin import ClaudeZygoteAgent
@@ -27,8 +31,8 @@ from imbue.mng_claude_zygote.plugin import override_command_options
 from imbue.mng_claude_zygote.plugin import register_agent_type
 
 # Total number of tmux windows injected by inject_changeling_windows:
-# agent ttyd, conv_watcher, events, web_server
-_CHANGELING_WINDOW_COUNT = 4
+# agent ttyd, conv_watcher, events, web_server, chat ttyd, agent-tmux ttyd
+_CHANGELING_WINDOW_COUNT = 6
 
 
 class _DummyCommandClass:
@@ -325,3 +329,45 @@ def test_web_server_command_is_parseable_as_named_command() -> None:
     assert len(web_entries) == 1
     named_cmd = NamedCommand.from_string(web_entries[0])
     assert named_cmd.window_name == WEB_SERVER_WINDOW_NAME
+
+
+# -- Chat ttyd tests --
+
+
+def test_adds_chat_ttyd_window(zygote_create_params: dict[str, Any]) -> None:
+    entries = [c for c in zygote_create_params["add_command"] if CHAT_TTYD_WINDOW_NAME in c]
+    assert len(entries) == 1
+
+
+def test_chat_ttyd_command_uses_url_arg() -> None:
+    assert "-a" in CHAT_TTYD_COMMAND
+    assert "chat_ttyd_handler.sh" in CHAT_TTYD_COMMAND
+
+
+def test_chat_ttyd_command_uses_random_port() -> None:
+    assert "ttyd -p 0" in CHAT_TTYD_COMMAND
+
+
+def test_chat_ttyd_command_writes_server_log() -> None:
+    assert "servers.jsonl" in CHAT_TTYD_COMMAND
+
+
+# -- Agent-tmux ttyd tests --
+
+
+def test_adds_agent_tmux_ttyd_window(zygote_create_params: dict[str, Any]) -> None:
+    entries = [c for c in zygote_create_params["add_command"] if AGENT_TMUX_TTYD_WINDOW_NAME in c]
+    assert len(entries) == 1
+
+
+def test_agent_tmux_ttyd_command_uses_url_arg() -> None:
+    assert "-a" in AGENT_TMUX_TTYD_COMMAND
+    assert "agent_tmux_handler.sh" in AGENT_TMUX_TTYD_COMMAND
+
+
+def test_agent_tmux_ttyd_command_uses_random_port() -> None:
+    assert "ttyd -p 0" in AGENT_TMUX_TTYD_COMMAND
+
+
+def test_agent_tmux_ttyd_command_writes_server_log() -> None:
+    assert "servers.jsonl" in AGENT_TMUX_TTYD_COMMAND

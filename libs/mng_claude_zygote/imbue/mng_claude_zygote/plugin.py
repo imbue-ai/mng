@@ -53,10 +53,30 @@ CONV_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/conversation_watcher.
 EVENT_WATCHER_WINDOW_NAME: Final[str] = "events"
 EVENT_WATCHER_COMMAND: Final[str] = "$MNG_HOST_DIR/commands/event_watcher.sh"
 
-# Web server: serves the main web interface with conversation selector,
-# agent list, and on-demand ttyd spawning for conversations/agents.
+# Web server: serves the main web interface with conversation selector
+# and agent list page.
 WEB_SERVER_WINDOW_NAME: Final[str] = "web_server"
 WEB_SERVER_COMMAND: Final[str] = 'python3 "$MNG_HOST_DIR/commands/web_server.py"'
+
+# Chat ttyd: a ttyd with --url-arg that dispatches to chat.sh.
+# Accessed with ?arg=<conversation_id> to resume, or no arg for a new conversation.
+CHAT_TTYD_WINDOW_NAME: Final[str] = "chat"
+CHAT_TTYD_SERVER_NAME: Final[str] = CHAT_TTYD_WINDOW_NAME
+_CHAT_TTYD_INVOCATION: Final[str] = (
+    'ttyd -p 0 -a -t disableLeaveAlert=true -W bash "$MNG_HOST_DIR/commands/chat_ttyd_handler.sh"'
+)
+CHAT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
+
+# Agent-tmux ttyd: a ttyd with --url-arg that attaches to any agent's tmux session.
+# Accessed with ?arg=<agent_name> to connect to that agent.
+AGENT_TMUX_TTYD_WINDOW_NAME: Final[str] = "agent_tmux"
+AGENT_TMUX_TTYD_SERVER_NAME: Final[str] = "agent-tmux"
+_AGENT_TMUX_TTYD_INVOCATION: Final[str] = (
+    'ttyd -p 0 -a -t disableLeaveAlert=true -W bash "$MNG_HOST_DIR/commands/agent_tmux_handler.sh"'
+)
+AGENT_TMUX_TTYD_COMMAND: Final[str] = build_ttyd_server_command(
+    _AGENT_TMUX_TTYD_INVOCATION, AGENT_TMUX_TTYD_SERVER_NAME
+)
 
 
 class ClaudeZygoteConfig(ClaudeAgentConfig):
@@ -99,6 +119,8 @@ class ClaudeZygoteAgent(ClaudeAgent):
     - Conversation watcher (syncs llm DB to logs/messages/events.jsonl)
     - Event watcher (sends new events to primary agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
+    - Chat ttyd (--url-arg ttyd for conversation terminal access)
+    - Agent-tmux ttyd (--url-arg ttyd for connecting to other agents)
     """
 
     def _get_zygote_config(self) -> ClaudeZygoteConfig:
@@ -184,6 +206,8 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
     - Conversation watcher (syncs llm DB to JSONL files)
     - Event watcher (sends new events to primary agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
+    - Chat ttyd (--url-arg ttyd for conversation access)
+    - Agent-tmux ttyd (--url-arg ttyd for connecting to other agents' tmux sessions)
     """
     inject_agent_ttyd(params)
 
@@ -193,6 +217,8 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
         f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
         f'{EVENT_WATCHER_WINDOW_NAME}="{EVENT_WATCHER_COMMAND}"',
         f'{WEB_SERVER_WINDOW_NAME}="{WEB_SERVER_COMMAND}"',
+        f'{CHAT_TTYD_WINDOW_NAME}="{CHAT_TTYD_COMMAND}"',
+        f'{AGENT_TMUX_TTYD_WINDOW_NAME}="{AGENT_TMUX_TTYD_COMMAND}"',
     )
 
 
@@ -215,7 +241,8 @@ def override_command_options(
 ) -> None:
     """Add changeling tmux windows when creating claude-zygote agents.
 
-    Injects: agent ttyd, conversation watcher, event watcher, and web server.
+    Injects: agent ttyd, conversation watcher, event watcher, web server,
+    chat ttyd, and agent-tmux ttyd.
     """
     if command_name != "create":
         return
