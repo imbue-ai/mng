@@ -465,10 +465,7 @@ def check_no_ruff_errors(project_root: Path) -> None:
 
 
 def check_no_import_lint_errors(project_root: Path, contract_name: str = "mng layers contract") -> None:
-    """Run import-linter and raise AssertionError if any layer violations are found.
-
-    Uses import-linter's Python API to get structured results.
-    All violations (production and test code) cause failure.
+    """Run import-linter and raise AssertionError if the layer contract is broken.
 
     Only checks the contract matching contract_name; other contracts are skipped.
     """
@@ -481,24 +478,11 @@ def check_no_import_lint_errors(project_root: Path, contract_name: str = "mng la
     user_options.contracts_options = [opt for opt in user_options.contracts_options if opt["name"] == contract_name]
     report = create_report(user_options)
 
-    violations: list[str] = []
     for contract, check in report.get_contracts_and_checks():
-        if check.kept:
-            continue
-        for dep in check.metadata.get("invalid_dependencies", []):
-            for route in dep["routes"]:
-                first_link = route["chain"][0]
-                importer = first_link["importer"]
-                imported = first_link["imported"]
-                violations.append(f"  {importer} -> {imported}")
-
-    if violations:
-        failure_message = [
-            f"import-linter found {len(violations)} layer violation(s):",
-            "",
-            *violations,
-        ]
-        raise AssertionError("\n".join(failure_message))
+        if not check.kept:
+            raise AssertionError(
+                f"import-linter contract '{contract_name}' broken. Run 'uv run lint-imports' for details."
+            )
 
 
 def find_bash_scripts_without_strict_mode(cwd: Path) -> list[str]:
