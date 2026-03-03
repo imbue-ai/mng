@@ -5,6 +5,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Final
 
+from loguru import logger
+
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
 from imbue.concurrency_group.errors import ProcessTimeoutError
@@ -93,8 +95,10 @@ def query_claude(
         text = result.stdout.strip()
         return text if text else None
     except ProcessSetupError:
+        logger.debug("Failed to start claude process (not installed or not in PATH)")
         return None
     except ProcessTimeoutError:
+        logger.debug("Claude process timed out after {} seconds", timeout)
         return None
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
