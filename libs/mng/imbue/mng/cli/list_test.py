@@ -627,6 +627,12 @@ def test_resolve_model_type_raises_on_non_optional_union() -> None:
         _resolve_model_type(str | int)
 
 
+def test_resolve_model_type_raises_on_fixed_length_tuple() -> None:
+    """_resolve_model_type should raise SwitchError for tuple[X, Y] (not tuple[X, ...])."""
+    with pytest.raises(SwitchError, match="Expected tuple"):
+        _resolve_model_type(tuple[str, int])
+
+
 # =============================================================================
 # Tests for _format_streaming_header_row and _format_streaming_agent_row
 # =============================================================================

@@ -946,12 +946,19 @@ def _resolve_model_type(annotation: Any) -> type[BaseModel] | None:
         inner = args[0] if args[1] is type(None) else args[1]
         return _resolve_model_type(inner)
 
-    # Handle list[X] and tuple[X, ...]
-    elif origin in (list, tuple):
+    # Handle list[X]
+    elif origin is list:
         args = get_args(annotation)
-        if args:
-            return _resolve_model_type(args[0])
-        return None
+        if not args or len(args) != 1:
+            raise SwitchError(f"Expected list[X], got: {annotation}")
+        return _resolve_model_type(args[0])
+
+    # Handle tuple[X, ...] (homogeneous variable-length tuples)
+    elif origin is tuple:
+        args = get_args(annotation)
+        if len(args) != 2 or args[1] is not Ellipsis:
+            raise SwitchError(f"Expected tuple[X, ...], got: {annotation}")
+        return _resolve_model_type(args[0])
 
     # Handle dict[K, V] -- dynamic keys, stop validation
     elif origin is dict:
