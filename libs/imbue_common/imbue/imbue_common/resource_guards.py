@@ -1,26 +1,45 @@
 """Resource guard system for enforcing pytest marks on external tool usage.
 
-Provides PATH wrapper scripts that intercept calls to guarded binaries
-during tests. During the test call phase, wrappers:
-- Block invocation if the test lacks the corresponding mark (catches missing marks)
-- Track invocation if the test has the mark (catches superfluous marks)
+Two guard mechanisms are provided:
+
+1. PATH wrapper scripts intercept calls to guarded CLI binaries (e.g. tmux,
+   rsync). During the test call phase, wrappers block or track invocations
+   based on whether the test has the corresponding mark.
+
+2. SDK monkeypatches intercept Python SDK chokepoints. SDK-specific guards
+   are registered via register_sdk_guard() before session start, then
+   installed by create_sdk_resource_guards(). The monkeypatches call
+   enforce_sdk_guard, which mirrors the wrapper logic: block unmarked
+   usage and track marked usage.
+
+Both mechanisms use per-test tracking files so that makereport can fail tests
+that invoke a resource without the mark or carry a mark without invoking it.
 
 Usage:
-    Call create_resource_guard_wrappers(resources) during pytest_sessionstart
-    and cleanup_resource_guard_wrappers() during pytest_sessionfinish. Register
-    the three runtest hooks (pytest_runtest_setup, pytest_runtest_teardown,
-    pytest_runtest_makereport) into the conftest namespace.
+    Register SDK guards via register_sdk_guard(name, install, cleanup) before
+    pytest_sessionstart. Call create_resource_guard_wrappers(resources) and
+    create_sdk_resource_guards() during pytest_sessionstart.
+    Call cleanup_sdk_resource_guards() and cleanup_resource_guard_wrappers()
+    during pytest_sessionfinish. Register the three runtest hooks
+    (pytest_runtest_setup, pytest_runtest_teardown, pytest_runtest_makereport)
+    into the conftest namespace.
 """
 
 import os
 import shutil
 import stat
 import tempfile
+from collections.abc import Callable
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+
+
+class ResourceGuardViolation(Exception):
+    """Raised when a test invokes an SDK resource without the required mark."""
+
 
 # Module-level state for resource guard wrappers. The wrapper directory is created
 # once per session (by the controller or single process) and reused by xdist workers.
@@ -29,12 +48,16 @@ import pytest
 # process via the _PYTEST_GUARD_WRAPPER_DIR env var.
 # _session_env_patcher is the patch.dict that manages PATH and _PYTEST_GUARD_WRAPPER_DIR;
 # stopping it automatically restores PATH to its original value.
-# _guarded_resources is populated by register_resource_guard() calls from each
-# project's conftest.py; create_resource_guard_wrappers reads from it at session start.
+# _guarded_resources is populated by register_resource_guard() and extended by
+# create_sdk_resource_guards(); the hooks read from it at session start.
 _guard_wrapper_dir: str | None = None
 _owns_guard_wrapper_dir: bool = False
 _session_env_patcher: patch.dict | None = None  # type: ignore[type-arg]
 _guarded_resources: list[str] = []
+
+# Module-level state for SDK guards. Each entry is (name, install_fn, cleanup_fn).
+# Populated by register_sdk_guard() before create_sdk_resource_guards() runs.
+_registered_sdk_guards: list[tuple[str, Callable[[], None], Callable[[], None]]] = []
 
 
 def register_resource_guard(name: str) -> None:
@@ -191,6 +214,74 @@ def cleanup_resource_guard_wrappers() -> None:
 
 
 # ---------------------------------------------------------------------------
+# SDK resource guards (monkeypatch-based, for Python SDK chokepoints)
+# ---------------------------------------------------------------------------
+
+
+def enforce_sdk_guard(resource: str) -> None:
+    """Check SDK resource guard env vars and enforce/track usage.
+
+    Mirrors the bash wrapper logic for binary guards, but called from Python.
+    During the test call phase:
+    - If blocked: creates tracking file and raises ResourceGuardViolation
+    - If allowed: creates tracking file to confirm the resource was used
+    Outside the call phase (fixture setup/teardown), does nothing.
+    """
+    if os.environ.get("_PYTEST_GUARD_PHASE") != "call":
+        return
+
+    guard_status = os.environ.get(f"_PYTEST_GUARD_{resource.upper()}")
+    tracking_dir = os.environ.get("_PYTEST_GUARD_TRACKING_DIR")
+
+    if guard_status == "block":
+        if tracking_dir:
+            Path(tracking_dir).joinpath(f"blocked_{resource}").touch()
+        raise ResourceGuardViolation(
+            f"RESOURCE GUARD: Test invoked '{resource}' without @pytest.mark.{resource} mark.\n"
+            f"Add @pytest.mark.{resource} to the test, or remove the {resource} usage."
+        )
+
+    if guard_status == "allow" and tracking_dir:
+        Path(tracking_dir).joinpath(resource).touch()
+
+
+def register_sdk_guard(
+    name: str,
+    install: Callable[[], None],
+    cleanup: Callable[[], None],
+) -> None:
+    """Register an SDK guard for use by create_sdk_resource_guards.
+
+    Callers (e.g. mng's register_guards module) call this before
+    register_conftest_hooks() to push SDK-specific guard implementations
+    into the infrastructure. Deduplicates by name so multiple conftest
+    files can safely call the registration function.
+    """
+    registered_names = {entry[0] for entry in _registered_sdk_guards}
+    if name not in registered_names:
+        _registered_sdk_guards.append((name, install, cleanup))
+
+
+def create_sdk_resource_guards() -> None:
+    """Install all registered SDK guards and add their names to _guarded_resources.
+
+    Iterates through guards registered via register_sdk_guard(), calls each
+    install function, and extends _guarded_resources so the per-test hooks
+    set up env vars for them.
+    """
+    for name, install, _cleanup in _registered_sdk_guards:
+        if name not in _guarded_resources:
+            _guarded_resources.append(name)
+        install()
+
+
+def cleanup_sdk_resource_guards() -> None:
+    """Call cleanup for all registered SDK guards."""
+    for _name, _install, cleanup in _registered_sdk_guards:
+        cleanup()
+
+
+# ---------------------------------------------------------------------------
 # Pytest hook implementations (prefixed with _ to avoid accidental discovery)
 # ---------------------------------------------------------------------------
 
@@ -255,12 +346,14 @@ def _pytest_runtest_makereport(
 ) -> Generator[None, None, None]:
     """Enforce resource guard invariants after each test.
 
-    After the call phase completes successfully, checks two things:
+    After the call phase, checks two things:
     1. Blocked invocations: if a test without @pytest.mark.<resource> invoked
-       the resource anyway (and handled the non-zero exit), the blocked_<resource>
-       tracking file catches it.
+       the resource anyway (and handled the non-zero exit or caught the
+       ResourceGuardViolation), the blocked_<resource> tracking file catches it.
+       This check runs regardless of test pass/fail so that the guard violation
+       is visible even when the test fails for a downstream reason.
     2. Superfluous marks: if a test has @pytest.mark.<resource> but the resource
-       binary was never invoked, the test is failed.
+       was never invoked, the test is failed. Only checked on passing tests.
     """
     outcome = yield
     report = outcome.get_result()

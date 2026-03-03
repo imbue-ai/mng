@@ -5,9 +5,6 @@ Call register_plugin_test_fixtures(globals()) from a plugin's conftest.py
 to register the standard set of fixtures.
 """
 
-import os
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Any
 from typing import Generator
@@ -32,6 +29,7 @@ from imbue.mng.providers.registry import reset_backend_registry
 from imbue.mng.utils.testing import assert_home_is_temp_directory
 from imbue.mng.utils.testing import init_git_repo
 from imbue.mng.utils.testing import isolate_home
+from imbue.mng.utils.testing import isolate_tmux_server
 from imbue.mng.utils.testing import make_mng_ctx
 
 
@@ -76,38 +74,15 @@ def temp_host_dir(tmp_path: Path) -> Path:
     return host_dir
 
 
-def _kill_isolated_tmux_server(tmux_tmpdir: Path) -> None:
-    """Kill a test-isolated tmux server and clean up its tmpdir."""
-    tmux_tmpdir_str = str(tmux_tmpdir)
-    assert tmux_tmpdir_str.startswith("/tmp/mng-tmux-"), (
-        f"TMUX_TMPDIR safety check failed! Expected /tmp/mng-tmux-* path but got: {tmux_tmpdir_str}. "
-        "Refusing to run 'tmux kill-server' to avoid killing the real tmux server."
-    )
-    socket_path = Path(tmux_tmpdir_str) / f"tmux-{os.getuid()}" / "default"
-    kill_env = os.environ.copy()
-    kill_env.pop("TMUX", None)
-    kill_env["TMUX_TMPDIR"] = tmux_tmpdir_str
-    with ConcurrencyGroup(name="tmux-cleanup") as cg:
-        cg.run_process_to_completion(
-            ("tmux", "-S", str(socket_path), "kill-server"),
-            is_checked_after=False,
-            env=kill_env,
-        )
-    shutil.rmtree(tmux_tmpdir, ignore_errors=True)
+@pytest.fixture
+def _isolate_tmux_server(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    """Give each test its own isolated tmux server.
 
-
-@pytest.fixture(autouse=True)
-def _isolate_tmux_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
-    """Give each test its own isolated tmux server."""
-    tmux_tmpdir = Path(tempfile.mkdtemp(prefix="mng-tmux-", dir="/tmp"))
-    monkeypatch.setenv("TMUX_TMPDIR", str(tmux_tmpdir))
-    monkeypatch.delenv("TMUX", raising=False)
-
-    yield
-
-    _kill_isolated_tmux_server(tmux_tmpdir)
+    Delegates to the shared isolate_tmux_server() context manager in testing.py.
+    See its docstring for details on the isolation strategy and why /tmp is used.
+    """
+    with isolate_tmux_server(monkeypatch):
+        yield
 
 
 @pytest.fixture(autouse=True)

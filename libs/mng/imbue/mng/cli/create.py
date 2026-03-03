@@ -2,6 +2,8 @@ import os
 import shlex
 import sys
 from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import assert_never
 from typing import cast
@@ -9,6 +11,7 @@ from typing import cast
 import click
 from click_option_group import optgroup
 from loguru import logger
+from pydantic import ConfigDict
 from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
@@ -33,6 +36,7 @@ from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
+from imbue.mng.cli.common_opts import error_if_param_explicit
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.env_utils import resolve_env_vars
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
@@ -40,6 +44,7 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_event
 from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.completion_writer import add_agent_name_to_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import AgentNotFoundError
@@ -547,19 +552,66 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    result = _handle_create(mng_ctx, output_opts, opts, logging_config)
-    if result is None:
-        return
-    create_result, connection_opts, output_opts, opts, mng_ctx = result
-    _post_create(create_result, connection_opts, output_opts, opts, mng_ctx)
+    # Resolve defaults that depend on other args. error_if_param_explicit raises if the
+    # user explicitly passed a conflicting value.
+    overrides = []
+
+    # --await-agent-stopped implies --no-connect
+    if opts.await_agent_stopped and opts.connect:
+        error_if_param_explicit(
+            ctx,
+            "connect",
+            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait.",
+        )
+        overrides.append(to_update(opts.field_ref().connect, False))
+
+    # --await-agent-stopped implies --await-ready
+    if opts.await_agent_stopped and not opts.await_ready:
+        error_if_param_explicit(
+            ctx,
+            "await_ready",
+            "Cannot use --await-agent-stopped and --no-await-ready together.",
+        )
+        overrides.append(to_update(opts.field_ref().await_ready, True))
+
+    resolved_opts = opts.model_copy_update(*overrides) if overrides else opts
+
+    # Setup (validation, editor session, source resolution, etc.)
+    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
+
+    # Create agent
+    result = _create_agent(mng_ctx, output_opts, resolved_opts, setup)
+    if result is not None:
+        create_result, connection_opts = result
+        _post_create(create_result, connection_opts, resolved_opts, mng_ctx)
+        _finish_create(create_result, setup, output_opts)
+    else:
+        _finish_create(None, setup, output_opts)
 
 
-def _handle_create(
+class _CreateSetup(FrozenModel):
+    """Per-invocation state shared between _setup_create and _create_agent."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    initial_message: str | None = Field(
+        description="Resolved initial message content (from --message or --message-file)"
+    )
+    resume_message: str | None = Field(description="Resolved resume message content")
+    editor_session: EditorSession | None = Field(default=None, description="Editor session for --edit-message")
+    agent_and_host_loader: _CachedAgentHostLoader = Field(description="Lazy loader for agents grouped by host")
+    source_location: HostLocation = Field(description="Resolved source location")
+    project_name: str = Field(description="Project name for agent labels")
+    host_lifecycle: HostLifecycleOptions = Field(description="Host lifecycle options")
+
+
+def _setup_create(
     mng_ctx: MngContext,
     output_opts: OutputOptions,
     opts: CreateCliOptions,
     logging_config: LoggingConfig,
-) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngContext] | None:
+) -> _CreateSetup:
+    """Validate options, resolve messages, start editor session, resolve source location."""
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
         raise UserInputError("Cannot provide both --message and --message-file")
@@ -568,26 +620,12 @@ def _handle_create(
     if opts.resume_message is not None and opts.resume_message_file is not None:
         raise UserInputError("Cannot provide both --resume-message and --resume-message-file")
 
-    # validate that we're not waiting for the agent to stop and trying to connect:
-    if opts.await_agent_stopped and opts.connect:
-        raise UserInputError(
-            "Cannot use --await-agent-stopped and --connect together. Pass --no-connect to just wait."
-        )
-
     # Early validation: --edit-message cannot be used with background creation
     # Background creation happens when --no-connect and --no-await-ready (the default when --no-connect)
     # We check this BEFORE creating the editor session to avoid starting an editor subprocess
     # that would immediately need to be cleaned up (which causes race conditions and flaky tests)
     if opts.edit_message:
-        # Compute should_await_ready the same way it's computed later
-        early_should_await_ready = opts.await_ready
-        if early_should_await_ready is None:
-            if opts.await_agent_stopped:
-                early_should_await_ready = True
-            else:
-                early_should_await_ready = opts.connect
-        # Check if this would be background creation
-        if not opts.connect and not early_should_await_ready:
+        if not opts.connect and not opts.await_ready:
             raise UserInputError(
                 "--edit-message cannot be used with background creation (--no-connect --no-await-ready). "
                 "Use --await-ready to wait for agent creation."
@@ -641,20 +679,38 @@ def _handle_create(
     # Parse host lifecycle options (these go on the host, not the agent)
     host_lifecycle = _parse_host_lifecycle_options(opts)
 
+    return _CreateSetup(
+        initial_message=initial_message,
+        resume_message=resume_message_content,
+        editor_session=editor_session,
+        agent_and_host_loader=agent_and_host_loader,
+        source_location=source_location,
+        project_name=project_name,
+        host_lifecycle=host_lifecycle,
+    )
+
+
+def _create_agent(
+    mng_ctx: MngContext,
+    output_opts: OutputOptions,
+    opts: CreateCliOptions,
+    setup: _CreateSetup,
+) -> tuple[CreateAgentResult, ConnectionOptions] | None:
+    """Parse opts, resolve host, create agent."""
     # Parse target host (existing or new)
     target_host = _parse_target_host(
         opts=opts,
-        project_name=project_name,
-        agent_and_host_loader=agent_and_host_loader,
-        lifecycle=host_lifecycle,
+        project_name=setup.project_name,
+        agent_and_host_loader=setup.agent_and_host_loader,
+        lifecycle=setup.host_lifecycle,
     )
 
     # Parse agent options
     agent_opts = _parse_agent_opts(
         opts=opts,
-        initial_message=initial_message,
-        resume_message=resume_message_content,
-        source_location=source_location,
+        initial_message=setup.initial_message,
+        resume_message=setup.resume_message,
+        source_location=setup.source_location,
         mng_ctx=mng_ctx,
     )
 
@@ -668,8 +724,6 @@ def _handle_create(
         attach_command=opts.attach_command,
     )
 
-    # at this point, all options are parsed, and we can actually start the executing the command
-
     # If --reuse is set, try to find and reuse an existing agent with the same name
     if opts.reuse and agent_opts.name is not None:
         reuse_result = _try_reuse_existing_agent(
@@ -677,7 +731,7 @@ def _handle_create(
             provider_name=ProviderInstanceName(opts.new_host) if opts.new_host else None,
             target_host_ref=target_host if isinstance(target_host, HostReference) else None,
             mng_ctx=mng_ctx,
-            agent_and_host_loader=agent_and_host_loader,
+            agent_and_host_loader=setup.agent_and_host_loader,
         )
         if reuse_result is not None:
             agent, host = reuse_result
@@ -685,36 +739,32 @@ def _handle_create(
 
             # Handle --edit-message if editor session was started,
             # or send initial message directly if --message/--message-file was provided
-            try:
-                if editor_session is not None:
+            with _editor_cleanup_scope(setup.editor_session):
+                if setup.editor_session is not None:
                     _handle_editor_message(
-                        editor_session=editor_session,
+                        editor_session=setup.editor_session,
                         agent=agent,
                     )
-                elif initial_message is not None:
+                elif setup.initial_message is not None:
                     # Send initial message directly (from --message or --message-file)
                     logger.info("Sending message to agent")
-                    agent.send_message(initial_message)
+                    agent.send_message(setup.initial_message)
                 else:
                     pass
-            finally:
-                # Clean up editor session on success or failure
-                if editor_session is not None and not editor_session.is_finished():
-                    editor_session.cleanup()
-                # Ensure logging suppression is disabled on any exit path
-                if LoggingSuppressor.is_suppressed():
-                    LoggingSuppressor.disable_and_replay(clear_screen=True)
 
-            create_result = CreateAgentResult(agent=agent, host=host)
-            return create_result, connection_opts, output_opts, opts, mng_ctx
+            return CreateAgentResult(agent=agent, host=host), connection_opts
 
     # If ensure-clean is set, verify the source work_dir is clean.
-    # Skip the check when an explicit --base-branch is provided, since the agent
-    # will be created from that branch and uncommitted changes in the current
-    # working tree are irrelevant (regardless of copy mode).
-    is_from_explicit_base_branch = agent_opts.git is not None and opts.base_branch is not None
-    if opts.ensure_clean and not is_from_explicit_base_branch:
-        _ensure_clean_work_dir(source_location)
+    # Skip the check when using worktree mode with an explicit --base-branch, since the
+    # agent will be created from that branch and uncommitted changes in the current
+    # working tree are irrelevant.
+    is_worktree_from_other_branch = (
+        agent_opts.git is not None
+        and agent_opts.git.copy_mode == WorkDirCopyMode.WORKTREE
+        and opts.base_branch is not None
+    )
+    if opts.ensure_clean and not is_worktree_from_other_branch:
+        _ensure_clean_work_dir(setup.source_location)
 
     # figure out the target host (if we just have a reference)
     resolved_target_host = _resolve_target_host(target_host, mng_ctx, is_start_desired=opts.start_host)
@@ -722,20 +772,14 @@ def _handle_create(
     # Set tags on existing hosts (for new hosts, tags are passed via NewHostOptions).
     # This ensures local hosts get any --tag values.
     if isinstance(resolved_target_host, OnlineHostInterface):
-        tags_to_add: dict[str, str] = {}
-        for tag_string in opts.tag:
-            if "=" in tag_string:
-                key, value = tag_string.split("=", 1)
-                tags_to_add[key.strip()] = value.strip()
-        if tags_to_add:
-            resolved_target_host.add_tags(tags_to_add)
+        _apply_tags_to_host(resolved_target_host, opts.tag)
 
     # Set the project as a label on the agent (labels are agent-level, not host-level)
-    if project_name:
+    if setup.project_name:
         agent_opts = agent_opts.model_copy_update(
             to_update(
                 agent_opts.field_ref().label_options,
-                AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": project_name}),
+                AgentLabelOptions(labels={**agent_opts.label_options.labels, "project": setup.project_name}),
             ),
         )
 
@@ -743,7 +787,7 @@ def _handle_create(
     snapshot = _snapshot_if_required(
         mng_ctx=mng_ctx,
         snapshot_source=opts.snapshot_source,
-        source_location=source_location,
+        source_location=setup.source_location,
     )
 
     # create work_dir immediately (if necessary)
@@ -753,37 +797,31 @@ def _handle_create(
     early_created_branch_name: str | None = None
     if snapshot is None and agent_opts.is_copy_immediate and isinstance(resolved_target_host, OnlineHostInterface):
         work_dir_result = resolved_target_host.create_agent_work_dir(
-            source_location.host, source_location.path, agent_opts
+            setup.source_location.host, setup.source_location.path, agent_opts
         )
-        # Record the actual work_dir path in agent_opts so the API uses it
-        # (the path may have been auto-generated, e.g. for worktrees)
         agent_opts = agent_opts.model_copy_update(
             to_update(agent_opts.field_ref().target_path, work_dir_result.path),
         )
         early_created_branch_name = work_dir_result.created_branch_name
         is_work_dir_created = True
+    elif snapshot is not None:
+        is_work_dir_created = True
     else:
-        if snapshot is None:
-            is_work_dir_created = False
-        else:
-            is_work_dir_created = True
+        is_work_dir_created = False
 
-    # Determine whether to wait for agent to be ready
-    # Default: --no-await-ready when --no-connect, --await-ready when --connect
-    # Note: --await-agent-stopped implies --await-ready (we need the agent to be ready first)
-    should_await_ready = opts.await_ready
-    if should_await_ready is None:
-        if opts.await_agent_stopped:
-            should_await_ready = True
-        else:
-            should_await_ready = opts.connect
+    # Optimistically update tab completion cache so the new agent name is
+    # immediately available. Done before the background/sync fork since the
+    # name is already determined. If creation fails, the stale entry will be
+    # cleaned up on the next background refresh.
+    if agent_opts.name is not None:
+        add_agent_name_to_cache(agent_opts.name)
 
     # If --no-connect and --no-await-ready, run api_create in background
     # Note: --edit-message incompatibility is validated early (before editor creation) to avoid
     # starting an editor subprocess that would need to be cleaned up
-    if not opts.connect and not should_await_ready:
+    if not opts.connect and not opts.await_ready:
         _create_agent_in_background(
-            source_location,
+            setup.source_location,
             resolved_target_host,
             agent_opts,
             mng_ctx,
@@ -791,13 +829,12 @@ def _handle_create(
             output_opts,
             created_branch_name=early_created_branch_name,
         )
-        return
+        return None
 
     # Call the API create function (synchronously)
-    # Wrap in try/finally to ensure editor cleanup on failure
-    try:
+    with _editor_cleanup_scope(setup.editor_session):
         create_result = api_create(
-            source_location=source_location,
+            source_location=setup.source_location,
             target_host=resolved_target_host,
             agent_options=agent_opts,
             mng_ctx=mng_ctx,
@@ -806,34 +843,24 @@ def _handle_create(
         )
 
         # If --edit-message was used, wait for editor and send the message
-        if editor_session is not None:
+        if setup.editor_session is not None:
             _handle_editor_message(
-                editor_session=editor_session,
+                editor_session=setup.editor_session,
                 agent=create_result.agent,
             )
-    finally:
-        # Clean up editor session on success or failure
-        if editor_session is not None and not editor_session.is_finished():
-            editor_session.cleanup()
-        # Ensure logging suppression is disabled on any exit path
-        if LoggingSuppressor.is_suppressed():
-            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
-    return create_result, connection_opts, output_opts, opts, mng_ctx
+    return create_result, connection_opts
 
 
 def _post_create(
     create_result: CreateAgentResult,
     connection_opts: ConnectionOptions,
-    output_opts: OutputOptions,
     opts: CreateCliOptions,
     mng_ctx: MngContext,
 ) -> None:
-    # If --await-agent-stopped is set, wait for the agent to finish running
+    """Post-creation: await stopped, connect."""
     if opts.await_agent_stopped:
         _await_agent_stopped(create_result.agent)
-
-    # If --connect is set, connect to the agent (or run the custom connect command)
     if opts.connect:
         resolved_connect_command = resolve_connect_command(opts.connect_command, mng_ctx)
         if resolved_connect_command is not None:
@@ -847,8 +874,23 @@ def _post_create(
         else:
             connect_to_agent(create_result.agent, create_result.host, mng_ctx, connection_opts)
 
-    # output the result
-    _output_result(create_result, output_opts)
+
+def _finish_create(
+    result: CreateAgentResult | None,
+    setup: _CreateSetup,
+    output_opts: OutputOptions,
+) -> None:
+    """Wrap-up: editor cleanup, output result."""
+    # Ensure editor cleanup on all exit paths (may already be cleaned up by _create_agent)
+    if setup.editor_session is not None and not setup.editor_session.is_finished():
+        setup.editor_session.cleanup()
+    if LoggingSuppressor.is_suppressed():
+        LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+    if result is None:
+        return
+
+    _output_result(result, output_opts)
 
 
 def _on_editor_exit() -> None:
@@ -858,6 +900,22 @@ def _on_editor_exit() -> None:
     This is called from a background thread as soon as the editor exits.
     """
     LoggingSuppressor.disable_and_replay(clear_screen=True)
+
+
+@contextmanager
+def _editor_cleanup_scope(editor_session: EditorSession | None) -> Iterator[None]:
+    """Ensure editor session cleanup and logging suppressor restoration on exit.
+
+    Safe to nest: EditorSession.cleanup() is idempotent, and
+    LoggingSuppressor.disable_and_replay() is a no-op when not suppressed.
+    """
+    try:
+        yield
+    finally:
+        if editor_session is not None:
+            editor_session.cleanup()
+        if LoggingSuppressor.is_suppressed():
+            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
 
 def _handle_editor_message(
@@ -876,7 +934,7 @@ def _handle_editor_message(
     as soon as the editor process exits. By the time wait_for_result() returns,
     the callback has already restored logging.
     """
-    try:
+    with _editor_cleanup_scope(editor_session):
         with log_span("Waiting for editor to finish..."):
             edited_message = editor_session.wait_for_result()
 
@@ -890,13 +948,6 @@ def _handle_editor_message(
         logger.info("Sending edited message...")
         agent.send_message(edited_message)
         logger.debug("Message sent successfully")
-
-    finally:
-        editor_session.cleanup()
-        # Make sure suppression is disabled even if an exception occurred
-        # (e.g., if the callback wasn't called for some reason)
-        if LoggingSuppressor.is_suppressed():
-            LoggingSuppressor.disable_and_replay(clear_screen=True)
 
 
 def _create_agent_in_background(
@@ -1538,6 +1589,17 @@ def _parse_source_string(source_str: str) -> ParsedSourceString:
 
 
 # === Helper Functions (stubs) ===
+
+
+def _apply_tags_to_host(host: OnlineHostInterface, tag_strings: tuple[str, ...]) -> None:
+    """Parse KEY=VALUE tag strings and apply them to an existing host."""
+    tags_to_add: dict[str, str] = {}
+    for tag_string in tag_strings:
+        if "=" in tag_string:
+            key, value = tag_string.split("=", 1)
+            tags_to_add[key.strip()] = value.strip()
+    if tags_to_add:
+        host.add_tags(tags_to_add)
 
 
 def _ensure_clean_work_dir(location: HostLocation) -> None:
