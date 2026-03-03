@@ -1119,7 +1119,7 @@ class Host(BaseHost, OnlineHostInterface):
         exclude_path = Path(".git") / "info" / "exclude"
         try:
             content = source_host.read_file(source_path / exclude_path)
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             logger.trace("No .git/info/exclude in source, skipping")
             return
 
