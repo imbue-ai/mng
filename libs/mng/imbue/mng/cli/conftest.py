@@ -1,12 +1,15 @@
+from collections.abc import Callable
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Generator
 
 import click
 import pluggy
 import pytest
 from click.testing import CliRunner
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.cli.cleanup import cleanup
 from imbue.mng.cli.config import config
 from imbue.mng.cli.connect import ConnectCliOptions
@@ -37,6 +40,8 @@ from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.utils.testing import cleanup_tmux_session
+from imbue.mng.utils.testing import create_test_agent_via_cli
 
 
 def make_test_agent_info(
@@ -225,6 +230,83 @@ def intercepted_execvp_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str,
         lambda program, args, env: calls.append((program, args)),
     )
     return calls
+
+
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_WORKSPACE_PACKAGES = (
+    _REPO_ROOT / "libs" / "imbue_common",
+    _REPO_ROOT / "libs" / "concurrency_group",
+    _REPO_ROOT / "libs" / "mng",
+)
+
+
+@pytest.fixture
+def isolated_mng_venv(tmp_path: Path) -> Path:
+    """Create a temporary venv with mng installed for subprocess-based tests.
+
+    Returns the venv directory. Use `venv / "bin" / "mng"` to run mng
+    commands, or `venv / "bin" / "python"` for the interpreter.
+
+    This fixture is useful for tests that install/uninstall packages and
+    need full isolation from the main workspace venv.
+    """
+    venv_dir = tmp_path / "isolated-venv"
+
+    install_args: list[str] = []
+    for pkg in _WORKSPACE_PACKAGES:
+        install_args.extend(["-e", str(pkg)])
+
+    cg = ConcurrencyGroup(name="isolated-venv-setup")
+    with cg:
+        cg.run_process_to_completion(("uv", "venv", str(venv_dir)))
+        cg.run_process_to_completion(
+            ("uv", "pip", "install", "--python", str(venv_dir / "bin" / "python"), *install_args)
+        )
+
+    return venv_dir
+
+
+def _create_and_track_test_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+    created_sessions: list[str],
+    agent_name: str,
+    agent_cmd: str = "sleep 482917",
+) -> str:
+    """Create a test agent via CLI and track its session for cleanup."""
+    session_name = create_test_agent_via_cli(
+        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, agent_name, agent_cmd
+    )
+    created_sessions.append(session_name)
+    return session_name
+
+
+@pytest.fixture
+def create_test_agent(
+    cli_runner: CliRunner,
+    temp_work_dir: Path,
+    mng_test_prefix: str,
+    plugin_manager: pluggy.PluginManager,
+) -> Generator[Callable[..., str], None, None]:
+    """Factory fixture that creates test agents via CLI and cleans up automatically.
+
+    Usage:
+        def test_something(create_test_agent):
+            session_name = create_test_agent("my-agent")
+            # ... test logic ...
+            # cleanup happens automatically on fixture teardown
+
+    Supports creating multiple agents per test -- all are cleaned up.
+    """
+    created_sessions: list[str] = []
+    yield lambda agent_name, agent_cmd="sleep 482917": _create_and_track_test_agent(
+        cli_runner, temp_work_dir, mng_test_prefix, plugin_manager, created_sessions, agent_name, agent_cmd
+    )
+
+    for session_name in created_sessions:
+        cleanup_tmux_session(session_name)
 
 
 # =============================================================================
