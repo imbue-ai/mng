@@ -134,7 +134,7 @@ def build_configure_ssh_command(
         # Create .ssh directory
         f"mkdir -p '{ssh_dir}'",
         # Write authorized_keys file
-        f"printf '%s' '{escaped_client_key}' > '{authorized_keys_path}'",
+        f"printf '%s\\n' '{escaped_client_key}' > '{authorized_keys_path}'",
         # Set permissions on authorized_keys
         f"chmod 600 '{authorized_keys_path}'",
         # Remove any existing host keys (important for restored sandboxes)
@@ -186,6 +186,42 @@ def build_add_known_hosts_command(
 
     # Set proper permissions on known_hosts file
     script_lines.append(f"chmod 600 '{known_hosts_path}'")
+
+    return "; ".join(script_lines)
+
+
+@pure
+def build_add_authorized_keys_command(
+    user: str,
+    authorized_keys_entries: tuple[str, ...],
+) -> str | None:
+    """Build a shell command that adds entries to the user's authorized_keys file.
+
+    This command:
+    1. Creates the user's .ssh directory if it doesn't exist
+    2. Appends each authorized_keys entry to the authorized_keys file
+
+    Returns a shell command string that can be executed via sh -c, or None if
+    there are no entries to add.
+    """
+    if not authorized_keys_entries:
+        return None
+
+    ssh_dir = get_user_ssh_dir(user)
+    authorized_keys_path = ssh_dir / "authorized_keys"
+
+    script_lines: list[str] = [
+        # Create .ssh directory if needed
+        f"mkdir -p '{ssh_dir}'",
+    ]
+
+    for entry in authorized_keys_entries:
+        assert "'" not in entry, "Single quotes are not allowed in authorized_keys entries"
+        # Append entry to authorized_keys (with a newline)
+        script_lines.append(f"printf '%s\\n' '{entry}' >> '{authorized_keys_path}'")
+
+    # Set proper permissions on authorized_keys file
+    script_lines.append(f"chmod 600 '{authorized_keys_path}'")
 
     return "; ".join(script_lines)
 
@@ -257,17 +293,21 @@ def build_start_activity_watcher_command(
 
     This command:
     1. Creates the commands directory
-    2. Writes the activity watcher script to the host
-    3. Makes it executable
-    4. Starts it in the background with nohup
+    2. Writes the shared logging library (mng_log.sh) to the host
+    3. Writes the activity watcher script to the host
+    4. Makes both executable
+    5. Starts the activity watcher in the background with nohup
 
     Returns a shell command string that can be executed via sh -c.
     """
+    log_lib_content = load_resource_script("mng_log.sh")
     script_content = load_resource_script("activity_watcher.sh")
 
     # Escape single quotes in script content
+    escaped_log_lib = log_lib_content.replace("'", "'\"'\"'")
     escaped_script = script_content.replace("'", "'\"'\"'")
 
+    log_lib_path = f"{mng_host_dir}/commands/mng_log.sh"
     script_path = f"{mng_host_dir}/commands/activity_watcher.sh"
     log_path = f"{mng_host_dir}/logs/activity_watcher.log"
 
@@ -275,6 +315,9 @@ def build_start_activity_watcher_command(
         # Create commands and logs directories
         f"mkdir -p '{mng_host_dir}/commands'",
         f"mkdir -p '{mng_host_dir}/logs'",
+        # Write the shared logging library
+        f"printf '%s' '{escaped_log_lib}' > '{log_lib_path}'",
+        f"chmod +x '{log_lib_path}'",
         # Write the activity watcher script
         f"printf '%s' '{escaped_script}' > '{script_path}'",
         # Make it executable

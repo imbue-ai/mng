@@ -36,7 +36,6 @@ from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.logging import trace_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostNameConflictError
 from imbue.mng.errors import HostNotFoundError
@@ -56,6 +55,7 @@ from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CpuResources
 from imbue.mng.interfaces.data_types import HostConfig
 from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.data_types import SSHInfo
@@ -90,6 +90,7 @@ from imbue.mng.providers.modal.ssh_utils import load_or_create_ssh_keypair
 from imbue.mng.providers.modal.ssh_utils import wait_for_sshd
 from imbue.mng.providers.modal.volume import ModalVolume
 from imbue.mng.providers.ssh_host_setup import REQUIRED_HOST_PACKAGES
+from imbue.mng.providers.ssh_host_setup import build_add_authorized_keys_command
 from imbue.mng.providers.ssh_host_setup import build_add_known_hosts_command
 from imbue.mng.providers.ssh_host_setup import build_check_and_install_packages_command
 from imbue.mng.providers.ssh_host_setup import build_configure_ssh_command
@@ -587,6 +588,14 @@ class ModalProviderInstance(BaseProviderInstance):
         """Get or create the SSH keypair for this provider instance."""
         return load_or_create_ssh_keypair(self._keys_dir, key_name="modal_ssh_key")
 
+    def get_ssh_public_key(self) -> str:
+        """Get the SSH public key content for this provider instance.
+
+        Loads or creates the keypair if it doesn't exist yet.
+        """
+        _private_key_path, public_key_content = self._get_ssh_keypair()
+        return public_key_content
+
     def _get_host_keypair(self) -> tuple[Path, str]:
         """Get or create the SSH host keypair for Modal sandboxes.
 
@@ -1035,6 +1044,7 @@ class ModalProviderInstance(BaseProviderInstance):
         host_public_key: str,
         ssh_user: str = "root",
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> None:
         """Set up SSH access and start sshd in the sandbox.
 
@@ -1063,6 +1073,12 @@ class ModalProviderInstance(BaseProviderInstance):
             if add_known_hosts_cmd is not None:
                 with log_span("Adding {} known_hosts entries to sandbox", len(known_hosts)):
                     sandbox.exec("sh", "-c", add_known_hosts_cmd).wait()
+
+        if authorized_keys:
+            add_authorized_keys_cmd = build_add_authorized_keys_command(ssh_user, tuple(authorized_keys))
+            if add_authorized_keys_cmd is not None:
+                with log_span("Adding {} authorized_keys entries to sandbox", len(authorized_keys)):
+                    sandbox.exec("sh", "-c", add_authorized_keys_cmd).wait()
 
         with log_span("Starting sshd in sandbox"):
             sshd_log_path = f"{self.host_dir}/logs/sshd.log"
@@ -1097,6 +1113,7 @@ class ModalProviderInstance(BaseProviderInstance):
         config: SandboxConfig,
         host_data: CertifiedHostData,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
     ) -> tuple[Host, str, int, str]:
         """Set up SSH in a sandbox and create a Host object.
 
@@ -1113,7 +1130,12 @@ class ModalProviderInstance(BaseProviderInstance):
 
         # Start sshd with our host key
         self._start_sshd_in_sandbox(
-            sandbox, client_public_key, host_private_key, host_public_key, known_hosts=known_hosts
+            sandbox,
+            client_public_key,
+            host_private_key,
+            host_public_key,
+            known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         # Get SSH connection info
@@ -1346,7 +1368,7 @@ log "=== Shutdown script completed ==="
         parser.add_argument("--cpu", type=float, default=self.config.default_cpu)
         parser.add_argument("--memory", type=float, default=self.config.default_memory)
         parser.add_argument("--image", type=str, default=self.config.default_image)
-        parser.add_argument("--dockerfile", type=str, default=None)
+        parser.add_argument("--file", type=str, default=None, dest="dockerfile")
         parser.add_argument("--timeout", type=int, default=self.config.default_sandbox_timeout)
         parser.add_argument("--region", type=str, default=self.config.default_region)
         parser.add_argument("--context-dir", type=str, default=None)
@@ -1651,6 +1673,7 @@ log "=== Shutdown script completed ==="
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         """Create a new Modal sandbox host.
@@ -1677,7 +1700,7 @@ log "=== Shutdown script completed ==="
 
         logger.info("Creating host {} in {} ...", name, self.name)
 
-        # Parse build arguments (including --dockerfile if specified)
+        # Parse build arguments (including --file if specified)
         config = self._parse_build_args(build_args)
         base_image = str(image) if image else config.image
         dockerfile_path = Path(config.dockerfile) if config.dockerfile else None
@@ -1686,7 +1709,7 @@ log "=== Shutdown script completed ==="
         if not base_image and not dockerfile_path:
             logger.warning(
                 "No image or Dockerfile specified -- building from mng default Dockerfile. "
-                "Consider using your own Dockerfile (-b --dockerfile=<path>) to include "
+                "Consider using your own Dockerfile (-b --file=<path>) to include "
                 "your project's dependencies for faster startup.",
             )
 
@@ -1797,6 +1820,7 @@ log "=== Shutdown script completed ==="
             config=config,
             host_data=host_data,
             known_hosts=known_hosts,
+            authorized_keys=authorized_keys,
         )
 
         return host
@@ -2070,6 +2094,13 @@ log "=== Shutdown script completed ==="
     # =========================================================================
     # Discovery Methods
     # =========================================================================
+
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        host_record = self._read_host_record(host_id)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
 
     @handle_modal_auth_error
     def get_host(
@@ -3105,6 +3136,9 @@ def _substitute_dockerfile_build_args(dockerfile_contents: str, build_args: Sequ
     return result
 
 
+# FIXME: this code that breaks dockefiles up into layers really only needs to chunk the layer when we run into a COPY or RUN command (or when we're finished parsing the commands from the file).
+#  Doing that should make things quite a bit faster, but without really sacrificing any debuggability (since commands like ENV and ARG don't really do much)
+#  Specifically, we should execute the dockerfile commands together in modal, where each batch ends with a RUN or COPY command (or the end of the file), rather than doing *EVERY* command separately
 def _build_image_from_dockerfile_contents(
     dockerfile_contents: str,
     # build context directory for COPY/ADD instructions

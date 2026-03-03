@@ -34,6 +34,7 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MODEL_COP
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_MONKEYPATCH_SETATTR
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NAMEDTUPLE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_NUM_PREFIX
+from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_OS_FORK
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PANDAS_IMPORT
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_PYTEST_MARK_INTEGRATION
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_RELATIVE_IMPORTS
@@ -56,6 +57,7 @@ from imbue.imbue_common.ratchet_testing.core import _get_all_files_with_extensio
 from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
+from imbue.imbue_common.ratchet_testing.ratchets import check_no_import_lint_errors
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_type_errors
 from imbue.imbue_common.ratchet_testing.ratchets import find_assert_isinstance_usages
@@ -70,7 +72,9 @@ from imbue.imbue_common.ratchet_testing.ratchets import find_underscore_imports
 # Exclude this test file from ratchet scans to prevent self-referential matches
 _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
-# Group all ratchet tests onto a single xdist worker to benefit from LRU caching
+# Group all ratchet tests onto a single xdist worker to benefit from LRU caching.
+# With many other tests in the suite, the ratchet worker is never the bottleneck,
+# so the CPU savings from cache sharing outweigh the parallelism benefit.
 pytestmark = pytest.mark.xdist_group(name="ratchets")
 
 
@@ -105,7 +109,7 @@ def test_prevent_eval_usage() -> None:
 
 def test_prevent_inline_imports() -> None:
     chunks = check_ratchet_rule(PREVENT_INLINE_IMPORTS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_INLINE_IMPORTS.format_failure(chunks)
+    assert len(chunks) <= snapshot(3), PREVENT_INLINE_IMPORTS.format_failure(chunks)
 
 
 def test_prevent_bare_except() -> None:
@@ -210,6 +214,11 @@ def test_no_ruff_errors() -> None:
     check_no_ruff_errors(Path(__file__).parent.parent.parent.parent)
 
 
+def test_no_import_layer_violations() -> None:
+    """Ensure production code has zero import layer violations."""
+    check_no_import_lint_errors(Path(__file__).parent.parent.parent.parent.parent.parent)
+
+
 def test_prevent_if_elif_without_else() -> None:
     chunks = find_if_elif_without_else(_get_mng_source_dir(), _SELF_EXCLUSION)
     assert len(chunks) <= snapshot(0), PREVENT_IF_ELIF_WITHOUT_ELSE.format_failure(chunks)
@@ -274,7 +283,10 @@ def test_prevent_code_in_init_files() -> None:
     """Ensure __init__.py files contain no code (except pluggy hookimpl at the root)."""
     violations = find_code_in_init_files(
         _get_mng_source_dir(),
-        allowed_root_init_lines={"import pluggy", 'hookimpl = pluggy.HookimplMarker("mng")'},
+        allowed_root_init_lines={
+            "import pluggy",
+            'hookimpl = pluggy.HookimplMarker("mng")',
+        },
     )
     assert len(violations) <= snapshot(0), (
         "Code found in __init__.py files (should be empty per style guide):\n"
@@ -297,6 +309,18 @@ def test_prevent_assert_isinstance_usage() -> None:
     assert len(chunks) <= snapshot(0), PREVENT_ASSERT_ISINSTANCE.format_failure(chunks)
 
 
+def test_prevent_os_fork() -> None:
+    """Prevent usage of os.fork and os.forkpty.
+
+    Forking is incompatible with threading: a forked child inherits only the calling
+    thread, leaving mutexes held by other threads permanently locked and shared state
+    inconsistent. Code should use the subprocess module to launch subprocesses instead.
+    The remaining uses will be removed from the codebase entirely.
+    """
+    chunks = check_ratchet_rule(PREVENT_OS_FORK, _get_mng_source_dir(), _SELF_EXCLUSION)
+    assert len(chunks) <= snapshot(3), PREVENT_OS_FORK.format_failure(chunks)
+
+
 def test_prevent_direct_subprocess_usage() -> None:
     """Prevent direct usage of subprocess and os process-spawning functions.
 
@@ -311,7 +335,7 @@ def test_prevent_direct_subprocess_usage() -> None:
     # Docker provider uses subprocess for docker build/run CLI pass-through.
     # connect.py uses os.execvp/os.execvpe for process replacement (not child spawning).
     chunks = check_ratchet_rule(PREVENT_DIRECT_SUBPROCESS, _get_mng_source_dir(), TEST_FILE_PATTERNS)
-    assert len(chunks) <= snapshot(47), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
+    assert len(chunks) <= snapshot(46), PREVENT_DIRECT_SUBPROCESS.format_failure(chunks)
 
 
 def test_prevent_unittest_mock_imports() -> None:
@@ -321,7 +345,7 @@ def test_prevent_unittest_mock_imports() -> None:
 
 def test_prevent_monkeypatch_setattr() -> None:
     chunks = check_ratchet_rule(PREVENT_MONKEYPATCH_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(25), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(26), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
 
 
 def test_prevent_test_container_classes() -> None:

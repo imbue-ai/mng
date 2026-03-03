@@ -72,6 +72,26 @@ def test_get_schedule_field_value_git_hash_truncates_to_12_chars() -> None:
     assert len(result) == 12
 
 
+def test_get_schedule_field_value_git_hash_returns_empty_when_not_set() -> None:
+    trigger = ScheduleTriggerDefinition(
+        name="nightly-build",
+        command=ScheduledMngCommand.CREATE,
+        args="--type claude",
+        schedule_cron="0 2 * * *",
+        provider="local",
+    )
+    record = ScheduleCreationRecord(
+        trigger=trigger,
+        full_commandline="uv run mng schedule add --command create",
+        hostname="dev-laptop",
+        working_directory="/home/user/project",
+        mng_git_hash="fedcba654321",
+        created_at=datetime(2025, 6, 15, 14, 30, 0, tzinfo=timezone.utc),
+    )
+    result = _get_schedule_field_value(record, "git_hash")
+    assert result == ""
+
+
 def test_get_schedule_field_value_created_at() -> None:
     record = _make_test_record()
     result = _get_schedule_field_value(record, "created_at")

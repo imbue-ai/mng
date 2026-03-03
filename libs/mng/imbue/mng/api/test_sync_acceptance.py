@@ -21,36 +21,10 @@ import pytest
 from imbue.mng.errors import MngError
 from imbue.mng.utils.testing import get_short_random_string
 from imbue.mng.utils.testing import init_git_repo_with_config
+from imbue.mng.utils.testing import mng_agent_cleanup
 from imbue.mng.utils.testing import run_git_command
+from imbue.mng.utils.testing import run_mng_subprocess
 from imbue.mng.utils.testing import setup_claude_trust_config_for_subprocess
-
-
-def _run_mng(
-    args: list[str],
-    env: dict[str, str],
-    timeout: int = 60,
-    cwd: str | None = None,
-) -> subprocess.CompletedProcess[str]:
-    """Run a mng command via subprocess with Modal disabled.
-
-    These tests only use the local provider, so Modal is disabled to avoid
-    unnecessary initialization (which would fail because the test MNG_PREFIX
-    doesn't follow the mng_test-* naming convention required for Modal test
-    environments).
-
-    The --disable-plugin option is per-subcommand, so it's inserted after the
-    subcommand name (first arg).
-    """
-    # Insert --disable-plugin modal after the subcommand name
-    cmd_args = [args[0], "--disable-plugin", "modal", *args[1:]]
-    return subprocess.run(
-        ["uv", "run", "mng", *cmd_args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        env=env,
-        cwd=cwd,
-    )
 
 
 @pytest.fixture
@@ -88,17 +62,22 @@ def created_agent(
 
     Destroys the agent after the test completes.
     """
-    result = _run_mng(
-        ["create", agent_name, "bash", "--no-connect", "--project", str(repo_path)],
-        env=sync_test_env,
-        cwd=str(repo_path),
-    )
-    assert result.returncode == 0, f"Failed to create agent: {result.stderr}"
+    with mng_agent_cleanup(agent_name, env=sync_test_env, disable_plugins=["modal"]):
+        result = run_mng_subprocess(
+            "create",
+            "--disable-plugin",
+            "modal",
+            agent_name,
+            "bash",
+            "--no-connect",
+            "--project",
+            str(repo_path),
+            env=sync_test_env,
+            cwd=repo_path,
+        )
+        assert result.returncode == 0, f"Failed to create agent: {result.stderr}"
 
-    yield agent_name
-
-    # Cleanup: destroy the agent
-    _run_mng(["destroy", agent_name, "-f"], env=sync_test_env)
+        yield agent_name
 
 
 def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
@@ -126,6 +105,8 @@ def _get_agent_work_dir(repo_path: Path, agent_name: str) -> Path:
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_files_transfers_files_to_agent(
     sync_test_env: dict[str, str],
@@ -138,8 +119,13 @@ def test_push_files_transfers_files_to_agent(
     run_git_command(repo_path, "add", "pushed_file.txt")
     run_git_command(repo_path, "commit", "-m", "Add pushed file")
 
-    result = _run_mng(
-        ["push", created_agent, str(repo_path), "--sync-mode=files"],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=files",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Push failed: {result.stderr}"
@@ -150,6 +136,8 @@ def test_push_files_transfers_files_to_agent(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_files_dry_run_does_not_transfer(
     sync_test_env: dict[str, str],
@@ -161,8 +149,14 @@ def test_push_files_dry_run_does_not_transfer(
     run_git_command(repo_path, "add", "dry_run_file.txt")
     run_git_command(repo_path, "commit", "-m", "Add dry run file")
 
-    result = _run_mng(
-        ["push", created_agent, str(repo_path), "--sync-mode=files", "--dry-run"],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=files",
+        "--dry-run",
         env=sync_test_env,
     )
     assert result.returncode == 0
@@ -177,6 +171,7 @@ def test_push_files_dry_run_does_not_transfer(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_git_transfers_commits_to_agent(
     sync_test_env: dict[str, str],
@@ -188,14 +183,14 @@ def test_push_git_transfers_commits_to_agent(
     run_git_command(repo_path, "add", "git_pushed.txt")
     run_git_command(repo_path, "commit", "-m", "Add git pushed file")
 
-    result = _run_mng(
-        [
-            "push",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--uncommitted-changes=clobber",
-        ],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--uncommitted-changes=clobber",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Git push failed: {result.stderr}"
@@ -221,6 +216,7 @@ def test_push_git_transfers_commits_to_agent(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_git_uncommitted_changes_fail_mode_rejects(
     sync_test_env: dict[str, str],
@@ -238,14 +234,14 @@ def test_push_git_uncommitted_changes_fail_mode_rejects(
     run_git_command(repo_path, "add", "new.txt")
     run_git_command(repo_path, "commit", "-m", "New file")
 
-    result = _run_mng(
-        [
-            "push",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--uncommitted-changes=fail",
-        ],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--uncommitted-changes=fail",
         env=sync_test_env,
     )
     assert result.returncode != 0
@@ -253,6 +249,7 @@ def test_push_git_uncommitted_changes_fail_mode_rejects(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_git_uncommitted_changes_stash_mode_preserves_changes(
     sync_test_env: dict[str, str],
@@ -270,14 +267,14 @@ def test_push_git_uncommitted_changes_stash_mode_preserves_changes(
     run_git_command(repo_path, "add", "new.txt")
     run_git_command(repo_path, "commit", "-m", "New file")
 
-    result = _run_mng(
-        [
-            "push",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--uncommitted-changes=stash",
-        ],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--uncommitted-changes=stash",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Push failed: {result.stderr}"
@@ -299,6 +296,7 @@ def test_push_git_uncommitted_changes_stash_mode_preserves_changes(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_git_uncommitted_changes_clobber_mode_discards_changes(
     sync_test_env: dict[str, str],
@@ -316,14 +314,14 @@ def test_push_git_uncommitted_changes_clobber_mode_discards_changes(
     run_git_command(repo_path, "add", "new.txt")
     run_git_command(repo_path, "commit", "-m", "New file")
 
-    result = _run_mng(
-        [
-            "push",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--uncommitted-changes=clobber",
-        ],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--uncommitted-changes=clobber",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Push failed: {result.stderr}"
@@ -333,6 +331,7 @@ def test_push_git_uncommitted_changes_clobber_mode_discards_changes(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_git_mirror_mode_overwrites_all_refs(
     sync_test_env: dict[str, str],
@@ -347,15 +346,15 @@ def test_push_git_mirror_mode_overwrites_all_refs(
     run_git_command(repo_path, "commit", "-m", "Feature commit")
     run_git_command(repo_path, "checkout", "main")
 
-    result = _run_mng(
-        [
-            "push",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--mirror",
-            "--uncommitted-changes=clobber",
-        ],
+    result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--mirror",
+        "--uncommitted-changes=clobber",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Mirror push failed: {result.stderr}"
@@ -377,6 +376,8 @@ def test_push_git_mirror_mode_overwrites_all_refs(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_pull_files_transfers_files_from_agent(
     sync_test_env: dict[str, str],
@@ -395,8 +396,13 @@ def test_pull_files_transfers_files_from_agent(
     pull_dest.mkdir()
     init_git_repo_with_config(pull_dest)
 
-    result = _run_mng(
-        ["pull", created_agent, str(pull_dest), "--sync-mode=files"],
+    result = run_mng_subprocess(
+        "pull",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(pull_dest),
+        "--sync-mode=files",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Pull failed: {result.stderr}"
@@ -410,6 +416,7 @@ def test_pull_files_transfers_files_from_agent(
 
 
 @pytest.mark.acceptance
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_pull_git_merges_agent_commits(
     sync_test_env: dict[str, str],
@@ -426,14 +433,14 @@ def test_pull_git_merges_agent_commits(
     run_git_command(agent_dir, "commit", "-m", "Agent commit")
 
     # Pull into the original repo
-    result = _run_mng(
-        [
-            "pull",
-            created_agent,
-            str(repo_path),
-            "--sync-mode=git",
-            "--uncommitted-changes=clobber",
-        ],
+    result = run_mng_subprocess(
+        "pull",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=git",
+        "--uncommitted-changes=clobber",
         env=sync_test_env,
     )
     assert result.returncode == 0, f"Git pull failed: {result.stderr}"
@@ -448,6 +455,8 @@ def test_pull_git_merges_agent_commits(
 
 
 @pytest.mark.acceptance
+@pytest.mark.rsync
+@pytest.mark.tmux
 @pytest.mark.timeout(120)
 def test_push_then_pull_round_trips_files(
     sync_test_env: dict[str, str],
@@ -461,8 +470,13 @@ def test_push_then_pull_round_trips_files(
     run_git_command(repo_path, "add", "round_trip.txt")
     run_git_command(repo_path, "commit", "-m", "Round trip file")
 
-    push_result = _run_mng(
-        ["push", created_agent, str(repo_path), "--sync-mode=files"],
+    push_result = run_mng_subprocess(
+        "push",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(repo_path),
+        "--sync-mode=files",
         env=sync_test_env,
     )
     assert push_result.returncode == 0
@@ -472,8 +486,13 @@ def test_push_then_pull_round_trips_files(
     pull_dest.mkdir()
     init_git_repo_with_config(pull_dest)
 
-    pull_result = _run_mng(
-        ["pull", created_agent, str(pull_dest), "--sync-mode=files"],
+    pull_result = run_mng_subprocess(
+        "pull",
+        "--disable-plugin",
+        "modal",
+        created_agent,
+        str(pull_dest),
+        "--sync-mode=files",
         env=sync_test_env,
     )
     assert pull_result.returncode == 0

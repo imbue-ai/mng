@@ -1,38 +1,54 @@
-class ChangelingError(Exception):
-    """Base exception for all changeling errors."""
+import click
+
+
+class ChangelingError(click.ClickException):
+    """Base exception for all changelings errors.
+
+    Inherits from click.ClickException so that changeling errors are
+    automatically formatted and displayed by click without needing
+    manual re-raising as ClickException at every call site.
+    """
 
     ...
 
 
-class ChangelingNotFoundError(ChangelingError, KeyError):
-    """Raised when a changeling cannot be found by name."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__(f"Changeling '{name}' not found")
-
-
-class ChangelingAlreadyExistsError(ChangelingError, ValueError):
-    """Raised when attempting to add a changeling with a name that already exists."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        super().__init__(f"Changeling '{name}' already exists")
-
-
-class ChangelingConfigError(ChangelingError):
-    """Raised when changeling configuration is invalid or cannot be loaded."""
+class AgentAlreadyExistsError(ChangelingError):
+    """Raised when attempting to deploy a changeling with a name that already exists."""
 
     ...
 
 
-class ChangelingDeployError(ChangelingError):
-    """Raised when deploying a changeling to Modal fails."""
+class SigningKeyError(ChangelingError):
+    """Raised when the cookie signing key cannot be loaded or created."""
 
     ...
 
 
-class ChangelingRunError(ChangelingError, RuntimeError):
-    """Raised when a changeling fails to run (nonzero exit code from mng create)."""
+class GitCloneError(ChangelingError):
+    """Raised when git clone fails."""
+
+    ...
+
+
+class GitInitError(ChangelingError):
+    """Raised when git init fails."""
+
+    ...
+
+
+class GitCommitError(ChangelingError):
+    """Raised when git add/commit fails."""
+
+    ...
+
+
+class MissingSettingsError(ChangelingError):
+    """Raised when a changeling repo is missing .mng/settings.toml."""
+
+    ...
+
+
+class MngCommandError(ChangelingError):
+    """Raised when an mng CLI command fails."""
 
     ...

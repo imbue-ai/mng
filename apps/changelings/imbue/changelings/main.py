@@ -1,30 +1,26 @@
 import click
 
-from imbue.changelings.cli.add import add
+from imbue.changelings.cli.deploy import deploy
+from imbue.changelings.cli.forward import forward
 from imbue.changelings.cli.list import list_command
-from imbue.changelings.cli.remove import remove
-from imbue.changelings.cli.run import run
-from imbue.changelings.cli.status import status
 from imbue.changelings.cli.update import update
+from imbue.changelings.utils.logging import console_level_from_verbose_and_quiet
+from imbue.changelings.utils.logging import setup_logging
 
 
 @click.group()
-@click.version_option(prog_name="changeling", message="%(prog)s %(version)s")
-def cli() -> None:
-    """Changelings: nightly autonomous agents that maintain your codebase.
-
-    Each changeling is a scheduled agent that performs a specific maintenance
-    task -- fixing FIXMEs, improving tests, increasing coverage, writing reports,
-    and more. Changelings are deployed as Modal Apps and run on a cron schedule.
-
-    Under the hood, each changeling invokes mng to create and run an agent
-    with the appropriate configuration.
-    """
+@click.option("-v", "--verbose", count=True, help="Increase verbosity; -v for DEBUG, -vv for TRACE")
+@click.option("-q", "--quiet", is_flag=True, default=False, help="Suppress all console output")
+@click.pass_context
+def cli(ctx: click.Context, verbose: int, quiet: bool) -> None:
+    """changelings: deploy and manage your own persistent, specialized AI agents."""
+    console_level = console_level_from_verbose_and_quiet(verbose, quiet)
+    setup_logging(console_level)
+    ctx.ensure_object(dict)
+    ctx.obj["console_level"] = console_level
 
 
-cli.add_command(add)
-cli.add_command(remove)
-cli.add_command(list_command, name="list")
+cli.add_command(deploy)
+cli.add_command(forward)
+cli.add_command(list_command)
 cli.add_command(update)
-cli.add_command(run)
-cli.add_command(status)

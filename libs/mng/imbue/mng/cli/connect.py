@@ -28,7 +28,6 @@ from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.completion import complete_agent_name
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.errors import UserInputError
@@ -339,7 +338,7 @@ def _build_connection_options(opts: ConnectCliOptions) -> ConnectionOptions:
 
 
 @click.command()
-@click.argument("agent", default=None, required=False, shell_complete=complete_agent_name)
+@click.argument("agent", default=None, required=False)
 @optgroup.group("General")
 @optgroup.option("--agent", "agent", help="The agent to connect to (by name or ID)")
 @optgroup.option(

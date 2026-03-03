@@ -24,7 +24,6 @@ def _make_test_trigger(name: str = "test-trigger") -> ScheduleTriggerDefinition:
         args="--message hello",
         schedule_cron="0 2 * * *",
         provider="local",
-        git_image_hash="abc123",
     )
 
 
@@ -64,7 +63,6 @@ def test_build_wrapper_script_contains_mng_command_and_args() -> None:
         args="--type claude --message 'do work'",
         schedule_cron="0 2 * * *",
         provider="local",
-        git_image_hash="abc123",
     )
     script = build_wrapper_script(
         trigger=trigger,
@@ -128,7 +126,6 @@ def test_build_wrapper_script_empty_args() -> None:
         args="",
         schedule_cron="0 2 * * *",
         provider="local",
-        git_image_hash="abc123",
     )
     script = build_wrapper_script(
         trigger=trigger,
@@ -266,7 +263,6 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         args="--message first",
         schedule_cron="0 1 * * *",
         provider="local",
-        git_image_hash="abc123",
     )
     deploy_local_schedule(
         trigger1,
@@ -283,7 +279,6 @@ def test_deploy_local_schedule_update_replaces_crontab_entry(
         args="--message second",
         schedule_cron="0 3 * * *",
         provider="local",
-        git_image_hash="abc123",
     )
     deploy_local_schedule(
         trigger2,
@@ -386,7 +381,6 @@ def test_deploy_then_list_round_trip_preserves_all_fields(
         schedule_cron="30 3 * * 1-5",
         provider="local",
         is_enabled=True,
-        git_image_hash="abc123def456",
     )
 
     deploy_local_schedule(
@@ -408,7 +402,7 @@ def test_deploy_then_list_round_trip_preserves_all_fields(
     assert record.trigger.schedule_cron == "30 3 * * 1-5"
     assert record.trigger.provider == "local"
     assert record.trigger.is_enabled is True
-    assert record.trigger.git_image_hash == "abc123def456"
+    assert record.trigger.git_image_hash == ""
     assert record.mng_git_hash == "mng-hash-789"
     assert record.hostname != ""
     assert record.working_directory != ""

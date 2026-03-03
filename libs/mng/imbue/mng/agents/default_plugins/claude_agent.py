@@ -4,6 +4,8 @@ import json
 import os
 import random
 import shlex
+from abc import ABC
+from abc import abstractmethod
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -18,6 +20,7 @@ from pydantic import Field
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessSetupError
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
@@ -38,6 +41,8 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentStartError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import PluginMngError
+from imbue.mng.errors import SendMessageError
+from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import is_macos
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import FileTransferSpec
@@ -110,6 +115,12 @@ class ClaudeAgentConfig(AgentTypeConfig):
         "When set, installation uses this specific version and provisioning verifies the installed version matches. "
         "If None, uses the latest available version.",
     )
+    trust_working_directory: bool = Field(
+        default=False,
+        description="Automatically add the agent's working directory to Claude's trusted directories "
+        "in ~/.claude.json before startup. This prevents the trust dialog from appearing. "
+        "Also dismisses the effort callout dialog.",
+    )
 
 
 def _collect_claude_home_dir_files(claude_dir: Path) -> dict[Path, Path]:
@@ -143,13 +154,18 @@ def _build_settings_json_content(sync_local: bool) -> str:
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
+        if data.get("fastMode") is True:
+            logger.warning("Disabling fast mode for remote deployment because it is not yet supported via the API")
+            data["fastMode"] = False
     else:
         data = _generate_claude_home_settings()
     data["skipDangerousModePermissionPrompt"] = True
     return json.dumps(data, indent=2) + "\n"
 
 
-def _build_claude_json_for_remote(sync_local: bool, work_dir: Path, version: str | None) -> dict[str, Any]:
+def _build_claude_json_for_remote(
+    sync_local: bool, work_dir: Path, version: str | None, current_time: datetime | None = None
+) -> dict[str, Any]:
     """Build ~/.claude.json data for remote deployment.
 
     Uses the local file as a base when sync_local is True and the file exists,
@@ -164,7 +180,7 @@ def _build_claude_json_for_remote(sync_local: bool, work_dir: Path, version: str
     if sync_local and local_path.exists():
         data: dict[str, Any] = json.loads(local_path.read_text())
     else:
-        data = _generate_claude_json(version)
+        data = _generate_claude_json(version, current_time=current_time)
     data["bypassPermissionsModeAccepted"] = True
     data["effortCalloutDismissed"] = True
     # Add trust for the remote work_dir so Claude doesn't show the
@@ -338,13 +354,14 @@ def _read_macos_keychain_credential(label: str, concurrency_group: ConcurrencyGr
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
     """Write the background task scripts to $MNG_HOST_DIR/commands/.
 
-    Provisions export_transcript.sh and claude_background_tasks.sh so they
-    can be launched by the agent's assemble_command at runtime.
+    Provisions mng_log.sh (shared logging library), export_transcript.sh,
+    and claude_background_tasks.sh so they can be launched by the agent's
+    assemble_command at runtime.
     """
     commands_dir = host.host_dir / "commands"
     host.execute_command(f"mkdir -p {shlex.quote(str(commands_dir))}", timeout_seconds=5.0)
 
-    for script_name in ("export_transcript.sh", "claude_background_tasks.sh"):
+    for script_name in ("mng_log.sh", "export_transcript.sh", "claude_background_tasks.sh"):
         script_content = load_resource_script(script_name)
         script_path = commands_dir / script_name
         with log_span("Writing {} to host", script_name):
@@ -404,6 +421,72 @@ def _has_api_credentials_available(
     return False
 
 
+class DialogIndicator(FrozenModel, ABC):
+    """Base class for dialog indicators that can block agent input."""
+
+    @abstractmethod
+    def get_match_string(self) -> str:
+        """Return the string to look for in the tmux pane content."""
+        ...
+
+    @abstractmethod
+    def get_description(self) -> str:
+        """Return a human-readable description for error messages."""
+        ...
+
+
+class DialogDetectedError(SendMessageError):
+    """A dialog is blocking the agent's input in the terminal."""
+
+    def __init__(self, agent_name: str, dialog_description: str) -> None:
+        self.dialog_description = dialog_description
+        super().__init__(
+            agent_name,
+            f"A dialog is blocking the agent's input ({dialog_description} detected in terminal). "
+            f"Connect to the agent with 'mng connect {agent_name}' to resolve it.",
+        )
+
+
+class PermissionDialogIndicator(DialogIndicator):
+    """Detects Claude Code permission dialogs (e.g., tool approval prompts)."""
+
+    def get_match_string(self) -> str:
+        return "Do you want to proceed?"
+
+    def get_description(self) -> str:
+        return "permission dialog"
+
+
+class TrustDialogIndicator(DialogIndicator):
+    """Detects the Claude Code workspace trust dialog shown on first launch in a directory."""
+
+    def get_match_string(self) -> str:
+        return "Yes, I trust this folder"
+
+    def get_description(self) -> str:
+        return "trust dialog"
+
+
+class ThemeSelectionIndicator(DialogIndicator):
+    """Detects the Claude Code theme selection prompt shown during onboarding."""
+
+    def get_match_string(self) -> str:
+        return "Choose the text style that looks best with your terminal"
+
+    def get_description(self) -> str:
+        return "theme selection dialog"
+
+
+class EffortCalloutIndicator(DialogIndicator):
+    """Detects the Claude Code effort callout shown after model selection."""
+
+    def get_match_string(self) -> str:
+        return "You can always change effort in /model later."
+
+    def get_description(self) -> str:
+        return "effort callout"
+
+
 class ClaudeAgent(BaseAgent):
     """Agent implementation for Claude with session resumption support."""
 
@@ -440,6 +523,29 @@ class ClaudeAgent(BaseAgent):
         which would cause the input to be lost or appear as raw text.
         """
         return "Claude Code"
+
+    _DIALOG_INDICATORS: tuple[DialogIndicator, ...] = (
+        PermissionDialogIndicator(),
+        TrustDialogIndicator(),
+        ThemeSelectionIndicator(),
+        EffortCalloutIndicator(),
+    )
+
+    def _preflight_send_message(self, session_name: str) -> None:
+        """Check for blocking dialogs before sending a message.
+
+        Captures the tmux pane and checks for known dialog indicators
+        (permission prompts, trust dialogs, theme selection, effort callout).
+        Raises DialogDetectedError if any are found.
+        """
+        content = self._capture_pane_content(session_name)
+        if content is None:
+            return
+
+        for indicator in self._DIALOG_INDICATORS:
+            match_string = indicator.get_match_string()
+            if match_string in content:
+                raise DialogDetectedError(str(self.name), indicator.get_description())
 
     def wait_for_ready_signal(
         self, is_creating: bool, start_action: Callable[[], None], timeout: float | None = None
@@ -713,6 +819,10 @@ class ClaudeAgent(BaseAgent):
 
         For worktree-mode agents, ensures all Claude startup dialogs are
         dismissed and extends trust to the worktree.
+
+        When trust_working_directory is enabled, unconditionally adds trust
+        for the agent's working directory (used by changelings that run
+        --in-place in their own repo directory).
         """
         if options.git and options.git.copy_mode == WorkDirCopyMode.WORKTREE:
             git_common_dir = find_git_common_dir(self.work_dir, mng_ctx.concurrency_group)
@@ -722,6 +832,9 @@ class ClaudeAgent(BaseAgent):
                 extend_claude_trust_to_worktree(source_path, self.work_dir)
 
         config = self._get_claude_config()
+
+        if config.trust_working_directory and host.is_local:
+            ensure_claude_dialogs_dismissed(self.work_dir)
 
         # ensure that claude is installed (and at the right version if pinned)
         if config.check_installation:
@@ -845,20 +958,25 @@ class ClaudeAgent(BaseAgent):
             logger.debug("Removed Claude trust entry for {}", self.work_dir)
 
 
-def _generate_claude_home_settings():
-    # ~/.claude/settings.json
+def _generate_claude_home_settings() -> dict[str, Any]:
+    """default contents for ~/.claude/settings.json"""
     return {"skipDangerousModePermissionPrompt": True}
 
 
-def _generate_claude_json(version: str | None):
-    # ~/.claude.json
+def _generate_claude_json(version: str | None, current_time: datetime | None = None) -> dict[str, Any]:
+    """default contents for ~/.claude.json"""
     if version is None:
         version = "2.1.50"
-    current_time = datetime.now(timezone.utc)
-    current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-    current_time_millis = int(current_time.timestamp() * 1000)
-    cache_time_millis = current_time_millis + 50 + random.random() * 1000
-    change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    if current_time is None:
+        current_time = datetime.now(timezone.utc)
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        current_time_millis = int(current_time.timestamp() * 1000)
+        cache_time_millis = current_time_millis + 50 + random.random() * 1000
+        change_log_time_millis = cache_time_millis + 500 + random.random() * 5000
+    else:
+        current_time_str = current_time.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        cache_time_millis = int(current_time.timestamp() * 1000) + 50
+        change_log_time_millis = cache_time_millis + 500
     return {
         "numStartups": 1,
         "installMethod": "native",
@@ -906,8 +1024,17 @@ def get_files_for_deploy(
 
     # Always ship ~/.claude/settings.json and ~/.claude.json
     files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
+    # we set the time to a constant for better caching:
+    FIXED_TIME = datetime(2026, 2, 23, 3, 4, 7, tzinfo=timezone.utc)
     # it's a little silly to pass in repo_root here, but whatever, it will also get reset when we're provisioning
-    claude_json_data = _build_claude_json_for_remote(include_user_settings, repo_root, None)
+    claude_json_data = _build_claude_json_for_remote(False, repo_root, None, current_time=FIXED_TIME)
+    # also inject our API key here, since deployed versions need it
+    user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+    api_key = user_claude_json_data.get("primaryApiKey", os.environ.get("ANTHROPIC_API_KEY", ""))
+    if api_key:
+        approved_keys = claude_json_data.setdefault("customApiKeyResponses", {})
+        approved_keys["approved"] = [api_key[-20:]]
+        approved_keys["rejected"] = []
     files[Path("~/.claude.json")] = json.dumps(claude_json_data, indent=2) + "\n"
 
     if include_user_settings:
@@ -941,5 +1068,13 @@ def modify_env_vars_for_deploy(
     mng_ctx: MngContext,
     env_vars: dict[str, str],
 ) -> None:
-    """Set IS_SANDBOX=1 for Claude agent deployments."""
+    if "ANTHROPIC_API_KEY" not in env_vars:
+        user_claude_json_data = _build_claude_json_for_remote(True, Path("."), None)
+        token = user_claude_json_data.get("primaryApiKey", "") or os.environ.get("ANTHROPIC_API_KEY", "")
+        if not token:
+            raise UserInputError(
+                "ANTHROPIC_API_KEY environment variable is not set and no API key found in ~/.claude.json. "
+                "You must provide credentials to authenticate with Claude Code in order for the deployment to work."
+            )
+        env_vars["ANTHROPIC_API_KEY"] = token
     env_vars["IS_SANDBOX"] = "1"

@@ -136,7 +136,8 @@ def _get_schedule_field_value(record: ScheduleCreationRecord, field: str) -> str
         case "provider":
             return record.trigger.provider
         case "git_hash":
-            return record.trigger.git_image_hash[:12]
+            git_hash = record.trigger.git_image_hash
+            return git_hash[:12] if git_hash else ""
         case "created_at":
             return record.created_at.strftime("%Y-%m-%d %H:%M")
         case "hostname":

@@ -22,8 +22,12 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
+# DO NOT add any more 3rd-party imports here!
 import modal
-from fastapi import HTTPException
+
+# NO SERIOUSLY, DO NOT ADD ANY IMPORTS HERE, whether 3rd-party, or from our own code
+# The reason is that this needs to run in many different places and with minimal dependencies beyond modal
+# Put the imports into the snapshot_and_shutdown function instead (yes, this violates our normal rules about inline imports, but that's ok for this particular file)
 
 
 class ConfigurationError(RuntimeError):
@@ -115,7 +119,11 @@ def snapshot_and_shutdown(request_body: dict[str, Any]) -> dict[str, Any]:
     host_id (mng host ID). Optionally accepts snapshot_name, agents
     (list of agent data to persist to the volume), and stop_reason
     ('PAUSED' for idle shutdown, 'STOPPED' for user-requested stop).
+
+    Must put all imports here, not at the top level--otherwise this fails remotely when deploying
     """
+    from fastapi import HTTPException
+
     logger = logging.getLogger("snapshot_and_shutdown")
     were_snapshots_missing = False
 

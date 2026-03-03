@@ -25,21 +25,6 @@ class VerifyMode(UpperCaseStrEnum):
     FULL = auto()
 
 
-class MngInstallMode(UpperCaseStrEnum):
-    """Controls how mng and mng-schedule are made available in the deployed image.
-
-    AUTO: Detect automatically based on how mng-schedule is currently installed.
-    PACKAGE: Install from PyPI (or configured index) via pip install.
-    EDITABLE: Package the local source tree and install it in the image.
-    SKIP: Assume mng is already available in the base image
-    """
-
-    AUTO = auto()
-    PACKAGE = auto()
-    EDITABLE = auto()
-    SKIP = auto()
-
-
 class ScheduleTriggerDefinition(FrozenModel):
     """A scheduled trigger that runs an mng command on a cron schedule."""
 
@@ -49,7 +34,7 @@ class ScheduleTriggerDefinition(FrozenModel):
     schedule_cron: str = Field(description="Cron expression defining when the command runs")
     provider: str = Field(description="Provider on which to run the scheduled command (e.g. 'modal')")
     is_enabled: bool = Field(default=True, description="Whether this schedule is active")
-    git_image_hash: str = Field(description="Git commit SHA for packaging project code into the image")
+    git_image_hash: str = Field(default="", description="Git commit SHA for packaging project code into the image")
 
 
 class ScheduleCreationRecord(FrozenModel):

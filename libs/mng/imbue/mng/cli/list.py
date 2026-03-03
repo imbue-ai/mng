@@ -30,6 +30,7 @@ from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import render_format_template
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.cli.watch_mode import run_watch_loop
+from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.data_types import AgentInfo
@@ -223,6 +224,9 @@ def list_command(ctx: click.Context, **kwargs) -> None:
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
+
+    if ctx.parent is not None and isinstance(ctx.parent.command, click.Group):
+        write_cli_completions_cache(ctx.parent.command)
 
 
 def _list_impl(ctx: click.Context, **kwargs) -> None:

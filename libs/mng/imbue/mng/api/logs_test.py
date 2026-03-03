@@ -27,15 +27,19 @@ from imbue.mng.primitives import HostName
 from imbue.mng.providers.local.volume import LocalVolume
 
 
-def _capture_and_interrupt_after(captured: list[str], after_count: int = 1) -> Callable[[str], None]:
-    """Create a callback that captures content and interrupts after N calls."""
+class _StopFollow(Exception):
+    """Raised by test callbacks to break out of follow_log_file."""
+
+
+def _capture_and_stop_after(captured: list[str], after_count: int = 1) -> Callable[[str], None]:
+    """Create a callback that captures content and stops after N calls."""
     call_count = [0]
 
     def _callback(content: str) -> None:
         captured.append(content)
         call_count[0] += 1
         if call_count[0] >= after_count:
-            raise KeyboardInterrupt
+            raise _StopFollow()
 
     return _callback
 
@@ -279,11 +283,11 @@ def test_follow_log_file_emits_initial_content_with_tail(logs_volume_target: tup
 
     captured: list[str] = []
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(_StopFollow):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt_after(captured),
+            on_new_content=_capture_and_stop_after(captured),
             tail_count=2,
         )
 
@@ -298,11 +302,11 @@ def test_follow_log_file_emits_all_content_when_no_tail(logs_volume_target: tupl
 
     captured: list[str] = []
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(_StopFollow):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt_after(captured),
+            on_new_content=_capture_and_stop_after(captured),
             tail_count=None,
         )
 
@@ -516,11 +520,11 @@ def test_follow_log_file_via_host_streams_existing_content(logs_host_target: tup
 
     captured: list[str] = []
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(_StopFollow):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt_after(captured, after_count=3),
+            on_new_content=_capture_and_stop_after(captured, after_count=3),
             tail_count=None,
         )
 
@@ -538,11 +542,11 @@ def test_follow_log_file_via_host_with_tail_count(logs_host_target: tuple[LogsTa
 
     captured: list[str] = []
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(_StopFollow):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=_capture_and_interrupt_after(captured, after_count=2),
+            on_new_content=_capture_and_stop_after(captured, after_count=2),
             tail_count=2,
         )
 
@@ -562,14 +566,14 @@ def test_follow_log_file_via_host_detects_new_content(logs_host_target: tuple[Lo
     captured: list[str] = []
     append_event = threading.Event()
 
-    def capture_signal_and_interrupt(content: str) -> None:
+    def capture_signal_and_stop(content: str) -> None:
         captured.append(content)
         if not append_event.is_set():
             # After receiving initial content, signal the writer thread
             append_event.set()
         else:
-            # After we see the appended content, interrupt
-            raise KeyboardInterrupt
+            # After we see the appended content, stop
+            raise _StopFollow()
 
     # Start a writer thread that waits for the signal then appends content
     def append_content() -> None:
@@ -581,11 +585,11 @@ def test_follow_log_file_via_host_detects_new_content(logs_host_target: tuple[Lo
     writer = threading.Thread(target=append_content, daemon=True)
     writer.start()
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(_StopFollow):
         follow_log_file(
             target=target,
             log_file_name="test.log",
-            on_new_content=capture_signal_and_interrupt,
+            on_new_content=capture_signal_and_stop,
             tail_count=None,
         )
 

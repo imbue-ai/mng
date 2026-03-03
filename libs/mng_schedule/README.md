@@ -54,35 +54,38 @@ Run `mng schedule <subcommand> --help` for more details on each subcommand:
 
 In order to run `mng` commands in a scheduled environment like Modal, there are a few requirements:
 
-1. For the `create` command: the code that the agent will run (e.g. the repo that the agent will clone and work with) needs to either be available in the execution environment (so that it can be injected into the agent) or automatically included via the command (ex: passing `--snapshot <snapshot-id>` to the `create` command).
-2. The `mng` CLI needs to be available in the execution environment (so that the command can run at all).
-3. The environment variables and files referred to by the command being run also need to be available in the execution environment (so that the executed command runs as expected). 
-4. The configuration for `mng` itself needs to be transferred into the execution environment (so that the command executes as expected).
+1. The `mng` CLI needs to be available in the *Modal Function execution environment* (so that the command can run at all).
+2. For the `create` command: the target project code that the agent will run (e.g. the repo that the agent will clone and work with) needs to either be available in the *Modal Function execution environment* (so that it can be injected into the agent) or automatically included via the command (ex: passing `--snapshot <snapshot-id>` to the `create` command).
+3. The environment variables and files referred to by the command being run also need to be available in the *Modal Function execution environment* (so that the executed command runs as expected). 
+4. The configuration for `mng` itself needs to be transferred into the *Modal Function execution environment* (so that the command executes as expected).
 
 The `mng schedule` plugin takes care of #2 through #4 automatically, and ensures that #1 will happen correctly. 
 
-### 1. Ensuring code availability for `create` commands
+### 1. Ensuring `mng` CLI availability for remote execution
 
-There are three primary strategies for ensuring that the project code and data is available to the agent when running a `create` command in a scheduled environment like Modal:
+The `mng schedule` plugin automatically ensures that the `mng` CLI is available in the execution environment.
 
-1. Pass in a `--snapshot <snapshot-id>` argument via the `--args` command. If this is provided, no other work needs to be done (though you may want to have your agent update itself when it runs, since the snapshot will grow outdated over time)
-2. Pass in a `--git-image-hash <commit-hash>` argument to the `mng schedule add` command, which will automatically package the code at that commit hash into a .tar.gz file, upload it to Modal, and then use the *current* commit hash based Dockerfile (assumed to exist at `.mng/Dockerfile`) for building the Modal images (for both the deployed function and the agents it creates). 
-3. Pass in a `--full-copy` flag to the `mng schedule add` command, which will copy the entire codebase into the Modal App's storage during deployment, and then make that available to the agent when it runs. This is the simplest option to set up, but it can be slow for large codebases and may include a lot of unnecessary files.
+The base image for the function is built from the `mng` Dockerfile, which already includes `mng` and all its dependencies.
+The image is built in two stages:
 
-Failing to provide one of those arguments will result in an error pointing back to this documentation.
+1. **Base image (mng environment):** Built from the mng Dockerfile (bundled in the mng package at `imbue/mng/resources/Dockerfile`), which provides a complete environment with system deps, Python, uv, Claude Code, and mng installed. 
+2. **Target repo layer:** The user's project is packaged as a tarball and extracted into the container at a configurable path (default `/code/project`, controlled by `--target-dir`). WORKDIR is set to this location.
 
-### 2. Ensuring `mng` CLI availability for remote execution
+### 2. Ensuring code availability for `create` commands
 
-The `mng schedule` plugin automatically ensures that the `mng` CLI is available in the execution environment for scheduled commands, even on remote providers like Modal.
+There are three modes for how the target repo is packaged:
 
-This is done by introspecting to understand how `mng_schedule` is installed:
+1. **incremental** (default): on first deploy, the current HEAD commit hash is automatically resolved and cached in `~/.mng/build/<repo-hash>/commit_hash` so that subsequent deploys from the same repo reuse the same commit hash (delete the file to force re-resolution). This is an optimization to make deploys faster, since the project doesn't need to be repackaged and uploaded.
+2. **full**: the entire current HEAD state of the repo (or just the whole folder, if not a git repo) is packaged and uploaded during the deploy. Pass `--full-copy` to enable this mode.
+3. **snapshot**: [future] it should be possible to specify a snapshot id for commands, and thus not need to ship anything at all (this is not yet implemented)
 
-1. if it is installed as a normal remote package, then that package is added as a dependency of the Modal App. This is the normal production method used by most users.
-2. if it is installed in editable mode (eg via `pip install -e .`), then the local code is packaged up and uploaded to Modal during deployment, and then used as the source for building the Modal images. This method is primarily used for development.
-3. if configured, this step can be disaled (this is an optimization for when the project *is* `mng` itself, since in that case the code will already be available in the execution environment via the strategy described in #1 above).
+#### Auto-merge at runtime
 
-Note that for #2, the code is packaged via the same "make a snapshot of the repo at a specific commit hash" strategy described above, since this leads to better caching.
-In this case, the GH_TOKEN secret is required in order to ensure that the code is fully up-to-date when it is deployed.
+If working with a git repo, by default the scheduled function fetches and merges the latest code from the deployed branch before each run, so the agent always works with up-to-date code. 
+
+This requires `GH_TOKEN` to be available in the deployed environment (via `--pass-env` or `--env-file`).
+
+Use `--no-auto-merge` to disable this behavior, or `--auto-merge-branch <branch>` to merge from a specific branch (defaults to the current branch at deploy time).
 
 ### 3. Ensuring environment variable and file availability for remote execution
 
@@ -96,3 +99,13 @@ The `mng schedule` plugin automatically syncs the relevant `mng` configuration f
 This includes much of the data in `~/.mng/` (except your own personal SSH keys, since those should never be transferred).
 
 In order for you to be able to connect to the newly created agent, `mng schedule add` automatically adds an argument to include your SSH key as a known host for "create" and "start" commands.
+
+## Developing
+
+When developing this plugin (`mng schedule`, the mng monorepo is packaged and used as the build context to make an editable install.
+
+The install mode is controlled by `--mng-install-mode` (default: `auto`, which auto-detects):
+
+1. **package:** A modified version of the mng Dockerfile is generated that installs mng from PyPI via `uv pip install --system mng mng-schedule` instead of from source.
+2. **editable:** The mng monorepo source is packaged and used as the Dockerfile build context. The Dockerfile extracts it, runs `uv sync`, and installs `mng` and `modal` as tools. This is a simple development workflow.
+3. **skip:** As a special optimization when the target repo is *also* the `mng` monorepo, you can use the `--mng-install-mode skip` option to completely skip the packaging of the monorepo as a target repo, and simply point the target path at the mng code instead.

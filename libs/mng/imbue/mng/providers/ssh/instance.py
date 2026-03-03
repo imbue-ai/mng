@@ -12,11 +12,11 @@ from pyinfra.api import State as PyinfraState
 from pyinfra.api.inventory import Inventory
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.mng.api.data_types import HostLifecycleOptions
 from imbue.mng.errors import HostNotFoundError
 from imbue.mng.errors import SnapshotsNotSupportedError
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import CpuResources
+from imbue.mng.interfaces.data_types import HostLifecycleOptions
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.data_types import SnapshotInfo
@@ -124,6 +124,7 @@ class SSHProviderInstance(BaseProviderInstance):
         start_args: Sequence[str] | None = None,
         lifecycle: HostLifecycleOptions | None = None,
         known_hosts: Sequence[str] | None = None,
+        authorized_keys: Sequence[str] | None = None,
         snapshot: SnapshotName | None = None,
     ) -> Host:
         raise NotImplementedError("SSH provider does not support creating hosts")

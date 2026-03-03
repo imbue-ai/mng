@@ -5,14 +5,14 @@ from loguru import logger
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.mng.api.data_types import CreateAgentResult
-from imbue.mng.api.data_types import HostEnvironmentOptions
-from imbue.mng.api.data_types import NewHostOptions
-from imbue.mng.api.data_types import OnBeforeCreateArgs
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.host import CreateAgentOptions
+from imbue.mng.interfaces.host import HostEnvironmentOptions
+from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
 from imbue.mng.utils.env_utils import parse_env_file
 
 
@@ -119,11 +119,11 @@ def create(
 
         # Run provisioning for the agent (hooks, dependency installation, etc.)
         with log_span("Calling on_before_provisioning hooks"):
-            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_before_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
         with log_span("Provisioning agent {}", agent.name):
             host.provision_agent(agent, agent_options, mng_ctx)
         with log_span("Calling on_after_provisioning hooks"):
-            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host)
+            mng_ctx.pm.hook.on_after_provisioning(agent=agent, host=host, mng_ctx=mng_ctx)
 
         # Send initial message if one is configured
         initial_message = agent.get_initial_message()
@@ -205,6 +205,7 @@ def resolve_target_host(
             start_args=target_host.build.start_args,
             lifecycle=target_host.lifecycle,
             known_hosts_count=len(target_host.environment.known_hosts),
+            authorized_keys_count=len(target_host.environment.authorized_keys),
         ):
             new_host = provider.create_host(
                 name=host_name,
@@ -213,6 +214,7 @@ def resolve_target_host(
                 start_args=target_host.build.start_args,
                 lifecycle=target_host.lifecycle,
                 known_hosts=target_host.environment.known_hosts,
+                authorized_keys=target_host.environment.authorized_keys,
                 snapshot=target_host.build.snapshot,
             )
 

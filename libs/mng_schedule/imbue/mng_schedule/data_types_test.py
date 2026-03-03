@@ -20,7 +20,6 @@ def test_modal_schedule_creation_record_round_trips_through_json() -> None:
         schedule_cron="0 2 * * *",
         provider="modal",
         is_enabled=True,
-        git_image_hash="abc123def456",
     )
     record = ModalScheduleCreationRecord(
         trigger=trigger,
@@ -55,7 +54,6 @@ def test_base_schedule_creation_record_round_trips_through_json() -> None:
         schedule_cron="0 2 * * *",
         provider="local",
         is_enabled=True,
-        git_image_hash="abc123",
     )
     record = ScheduleCreationRecord(
         trigger=trigger,
@@ -82,7 +80,6 @@ def test_modal_record_is_instance_of_base() -> None:
         args="",
         schedule_cron="0 2 * * *",
         provider="modal",
-        git_image_hash="abc123",
     )
     record = ModalScheduleCreationRecord(
         trigger=trigger,
@@ -120,7 +117,6 @@ def test_schedule_creation_record_includes_all_trigger_fields() -> None:
         schedule_cron="*/5 * * * *",
         provider="modal",
         is_enabled=False,
-        git_image_hash="deadbeef",
     )
     record = ModalScheduleCreationRecord(
         trigger=trigger,
