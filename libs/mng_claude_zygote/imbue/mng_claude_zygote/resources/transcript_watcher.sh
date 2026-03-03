@@ -15,7 +15,7 @@
 # The watcher uses an ID-based dedup strategy: each output event_id is
 # derived from the source event's uuid, so re-processing the same input
 # never produces duplicate output. The input file is append-only (populated
-# by stream_transcript.sh via tail -f on session files).
+# by stream_transcript.sh which watches all session files).
 #
 # Usage: transcript_watcher.sh
 #

@@ -6,8 +6,8 @@
 #   1. Activity tracking: updates $MNG_AGENT_STATE_DIR/activity/agent
 #      whenever the agent is actively processing (indicated by the
 #      $MNG_AGENT_STATE_DIR/active file)
-#   2. Transcript streaming: launches stream_transcript.sh which uses
-#      tail -f to efficiently stream session JSONL to
+#   2. Transcript streaming: launches stream_transcript.sh which watches
+#      all session JSONL files and streams new lines to
 #      $MNG_AGENT_STATE_DIR/logs/claude_transcript/events.jsonl
 #
 # Usage: claude_background_tasks.sh <tmux_session_name>
@@ -47,7 +47,7 @@ _MNG_LOG_FILE="$MNG_HOST_DIR/logs/claude_background_tasks/events.jsonl"
 # shellcheck source=mng_log.sh
 source "$MNG_HOST_DIR/commands/mng_log.sh"
 
-# Start transcript streaming in the background using tail -f
+# Start transcript streaming in the background
 STREAM_SCRIPT="$MNG_HOST_DIR/commands/stream_transcript.sh"
 _STREAM_PID=""
 if [ -x "$STREAM_SCRIPT" ]; then

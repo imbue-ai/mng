@@ -1,14 +1,18 @@
 #!/bin/bash
-# Efficient transcript streaming for Claude agents using tail -f.
+# Robust transcript streaming for Claude agents.
 #
-# Instead of periodically re-exporting the entire transcript every 15 seconds,
-# this script uses tail -f on two levels:
-#   1. Watches claude_session_id_history (with stdbuf -oL) to detect new sessions
-#   2. Watches the current session's JSONL file (with stdbuf -oL) and appends
-#      new lines to logs/claude_transcript/events.jsonl
+# Watches ALL Claude session JSONL files and appends new lines to
+# logs/claude_transcript/events.jsonl. Designed to handle:
+#   - Any session file being written to at any time (not just the "current" one)
+#   - Restarts (reconciles per-session offsets against the output file)
+#   - Late-appearing session files (re-checks each poll cycle, no timeouts)
+#   - Sessions added out of order or with gaps
 #
-# On startup, any existing sessions are caught up by dumping their content
-# (skipping lines already present in the output file).
+# Per-session line offsets are stored in .offsets/<session_id> so the script
+# can resume efficiently. On startup, stored offsets are verified against the
+# output file using UUID-based lookups -- if the stored offset is wrong (e.g.
+# crash between emit and offset save), the script works backwards through
+# the session file to find the last line that actually made it into the output.
 #
 # Usage: stream_transcript.sh
 #
@@ -20,8 +24,10 @@ set -euo pipefail
 
 SESSION_HISTORY="${MNG_AGENT_STATE_DIR:?MNG_AGENT_STATE_DIR must be set}/claude_session_id_history"
 OUTPUT_FILE="$MNG_AGENT_STATE_DIR/logs/claude_transcript/events.jsonl"
+OFFSET_DIR="$MNG_AGENT_STATE_DIR/logs/claude_transcript/.offsets"
+POLL_INTERVAL=1
 
-mkdir -p "$(dirname "$OUTPUT_FILE")"
+mkdir -p "$(dirname "$OUTPUT_FILE")" "$OFFSET_DIR"
 touch "$OUTPUT_FILE"
 
 # Configure and source the shared logging library
@@ -31,24 +37,15 @@ _MNG_LOG_FILE="$MNG_HOST_DIR/logs/stream_transcript/events.jsonl"
 # shellcheck source=mng_log.sh
 source "$MNG_HOST_DIR/commands/mng_log.sh"
 
-# PID of the current session tail process
-_SESSION_TAIL_PID=""
+# -- Per-session state (bash 4+ associative arrays) --
+declare -A _FILE_BY_SID       # session_id -> resolved file path ("" if not yet found)
+declare -A _OFFSET_BY_SID     # session_id -> lines already emitted from this session
+_KNOWN_HISTORY_LINES=0        # lines of the history file already processed
 
-_cleanup() {
-    if [ -n "$_SESSION_TAIL_PID" ] && kill -0 "$_SESSION_TAIL_PID" 2>/dev/null; then
-        kill "$_SESSION_TAIL_PID" 2>/dev/null
-        wait "$_SESSION_TAIL_PID" 2>/dev/null || true
-    fi
-    # Kill any other background children (e.g. the history tail)
-    local child_pids
-    child_pids=$(jobs -p 2>/dev/null || true)
-    if [ -n "$child_pids" ]; then
-        # shellcheck disable=SC2086
-        kill $child_pids 2>/dev/null || true
-        wait 2>/dev/null || true
-    fi
-}
-trap _cleanup EXIT
+# UUID lookup set, built once at startup for offset reconciliation
+declare -A _OUTPUT_UUIDS
+
+# -- Helpers --
 
 # Find the JSONL file for a session ID.
 # Claude stores session files at ~/.claude/projects/<hash>/<session_id>.jsonl
@@ -56,7 +53,6 @@ _find_session_jsonl() {
     find ~/.claude/projects/ -name "${1}.jsonl" 2>/dev/null | head -1
 }
 
-# Count lines in a file (0 if file does not exist).
 _line_count() {
     if [ -f "$1" ]; then
         wc -l < "$1"
@@ -65,169 +61,247 @@ _line_count() {
     fi
 }
 
-# Output remaining lines from a completed session file, given how many
-# lines from this session are already in the output.
-_dump_remaining_lines() {
-    local session_file="$1"
-    local already_output="$2"
-
-    local total_lines
-    total_lines=$(_line_count "$session_file")
-
-    if [ "$already_output" -lt "$total_lines" ]; then
-        local skip_lines=$((already_output + 1))
-        tail -n "+${skip_lines}" "$session_file" >> "$OUTPUT_FILE"
-        log_debug "Dumped $((total_lines - already_output)) lines from $session_file"
+_load_stored_offset() {
+    if [ -f "$OFFSET_DIR/$1" ]; then
+        cat "$OFFSET_DIR/$1"
+    else
+        echo 0
     fi
 }
 
-# Kill the current session tail if running.
-_kill_session_tail() {
-    if [ -n "$_SESSION_TAIL_PID" ] && kill -0 "$_SESSION_TAIL_PID" 2>/dev/null; then
-        kill "$_SESSION_TAIL_PID" 2>/dev/null
-        wait "$_SESSION_TAIL_PID" 2>/dev/null || true
-        _SESSION_TAIL_PID=""
-    fi
+_save_offset() {
+    echo "$2" > "$OFFSET_DIR/$1"
 }
 
-# Start tailing a session's JSONL file from the given line offset,
-# appending new lines to the output file.
-_start_session_tail() {
-    local session_id="$1"
-    local already_output="$2"
-
-    _kill_session_tail
-
-    # Wait for the session file to appear (Claude may not have written it yet)
-    local session_file=""
-    local wait_count=0
-    while [ -z "$session_file" ] && [ "$wait_count" -lt 60 ]; do
-        session_file=$(_find_session_jsonl "$session_id")
-        if [ -z "$session_file" ]; then
-            sleep 1
-            wait_count=$((wait_count + 1))
-        fi
-    done
-
-    if [ -z "$session_file" ]; then
-        log_warn "Session file for $session_id not found after 60s"
-        return 1
+# Try to resolve the file path for a session (caches result once found).
+_try_resolve_file() {
+    local sid="$1"
+    if [ -n "${_FILE_BY_SID[$sid]:-}" ]; then
+        return 0
     fi
-
-    # Start tailing from the correct position
-    local start_line=$((already_output + 1))
-    stdbuf -oL tail -n "+${start_line}" -f "$session_file" >> "$OUTPUT_FILE" &
-    _SESSION_TAIL_PID=$!
-
-    log_info "Tailing session $session_id from line $start_line (file=$session_file, PID=$_SESSION_TAIL_PID)"
-    return 0
-}
-
-# Catch up on existing sessions and start tailing the latest one.
-#
-# Walks through all session IDs in the history file, compares against
-# lines already in the output file, dumps any missing content from
-# completed sessions, and starts tail -f on the last (current) session.
-_catch_up_and_tail() {
-    local -a session_ids=()
-
-    if [ -f "$SESSION_HISTORY" ]; then
-        while read -r sid _rest; do
-            if [ -n "$sid" ]; then
-                session_ids+=("$sid")
-            fi
-        done < "$SESSION_HISTORY"
+    local path
+    path=$(_find_session_jsonl "$sid")
+    if [ -n "$path" ] && [ -f "$path" ]; then
+        _FILE_BY_SID[$sid]="$path"
+        log_debug "Resolved session $sid -> $path"
+        return 0
     fi
-
-    if [ ${#session_ids[@]} -eq 0 ]; then
-        log_debug "No sessions in history yet"
-        return 1
-    fi
-
-    # Count lines already in the output file
-    local output_lines
-    output_lines=$(_line_count "$OUTPUT_FILE")
-    local remaining=$output_lines
-
-    local last_idx=$(( ${#session_ids[@]} - 1 ))
-
-    for i in "${!session_ids[@]}"; do
-        local sid="${session_ids[$i]}"
-        local session_file
-        session_file=$(_find_session_jsonl "$sid")
-
-        if [ -z "$session_file" ] || [ ! -f "$session_file" ]; then
-            log_debug "Session file for $sid not found, skipping"
-            continue
-        fi
-
-        local session_lines
-        session_lines=$(_line_count "$session_file")
-
-        if [ "$i" -eq "$last_idx" ]; then
-            # This is the current session -- start tailing from where we left off
-            local already_output=0
-            if [ "$remaining" -ge "$session_lines" ]; then
-                already_output=$session_lines
-            elif [ "$remaining" -gt 0 ]; then
-                already_output=$remaining
-            fi
-            _start_session_tail "$sid" "$already_output"
-            return $?
-        else
-            # Completed session -- dump any lines we haven't output yet
-            if [ "$remaining" -ge "$session_lines" ]; then
-                # Already fully output
-                remaining=$((remaining - session_lines))
-            else
-                # Partially output or not at all
-                _dump_remaining_lines "$session_file" "$remaining"
-                remaining=0
-            fi
-        fi
-    done
-
     return 1
 }
 
-# Main loop: catch up on existing sessions, then watch for new ones.
+# Extract the uuid field from a single JSONL line (no jq, for speed).
+_extract_uuid() {
+    grep -o '"uuid":"[^"]*"' <<< "$1" 2>/dev/null | head -1 | cut -d'"' -f4
+}
+
+# -- Reconciliation (restart recovery) --
+
+# Build UUID lookup set from all lines in the output file.
+# Called once at startup and again if a late-appearing file needs reconciliation.
+_build_output_uuid_set() {
+    _OUTPUT_UUIDS=()
+    if [ ! -s "$OUTPUT_FILE" ]; then
+        return
+    fi
+    while IFS= read -r uuid; do
+        [ -n "$uuid" ] && _OUTPUT_UUIDS["$uuid"]=1
+    done < <(grep -o '"uuid":"[^"]*"' "$OUTPUT_FILE" | cut -d'"' -f4)
+    log_debug "Built UUID set with ${#_OUTPUT_UUIDS[@]} entries"
+}
+
+# Verify and correct the stored offset for a session file.
+# Quick path: check the line at the stored offset. If its UUID is in the
+# output, the offset is correct.
+# Slow path: work backwards from the end of the session file to find the
+# last line that actually made it into the output.
+_reconcile_offset() {
+    local sid="$1"
+    local session_file="$2"
+    local stored_offset="$3"
+
+    local file_lines
+    file_lines=$(_line_count "$session_file")
+
+    # Clamp to file size
+    if [ "$stored_offset" -gt "$file_lines" ]; then
+        stored_offset=$file_lines
+    fi
+
+    # If output is empty, everything needs to be emitted
+    if [ ${#_OUTPUT_UUIDS[@]} -eq 0 ]; then
+        echo 0
+        return
+    fi
+
+    # If session file is empty, nothing to reconcile
+    if [ "$file_lines" -eq 0 ]; then
+        echo 0
+        return
+    fi
+
+    # Quick path: verify the line at the stored offset
+    if [ "$stored_offset" -gt 0 ]; then
+        local check_line
+        check_line=$(sed -n "${stored_offset}p" "$session_file")
+        local check_uuid
+        check_uuid=$(_extract_uuid "$check_line")
+        if [ -n "$check_uuid" ] && [ "${_OUTPUT_UUIDS[$check_uuid]+exists}" ]; then
+            echo "$stored_offset"
+            return
+        fi
+    fi
+
+    # Slow path: work backwards through the file
+    log_debug "Reconciling offset for $sid (stored=$stored_offset, file_lines=$file_lines)"
+    local reverse_idx=0
+    while IFS= read -r line; do
+        reverse_idx=$((reverse_idx + 1))
+        local uuid
+        uuid=$(_extract_uuid "$line")
+        if [ -n "$uuid" ] && [ "${_OUTPUT_UUIDS[$uuid]+exists}" ]; then
+            local found=$((file_lines - reverse_idx + 1))
+            log_debug "Found last emitted line at $found for $sid"
+            echo "$found"
+            return
+        fi
+    done < <(tac "$session_file")
+
+    echo 0
+}
+
+# -- Session processing --
+
+# Check a session file for new lines and append them to the output.
+_emit_new_lines() {
+    local sid="$1"
+    local session_file="${_FILE_BY_SID[$sid]}"
+    local offset="${_OFFSET_BY_SID[$sid]}"
+
+    local file_lines
+    file_lines=$(_line_count "$session_file")
+
+    if [ "$file_lines" -le "$offset" ]; then
+        return
+    fi
+
+    local start=$((offset + 1))
+    tail -n "+${start}" "$session_file" >> "$OUTPUT_FILE"
+
+    local new_count=$((file_lines - offset))
+    _OFFSET_BY_SID[$sid]=$file_lines
+    _save_offset "$sid" "$file_lines"
+
+    log_debug "Emitted $new_count line(s) from session $sid (offset $offset -> $file_lines)"
+}
+
+# Check the history file for new session IDs.
+_check_for_new_sessions() {
+    [ -f "$SESSION_HISTORY" ] || return 0
+
+    local current_lines
+    current_lines=$(_line_count "$SESSION_HISTORY")
+    [ "$current_lines" -le "$_KNOWN_HISTORY_LINES" ] && return 0
+
+    local start=$((_KNOWN_HISTORY_LINES + 1))
+    while read -r sid _rest; do
+        if [ -n "$sid" ] && [ -z "${_FILE_BY_SID[$sid]+exists}" ]; then
+            _FILE_BY_SID[$sid]=""
+            _OFFSET_BY_SID[$sid]=0
+            log_info "Discovered new session: $sid"
+        fi
+    done < <(tail -n "+${start}" "$SESSION_HISTORY")
+
+    _KNOWN_HISTORY_LINES=$current_lines
+}
+
+# -- Initialization --
+
+_initialize() {
+    # Load all known sessions from history
+    if [ -f "$SESSION_HISTORY" ]; then
+        while read -r sid _rest; do
+            if [ -n "$sid" ]; then
+                _FILE_BY_SID[$sid]=""
+                _OFFSET_BY_SID[$sid]=$(_load_stored_offset "$sid")
+            fi
+        done < "$SESSION_HISTORY"
+        _KNOWN_HISTORY_LINES=$(_line_count "$SESSION_HISTORY")
+    fi
+
+    log_info "Loaded ${#_FILE_BY_SID[@]} session(s) from history"
+
+    # Build UUID set from the output file for reconciliation
+    _build_output_uuid_set
+
+    # Resolve files and reconcile offsets for all known sessions
+    for sid in "${!_FILE_BY_SID[@]}"; do
+        if _try_resolve_file "$sid"; then
+            local stored="${_OFFSET_BY_SID[$sid]}"
+            local reconciled
+            reconciled=$(_reconcile_offset "$sid" "${_FILE_BY_SID[$sid]}" "$stored")
+            _OFFSET_BY_SID[$sid]=$reconciled
+            if [ "$reconciled" != "$stored" ]; then
+                log_info "Reconciled offset for $sid: $stored -> $reconciled"
+                _save_offset "$sid" "$reconciled"
+            fi
+        fi
+    done
+
+    # Free the UUID set -- not needed until next reconciliation
+    _OUTPUT_UUIDS=()
+}
+
+# -- Main --
+
 main() {
     log_info "Stream transcript started"
     log_info "  Session history: $SESSION_HISTORY"
     log_info "  Output: $OUTPUT_FILE"
+    log_info "  Poll interval: ${POLL_INTERVAL}s"
 
-    # Wait for the session history file to be created
-    while [ ! -f "$SESSION_HISTORY" ]; do
-        sleep 1
+    _initialize
+
+    # Emit any backlog in history-file order (for rough ordering on startup)
+    if [ -f "$SESSION_HISTORY" ]; then
+        while read -r sid _rest; do
+            if [ -n "$sid" ] && [ -n "${_FILE_BY_SID[$sid]:-}" ]; then
+                _emit_new_lines "$sid"
+            fi
+        done < "$SESSION_HISTORY"
+    fi
+
+    log_info "Entering main loop"
+
+    while true; do
+        _check_for_new_sessions
+
+        for sid in "${!_FILE_BY_SID[@]}"; do
+            # Try to resolve file if not yet found (re-checked every cycle)
+            if [ -z "${_FILE_BY_SID[$sid]}" ]; then
+                if ! _try_resolve_file "$sid"; then
+                    continue
+                fi
+                # File just appeared -- reconcile if we have a stored offset
+                # from a previous run (otherwise offset is 0, no reconciliation needed)
+                local stored="${_OFFSET_BY_SID[$sid]}"
+                if [ "$stored" -gt 0 ]; then
+                    _build_output_uuid_set
+                    local reconciled
+                    reconciled=$(_reconcile_offset "$sid" "${_FILE_BY_SID[$sid]}" "$stored")
+                    _OFFSET_BY_SID[$sid]=$reconciled
+                    if [ "$reconciled" != "$stored" ]; then
+                        log_info "Reconciled late-appearing session $sid: $stored -> $reconciled"
+                        _save_offset "$sid" "$reconciled"
+                    fi
+                    _OUTPUT_UUIDS=()
+                fi
+            fi
+
+            _emit_new_lines "$sid"
+        done
+
+        sleep "$POLL_INTERVAL"
     done
-
-    log_info "Session history file found"
-
-    # Catch up on any sessions that already exist
-    _catch_up_and_tail || true
-
-    # Watch the session history file for new sessions.
-    # Use process substitution (not a pipe) so the while loop runs in the
-    # main shell and variable updates to _SESSION_TAIL_PID are visible.
-    local history_lines
-    history_lines=$(_line_count "$SESSION_HISTORY")
-    local tail_start=$((history_lines + 1))
-
-    log_info "Watching session history from line $tail_start"
-
-    while read -r new_sid _rest; do
-        if [ -z "$new_sid" ]; then
-            continue
-        fi
-
-        log_info "New session detected: $new_sid"
-
-        # Kill the current session tail -- the old session is done
-        _kill_session_tail
-
-        # Start tailing the new session from the beginning
-        _start_session_tail "$new_sid" 0 || true
-    done < <(stdbuf -oL tail -n "+${tail_start}" -f "$SESSION_HISTORY")
 }
 
 main
