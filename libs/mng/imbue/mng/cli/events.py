@@ -6,7 +6,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 
-from imbue.mng.api.events import EventFileEntry
 from imbue.mng.api.events import EventRecord
 from imbue.mng.api.events import EventsTarget
 from imbue.mng.api.events import apply_head_or_tail
@@ -20,8 +19,6 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import emit_final_json
-from imbue.mng.cli.output_helpers import emit_format_template_lines
-from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
@@ -104,12 +101,12 @@ def events(ctx: click.Context, **kwargs: Any) -> None:
         mng_ctx=mng_ctx,
     )
 
-    # If a specific event file is given, use the old file-based behavior
+    # If a specific event file is given, view that file directly
     if opts.event_filename is not None:
         _handle_specific_file(target, opts, output_opts)
         return
 
-    # Stream all events (new default behavior)
+    # Stream all events from all sources
     cel_include_filters: list[Any] = []
     cel_exclude_filters: list[Any] = []
     if opts.filter is not None:
@@ -118,7 +115,7 @@ def events(ctx: click.Context, **kwargs: Any) -> None:
             exclude_filters=[],
         )
 
-    _stream_all_events_cli(target, opts, output_opts, cel_include_filters, cel_exclude_filters)
+    _stream_all_events_cli(target, opts, cel_include_filters, cel_exclude_filters)
 
 
 def _handle_specific_file(
@@ -126,7 +123,7 @@ def _handle_specific_file(
     opts: EventsCliOptions,
     output_opts: OutputOptions,
 ) -> None:
-    """Handle the case where a specific event file is requested (old behavior)."""
+    """View a specific event file by name."""
     assert opts.event_filename is not None
 
     # Format templates only apply to file listing, not to viewing file content
@@ -172,11 +169,10 @@ def _emit_event_record(event: EventRecord) -> None:
 def _stream_all_events_cli(
     target: EventsTarget,
     opts: EventsCliOptions,
-    output_opts: OutputOptions,
     cel_include_filters: list[Any],
     cel_exclude_filters: list[Any],
 ) -> None:
-    """Stream all events from all sources, formatting output for the CLI."""
+    """Stream all events from all sources as JSONL lines."""
     try:
         stream_all_events(
             target=target,
@@ -190,35 +186,6 @@ def _stream_all_events_cli(
     except KeyboardInterrupt:
         sys.stdout.write("\n")
         sys.stdout.flush()
-
-
-def _emit_event_file_list(
-    event_files: list[EventFileEntry],
-    display_name: str,
-    output_opts: OutputOptions,
-) -> None:
-    """Emit the list of available event files."""
-    if output_opts.format_template is not None:
-        items = [{"name": ef.name, "size": str(ef.size)} for ef in event_files]
-        emit_format_template_lines(output_opts.format_template, items)
-        return
-    match output_opts.output_format:
-        case OutputFormat.HUMAN:
-            if not event_files:
-                write_human_line("No event files found for {}", display_name)
-            else:
-                write_human_line("Event files for {}:", display_name)
-                for event_file in event_files:
-                    write_human_line("  {} ({} bytes)", event_file.name, event_file.size)
-        case OutputFormat.JSON | OutputFormat.JSONL:
-            emit_final_json(
-                {
-                    "target": display_name,
-                    "event_files": [{"name": ef.name, "size": ef.size} for ef in event_files],
-                }
-            )
-        case _ as unreachable:
-            assert_never(unreachable)
 
 
 def _emit_event_content(
@@ -260,7 +227,7 @@ If EVENT_FILE is not specified, streams all events from all sources in
 date-sorted order. Use --filter to restrict which events are included
 via a CEL expression. Use --follow to continuously stream new events.
 
-If EVENT_FILE is specified, prints its contents directly (legacy behavior).
+If EVENT_FILE is specified, prints its contents directly.
 
 In follow mode (--follow), the command polls for new events. When the host
 is online, it reads files directly. When offline, it falls back to polling

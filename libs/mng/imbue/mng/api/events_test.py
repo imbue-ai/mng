@@ -10,13 +10,17 @@ from imbue.mng.api.connect import build_ssh_base_args
 from imbue.mng.api.events import EventRecord
 from imbue.mng.api.events import EventSourceInfo
 from imbue.mng.api.events import EventsTarget
+from imbue.mng.api.events import _AllEventsStreamState
 from imbue.mng.api.events import _FollowState
 from imbue.mng.api.events import _build_tail_args
 from imbue.mng.api.events import _check_for_new_content
+from imbue.mng.api.events import _check_online_offline_transition
 from imbue.mng.api.events import _discover_event_sources_via_volume
 from imbue.mng.api.events import _extract_filename
 from imbue.mng.api.events import _parse_discovered_files
 from imbue.mng.api.events import _parse_file_listing_output
+from imbue.mng.api.events import _poll_source_for_new_events
+from imbue.mng.api.events import _rescan_for_new_sources
 from imbue.mng.api.events import _sort_rotated_files_oldest_first
 from imbue.mng.api.events import apply_head_or_tail
 from imbue.mng.api.events import follow_event_file
@@ -24,6 +28,7 @@ from imbue.mng.api.events import list_event_files
 from imbue.mng.api.events import parse_event_line
 from imbue.mng.api.events import read_all_historical_events
 from imbue.mng.api.events import read_event_content
+from imbue.mng.api.events import refresh_events_target
 from imbue.mng.api.events import resolve_events_target
 from imbue.mng.api.events import sort_events_by_timestamp
 from imbue.mng.api.events import stream_all_events
@@ -1069,3 +1074,161 @@ def test_resolve_events_target_populates_provider_and_host_id(
     assert target.provider is not None
     assert target.host_id is not None
     assert target.events_subpath is not None
+
+
+# =============================================================================
+# Follow mode polling function tests
+# =============================================================================
+
+
+def test_poll_source_for_new_events_detects_appended_content(tmp_path: Path) -> None:
+    """Verify _poll_source_for_new_events detects new events appended to events.jsonl."""
+    events_dir = tmp_path / "events"
+    (events_dir / "src").mkdir(parents=True)
+
+    initial_content = '{"timestamp":"2026-01-01T00:00:00Z","event_id":"e1","source":"src"}\n'
+    (events_dir / "src" / "events.jsonl").write_text(initial_content)
+
+    volume = LocalVolume(root_path=events_dir)
+    target = EventsTarget(volume=volume, display_name="test")
+
+    state = _AllEventsStreamState(
+        source_byte_offsets={"src": len(initial_content.encode("utf-8"))},
+    )
+
+    captured: list[str] = []
+
+    # No new content yet
+    _poll_source_for_new_events(target, "src", state, lambda e: captured.append(e.event_id), [], [])
+    assert captured == []
+
+    # Append new content
+    with (events_dir / "src" / "events.jsonl").open("a") as f:
+        f.write('{"timestamp":"2026-01-02T00:00:00Z","event_id":"e2","source":"src"}\n')
+
+    _poll_source_for_new_events(target, "src", state, lambda e: captured.append(e.event_id), [], [])
+    assert captured == ["e2"]
+
+
+def test_poll_source_for_new_events_handles_rotation(tmp_path: Path) -> None:
+    """Verify _poll_source_for_new_events handles file rotation (shorter file than offset)."""
+    events_dir = tmp_path / "events"
+    (events_dir / "src").mkdir(parents=True)
+
+    # Write a large initial file so the offset is high
+    initial_content = (
+        '{"timestamp":"2026-01-01T00:00:00Z","event_id":"e1","source":"src"}\n'
+        '{"timestamp":"2026-01-01T01:00:00Z","event_id":"e1b","source":"src"}\n'
+        '{"timestamp":"2026-01-01T02:00:00Z","event_id":"e1c","source":"src"}\n'
+    )
+    (events_dir / "src" / "events.jsonl").write_text(initial_content)
+
+    volume = LocalVolume(root_path=events_dir)
+    target = EventsTarget(volume=volume, display_name="test")
+
+    state = _AllEventsStreamState(
+        emitted_event_ids={"e1", "e1b", "e1c"},
+        source_byte_offsets={"src": len(initial_content.encode("utf-8"))},
+    )
+
+    # Simulate rotation: new file is shorter than old offset
+    new_content = '{"timestamp":"2026-01-02T00:00:00Z","event_id":"e2","source":"src"}\n'
+    (events_dir / "src" / "events.jsonl").write_text(new_content)
+
+    captured: list[str] = []
+    _poll_source_for_new_events(target, "src", state, lambda e: captured.append(e.event_id), [], [])
+
+    assert captured == ["e2"]
+
+
+def test_poll_source_deduplicates_during_follow(tmp_path: Path) -> None:
+    """Verify _poll_source_for_new_events skips already-emitted event_ids."""
+    events_dir = tmp_path / "events"
+    (events_dir / "src").mkdir(parents=True)
+    (events_dir / "src" / "events.jsonl").write_text(
+        '{"timestamp":"2026-01-01T00:00:00Z","event_id":"already_seen","source":"src"}\n'
+        '{"timestamp":"2026-01-02T00:00:00Z","event_id":"new_one","source":"src"}\n'
+    )
+
+    volume = LocalVolume(root_path=events_dir)
+    target = EventsTarget(volume=volume, display_name="test")
+
+    state = _AllEventsStreamState(
+        emitted_event_ids={"already_seen"},
+        source_byte_offsets={"src": 0},
+    )
+
+    captured: list[str] = []
+    _poll_source_for_new_events(target, "src", state, lambda e: captured.append(e.event_id), [], [])
+
+    assert captured == ["new_one"]
+    assert "already_seen" not in captured
+
+
+def test_rescan_for_new_sources_discovers_new_source(tmp_path: Path) -> None:
+    """Verify _rescan_for_new_sources picks up new event source directories."""
+    events_dir = tmp_path / "events"
+    (events_dir / "existing").mkdir(parents=True)
+    (events_dir / "existing" / "events.jsonl").write_text(
+        '{"timestamp":"2026-01-01T00:00:00Z","event_id":"e1","source":"existing"}\n'
+    )
+
+    volume = LocalVolume(root_path=events_dir)
+    target = EventsTarget(volume=volume, display_name="test")
+
+    state = _AllEventsStreamState(
+        source_byte_offsets={"existing": 100},
+    )
+
+    # Add a new source directory
+    (events_dir / "new_source").mkdir()
+    (events_dir / "new_source" / "events.jsonl").write_text(
+        '{"timestamp":"2026-01-02T00:00:00Z","event_id":"n1","source":"new_source"}\n'
+    )
+
+    captured: list[str] = []
+    _rescan_for_new_sources(target, state, lambda e: captured.append(e.event_id), [], [])
+
+    assert "n1" in captured
+    assert "new_source" in state.source_byte_offsets
+
+
+def test_refresh_events_target_returns_same_when_no_provider(tmp_path: Path) -> None:
+    """Verify refresh_events_target is a no-op when provider info is missing."""
+    volume = LocalVolume(root_path=tmp_path)
+    target = EventsTarget(volume=volume, display_name="test")
+
+    refreshed = refresh_events_target(target)
+    assert refreshed is target
+
+
+def test_check_online_offline_transition_updates_state(
+    temp_mng_ctx: MngContext,
+    local_provider,
+) -> None:
+    """Verify _check_online_offline_transition detects that a host is online."""
+    per_host_dir = local_provider.host_dir
+
+    # Create an agent to make the host appear
+    agent_id = _create_agent_data_json(per_host_dir, "test-transition-agent-71829", "sleep 71829")
+    agent_events_subpath = Path("agents") / str(agent_id) / "events"
+
+    # Create a target that appears offline (no online_host)
+    volume = LocalVolume(root_path=per_host_dir)
+    events_volume = volume.scoped(f"agents/{agent_id}/events")
+    target = EventsTarget(
+        volume=events_volume,
+        display_name="test",
+        provider=local_provider,
+        host_id=local_provider.get_host(HostName("localhost")).id,
+        events_subpath=agent_events_subpath,
+    )
+
+    state = _AllEventsStreamState(is_online=False)
+    target_holder = [target]
+
+    _check_online_offline_transition(target_holder, state)
+
+    # Local host is always online, so state should transition
+    assert state.is_online is True
+    assert target_holder[0].online_host is not None

@@ -18,7 +18,7 @@ If EVENT_FILE is not specified, streams all events from all sources in
 date-sorted order. Use --filter to restrict which events are included
 via a CEL expression. Use --follow to continuously stream new events.
 
-If EVENT_FILE is specified, prints its contents directly (legacy behavior).
+If EVENT_FILE is specified, prints its contents directly.
 
 In follow mode (--follow), the command polls for new events. When the host
 is online, it reads files directly. When offline, it falls back to polling

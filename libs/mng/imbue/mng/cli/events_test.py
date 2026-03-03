@@ -4,10 +4,8 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
-from imbue.mng.api.events import EventFileEntry
 from imbue.mng.cli.events import EventsCliOptions
 from imbue.mng.cli.events import _emit_event_content
-from imbue.mng.cli.events import _emit_event_file_list
 from imbue.mng.cli.events import _write_and_flush_stdout
 from imbue.mng.cli.events import events
 from imbue.mng.config.data_types import OutputOptions
@@ -118,54 +116,6 @@ def test_write_and_flush_stdout(capsys: pytest.CaptureFixture[str]) -> None:
     assert captured.out == "hello world"
 
 
-def test_emit_event_file_list_human_empty(capsys: pytest.CaptureFixture[str]) -> None:
-    """Test _emit_event_file_list with no event files in HUMAN format."""
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    _emit_event_file_list([], "my-agent", output_opts)
-    captured = capsys.readouterr()
-    assert "No event files found for my-agent" in captured.out
-
-
-def test_emit_event_file_list_human_with_files(capsys: pytest.CaptureFixture[str]) -> None:
-    """Test _emit_event_file_list with event files in HUMAN format."""
-    event_files = [
-        EventFileEntry(name="output.log", size=1024),
-        EventFileEntry(name="error.log", size=512),
-    ]
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
-    _emit_event_file_list(event_files, "my-agent", output_opts)
-    captured = capsys.readouterr()
-    output = captured.out
-    assert "Event files for my-agent" in output
-    assert "output.log" in output
-    assert "error.log" in output
-
-
-def test_emit_event_file_list_json_format(capsys: pytest.CaptureFixture[str]) -> None:
-    """Test _emit_event_file_list in JSON format."""
-    event_files = [
-        EventFileEntry(name="output.log", size=1024),
-    ]
-    output_opts = OutputOptions(output_format=OutputFormat.JSON)
-    _emit_event_file_list(event_files, "my-agent", output_opts)
-    captured = capsys.readouterr()
-    data = json.loads(captured.out.strip())
-    assert data["target"] == "my-agent"
-    assert len(data["event_files"]) == 1
-    assert data["event_files"][0]["name"] == "output.log"
-
-
-def test_emit_event_file_list_format_template(capsys: pytest.CaptureFixture[str]) -> None:
-    """Test _emit_event_file_list with a format template."""
-    event_files = [
-        EventFileEntry(name="output.log", size=1024),
-    ]
-    output_opts = OutputOptions(output_format=OutputFormat.HUMAN, format_template="{name}")
-    _emit_event_file_list(event_files, "my-agent", output_opts)
-    captured = capsys.readouterr()
-    assert "output.log" in captured.out
-
-
 def test_emit_event_content_human_format(capsys: pytest.CaptureFixture[str]) -> None:
     """Test _emit_event_content in HUMAN format."""
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
@@ -193,7 +143,7 @@ def test_emit_event_content_json_format(capsys: pytest.CaptureFixture[str]) -> N
 
 
 # =============================================================================
-# New CLI behavior tests
+# Filter and streaming behavior tests
 # =============================================================================
 
 

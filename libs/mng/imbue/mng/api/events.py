@@ -656,6 +656,25 @@ def _discover_event_sources_via_host(
 
 
 @pure
+def _build_event_sources_from_grouped_files(
+    files_by_dir: dict[str, list[str]],
+) -> list[EventSourceInfo]:
+    """Build EventSourceInfo objects from files grouped by directory."""
+    sources: list[EventSourceInfo] = []
+    for dir_path, filenames in sorted(files_by_dir.items()):
+        rotated = [f for f in filenames if _ROTATED_FILE_PATTERN.match(f)]
+        is_current_present = _EVENTS_JSONL_FILENAME in filenames
+        sources.append(
+            EventSourceInfo(
+                source_path=dir_path,
+                rotated_files=tuple(_sort_rotated_files_oldest_first(rotated)),
+                is_current_file_present=is_current_present,
+            )
+        )
+    return sources
+
+
+@pure
 def _parse_discovered_files(find_output: str, events_path_str: str) -> list[EventSourceInfo]:
     """Parse find command output into EventSourceInfo objects.
 
@@ -692,20 +711,7 @@ def _parse_discovered_files(find_output: str, events_path_str: str) -> list[Even
                 files_by_dir[dir_part] = []
             files_by_dir[dir_part].append(file_part)
 
-    # Build EventSourceInfo for each directory
-    sources: list[EventSourceInfo] = []
-    for dir_path, filenames in sorted(files_by_dir.items()):
-        rotated = [f for f in filenames if _ROTATED_FILE_PATTERN.match(f)]
-        is_current_present = _EVENTS_JSONL_FILENAME in filenames
-        sources.append(
-            EventSourceInfo(
-                source_path=dir_path,
-                rotated_files=tuple(_sort_rotated_files_oldest_first(rotated)),
-                is_current_file_present=is_current_present,
-            )
-        )
-
-    return sources
+    return _build_event_sources_from_grouped_files(files_by_dir)
 
 
 def _discover_event_sources_via_volume(volume: Volume) -> list[EventSourceInfo]:
@@ -751,19 +757,7 @@ def _group_volume_files_into_sources(files: Sequence[tuple[str, str]]) -> list[E
             files_by_dir[dir_path] = []
         files_by_dir[dir_path].append(filename)
 
-    sources: list[EventSourceInfo] = []
-    for dir_path, filenames in sorted(files_by_dir.items()):
-        rotated = [f for f in filenames if _ROTATED_FILE_PATTERN.match(f)]
-        is_current_present = _EVENTS_JSONL_FILENAME in filenames
-        sources.append(
-            EventSourceInfo(
-                source_path=dir_path,
-                rotated_files=tuple(_sort_rotated_files_oldest_first(rotated)),
-                is_current_file_present=is_current_present,
-            )
-        )
-
-    return sources
+    return _build_event_sources_from_grouped_files(files_by_dir)
 
 
 # =============================================================================
