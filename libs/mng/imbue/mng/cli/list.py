@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from pydantic import PrivateAttr
 from tabulate import tabulate
 
+from imbue.imbue_common.errors import SwitchError
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.list import ErrorInfo
@@ -948,21 +949,24 @@ def _resolve_model_type(annotation: Any) -> type[BaseModel] | None:
         return None
 
     # Handle list[X] and tuple[X, ...]
-    if origin in (list, tuple):
+    elif origin in (list, tuple):
         args = get_args(annotation)
         if args:
             return _resolve_model_type(args[0])
         return None
 
     # Handle dict[K, V] -- dynamic keys, stop validation
-    if origin is dict:
+    elif origin is dict:
         return None
 
-    # Direct model class
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-        return annotation
+    # No generic origin -- either a direct model class or a primitive type
+    elif origin is None:
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            return annotation
+        return None
 
-    return None
+    else:
+        raise SwitchError(f"Unhandled annotation origin: {origin} (from annotation {annotation})")
 
 
 @pure
