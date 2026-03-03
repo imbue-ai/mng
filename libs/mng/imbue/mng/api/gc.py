@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
+from typing import Final
 from typing import assert_never
 
 from loguru import logger
@@ -11,6 +12,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
+from imbue.imbue_common.pure import pure
 from imbue.mng.api.data_types import GcResourceTypes
 from imbue.mng.api.data_types import GcResult
 from imbue.mng.config.data_types import MngContext
@@ -23,6 +25,7 @@ from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.interfaces.data_types import LogFileInfo
 from imbue.mng.interfaces.data_types import SizeBytes
 from imbue.mng.interfaces.data_types import WorkDirInfo
+from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ErrorBehavior
@@ -205,19 +208,20 @@ def gc_machines(
                         agent_refs = host.get_agent_references()
                         if len(agent_refs) > 0:
                             continue
+                        host_to_destroy: HostInterface = host
                     except HostAuthenticationError:
                         # hosts that fail to authenticate should be destroyed--we assume all hosts are reachable
                         logger.warning("Failed to authenticate with host during GC, destroying: {}", host.id)
-                        host = host.to_offline_host()
+                        host_to_destroy = host.to_offline_host()
                     except HostConnectionError as e:
                         # we skip hosts that suddenly appear offline for now--it's hard to tell exactly what happened
                         logger.warning("Failed to connect to host {} during gc, skipping: {}", host.id, e)
                         continue
 
                     if not dry_run:
-                        mng_ctx.pm.hook.on_before_host_destroy(host=host)
-                        provider.destroy_host(host)
-                        mng_ctx.pm.hook.on_host_destroyed(host=host)
+                        mng_ctx.pm.hook.on_before_host_destroy(host=host_to_destroy)
+                        provider.destroy_host(host_to_destroy)
+                        mng_ctx.pm.hook.on_host_destroyed(host=host_to_destroy)
 
                     result.machines_destroyed.append(host_info)
 
@@ -312,6 +316,9 @@ def gc_volumes(
             _handle_error(error_msg, error_behavior, exc=e)
 
 
+_LOG_MAX_AGE_DAYS: Final[int] = 30
+
+
 def gc_logs(
     mng_ctx: MngContext,
     providers: Sequence[ProviderInstanceInterface],
@@ -319,28 +326,52 @@ def gc_logs(
     error_behavior: ErrorBehavior,
     result: GcResult,
 ) -> None:
-    """Garbage collect old log files."""
-    # Construct logs directory from config
+    """Garbage collect old rotated log files.
+
+    Only targets the events/logs/ subdirectory (diagnostic logs), not the
+    broader events/ directory which may contain non-log event data.
+
+    Only deletes rotated log files (e.g., events.jsonl.1, events.jsonl.2)
+    that are older than 30 days. The current log file (events.jsonl) is
+    never deleted.
+    """
+    # Construct the logs subdirectory: events/logs/
     log_dir = mng_ctx.config.logging.log_dir
     if not log_dir.is_absolute():
-        logs_dir = mng_ctx.config.default_host_dir.expanduser() / log_dir
+        events_dir = mng_ctx.config.default_host_dir.expanduser() / log_dir
     else:
-        logs_dir = log_dir
-    logs_dir = logs_dir.expanduser()
+        events_dir = log_dir
+    events_dir = events_dir.expanduser()
 
+    # Only clean the logs/ subdirectory within events/
+    logs_dir = events_dir / "logs"
     if not logs_dir.exists():
         logger.trace("Skipped logs directory {} (does not exist)", logs_dir)
         return
+
+    now = datetime.now(timezone.utc)
 
     for log_file in logs_dir.rglob("*"):
         if not log_file.is_file():
             continue
 
+        # Only delete rotated files (e.g., events.jsonl.1, events.jsonl.2).
+        # Never delete the current log file (events.jsonl) or other non-rotated files.
+        if not _is_rotated_log_file(log_file):
+            continue
+
         try:
             stat = log_file.stat()
             file_size = SizeBytes(stat.st_size)
-            created_at = datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc)
-            log_file_info = LogFileInfo(path=log_file, size_bytes=file_size, created_at=created_at)
+            modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+
+            # Only delete files older than the max age (based on last modification)
+            age_days = (now - modified_at).days
+            if age_days < _LOG_MAX_AGE_DAYS:
+                logger.trace("Skipped log file {} (only {} days old)", log_file, age_days)
+                continue
+
+            log_file_info = LogFileInfo(path=log_file, size_bytes=file_size, created_at=modified_at)
 
             if not dry_run:
                 log_file.unlink()
@@ -351,6 +382,23 @@ def gc_logs(
             error_msg = f"Failed to delete log {log_file}: {e}"
             result.errors.append(error_msg)
             _handle_error(error_msg, error_behavior, exc=e)
+
+
+@pure
+def _is_rotated_log_file(path: Path) -> bool:
+    """Check if a file is a rotated log file (e.g., events.jsonl.1, events.jsonl.2).
+
+    Rotated files are created by the JSONL file sink when the current log file
+    exceeds max_size_bytes. They have a numeric suffix appended to the original
+    filename (e.g., events.jsonl.1, events.jsonl.2).
+    """
+    name = path.name
+    # Check for pattern: <basename>.<N> where N is a positive integer
+    last_dot = name.rfind(".")
+    if last_dot == -1:
+        return False
+    suffix = name[last_dot + 1 :]
+    return suffix.isdigit()
 
 
 def gc_build_cache(

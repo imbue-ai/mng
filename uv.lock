@@ -1836,7 +1836,7 @@ requires-dist = [
     { name = "concurrency-group", editable = "libs/concurrency_group" },
     { name = "coolname", specifier = ">=3.0.0" },
     { name = "cryptography", specifier = ">=42.0" },
-    { name = "docker", specifier = ">=7.0" },
+    { name = "docker", specifier = "==7.1.0" },
     { name = "dockerfile-parse", specifier = ">=2.0.0" },
     { name = "imbue-common", editable = "libs/imbue_common" },
     { name = "modal", specifier = "==1.3.1" },

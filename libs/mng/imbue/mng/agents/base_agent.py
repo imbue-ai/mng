@@ -20,6 +20,7 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.common import determine_lifecycle_state
+from imbue.mng.hosts.tmux import capture_tmux_pane_content
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import FileTransferSpec
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -89,7 +90,7 @@ class BaseAgent(AgentInterface):
         Returns 'tmux -L mng' for local or 'tmux' for remote.
         """
         if self.host.is_local:
-            return f"tmux -L {shlex.quote(self.mng_ctx.config.tmux_server_socket_name)}"
+            return f"tmux -L {shlex.quote(self.mng_ctx.config.local_tmux_server_socket_name)}"
         return "tmux"
 
     def _get_agent_dir(self) -> Path:
@@ -408,14 +409,12 @@ class BaseAgent(AgentInterface):
 
     def _capture_pane_content(self, session_name: str) -> str | None:
         """Capture the current pane content, returning None on failure."""
-        tmux = self._build_base_tmux_command()
-        result = self.host.execute_command(
-            f"{tmux} capture-pane -t '{session_name}' -p",
+        return capture_tmux_pane_content(
+            self.host,
+            session_name,
             timeout_seconds=_CAPTURE_PANE_TIMEOUT_SECONDS,
+            base_tmux_command=self._build_base_tmux_command(),
         )
-        if result.success:
-            return result.stdout.rstrip()
-        return None
 
     def _wait_for_tui_ready(self, session_name: str, indicator: str) -> None:
         """Wait until the TUI is ready by looking for the indicator string in the pane.

@@ -460,7 +460,7 @@ class DockerProviderInstance(BaseProviderInstance):
 # Auto-generated shutdown script for mng Docker host
 # Kills PID 1 to stop the container
 
-LOG_FILE="{host_dir_str}/logs/shutdown.log"
+LOG_FILE="{host_dir_str}/events/logs/shutdown.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
 log() {{
@@ -1138,6 +1138,14 @@ kill -TERM 1
     # =========================================================================
     # Discovery Methods
     # =========================================================================
+
+    def to_offline_host(self, host_id: HostId) -> OfflineHost:
+        """Return an offline representation of the given host for use when it is unreachable."""
+        host_record = self._host_store.read_host_record(host_id, use_cache=False)
+        if host_record is None:
+            raise HostNotFoundError(host_id)
+
+        return self._create_host_from_host_record(host_record)
 
     def get_host(
         self,

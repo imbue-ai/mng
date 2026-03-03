@@ -49,7 +49,7 @@ class BaseProviderInstance(ProviderInstanceInterface):
         raise NotImplementedError()
 
     def to_offline_host(self, host_id: HostId) -> OfflineHost:
-        raise Exception("Offline hosts not supported for this provider")
+        raise NotImplementedError("Offline hosts not supported for this provider")
 
     def list_hosts(
         self,

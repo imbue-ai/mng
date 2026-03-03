@@ -1464,7 +1464,7 @@ class Host(BaseHost, OnlineHostInterface):
             resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
-            self._mkdirs([state_dir, state_dir / "logs"])
+            self._mkdirs([state_dir, state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
 
@@ -1833,14 +1833,15 @@ class Host(BaseHost, OnlineHostInterface):
     def _build_base_tmux_command(self) -> str:
         """Return the base tmux command with the appropriate -L flag.
 
-        Local agents use the configured tmux_server_socket_name (default 'mng')
-        to isolate sessions from the user's global tmux. Remote agents use the
-        remote system's default tmux server.
+        Local agents use the configured local_tmux_server_socket_name (default 'mng')
+        to isolate sessions from the user's global tmux. When TMUX_TMPDIR is already
+        set, uses 'default' to stay on the caller's isolated server. Remote agents
+        use the remote system's default tmux server.
 
         Returns 'tmux -L mng' for local or 'tmux' for remote.
         """
         if self.is_local:
-            return f"tmux -L {shlex.quote(self.mng_ctx.config.tmux_server_socket_name)}"
+            return f"tmux -L {shlex.quote(self.mng_ctx.config.local_tmux_server_socket_name)}"
         return "tmux"
 
     def _build_env_shell_command(self, agent: AgentInterface) -> str:
