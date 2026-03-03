@@ -216,7 +216,8 @@ if [ "$_NEED_MODERN_BASH" = true ]; then
             warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
             warn "Ensure /opt/homebrew/bin (Apple Silicon) or /usr/local/bin (Intel) is before /bin in your PATH."
         else
-            warn "PATH-resolved bash is still version $_POST_BASH_VER. Please install bash 4+ and ensure it is on your PATH."
+            warn "PATH-resolved bash is still version $_POST_BASH_VER after install."
+            warn "Ensure the newly installed bash is before the old one in your PATH."
         fi
     fi
 fi
