@@ -27,7 +27,7 @@ from imbue.mng.cli.connect import filter_agents
 from imbue.mng.cli.connect import handle_search_key
 from imbue.mng.cli.connect import select_agent_interactively
 from imbue.mng.cli.create import create
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.main import cli
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -505,7 +505,7 @@ def test_create_selectable_agent_item_stopped_state() -> None:
     assert widget.selectable() is True
 
 
-def _create_test_selector_state(agents: list[AgentInfo]) -> AgentSelectorState:
+def _create_test_selector_state(agents: list[AgentDetails]) -> AgentSelectorState:
     """Create an AgentSelectorState for testing without refreshing the list."""
     list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
     status_text = Text("")
@@ -521,7 +521,7 @@ def _create_test_selector_state(agents: list[AgentInfo]) -> AgentSelectorState:
     )
 
 
-def _create_and_refresh_test_state(agents: list[AgentInfo]) -> AgentSelectorState:
+def _create_and_refresh_test_state(agents: list[AgentDetails]) -> AgentSelectorState:
     """Create an AgentSelectorState and refresh it for testing."""
     state = _create_test_selector_state(agents)
     _refresh_agent_list(state)
@@ -671,7 +671,7 @@ def test_handle_selector_input_enter_selects_focused_agent() -> None:
 
 def test_handle_selector_input_enter_with_empty_list_sets_no_result() -> None:
     """Test that Enter with empty list doesn't set a result."""
-    agents: list[AgentInfo] = []
+    agents: list[AgentDetails] = []
     state = _create_and_refresh_test_state(agents)
 
     with pytest.raises(ExitMainLoop):
@@ -743,7 +743,7 @@ def test_selector_input_handler_ignores_mouse_events() -> None:
 
 def test_select_agent_interactively_returns_none_for_empty_list() -> None:
     """Test that select_agent_interactively returns None when given empty list."""
-    agents: list[AgentInfo] = []
+    agents: list[AgentDetails] = []
 
     result = select_agent_interactively(agents)
 

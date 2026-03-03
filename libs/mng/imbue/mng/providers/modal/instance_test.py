@@ -1633,7 +1633,7 @@ def test_list_running_host_ids_skips_sandboxes_without_host_id_tag(
 def test_load_agent_refs_returns_agents_from_volume_data(
     modal_provider: ModalProviderInstance,
 ) -> None:
-    """load_agent_refs builds HostReference->AgentReference map from volume data."""
+    """load_agent_refs builds DiscoveredHost->DiscoveredAgent map from volume data."""
     host_id = HostId.generate()
     agent_id = AgentId.generate()
     snapshot = _make_snapshot_record("initial")

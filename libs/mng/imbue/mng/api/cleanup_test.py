@@ -12,8 +12,8 @@ from imbue.mng.api.create import CreateAgentOptions
 from imbue.mng.api.data_types import CleanupResult
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -25,9 +25,9 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import ProviderInstanceName
 
 
-def _make_test_agent_info(name: str = "test-agent") -> AgentInfo:
-    """Create a minimal AgentInfo for testing cleanup API functions."""
-    return AgentInfo(
+def _make_test_agent_info(name: str = "test-agent") -> AgentDetails:
+    """Create a minimal AgentDetails for testing cleanup API functions."""
+    return AgentDetails(
         id=AgentId.generate(),
         name=AgentName(name),
         type="generic",
@@ -36,7 +36,7 @@ def _make_test_agent_info(name: str = "test-agent") -> AgentInfo:
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,
-        host=HostInfo(
+        host=HostDetails(
             id=HostId.generate(),
             name="test-host",
             provider_name=ProviderInstanceName("local"),

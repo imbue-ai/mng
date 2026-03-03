@@ -36,8 +36,8 @@ from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import AgentName
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import ErrorBehavior
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng.utils.git_utils import find_source_repo_of_worktree
@@ -453,7 +453,7 @@ def _handle_offline_or_unreachable_host(
     agent_identifiers: Sequence[str],
     destroy_all: bool,
     host_id_str: str,
-    host_ref: HostReference,
+    host_ref: DiscoveredHost,
     matched_identifiers: set[str],
     offline_host: HostInterface,
     offline_hosts: list[_OfflineHostToDestroy],

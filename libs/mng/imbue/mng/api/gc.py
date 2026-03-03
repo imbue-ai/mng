@@ -21,7 +21,7 @@ from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import BuildCacheInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.data_types import LogFileInfo
 from imbue.mng.interfaces.data_types import SizeBytes
 from imbue.mng.interfaces.data_types import WorkDirInfo
@@ -167,7 +167,7 @@ def gc_machines(
 
             for host in hosts:
                 try:
-                    host_info = HostInfo(
+                    host_info = HostDetails(
                         id=host.id,
                         name=str(host.id),
                         provider_name=provider.name,

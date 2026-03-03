@@ -32,20 +32,20 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import ProviderInstanceNotFoundError
 from imbue.mng.hosts.common import compute_idle_seconds
 from imbue.mng.hosts.host import Host
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.data_types import SSHInfo
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.interfaces.provider_instance import ProviderInstanceInterface
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
@@ -116,7 +116,7 @@ class AgentErrorInfo(ErrorInfo):
 class ListResult(MutableModel):
     """Result of listing agents."""
 
-    agents: list[AgentInfo] = Field(default_factory=list, description="List of agents with their full information")
+    agents: list[AgentDetails] = Field(default_factory=list, description="List of agents with their full information")
     errors: list[ErrorInfo] = Field(default_factory=list, description="Errors encountered while listing")
 
 
@@ -132,7 +132,7 @@ class _ListAgentsParams(FrozenModel):
     compiled_include_filters: list[Any]
     compiled_exclude_filters: list[Any]
     error_behavior: ErrorBehavior
-    on_agent: Callable[[AgentInfo], None] | None
+    on_agent: Callable[[AgentDetails], None] | None
     on_error: Callable[[ErrorInfo], None] | None
 
 
@@ -151,7 +151,7 @@ def list_agents(
     # How to handle errors (abort or continue)
     error_behavior: ErrorBehavior = ErrorBehavior.ABORT,
     # Optional callback invoked immediately when each agent is found (for streaming)
-    on_agent: Callable[[AgentInfo], None] | None = None,
+    on_agent: Callable[[AgentDetails], None] | None = None,
     # Optional callback invoked immediately when each error is encountered (for streaming)
     on_error: Callable[[ErrorInfo], None] | None = None,
 ) -> ListResult:
@@ -359,8 +359,8 @@ def _process_provider_streaming(
     reraise=True,
 )
 def _assemble_host_info(
-    host_ref: HostReference,
-    agent_refs: list[AgentReference],
+    host_ref: DiscoveredHost,
+    agent_refs: list[DiscoveredAgent],
     provider: ProviderInstanceInterface,
     params: _ListAgentsParams,
     result: ListResult,
@@ -432,7 +432,7 @@ def _assemble_host_info(
     ssh_activity = (
         host.get_reported_activity_time(ActivitySource.SSH) if isinstance(host, OnlineHostInterface) else None
     )
-    host_info = HostInfo(
+    host_info = HostDetails(
         id=host.id,
         name=host_name,
         provider_name=host_ref.provider_name,
@@ -456,10 +456,10 @@ def _assemble_host_info(
     if isinstance(host, OnlineHostInterface):
         agents = host.get_agents()
 
-    # make an AgentInfo for each agent on this host
+    # make an AgentDetails for each agent on this host
     for agent_ref in agent_refs:
         try:
-            agent_info: AgentInfo | None = None
+            agent_info: AgentDetails | None = None
             if agents is not None:
                 # Find the agent in the list for running hosts
                 agent = next((a for a in (agents or []) if a.id == agent_ref.agent_id), None)
@@ -492,7 +492,7 @@ def _assemble_host_info(
                 # idle_seconds: include host-level ssh_activity; 0.0 if no activity yet
                 idle_seconds = compute_idle_seconds(user_activity, agent_activity, ssh_activity) or 0.0
 
-                agent_info = AgentInfo(
+                agent_info = AgentDetails(
                     id=agent.id,
                     name=agent.name,
                     type=str(agent.agent_type),
@@ -519,7 +519,7 @@ def _assemble_host_info(
                 # Use certified_data from the agent_ref directly
                 # agent_ref already has all the data we need from host.get_agent_references()
                 create_time = agent_ref.create_time or datetime(1970, 1, 1, tzinfo=timezone.utc)
-                agent_info = AgentInfo(
+                agent_info = AgentDetails(
                     id=agent_ref.agent_id,
                     name=agent_ref.agent_name,
                     type=str(agent_ref.agent_type) if agent_ref.agent_type else "unknown",
@@ -563,8 +563,8 @@ def _assemble_host_info(
 
 
 def _process_host_for_agent_listing(
-    host_ref: HostReference,
-    agent_refs: list[AgentReference],
+    host_ref: DiscoveredHost,
+    agent_refs: list[DiscoveredAgent],
     provider: ProviderInstanceInterface,
     params: _ListAgentsParams,
     result: ListResult,
@@ -596,8 +596,8 @@ def _process_host_for_agent_listing(
 
 
 @pure
-def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
-    """Convert an AgentInfo object to a CEL-friendly dict.
+def _agent_to_cel_context(agent: AgentDetails) -> dict[str, Any]:
+    """Convert an AgentDetails object to a CEL-friendly dict.
 
     Converts the agent into a flat dictionary suitable for CEL evaluation,
     adding computed fields and type information.
@@ -641,7 +641,7 @@ def _agent_to_cel_context(agent: AgentInfo) -> dict[str, Any]:
 
 
 def _apply_cel_filters(
-    agent: AgentInfo,
+    agent: AgentDetails,
     include_filters: Sequence[Any],
     exclude_filters: Sequence[Any],
 ) -> bool:
@@ -660,7 +660,7 @@ def _apply_cel_filters(
 
 
 def _warn_on_duplicate_host_names(
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
 ) -> None:
     """Emit a warning if any host names are duplicated within the same provider.
 
@@ -692,7 +692,7 @@ def _warn_on_duplicate_host_names(
 
 def _process_provider_for_host_listing(
     provider: BaseProviderInstance,
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
     include_destroyed: bool,
     results_lock: Lock,
     cg: ConcurrencyGroup,
@@ -712,13 +712,13 @@ def _process_provider_for_host_listing(
 @log_call
 def load_all_agents_grouped_by_host(
     mng_ctx: MngContext, provider_names: tuple[str, ...] | None = None, include_destroyed: bool = False
-) -> tuple[dict[HostReference, list[AgentReference]], list[BaseProviderInstance]]:
+) -> tuple[dict[DiscoveredHost, list[DiscoveredAgent]], list[BaseProviderInstance]]:
     """Load all agents from all providers, grouped by their host.
 
     Uses ConcurrencyGroup to query providers in parallel for better performance.
     Handles both online hosts (which can be queried directly) and offline hosts (which use persisted data).
     """
-    agents_by_host: dict[HostReference, list[AgentReference]] = {}
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]] = {}
     results_lock = Lock()
 
     with log_span("Loading all agents from all providers"):

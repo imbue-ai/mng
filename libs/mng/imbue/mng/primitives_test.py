@@ -6,9 +6,9 @@ from pathlib import Path
 
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import Permission
@@ -46,18 +46,18 @@ def test_host_name_short_name_with_provider() -> None:
 
 
 # =============================================================================
-# AgentReference property tests
+# DiscoveredAgent property tests
 # =============================================================================
 
 
 def _make_agent_reference(
     certified_data: dict | None = None,
-) -> AgentReference:
-    """Create an AgentReference with optional certified_data overrides."""
+) -> DiscoveredAgent:
+    """Create an DiscoveredAgent with optional certified_data overrides."""
     base_data: dict = {}
     if certified_data is not None:
         base_data.update(certified_data)
-    return AgentReference(
+    return DiscoveredAgent(
         host_id=HostId.generate(),
         agent_id=AgentId.generate(),
         agent_name=AgentName("test-agent"),

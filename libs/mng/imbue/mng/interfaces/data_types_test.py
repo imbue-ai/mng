@@ -11,7 +11,7 @@ from imbue.mng.errors import InvalidRelativePathError
 from imbue.mng.interfaces.data_types import ActivityConfig
 from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import CpuResources
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.data_types import HostResources
 from imbue.mng.interfaces.data_types import RelativePath
 from imbue.mng.interfaces.data_types import SSHInfo
@@ -108,13 +108,13 @@ def test_ssh_info_serialization() -> None:
 
 
 # =============================================================================
-# HostInfo Extended Fields Tests
+# HostDetails Extended Fields Tests
 # =============================================================================
 
 
 def test_host_info_minimal_creation() -> None:
-    """Test that HostInfo can be created with minimal required fields."""
-    host_info = HostInfo(
+    """Test that HostDetails can be created with minimal required fields."""
+    host_info = HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
@@ -133,7 +133,7 @@ def test_host_info_minimal_creation() -> None:
 
 
 def test_host_info_with_extended_fields() -> None:
-    """Test that HostInfo can be created with all extended fields."""
+    """Test that HostDetails can be created with all extended fields."""
     boot_time = datetime.now(timezone.utc)
     ssh_info = SSHInfo(
         user="root",
@@ -144,7 +144,7 @@ def test_host_info_with_extended_fields() -> None:
     )
     resources = HostResources(cpu=CpuResources(count=4), memory_gb=16.0, disk_gb=100.0)
 
-    host_info = HostInfo(
+    host_info = HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("docker"),
@@ -172,7 +172,7 @@ def test_host_info_with_extended_fields() -> None:
 
 
 def test_host_info_serialization_with_extended_fields() -> None:
-    """Test that HostInfo with extended fields serializes correctly."""
+    """Test that HostDetails with extended fields serializes correctly."""
     boot_time = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
     ssh_info = SSHInfo(
         user="root",
@@ -182,7 +182,7 @@ def test_host_info_serialization_with_extended_fields() -> None:
         command="ssh -i /keys/id_rsa -p 22 root@example.com",
     )
 
-    host_info = HostInfo(
+    host_info = HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("modal"),

@@ -10,15 +10,15 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
-from imbue.mng.primitives import AgentReference
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import OutputFormat
 
 
 @pure
-def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
+def _host_matches_filter(host_ref: DiscoveredHost, host_filter: str) -> bool:
     """Check if a host reference matches the given filter string.
 
     The filter can be either a HostId (UUID) or a HostName.
@@ -38,9 +38,9 @@ def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
 
 @pure
 def filter_agents_by_host(
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
     host_filter: str,
-) -> dict[HostReference, list[AgentReference]]:
+) -> dict[DiscoveredHost, list[DiscoveredAgent]]:
     """Filter the agents_by_host mapping to only include hosts matching the filter.
 
     Raises UserInputError if no hosts match the filter.

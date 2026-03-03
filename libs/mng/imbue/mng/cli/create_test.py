@@ -22,12 +22,12 @@ from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -148,8 +148,8 @@ TEST_AGENT_ID_2 = "agent-00000000000000000000000000000002"
 
 def _make_host_ref(
     provider: str = "local", host_id: str = TEST_HOST_ID_1, host_name: str = "test-host"
-) -> HostReference:
-    return HostReference(
+) -> DiscoveredHost:
+    return DiscoveredHost(
         provider_name=ProviderInstanceName(provider),
         host_id=HostId(host_id),
         host_name=HostName(host_name),
@@ -161,8 +161,8 @@ def _make_agent_ref(
     agent_name: str = "test-agent",
     host_id: str = TEST_HOST_ID_1,
     provider: str = "local",
-) -> AgentReference:
-    return AgentReference(
+) -> DiscoveredAgent:
+    return DiscoveredAgent(
         agent_id=AgentId(agent_id),
         agent_name=AgentName(agent_name),
         host_id=HostId(host_id),
@@ -260,12 +260,12 @@ def test_try_reuse_existing_agent_found_and_started(
     )
 
     # Build references that match the real host and agent
-    host_ref = HostReference(
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_host.id,
         host_name=local_host.get_name(),
     )
-    agent_ref = AgentReference(
+    agent_ref = DiscoveredAgent(
         agent_id=agent.id,
         agent_name=agent.name,
         host_id=local_host.id,
@@ -298,12 +298,12 @@ def test_try_reuse_existing_agent_not_found_on_host(
     local_host = cast(OnlineHostInterface, local_provider.get_host(HostName("localhost")))
 
     # Build references pointing to this host, but with a nonexistent agent ID
-    host_ref = HostReference(
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_host.id,
         host_name=local_host.get_name(),
     )
-    agent_ref = AgentReference(
+    agent_ref = DiscoveredAgent(
         agent_id=AgentId(TEST_AGENT_ID_1),
         agent_name=AgentName("ghost-agent"),
         host_id=local_host.id,
@@ -364,8 +364,8 @@ def test_resolve_target_host_with_host_reference(
     local_provider: LocalProviderInstance,
     temp_mng_ctx: MngContext,
 ) -> None:
-    """_resolve_target_host resolves a HostReference to an online host."""
-    host_ref = HostReference(
+    """_resolve_target_host resolves a DiscoveredHost to an online host."""
+    host_ref = DiscoveredHost(
         provider_name=ProviderInstanceName("local"),
         host_id=local_provider.host_id,
         host_name=HostName("localhost"),

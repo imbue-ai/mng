@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -23,9 +23,9 @@ from imbue.mng_kanpan.fetcher import fetch_board_snapshot
 from imbue.mng_kanpan.github import FetchPrsResult
 
 
-def _make_host_info(provider_name: str = "local") -> HostInfo:
-    """Create a minimal HostInfo for testing."""
-    return HostInfo(
+def _make_host_info(provider_name: str = "local") -> HostDetails:
+    """Create a minimal HostDetails for testing."""
+    return HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName(provider_name),
@@ -37,9 +37,9 @@ def _make_agent_info(
     state: AgentLifecycleState = AgentLifecycleState.RUNNING,
     work_dir: Path = Path("/tmp/test-work-dir"),
     provider_name: str = "local",
-) -> AgentInfo:
-    """Create a minimal AgentInfo for testing."""
-    return AgentInfo(
+) -> AgentDetails:
+    """Create a minimal AgentDetails for testing."""
+    return AgentDetails(
         id=AgentId.generate(),
         name=AgentName(name),
         type="claude",

@@ -30,7 +30,7 @@ from imbue.mng.cli.list import _render_format_template
 from imbue.mng.cli.list import _should_use_streaming_mode
 from imbue.mng.cli.list import _sort_agents
 from imbue.mng.cli.list import list_command
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
@@ -1314,19 +1314,19 @@ class FakeApiListAgents:
     callback as well.
     """
 
-    def __init__(self, agents: list[AgentInfo]) -> None:
+    def __init__(self, agents: list[AgentDetails]) -> None:
         self.agents = agents
 
     def __call__(self, **kwargs: Any) -> ListResult:
         result = ListResult(agents=list(self.agents))
-        on_agent: Callable[[AgentInfo], None] | None = kwargs.get("on_agent")
+        on_agent: Callable[[AgentDetails], None] | None = kwargs.get("on_agent")
         if on_agent is not None:
             for agent in self.agents:
                 on_agent(agent)
         return result
 
 
-def _patch_list_agents(monkeypatch: pytest.MonkeyPatch, agents: list[AgentInfo]) -> None:
+def _patch_list_agents(monkeypatch: pytest.MonkeyPatch, agents: list[AgentDetails]) -> None:
     """Replace api_list_agents with a fake that returns the given agents."""
     monkeypatch.setattr("imbue.mng.cli.list.api_list_agents", FakeApiListAgents(agents))
 

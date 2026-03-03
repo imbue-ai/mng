@@ -12,7 +12,7 @@ from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import MngError
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import CleanupAction
@@ -26,7 +26,7 @@ def find_agents_for_cleanup(
     include_filters: tuple[str, ...],
     exclude_filters: tuple[str, ...],
     error_behavior: ErrorBehavior,
-) -> list[AgentInfo]:
+) -> list[AgentDetails]:
     """Find agents matching the given filters for cleanup."""
     result = list_agents(
         mng_ctx=mng_ctx,
@@ -41,7 +41,7 @@ def find_agents_for_cleanup(
 @log_call
 def execute_cleanup(
     mng_ctx: MngContext,
-    agents: list[AgentInfo],
+    agents: list[AgentDetails],
     action: CleanupAction,
     is_dry_run: bool,
     error_behavior: ErrorBehavior,
@@ -60,7 +60,7 @@ def execute_cleanup(
         return result
 
     # Group agents by host
-    agents_by_host: dict[HostId, list[AgentInfo]] = {}
+    agents_by_host: dict[HostId, list[AgentDetails]] = {}
     for agent in agents:
         host_id = agent.host.id
         if host_id not in agents_by_host:
@@ -84,7 +84,7 @@ def execute_cleanup(
 
 def _execute_destroy(
     mng_ctx: MngContext,
-    agents_by_host: dict[HostId, list[AgentInfo]],
+    agents_by_host: dict[HostId, list[AgentDetails]],
     result: CleanupResult,
     error_behavior: ErrorBehavior,
 ) -> None:
@@ -149,7 +149,7 @@ def _execute_destroy(
 
 def _execute_stop(
     mng_ctx: MngContext,
-    agents_by_host: dict[HostId, list[AgentInfo]],
+    agents_by_host: dict[HostId, list[AgentDetails]],
     result: CleanupResult,
     error_behavior: ErrorBehavior,
 ) -> None:

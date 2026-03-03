@@ -74,13 +74,13 @@ from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentNameStyle
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostNameStyle
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
 from imbue.mng.primitives import LogLevel
@@ -105,11 +105,11 @@ class _CachedAgentHostLoader(MutableModel):
     """Lazy loader that caches agents grouped by host on first access."""
 
     mng_ctx: MngContext = Field(frozen=True, description="Manager context for loading agents")
-    cached_result: dict[HostReference, list[AgentReference]] | None = Field(
+    cached_result: dict[DiscoveredHost, list[DiscoveredAgent]] | None = Field(
         default=None, description="Cached loading result"
     )
 
-    def __call__(self) -> dict[HostReference, list[AgentReference]]:
+    def __call__(self) -> dict[DiscoveredHost, list[DiscoveredAgent]]:
         if self.cached_result is None:
             self.cached_result = load_all_agents_grouped_by_host(self.mng_ctx)[0]
         return self.cached_result
@@ -729,7 +729,7 @@ def _create_agent(
         reuse_result = _try_reuse_existing_agent(
             agent_name=agent_opts.name,
             provider_name=ProviderInstanceName(opts.new_host) if opts.new_host else None,
-            target_host_ref=target_host if isinstance(target_host, HostReference) else None,
+            target_host_ref=target_host if isinstance(target_host, DiscoveredHost) else None,
             mng_ctx=mng_ctx,
             agent_and_host_loader=setup.agent_and_host_loader,
         )
@@ -1035,9 +1035,9 @@ def _parse_project_name(source_location: HostLocation, opts: CreateCliOptions, m
 def _try_reuse_existing_agent(
     agent_name: AgentName,
     provider_name: ProviderInstanceName | None,
-    target_host_ref: HostReference | None,
+    target_host_ref: DiscoveredHost | None,
     mng_ctx: MngContext,
-    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    agent_and_host_loader: Callable[[], dict[DiscoveredHost, list[DiscoveredAgent]]],
 ) -> tuple[AgentInterface, OnlineHostInterface] | None:
     """Try to find and start an existing agent with the given name.
 
@@ -1047,7 +1047,7 @@ def _try_reuse_existing_agent(
     """
     agents_by_host = agent_and_host_loader()
 
-    matching_agents: list[tuple[HostReference, AgentReference]] = []
+    matching_agents: list[tuple[DiscoveredHost, DiscoveredAgent]] = []
 
     for host_ref, agent_refs in agents_by_host.items():
         # Skip hosts that don't match the provider filter (if specified)
@@ -1102,7 +1102,7 @@ def _try_reuse_existing_agent(
 
 def _resolve_source_location(
     opts: CreateCliOptions,
-    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    agent_and_host_loader: Callable[[], dict[DiscoveredHost, list[DiscoveredAgent]]],
     mng_ctx: MngContext,
     *,
     is_start_desired: bool,
@@ -1161,7 +1161,7 @@ def _resolve_source_location(
 
 
 def _resolve_target_host(
-    target_host: HostReference | NewHostOptions | None,
+    target_host: DiscoveredHost | NewHostOptions | None,
     mng_ctx: MngContext,
     *,
     is_start_desired: bool,
@@ -1172,7 +1172,7 @@ def _resolve_target_host(
         provider = get_provider_instance(LOCAL_PROVIDER_NAME, mng_ctx)
         host = provider.get_host(HostName("localhost"))
         resolved_target_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
-    elif isinstance(target_host, HostReference):
+    elif isinstance(target_host, DiscoveredHost):
         provider = get_provider_instance(target_host.provider_name, mng_ctx)
         host = provider.get_host(target_host.host_id)
         resolved_target_host, _ = ensure_host_started(host, is_start_desired=is_start_desired, provider=provider)
@@ -1488,10 +1488,10 @@ def _parse_host_lifecycle_options(opts: CreateCliOptions) -> HostLifecycleOption
 def _parse_target_host(
     opts: CreateCliOptions,
     project_name: str | None,
-    agent_and_host_loader: Callable[[], dict[HostReference, list[AgentReference]]],
+    agent_and_host_loader: Callable[[], dict[DiscoveredHost, list[DiscoveredAgent]]],
     lifecycle: HostLifecycleOptions,
-) -> HostReference | NewHostOptions | None:
-    parsed_target_host: HostReference | NewHostOptions | None
+) -> DiscoveredHost | NewHostOptions | None:
+    parsed_target_host: DiscoveredHost | NewHostOptions | None
     if opts.host:
         # Targeting an existing host
         agents_by_host = agent_and_host_loader()

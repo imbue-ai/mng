@@ -21,18 +21,18 @@ from imbue.mng.api.list import list_agents
 from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
-from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.cel_utils import compile_cel_filters
 
@@ -41,16 +41,16 @@ from imbue.mng.utils.cel_utils import compile_cel_filters
 # =============================================================================
 
 
-def _make_host_info() -> HostInfo:
-    return HostInfo(
+def _make_host_info() -> HostDetails:
+    return HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("local"),
     )
 
 
-def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
-    return AgentInfo(
+def _make_agent_info(name: str, host_info: HostDetails) -> AgentDetails:
+    return AgentDetails(
         id=AgentId.generate(),
         name=AgentName(name),
         type="claude",
@@ -71,16 +71,16 @@ def _make_agent_info(name: str, host_info: HostInfo) -> AgentInfo:
 def _make_host_ref(
     host_name: str,
     provider_name: str = "modal",
-) -> HostReference:
-    return HostReference(
+) -> DiscoveredHost:
+    return DiscoveredHost(
         host_id=HostId.generate(),
         host_name=HostName(host_name),
         provider_name=ProviderInstanceName(provider_name),
     )
 
 
-def _make_agent_ref(host_id: HostId, provider_name: str = "modal") -> AgentReference:
-    return AgentReference(
+def _make_agent_ref(host_id: HostId, provider_name: str = "modal") -> DiscoveredAgent:
+    return DiscoveredAgent(
         host_id=host_id,
         agent_id=AgentId.generate(),
         agent_name=AgentName("test-agent"),
@@ -163,7 +163,7 @@ def test_warn_on_duplicate_host_names_no_warning_when_destroyed_host_shares_name
     """_warn_on_duplicate_host_names should not warn when a destroyed host (no agents) shares a name with an active host."""
     ref_destroyed = _make_host_ref("reused-name", "modal")
     ref_active = _make_host_ref("reused-name", "modal")
-    agents_by_host: dict[HostReference, list[AgentReference]] = {
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]] = {
         ref_destroyed: [],
         ref_active: [_make_agent_ref(ref_active.host_id)],
     }
@@ -272,7 +272,7 @@ def test_list_result_allows_appending() -> None:
 
 
 def test_agent_to_cel_context_basic_fields() -> None:
-    """_agent_to_cel_context should convert AgentInfo to a dict with basic fields."""
+    """_agent_to_cel_context should convert AgentDetails to a dict with basic fields."""
     host_info = _make_host_info()
     agent = _make_agent_info("my-agent", host_info)
     context = _agent_to_cel_context(agent)
@@ -287,7 +287,7 @@ def test_agent_to_cel_context_computes_age() -> None:
     """_agent_to_cel_context should compute 'age' from create_time."""
     host_info = _make_host_info()
     create_time = datetime.now(timezone.utc) - timedelta(hours=2)
-    agent = AgentInfo(
+    agent = AgentDetails(
         id=AgentId.generate(),
         name=AgentName("aging-agent"),
         type="claude",
@@ -309,7 +309,7 @@ def test_agent_to_cel_context_computes_age() -> None:
 def test_agent_to_cel_context_computes_runtime() -> None:
     """_agent_to_cel_context should set 'runtime' from runtime_seconds."""
     host_info = _make_host_info()
-    agent = AgentInfo(
+    agent = AgentDetails(
         id=AgentId.generate(),
         name=AgentName("running-agent"),
         type="claude",
@@ -330,7 +330,7 @@ def test_agent_to_cel_context_computes_idle() -> None:
     """_agent_to_cel_context should compute 'idle' from activity times."""
     host_info = _make_host_info()
     activity_time = datetime.now(timezone.utc) - timedelta(minutes=5)
-    agent = AgentInfo(
+    agent = AgentDetails(
         id=AgentId.generate(),
         name=AgentName("idle-agent"),
         type="claude",
@@ -352,7 +352,7 @@ def test_agent_to_cel_context_computes_idle() -> None:
 
 def test_agent_to_cel_context_normalizes_host_provider() -> None:
     """_agent_to_cel_context should rename host.provider_name to host.provider."""
-    host_info = HostInfo(
+    host_info = HostDetails(
         id=HostId.generate(),
         name="test-host",
         provider_name=ProviderInstanceName("modal"),
@@ -459,7 +459,7 @@ def test_list_agents_batch_mode_on_agent_callback_is_called(
 
     local_host.start_agents([agent.id])
 
-    found_agents: list[AgentInfo] = []
+    found_agents: list[AgentDetails] = []
     result = list_agents(
         mng_ctx=temp_mng_ctx,
         is_streaming=False,
@@ -492,7 +492,7 @@ def test_list_agents_streaming_mode_on_agent_callback_is_called(
 
     local_host.start_agents([agent.id])
 
-    found_agents: list[AgentInfo] = []
+    found_agents: list[AgentDetails] = []
     result = list_agents(
         mng_ctx=temp_mng_ctx,
         is_streaming=True,

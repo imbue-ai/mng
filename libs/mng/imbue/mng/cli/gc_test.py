@@ -20,7 +20,7 @@ from imbue.mng.cli.gc import _emit_jsonl_summary
 from imbue.mng.cli.gc import _format_destroyed_message
 from imbue.mng.cli.gc import gc
 from imbue.mng.interfaces.data_types import BuildCacheInfo
-from imbue.mng.interfaces.data_types import HostInfo
+from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.data_types import LogFileInfo
 from imbue.mng.interfaces.data_types import SizeBytes
 from imbue.mng.interfaces.data_types import SnapshotInfo
@@ -54,9 +54,9 @@ def _create_work_dir_info(
     )
 
 
-def _create_host_info(name: str = "test-host") -> HostInfo:
-    """Create a HostInfo for testing."""
-    return HostInfo(
+def _create_host_info(name: str = "test-host") -> HostDetails:
+    """Create a HostDetails for testing."""
+    return HostDetails(
         id=HostId.generate(),
         name=name,
         provider_name=ProviderInstanceName("docker"),

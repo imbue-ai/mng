@@ -8,10 +8,10 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import UserInputError
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import ProviderInstanceName
 
 
@@ -19,11 +19,11 @@ def _make_host_reference(
     provider: str = "local",
     host_id: HostId | None = None,
     host_name: str = "test-host",
-) -> HostReference:
-    """Create a HostReference for testing."""
+) -> DiscoveredHost:
+    """Create a DiscoveredHost for testing."""
     if host_id is None:
         host_id = HostId.generate()
-    return HostReference(
+    return DiscoveredHost(
         provider_name=ProviderInstanceName(provider),
         host_id=host_id,
         host_name=HostName(host_name),
@@ -35,11 +35,11 @@ def _make_agent_reference(
     agent_name: str = "test-name",
     host_id: HostId | None = None,
     provider: str = "local",
-) -> AgentReference:
-    """Create an AgentReference for testing."""
+) -> DiscoveredAgent:
+    """Create an DiscoveredAgent for testing."""
     if host_id is None:
         host_id = HostId.generate()
-    return AgentReference(
+    return DiscoveredAgent(
         agent_id=agent_id,
         agent_name=AgentName(agent_name),
         host_id=host_id,

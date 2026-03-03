@@ -12,7 +12,7 @@ from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.list import list_agents
 from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import LOCAL_PROVIDER_NAME
@@ -120,7 +120,7 @@ def _load_muted_agents(mng_ctx: MngContext) -> set[AgentName]:
     return muted
 
 
-def _find_git_cwd(agents: list[AgentInfo]) -> Path | None:
+def _find_git_cwd(agents: list[AgentDetails]) -> Path | None:
     """Find a local agent work_dir to use as cwd for gh commands.
 
     Returns the first accessible local agent work_dir, or None if no local
@@ -132,7 +132,7 @@ def _find_git_cwd(agents: list[AgentInfo]) -> Path | None:
     return None
 
 
-def _resolve_agent_branch(agent: AgentInfo, cg: ConcurrencyGroup) -> str | None:
+def _resolve_agent_branch(agent: AgentDetails, cg: ConcurrencyGroup) -> str | None:
     """Determine the git branch associated with an agent.
 
     For local agents with an accessible work_dir, reads the branch via git.

@@ -30,8 +30,8 @@ from imbue.mng.interfaces.data_types import get_activity_sources_for_idle_mode
 from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import ActivitySource
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import OutputFormat
 from imbue.mng.primitives import Permission
@@ -205,8 +205,8 @@ def _apply_activity_config_to_host(
     )
 
 
-def _build_host_references(mng_ctx: MngContext) -> list[HostReference]:
-    """Build a deduplicated list of HostReferences from all known agents."""
+def _build_host_references(mng_ctx: MngContext) -> list[DiscoveredHost]:
+    """Build a deduplicated list of DiscoveredHosts from all known agents."""
     agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
     return list(agents_by_host.keys())
 
@@ -491,7 +491,7 @@ def limit(ctx: click.Context, **kwargs: Any) -> None:
 
 def _apply_host_only_changes(
     host_identifier: str,
-    all_hosts: list[HostReference],
+    all_hosts: list[DiscoveredHost],
     opts: LimitCliOptions,
     output_opts: OutputOptions,
     dry_run: bool,
