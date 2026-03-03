@@ -338,13 +338,6 @@ mng --help
 
 
 ##############################################################################
-# RENAMING AGENTS
-#   Rename an agent to something more descriptive, or to avoid name
-#   collisions.
-##############################################################################
-
-
-##############################################################################
 # DESTROYING AGENTS
 #   When you're done with an agent, destroy it to clean up all of its
 #   resources (host, snapshots, volumes, etc.).
@@ -369,6 +362,13 @@ mng --help
 # PROVISIONING AGENTS
 #   Re-run provisioning steps on an existing agent, such as installing
 #   packages, uploading files, or running setup commands.
+##############################################################################
+
+
+##############################################################################
+# RENAMING AGENTS
+#   Rename an agent to something more descriptive, or to avoid name
+#   collisions.
 ##############################################################################
 
 
@@ -479,23 +479,9 @@ mng --help
 
 
 ##############################################################################
-# RUNNING AGENTS LOCALLY
-#   The simplest and fastest option. Agents run directly on your machine
-#   with no isolation overhead. Best for trusted agents and quick tasks.
-##############################################################################
-
-
-##############################################################################
 # IDLE DETECTION AND TIMEOUTS
 #   Automatically pause or stop agents when they go idle to save resources.
 #   Configure what counts as "activity" and how long to wait.
-##############################################################################
-
-
-##############################################################################
-# PERMISSIONS
-#   Grant agents specific capabilities (like network access or filesystem
-#   writes) and revoke them. Permissions are enforced by plugins.
 ##############################################################################
 
 
@@ -528,13 +514,6 @@ mng --help
 
 
 ##############################################################################
-# DEVCONTAINER HOOKS
-#   Use devcontainer lifecycle hooks (onCreateCommand, postStartCommand,
-#   etc.) to customize agent environments during provisioning.
-##############################################################################
-
-
-##############################################################################
 # UPLOADING FILES AND RUNNING SETUP COMMANDS
 #   Upload files, append to configs, create directories, and run setup
 #   commands on agent hosts during creation or via re-provisioning.
@@ -542,9 +521,9 @@ mng --help
 
 
 ##############################################################################
-# TROUBLESHOOTING
-#   Common problems and how to fix them. Debugging with logs, verbose
-#   output, and exec. What to do when agents crash or hosts won't start.
+# ADVANCED WORKFLOWS
+#   Complex multi-agent setups, custom scripts, and integrations with other
+#   tools and platforms. Examples of building agent orchestration, custom dashboards, and more.
 ##############################################################################
 
 
@@ -554,3 +533,9 @@ mng --help
 #   that make working with mng faster and more pleasant.
 ##############################################################################
 
+
+##############################################################################
+# TROUBLESHOOTING
+#   Common problems and how to fix them. Debugging with logs, verbose
+#   output, and exec. What to do when agents crash or hosts won't start.
+##############################################################################
