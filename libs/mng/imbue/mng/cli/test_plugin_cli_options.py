@@ -353,6 +353,51 @@ def test_option_stack_item_to_click_option() -> None:
     assert option.envvar == "TEST_ENV_VAR"
 
 
+def test_option_stack_item_flag_value() -> None:
+    """Test that OptionStackItem with flag_value creates a dual flag/value click option."""
+    item = OptionStackItem(
+        param_decls=("--adopt-session",),
+        type=str,
+        flag_value="",
+        help="Adopt a session, optionally specifying an ID",
+    )
+
+    option = item.to_click_option()
+
+    assert option.flag_value == ""
+    assert option.is_flag is False
+
+    # Verify it works end-to-end via a click command
+    captured: dict[str, Any] = {}
+
+    @click.command()
+    @click.pass_context
+    def test_cmd(ctx: click.Context, **_kwargs: Any) -> None:
+        captured.update(ctx.params)
+
+    test_cmd.params.append(option)
+    runner = CliRunner()
+
+    # Flag form (no argument) -> flag_value
+    result = runner.invoke(test_cmd, ["--adopt-session"])
+    assert result.exit_code == 0
+    assert captured["adopt_session"] == ""
+
+    captured.clear()
+
+    # Value form (with argument) -> provided value
+    result = runner.invoke(test_cmd, ["--adopt-session", "abc123"])
+    assert result.exit_code == 0
+    assert captured["adopt_session"] == "abc123"
+
+    captured.clear()
+
+    # Not specified -> None
+    result = runner.invoke(test_cmd, [])
+    assert result.exit_code == 0
+    assert captured["adopt_session"] is None
+
+
 def test_option_stack_item_with_defaults() -> None:
     """Test that OptionStackItem uses sensible defaults."""
     item = OptionStackItem(param_decls=("--minimal-opt",))

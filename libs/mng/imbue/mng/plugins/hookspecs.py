@@ -218,6 +218,11 @@ class OptionStackItem(FrozenModel):
         default=None,
         description="Environment variable to read value from",
     )
+    flag_value: Any = Field(
+        default=None,
+        description="Value to use when the option is provided without an argument. "
+        "Enables dual flag/value behavior when set (e.g., --opt uses flag_value, --opt VALUE uses VALUE).",
+    )
 
     def to_click_option(self, group: OptionGroup | None = None) -> click.Option:
         """Convert this spec to a click.Option instance.
@@ -235,6 +240,23 @@ class OptionStackItem(FrozenModel):
                 default=self.default,
                 help=self.help,
                 is_flag=True,
+                multiple=self.multiple,
+                required=self.required,
+                envvar=self.envvar,
+                **group_kwargs,
+            )
+        # When flag_value is set, omit default so click leaves it as UNSET
+        # internally. This enables _flag_needs_value=True in click's parser,
+        # which allows the option to be used as either a flag (--opt -> flag_value)
+        # or with an argument (--opt VALUE -> VALUE). Click resolves UNSET to
+        # None when the option is not specified.
+        if self.flag_value is not None:
+            return option_class(
+                self.param_decls,
+                type=self.type,
+                help=self.help,
+                is_flag=False,
+                flag_value=self.flag_value,
                 multiple=self.multiple,
                 required=self.required,
                 envvar=self.envvar,
