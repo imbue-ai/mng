@@ -2,12 +2,16 @@ import re
 import shutil
 import string
 import sys
+import types
 from collections.abc import Sequence
 from contextlib import nullcontext
 from enum import Enum
 from threading import Lock
 from typing import Any
 from typing import Final
+from typing import Union
+from typing import get_args
+from typing import get_origin
 
 import click
 from click_option_group import optgroup
@@ -34,7 +38,6 @@ from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.data_types import AgentInfo
-from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
@@ -929,39 +932,66 @@ def _format_value_as_string(value: Any) -> str:
         return str(value)
 
 
-# Fields on AgentInfo that are dict-typed (allow arbitrary sub-keys when sorting)
-_AGENT_DICT_FIELDS: Final[frozenset[str]] = frozenset({"labels", "plugin"})
+@pure
+def _resolve_model_type(annotation: Any) -> type[BaseModel] | None:
+    """Extract a BaseModel subclass from a type annotation, unwrapping Optional/list/tuple."""
+    origin = get_origin(annotation)
+
+    # Handle X | None (Union types)
+    if origin is types.UnionType or origin is Union:
+        for arg in get_args(annotation):
+            if arg is type(None):
+                continue
+            resolved = _resolve_model_type(arg)
+            if resolved is not None:
+                return resolved
+        return None
+
+    # Handle list[X] and tuple[X, ...]
+    if origin in (list, tuple):
+        args = get_args(annotation)
+        if args:
+            return _resolve_model_type(args[0])
+        return None
+
+    # Handle dict[K, V] -- dynamic keys, stop validation
+    if origin is dict:
+        return None
+
+    # Direct model class
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+
+    return None
 
 
 @pure
 def _validate_sort_field(sort_field: str) -> None:
-    """Validate that the sort field refers to a known field on AgentInfo/HostInfo.
+    """Validate that the sort field refers to known fields by walking the model type hierarchy.
 
     Raises click.BadParameter if the field is not recognized.
     """
     parts = sort_field.split(".")
-    top_level = parts[0].split("[")[0]
+    current_model: type[BaseModel] = AgentInfo
 
-    if top_level not in AgentInfo.model_fields:
-        raise click.BadParameter(
-            f"Unknown sort field: '{sort_field}'. "
-            f"Valid top-level fields: {', '.join(sorted(AgentInfo.model_fields.keys()))}",
-            param_hint="--sort",
-        )
+    for part in parts:
+        field_name = part.split("[")[0]
 
-    # For single-segment fields or dict-typed agent fields, no further validation needed
-    if len(parts) == 1 or top_level in _AGENT_DICT_FIELDS:
-        return
-
-    # Validate second-level fields under 'host'
-    if top_level == "host" and len(parts) >= 2:
-        second_level = parts[1].split("[")[0]
-        if second_level not in HostInfo.model_fields:
+        if field_name not in current_model.model_fields:
             raise click.BadParameter(
-                f"Unknown host sort field: '{sort_field}'. "
-                f"Valid host fields: {', '.join(sorted(HostInfo.model_fields.keys()))}",
+                f"Unknown sort field: '{sort_field}'. "
+                f"'{field_name}' is not a valid field. "
+                f"Valid fields at this level: {', '.join(sorted(current_model.model_fields.keys()))}",
                 param_hint="--sort",
             )
+
+        # Resolve the type of this field to check deeper levels
+        field_info = current_model.model_fields[field_name]
+        next_model = _resolve_model_type(field_info.annotation)
+        if next_model is None:
+            # Reached a primitive, dict, or non-model type -- can't validate further
+            return
+        current_model = next_model
 
 
 # Pattern to match a field part with optional bracket notation

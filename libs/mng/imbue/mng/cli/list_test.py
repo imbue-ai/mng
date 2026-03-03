@@ -601,7 +601,7 @@ def test_validate_sort_field_rejects_unknown_top_level_field() -> None:
 
 def test_validate_sort_field_rejects_unknown_host_field() -> None:
     """_validate_sort_field should raise for unknown host sub-fields."""
-    with pytest.raises(click.BadParameter, match="Unknown host sort field"):
+    with pytest.raises(click.BadParameter, match="'nonexistent_field' is not a valid field"):
         _validate_sort_field("host.nonexistent_field")
 
 
@@ -609,6 +609,14 @@ def test_validate_sort_field_accepts_deep_host_fields() -> None:
     """_validate_sort_field should accept deeper nesting under known host fields."""
     _validate_sort_field("host.resource.cpu.count")
     _validate_sort_field("host.ssh.host")
+
+
+def test_validate_sort_field_rejects_unknown_deep_field() -> None:
+    """_validate_sort_field should reject invalid fields at any nesting depth."""
+    with pytest.raises(click.BadParameter, match="'nonexistent' is not a valid field"):
+        _validate_sort_field("host.resource.nonexistent")
+    with pytest.raises(click.BadParameter, match="'bogus' is not a valid field"):
+        _validate_sort_field("host.resource.cpu.bogus")
 
 
 # =============================================================================
@@ -1646,7 +1654,8 @@ def test_list_command_rejects_invalid_host_sort_field(
     )
 
     assert result.exit_code != 0
-    assert "Unknown host sort field" in result.output
+    assert "Unknown sort field" in result.output
+    assert "'nonexistent' is not a valid field" in result.output
 
 
 def test_list_command_human_streaming_with_agents(
