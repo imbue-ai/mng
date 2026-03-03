@@ -1,22 +1,22 @@
 from imbue.imbue_common.pure import pure
+from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.list import list_agents
-from imbue.mng.api.list import load_all_agents_grouped_by_host
 from imbue.mng.cli.connect import select_agent_interactively
 from imbue.mng.cli.output_helpers import emit_info
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
-from imbue.mng.primitives import AgentReference
+from imbue.mng.primitives import DiscoveredAgent
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
-from imbue.mng.primitives import HostReference
 from imbue.mng.primitives import OutputFormat
 
 
 @pure
-def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
+def _host_matches_filter(host_ref: DiscoveredHost, host_filter: str) -> bool:
     """Check if a host reference matches the given filter string.
 
     The filter can be either a HostId (UUID) or a HostName.
@@ -36,9 +36,9 @@ def _host_matches_filter(host_ref: HostReference, host_filter: str) -> bool:
 
 @pure
 def filter_agents_by_host(
-    agents_by_host: dict[HostReference, list[AgentReference]],
+    agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]],
     host_filter: str,
-) -> dict[HostReference, list[AgentReference]]:
+) -> dict[DiscoveredHost, list[DiscoveredAgent]]:
     """Filter the agents_by_host mapping to only include hosts matching the filter.
 
     Raises UserInputError if no hosts match the filter.
@@ -71,7 +71,7 @@ def select_agent_interactively_with_host(
         return None
 
     # Find the actual agent and host from the selection
-    agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+    agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
     return find_and_maybe_start_agent_by_name_or_id(
         str(selected.id),
         agents_by_host,
@@ -135,7 +135,7 @@ def find_agent_for_command(
     Raises UserInputError if no agent specified and not running in interactive mode.
     """
     if agent_identifier is not None:
-        agents_by_host, _ = load_all_agents_grouped_by_host(mng_ctx, include_destroyed=False)
+        agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
         if host_filter is not None:
             agents_by_host = filter_agents_by_host(agents_by_host, host_filter)
         return find_and_maybe_start_agent_by_name_or_id(
