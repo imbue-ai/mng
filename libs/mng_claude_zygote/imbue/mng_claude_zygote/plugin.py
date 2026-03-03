@@ -201,7 +201,8 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
     existing = params.get("add_command", ())
     params["add_command"] = (
         *existing,
-        f'{AGENT_TTYD_WINDOW_NAME}="{AGENT_TTYD_COMMAND}"{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
+        f'{AGENT_TTYD_WINDOW_NAME}="{AGENT_TTYD_COMMAND}"',
+        f'{CONV_WATCHER_WINDOW_NAME}="{CONV_WATCHER_COMMAND}"',
         f'{EVENT_WATCHER_WINDOW_NAME}="{EVENT_WATCHER_COMMAND}"',
         f'{WEB_SERVER_WINDOW_NAME}="{WEB_SERVER_COMMAND}"',
         f'{TRANSCRIPT_WATCHER_WINDOW_NAME}="{TRANSCRIPT_WATCHER_COMMAND}"',
