@@ -154,7 +154,7 @@ class _Handler(BaseHTTPRequestHandler):
 def _write_server_log(port: int) -> None:
     """Write a server log record so the forwarding server can discover this agent.
 
-    Writes to $MNG_AGENT_STATE_DIR/logs/servers.jsonl following the convention
+    Writes to $MNG_AGENT_STATE_DIR/events/servers.jsonl following the convention
     that agents self-report their running servers.
     """
     agent_state_dir = os.environ.get("MNG_AGENT_STATE_DIR")
