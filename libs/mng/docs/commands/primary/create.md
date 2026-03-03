@@ -87,7 +87,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
 | `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 | `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
-| `--adopt-session` | text | Adopt an existing Claude Code session into this agent. Optionally specify a session ID; otherwise auto-detects the most recent session. | None |
+| `--adopt-session` | text | Adopt an existing plain Claude Code session (not managed by mng) into this agent. Without a session ID, adopts the most recent session from the current directory. With a session ID, adopts that specific session. | None |
 
 ## Agent Source Data (what to include in the new agent)
 
@@ -361,13 +361,13 @@ $ mng create my-agent -c server="npm run dev"
 $ mng create my-agent --reuse
 ```
 
-**Adopt an existing Claude session**
+**Adopt the most recent Claude session from the current directory**
 
 ```bash
 $ mng create my-agent --adopt-session
 ```
 
-**Adopt a specific session by ID**
+**Adopt a specific Claude session by ID**
 
 ```bash
 $ mng create my-agent --adopt-session <session-id>

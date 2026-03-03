@@ -1226,8 +1226,9 @@ def register_cli_options(command_name: str) -> Mapping[str, list[OptionStackItem
                     is_flag=False,
                     flag_value="",
                     default=None,
-                    help="Adopt an existing Claude Code session into this agent. "
-                    "Optionally specify a session ID; otherwise auto-detects the most recent session.",
+                    help="Adopt an existing plain Claude Code session (not managed by mng) into this agent. "
+                    "Without a session ID, adopts the most recent session from the current directory. "
+                    "With a session ID, adopts that specific session.",
                 ),
             ]
         }
