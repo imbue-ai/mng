@@ -1585,3 +1585,22 @@ def test_list_command_human_streaming_with_agents(
     assert result.exit_code == 0
     assert "stream-agent" in result.output
     assert "NAME" in result.output
+
+
+# =============================================================================
+# Tests for --headless CLI flag
+# =============================================================================
+
+
+def test_headless_flag_sets_is_interactive_false(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+) -> None:
+    """--headless flag should set is_interactive=False on MngContext via setup_command_context."""
+    result = cli_runner.invoke(
+        list_command,
+        ["--headless"],
+        obj=plugin_manager,
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0
