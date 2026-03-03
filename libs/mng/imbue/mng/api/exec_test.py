@@ -80,7 +80,7 @@ def _create_running_test_agent(
 
     session_name = f"{mng_test_prefix}{agent_name}"
     host.execute_command(
-        f"tmux new-session -d -s '{session_name}' '{_AGENT_COMMAND}'",
+        f"tmux -L mng new-session -d -s '{session_name}' '{_AGENT_COMMAND}'",
         timeout_seconds=5.0,
     )
 

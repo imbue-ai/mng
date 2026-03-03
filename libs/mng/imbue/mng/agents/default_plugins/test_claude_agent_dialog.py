@@ -22,7 +22,7 @@ def test_send_message_raises_dialog_detected_when_dialog_visible(
 
     try:
         agent.host.execute_command(
-            f"tmux new-session -d -s '{session_name}' 'echo \"Do you want to proceed?\"; sleep 847601'",
+            f"tmux -L mng new-session -d -s '{session_name}' 'echo \"Do you want to proceed?\"; sleep 847601'",
             timeout_seconds=5.0,
         )
 
@@ -53,7 +53,7 @@ def test_send_message_does_not_raise_dialog_detected_when_no_dialog(
 
     try:
         agent.host.execute_command(
-            f"tmux new-session -d -s '{session_name}' 'echo \"Normal output here\"; sleep 847602'",
+            f"tmux -L mng new-session -d -s '{session_name}' 'echo \"Normal output here\"; sleep 847602'",
             timeout_seconds=5.0,
         )
 

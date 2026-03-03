@@ -192,15 +192,20 @@ def connect_to_agent(
     session_name = f"{mng_ctx.config.prefix}{agent.name}"
 
     if host.is_local:
-        # Detect nested tmux: if $TMUX is set, we're inside a tmux session
+        socket_name = mng_ctx.config.local_tmux_server_socket_name
+
+        # Detect nested tmux: if $TMUX is set, we're inside a tmux session.
+        # Even with a different -L socket, treat it as nesting since the
+        # overlapping keybindings are confusing.
         env = os.environ
         if os.environ.get("TMUX"):
             if not mng_ctx.config.is_nested_tmux_allowed:
                 raise NestedTmuxError(session_name)
-            # Copy and remove TMUX so tmux allows the nested attachment
+            # Clear TMUX so tmux permits the attachment
             env = dict(os.environ)
             del env["TMUX"]
-        os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
+
+        os.execvpe("tmux", ["tmux", "-L", socket_name, "attach", "-t", session_name], env)
     else:
         ssh_args = _build_ssh_args(host, connection_opts)
 

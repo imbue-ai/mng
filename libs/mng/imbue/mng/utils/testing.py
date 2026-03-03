@@ -262,7 +262,7 @@ def _get_descendant_pids(pid: str) -> list[str]:
     return descendants
 
 
-def cleanup_tmux_session(session_name: str) -> None:
+def cleanup_tmux_session(session_name: str, socket_name: str = "mng") -> None:
     """Clean up a tmux session, all its processes, and any associated activity monitors.
 
     Note: This mirrors the kill logic in Host.stop_agents (host.py) but uses subprocess
@@ -277,11 +277,13 @@ def cleanup_tmux_session(session_name: str) -> None:
     4. Sends SIGKILL to any processes that survived
     5. Kills any orphaned activity monitors for this session
     """
+    tmux = ["tmux", "-L", socket_name]
+
     # Collect all pane PIDs and their descendants before killing the session.
     # Use -s to list panes across ALL windows in the session, not just the current window.
     all_pids: list[str] = []
     result = subprocess.run(
-        ["tmux", "list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"],
+        [*tmux, "list-panes", "-s", "-t", session_name, "-F", "#{pane_pid}"],
         capture_output=True,
         text=True,
     )
@@ -300,7 +302,7 @@ def cleanup_tmux_session(session_name: str) -> None:
 
     # Kill the tmux session (sends SIGHUP to remaining pane processes)
     subprocess.run(
-        ["tmux", "kill-session", "-t", session_name],
+        [*tmux, "kill-session", "-t", session_name],
         capture_output=True,
     )
 
@@ -319,12 +321,12 @@ def cleanup_tmux_session(session_name: str) -> None:
 
 
 @contextmanager
-def tmux_session_cleanup(session_name: str) -> Generator[None, None, None]:
+def tmux_session_cleanup(session_name: str, socket_name: str = "mng") -> Generator[None, None, None]:
     """Context manager that cleans up a tmux session and all its processes on exit."""
     try:
         yield
     finally:
-        cleanup_tmux_session(session_name)
+        cleanup_tmux_session(session_name, socket_name=socket_name)
 
 
 @contextmanager
@@ -344,7 +346,7 @@ def mng_agent_cleanup(
         run_mng_subprocess(*args, env=env)
 
 
-def capture_tmux_pane_contents(session_name: str) -> str:
+def capture_tmux_pane_contents(session_name: str, socket_name: str = "mng") -> str:
     """Capture the contents of a tmux session's pane via local subprocess.
 
     This is the local-only variant for test code that doesn't have a host object.
@@ -352,17 +354,17 @@ def capture_tmux_pane_contents(session_name: str) -> str:
     imbue.mng.hosts.tmux.capture_tmux_pane_content.
     """
     result = subprocess.run(
-        shlex.split(build_tmux_capture_pane_command(session_name)),
+        shlex.split(build_tmux_capture_pane_command(session_name, base_tmux_command=f"tmux -L {socket_name}")),
         capture_output=True,
         text=True,
     )
     return result.stdout
 
 
-def tmux_session_exists(session_name: str) -> bool:
+def tmux_session_exists(session_name: str, socket_name: str = "mng") -> bool:
     """Check if a tmux session exists."""
     result = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
+        ["tmux", "-L", socket_name, "has-session", "-t", session_name],
         capture_output=True,
     )
     return result.returncode == 0

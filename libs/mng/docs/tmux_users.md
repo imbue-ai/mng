@@ -53,14 +53,20 @@ You can find other approaches by searching for "nested tmux" or "tmux in tmux".
 
 ## Isolating mng's tmux sessions
 
-By default, `mng` creates tmux sessions on your default tmux server. This means `mng`'s sessions will show up alongside your personal sessions in `tmux ls`, and could interfere with your own tmux workflow.
+By default, `mng` runs local agent tmux sessions on a dedicated server socket named `mng` (via `tmux -L mng`). This means `mng`'s sessions are isolated from your personal tmux sessions -- they won't show up in `tmux ls` and won't cause nested tmux issues.
 
-To keep `mng`'s tmux sessions isolated from your own, set `TMUX_TMPDIR` to give `mng` its own tmux server:
+To interact with `mng`'s tmux sessions directly, use:
 
 ```bash
-TMUX_TMPDIR="/tmp/mng-tmux" mng create my-agent
+tmux -L mng ls           # list mng's sessions
+tmux -L mng attach -t <session>  # attach to a specific session
 ```
 
-Your normal `tmux ls` will no longer show `mng`'s sessions, and you won't run into nested tmux issues.
+If you prefer `mng`'s sessions to share your global tmux server (the pre-isolation behavior), set `local_tmux_server_socket_name` to `"default"` in your settings:
 
-Note: the directory must already exist or tmux will silently connect to the normal server instead.
+```toml
+# In ~/.mng/profiles/<profile>/settings.toml or .mng/settings.toml
+local_tmux_server_socket_name = "default"
+```
+
+You can also set it to any other name to use a custom socket.

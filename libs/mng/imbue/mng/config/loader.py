@@ -181,6 +181,7 @@ def load_config(
     if config.logging is not None:
         config_dict["logging"] = config.logging
 
+    config_dict["local_tmux_server_socket_name"] = config.local_tmux_server_socket_name
     config_dict["is_nested_tmux_allowed"] = config.is_nested_tmux_allowed
     config_dict["is_error_reporting_enabled"] = config.is_error_reporting_enabled
     config_dict["is_allowed_in_pytest"] = config.is_allowed_in_pytest
@@ -515,6 +516,9 @@ def parse_config(
         _parse_create_templates(raw.pop("create_templates", {})) if "create_templates" in raw else {}
     )
     kwargs["logging"] = _parse_logging_config(raw.pop("logging", {}), strict=strict) if "logging" in raw else None
+    kwargs["local_tmux_server_socket_name"] = (
+        raw.pop("local_tmux_server_socket_name", None) if "local_tmux_server_socket_name" in raw else None
+    )
     kwargs["is_nested_tmux_allowed"] = (
         raw.pop("is_nested_tmux_allowed", None) if "is_nested_tmux_allowed" in raw else None
     )

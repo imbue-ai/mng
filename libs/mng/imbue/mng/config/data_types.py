@@ -418,6 +418,14 @@ class MngConfig(FrozenModel):
         description="Custom command to run instead of the builtin connect when create or start connects to agents. "
         "The environment variables MNG_AGENT_NAME and MNG_SESSION_NAME are set before running the command.",
     )
+    local_tmux_server_socket_name: str = Field(
+        default="mng",
+        description="Socket name passed to tmux -L for local agent sessions. "
+        "The default 'mng' isolates agent sessions from the user's global tmux. "
+        "Set to 'default' to share the user's global tmux server. "
+        "Only change this when no local agents are running, otherwise mng will "
+        "not be able to find existing agent sessions on the old socket.",
+    )
     is_nested_tmux_allowed: bool = Field(
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
@@ -549,6 +557,11 @@ class MngConfig(FrozenModel):
             override.connect_command if override.connect_command is not None else self.connect_command
         )
 
+        # Merge local_tmux_server_socket_name (scalar - override wins if not None)
+        merged_local_tmux_server_socket_name = self.local_tmux_server_socket_name
+        if override.local_tmux_server_socket_name is not None:
+            merged_local_tmux_server_socket_name = override.local_tmux_server_socket_name
+
         # Merge is_nested_tmux_allowed (scalar - override wins if not None)
         merged_is_nested_tmux_allowed = self.is_nested_tmux_allowed
         if override.is_nested_tmux_allowed is not None:
@@ -589,6 +602,7 @@ class MngConfig(FrozenModel):
             is_remote_agent_installation_allowed=is_remote_agent_installation_allowed,
             connect_command=merged_connect_command,
             logging=merged_logging,
+            local_tmux_server_socket_name=merged_local_tmux_server_socket_name,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
             is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,

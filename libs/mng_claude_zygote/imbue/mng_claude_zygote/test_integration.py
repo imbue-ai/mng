@@ -445,7 +445,7 @@ def test_create_agent_with_additional_commands(
         assert tmux_session_exists(session_name)
 
         windows_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            ["tmux", "-L", "mng", "list-windows", "-t", session_name, "-F", "#{window_name}"],
             capture_output=True,
             text=True,
         )
@@ -627,7 +627,7 @@ def test_agent_with_ttyd_window_creates_session_with_expected_windows(
         assert tmux_session_exists(session_name)
 
         windows_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            ["tmux", "-L", "mng", "list-windows", "-t", session_name, "-F", "#{window_name}"],
             capture_output=True,
             text=True,
         )

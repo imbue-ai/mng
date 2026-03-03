@@ -588,11 +588,11 @@ def plugin_manager() -> Generator[pluggy.PluginManager, None, None]:
 # =============================================================================
 
 
-def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
+def _get_tmux_sessions_with_prefix(prefix: str, socket_name: str = "mng") -> list[str]:
     """Get tmux sessions matching the given prefix."""
     try:
         result = subprocess.run(
-            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            ["tmux", "-L", socket_name, "list-sessions", "-F", "#{session_name}"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -605,10 +605,10 @@ def _get_tmux_sessions_with_prefix(prefix: str) -> list[str]:
         return []
 
 
-def _kill_tmux_sessions(sessions: list[str]) -> None:
+def _kill_tmux_sessions(sessions: list[str], socket_name: str = "mng") -> None:
     """Kill the specified tmux sessions and all their processes."""
     for session in sessions:
-        cleanup_tmux_session(session)
+        cleanup_tmux_session(session, socket_name=socket_name)
 
 
 def _is_xdist_worker_process(proc: psutil.Process) -> bool:

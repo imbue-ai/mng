@@ -679,31 +679,31 @@ def test_unset_vars_applied_during_agent_start(
 
     # Wait for the tmux session to exist
     def session_ready() -> bool:
-        result = host.execute_command(f"tmux has-session -t '{session_name}'")
+        result = host.execute_command(f"tmux -L mng has-session -t '{session_name}'")
         if not result.success:
             return False
-        pane_content = capture_tmux_pane_content(host, session_name)
+        pane_content = capture_tmux_pane_content(host, session_name, base_tmux_command="tmux -L mng")
         return pane_content is not None and "sleep 736249" in pane_content
 
     wait_for(session_ready, timeout=30.0, poll_interval=0.5, error_message="tmux session not ready")
 
     # Send Ctrl-C to kill the foreground sleep, returning control to the shell.
     # This lets us send echo commands to check environment variables.
-    host.execute_command(f"tmux send-keys -t '{session_name}' C-c")
+    host.execute_command(f"tmux -L mng send-keys -t '{session_name}' C-c")
 
     # This was enabled in modal, but caused things to fail locally. I don't think we need or want this (and I did do a better job of waiting above by ensuring that the sleep text shows up)
     # # Wait for the shell prompt to return after Ctrl-C
     # def shell_ready() -> bool:
-    #     capture_result = host.execute_command(f"tmux capture-pane -t '{session_name}' -p")
+    #     capture_result = host.execute_command(f"tmux -L mng capture-pane -t '{session_name}' -p")
     #     return capture_result.success and ("$" in capture_result.stdout or "#" in capture_result.stdout)
     #
     # wait_for(shell_ready, error_message="Shell prompt not ready after Ctrl-C")
 
-    host.execute_command(f"tmux send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
-    host.execute_command(f"tmux send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
+    host.execute_command(f"tmux -L mng send-keys -t '{session_name}' 'echo HISTFILE_VALUE=${{HISTFILE:-UNSET}}' Enter")
+    host.execute_command(f"tmux -L mng send-keys -t '{session_name}' 'echo PROFILE_VALUE=${{PROFILE:-UNSET}}' Enter")
 
     def check_output() -> bool:
-        output = capture_tmux_pane_content(host, session_name)
+        output = capture_tmux_pane_content(host, session_name, base_tmux_command="tmux -L mng")
         if output is None:
             return False
         has_histfile = "HISTFILE_VALUE=UNSET" in output or "HISTFILE_VALUE=" in output
@@ -785,7 +785,9 @@ def test_stop_agent_kills_single_pane_processes(
     host.start_agents([agent.id])
     session_name = f"{mng_test_prefix}{agent.name}"
 
-    success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+    success, output = host._run_shell_command(
+        StringCommand("tmux -L mng list-sessions -F '#{session_name}' 2>/dev/null")
+    )
     assert success
     assert session_name in output.stdout
 
@@ -796,7 +798,9 @@ def test_stop_agent_kills_single_pane_processes(
     host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand("tmux -L mng list-sessions -F '#{session_name}' 2>/dev/null")
+        )
         session_killed = session_name not in output.stdout
         # Check that the specific PIDs from this test are dead
         for pid in pids_to_check:
@@ -840,11 +844,11 @@ def test_stop_agent_kills_multi_pane_processes(
     host.start_agents([agent.id])
     session_name = f"{mng_test_prefix}{agent.name}"
 
-    host._run_shell_command(StringCommand(f"tmux split-window -t '{session_name}' 'sleep 2000'"))
-    host._run_shell_command(StringCommand(f"tmux split-window -t '{session_name}' 'sleep 3000'"))
+    host._run_shell_command(StringCommand(f"tmux -L mng split-window -t '{session_name}' 'sleep 2000'"))
+    host._run_shell_command(StringCommand(f"tmux -L mng split-window -t '{session_name}' 'sleep 3000'"))
 
     success, output = host._run_shell_command(
-        StringCommand(f"tmux list-panes -t '{session_name}' 2>/dev/null | wc -l")
+        StringCommand(f"tmux -L mng -L mng list-panes -t '{session_name}' 2>/dev/null | wc -l")
     )
     assert success
     pane_count = int(output.stdout.strip())
@@ -857,7 +861,9 @@ def test_stop_agent_kills_multi_pane_processes(
     host.stop_agents([agent.id], timeout_seconds=3.0)
 
     def check_cleanup() -> bool:
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand("tmux -L mng list-sessions -F '#{session_name}' 2>/dev/null")
+        )
         session_killed = session_name not in output.stdout
         # Check that the specific PIDs from this test are dead
         for pid in pids_to_check:
@@ -905,7 +911,7 @@ def test_start_agent_creates_process_group(
 
     try:
         success, output = host._run_shell_command(
-            StringCommand(f"tmux list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
+            StringCommand(f"tmux -L mng -L mng list-panes -t '{session_name}' -F '#{{pane_pid}}' 2>/dev/null")
         )
         assert success
         pane_pid = output.stdout.strip()
@@ -1081,13 +1087,15 @@ def test_start_agent_creates_additional_tmux_windows(
 
     try:
         # Verify the session was created
-        success, output = host._run_shell_command(StringCommand("tmux list-sessions -F '#{session_name}' 2>/dev/null"))
+        success, output = host._run_shell_command(
+            StringCommand("tmux -L mng list-sessions -F '#{session_name}' 2>/dev/null")
+        )
         assert success
         assert session_name in output.stdout
 
         # Verify we have 3 windows (main + 2 additional)
         success, output = host._run_shell_command(
-            StringCommand(f"tmux list-windows -t '{session_name}' -F '#{{window_name}}' 2>/dev/null")
+            StringCommand(f"tmux -L mng list-windows -t '{session_name}' -F '#{{window_name}}' 2>/dev/null")
         )
         assert success
         windows = output.stdout.strip().split("\n")
@@ -1140,7 +1148,7 @@ def test_start_agent_additional_windows_run_commands(
         # Wait for the additional command to produce output
         def check_output() -> bool:
             capture_result = host._run_shell_command(
-                StringCommand(f"tmux capture-pane -t '{session_name}:cmd-1' -p 2>/dev/null")
+                StringCommand(f"tmux -L mng -L mng capture-pane -t '{session_name}:cmd-1' -p 2>/dev/null")
             )
             if not capture_result[0]:
                 return False
@@ -2191,7 +2199,7 @@ def test_new_tmux_window_inherits_env_vars(
         # Create a new window in the session (simulating what a user would do)
         # This window should inherit env vars via tmux set-environment
         subprocess.run(
-            ["tmux", "new-window", "-t", session_name, "-n", "user-window"],
+            ["tmux", "-L", "mng", "new-window", "-t", session_name, "-n", "user-window"],
             check=True,
             capture_output=True,
         )
@@ -2201,6 +2209,8 @@ def test_new_tmux_window_inherits_env_vars(
         subprocess.run(
             [
                 "tmux",
+                "-L",
+                "mng",
                 "send-keys",
                 "-t",
                 window_target,
@@ -2219,7 +2229,7 @@ def test_new_tmux_window_inherits_env_vars(
             return "NEW_WINDOW_VAR=new_window_value_123456" in content
 
         if not poll_until(check_marker_file, timeout=10.0):
-            pane_stdout = capture_tmux_pane_contents(window_target)
+            pane_stdout = capture_tmux_pane_contents(window_target, socket_name="mng")
             marker_content = marker_file.read_text() if marker_file.exists() else "<file does not exist>"
             raise AssertionError(
                 f"New tmux window did not inherit environment variables.\n"

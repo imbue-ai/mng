@@ -488,7 +488,7 @@ def test_add_command_with_named_window(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            ["tmux", "-L", "mng", "list-windows", "-t", session_name, "-F", "#{window_name}"],
             capture_output=True,
             text=True,
         )
@@ -532,7 +532,7 @@ def test_add_command_without_name_uses_default_window_name(
         assert tmux_session_exists(session_name), f"Expected tmux session {session_name} to exist"
 
         window_list_result = subprocess.run(
-            ["tmux", "list-windows", "-t", session_name, "-F", "#{window_name}"],
+            ["tmux", "-L", "mng", "list-windows", "-t", session_name, "-F", "#{window_name}"],
             capture_output=True,
             text=True,
         )

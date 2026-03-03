@@ -726,6 +726,51 @@ def test_build_start_agent_shell_command_no_onboarding_hook_by_default(
 
 
 # =========================================================================
+# Tests for tmux socket isolation (-L flag)
+# =========================================================================
+
+
+def test_build_start_agent_shell_command_with_socket_flag(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """When tmux_socket_flag is provided, all tmux commands should include it."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_start_agent_shell_command(
+        agent=agent,
+        session_name=f"mng-{agent.name}",
+        command="sleep 1000",
+        additional_commands=[],
+        env_shell_cmd="bash -c 'exec \"${MNG_SAVED_DEFAULT_TMUX_COMMAND:-bash}\"'",
+        tmux_config_path=Path("/tmp/tmux.conf"),
+        unset_vars=[],
+        host_dir=temp_host_dir,
+        base_tmux_command="tmux -L mng",
+    )
+
+    # The guard should use -L
+    assert "tmux -L mng has-session" in result
+    # The new-session should use -L
+    assert "tmux -L mng -f" in result
+    assert "new-session" in result
+    # send-keys should use -L
+    assert "tmux -L mng send-keys" in result
+
+
+def test_build_start_agent_shell_command_without_socket_flag(
+    local_provider: LocalProviderInstance,
+    temp_host_dir: Path,
+    temp_work_dir: Path,
+) -> None:
+    """When tmux_socket_flag is empty, no -L should appear."""
+    agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
+    result = _build_command_with_defaults(agent, temp_host_dir)
+
+    assert "-L " not in result
+
+
+# =========================================================================
 # Tests for onboarding helpers
 # =========================================================================
 
