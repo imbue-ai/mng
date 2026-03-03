@@ -23,7 +23,7 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import CleanupAction
 from imbue.mng.primitives import OutputFormat
-from imbue.mng.utils.testing import make_test_agent_info
+from imbue.mng.utils.testing import make_test_agent_details
 
 # =============================================================================
 # Tests for _build_cel_filters_from_options
@@ -161,7 +161,7 @@ def test_selected_marker_false() -> None:
 
 def test_create_cleanup_list_item_selected_contains_marker_and_agent_name() -> None:
     """A selected item should contain [x] and the agent name in its display text."""
-    agent = make_test_agent_info(name="test-agent", state=AgentLifecycleState.RUNNING)
+    agent = make_test_agent_details(name="test-agent", state=AgentLifecycleState.RUNNING)
     item = _create_cleanup_list_item(agent, is_selected=True, name_width=20, state_width=10, provider_width=10)
     display_text = item.original_widget.text
     assert "[x]" in display_text
@@ -170,7 +170,7 @@ def test_create_cleanup_list_item_selected_contains_marker_and_agent_name() -> N
 
 def test_create_cleanup_list_item_not_selected_contains_empty_marker() -> None:
     """An unselected item should contain [ ] and the agent name in its display text."""
-    agent = make_test_agent_info(name="other-agent", state=AgentLifecycleState.STOPPED)
+    agent = make_test_agent_details(name="other-agent", state=AgentLifecycleState.STOPPED)
     item = _create_cleanup_list_item(agent, is_selected=False, name_width=20, state_width=10, provider_width=10)
     display_text = item.original_widget.text
     assert "[ ]" in display_text
@@ -241,8 +241,8 @@ def test_cleanup_dry_run_human_format_with_agents(
 ) -> None:
     """--dry-run --yes should list agents that would be destroyed in human format."""
     agents = [
-        make_test_agent_info(name="cleanup-alpha", state=AgentLifecycleState.RUNNING),
-        make_test_agent_info(name="cleanup-beta", state=AgentLifecycleState.STOPPED),
+        make_test_agent_details(name="cleanup-alpha", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="cleanup-beta", state=AgentLifecycleState.STOPPED),
     ]
     patch_find_agents(agents)
 
@@ -266,7 +266,7 @@ def test_cleanup_dry_run_stop_action_human_format(
 ) -> None:
     """--stop --dry-run --yes should say 'Would stop' in human format."""
     agents = [
-        make_test_agent_info(name="stop-me", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="stop-me", state=AgentLifecycleState.RUNNING),
     ]
     patch_find_agents(agents)
 
@@ -289,7 +289,7 @@ def test_cleanup_dry_run_json_format_with_agents(
 ) -> None:
     """--dry-run --yes --format json should emit structured JSON."""
     agents = [
-        make_test_agent_info(name="json-agent", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="json-agent", state=AgentLifecycleState.RUNNING),
     ]
     patch_find_agents(agents)
 
@@ -315,7 +315,7 @@ def test_cleanup_dry_run_jsonl_format_with_agents(
 ) -> None:
     """--dry-run --yes --format jsonl should emit JSONL events."""
     agents = [
-        make_test_agent_info(name="jsonl-agent", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="jsonl-agent", state=AgentLifecycleState.RUNNING),
     ]
     patch_find_agents(agents)
 
@@ -343,7 +343,7 @@ def test_cleanup_dry_run_stop_json_format(
 ) -> None:
     """--stop --dry-run --yes --format json should report action as 'stop'."""
     agents = [
-        make_test_agent_info(name="stop-json", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="stop-json", state=AgentLifecycleState.RUNNING),
     ]
     patch_find_agents(agents)
 
@@ -549,7 +549,7 @@ def test_emit_result_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
 def test_emit_dry_run_output_human_destroy(capsys: pytest.CaptureFixture[str]) -> None:
     """Test _emit_dry_run_output with destroy action in HUMAN format."""
     agents = [
-        make_test_agent_info(name="dry-run-agent", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="dry-run-agent", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
     _emit_dry_run_output(agents, CleanupAction.DESTROY, output_opts)
@@ -562,7 +562,7 @@ def test_emit_dry_run_output_human_destroy(capsys: pytest.CaptureFixture[str]) -
 def test_emit_dry_run_output_human_stop(capsys: pytest.CaptureFixture[str]) -> None:
     """Test _emit_dry_run_output with stop action in HUMAN format."""
     agents = [
-        make_test_agent_info(name="stop-target", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="stop-target", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.HUMAN)
     _emit_dry_run_output(agents, CleanupAction.STOP, output_opts)
@@ -575,7 +575,7 @@ def test_emit_dry_run_output_human_stop(capsys: pytest.CaptureFixture[str]) -> N
 def test_emit_dry_run_output_json_format(capsys: pytest.CaptureFixture[str]) -> None:
     """Test _emit_dry_run_output in JSON format."""
     agents = [
-        make_test_agent_info(name="json-dry", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="json-dry", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.JSON)
     _emit_dry_run_output(agents, CleanupAction.DESTROY, output_opts)
@@ -589,7 +589,7 @@ def test_emit_dry_run_output_json_format(capsys: pytest.CaptureFixture[str]) -> 
 def test_emit_dry_run_output_jsonl_format(capsys: pytest.CaptureFixture[str]) -> None:
     """Test _emit_dry_run_output in JSONL format."""
     agents = [
-        make_test_agent_info(name="jsonl-dry", state=AgentLifecycleState.RUNNING),
+        make_test_agent_details(name="jsonl-dry", state=AgentLifecycleState.RUNNING),
     ]
     output_opts = OutputOptions(output_format=OutputFormat.JSONL)
     _emit_dry_run_output(agents, CleanupAction.STOP, output_opts)

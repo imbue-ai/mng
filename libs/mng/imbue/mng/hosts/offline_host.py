@@ -31,7 +31,7 @@ def validate_and_create_discovered_agent(
     host_id: HostId,
     provider_name: ProviderInstanceName,
 ) -> DiscoveredAgent | None:
-    """Validate agent data and create an DiscoveredAgent if valid.
+    """Validate agent data and create a DiscoveredAgent if valid.
 
     Returns None if the agent data is malformed (missing or invalid id/name).
     Logs warnings for malformed records.
@@ -149,7 +149,7 @@ class BaseHost(HostInterface):
     # =========================================================================
 
     def _validate_and_create_discovered_agent(self, agent_data: dict[str, Any]) -> DiscoveredAgent | None:
-        """Validate agent data and create an DiscoveredAgent if valid.
+        """Validate agent data and create a DiscoveredAgent if valid.
 
         Returns None if the agent data is malformed (missing or invalid id/name).
         Logs warnings for malformed records.

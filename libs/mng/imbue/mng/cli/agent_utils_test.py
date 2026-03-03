@@ -15,7 +15,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 
 
-def _make_host_reference(
+def _make_discovered_host(
     provider: str = "local",
     host_id: HostId | None = None,
     host_name: str = "test-host",
@@ -30,13 +30,13 @@ def _make_host_reference(
     )
 
 
-def _make_agent_reference(
+def _make_discovered_agent(
     agent_id: AgentId,
     agent_name: str = "test-name",
     host_id: HostId | None = None,
     provider: str = "local",
 ) -> DiscoveredAgent:
-    """Create an DiscoveredAgent for testing."""
+    """Create a DiscoveredAgent for testing."""
     if host_id is None:
         host_id = HostId.generate()
     return DiscoveredAgent(
@@ -55,7 +55,7 @@ def _make_agent_reference(
 def test_host_matches_filter_by_host_id() -> None:
     """Test that _host_matches_filter matches by HostId."""
     host_id = HostId.generate()
-    host_ref = _make_host_reference(host_id=host_id, host_name="my-host")
+    host_ref = _make_discovered_host(host_id=host_id, host_name="my-host")
 
     assert _host_matches_filter(host_ref, str(host_id)) is True
     assert _host_matches_filter(host_ref, str(HostId.generate())) is False
@@ -63,7 +63,7 @@ def test_host_matches_filter_by_host_id() -> None:
 
 def test_host_matches_filter_by_host_name() -> None:
     """Test that _host_matches_filter matches by HostName."""
-    host_ref = _make_host_reference(host_name="my-host")
+    host_ref = _make_discovered_host(host_name="my-host")
 
     assert _host_matches_filter(host_ref, "my-host") is True
     assert _host_matches_filter(host_ref, "other-host") is False
@@ -72,7 +72,7 @@ def test_host_matches_filter_by_host_name() -> None:
 def test_host_matches_filter_prefers_id_over_name() -> None:
     """Test that if the filter looks like an ID, it checks ID first."""
     host_id = HostId.generate()
-    host_ref = _make_host_reference(host_id=host_id, host_name=str(host_id))
+    host_ref = _make_discovered_host(host_id=host_id, host_name=str(host_id))
 
     # When using the actual ID, it should match
     assert _host_matches_filter(host_ref, str(host_id)) is True
@@ -85,9 +85,9 @@ def test_host_matches_filter_prefers_id_over_name() -> None:
 
 def test_filter_agents_by_host_filters_by_name() -> None:
     """Test that filter_agents_by_host keeps only matching hosts."""
-    host_ref1 = _make_host_reference(host_name="host-1")
-    host_ref2 = _make_host_reference(host_name="host-2")
-    agent_ref = _make_agent_reference(agent_id=AgentId.generate())
+    host_ref1 = _make_discovered_host(host_name="host-1")
+    host_ref2 = _make_discovered_host(host_name="host-2")
+    agent_ref = _make_discovered_agent(agent_id=AgentId.generate())
     agents_by_host = {host_ref1: [agent_ref], host_ref2: []}
 
     filtered = filter_agents_by_host(agents_by_host, "host-1")
@@ -98,7 +98,7 @@ def test_filter_agents_by_host_filters_by_name() -> None:
 
 def test_filter_agents_by_host_raises_when_no_match() -> None:
     """Test that filter_agents_by_host raises UserInputError when no hosts match."""
-    host_ref = _make_host_reference(host_name="host-1")
+    host_ref = _make_discovered_host(host_name="host-1")
     agents_by_host = {host_ref: []}
 
     with pytest.raises(UserInputError, match="No host found matching"):

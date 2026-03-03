@@ -25,7 +25,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import ProviderInstanceName
 
 
-def _make_test_agent_info(name: str = "test-agent") -> AgentDetails:
+def _make_test_agent_details(name: str = "test-agent") -> AgentDetails:
     """Create a minimal AgentDetails for testing cleanup API functions."""
     return AgentDetails(
         id=AgentId.generate(),
@@ -49,9 +49,9 @@ def test_execute_cleanup_dry_run_destroy_populates_destroyed_agents(
 ) -> None:
     """Dry-run destroy should list all agent names in destroyed_agents."""
     agents = [
-        _make_test_agent_info("agent-alpha"),
-        _make_test_agent_info("agent-beta"),
-        _make_test_agent_info("agent-gamma"),
+        _make_test_agent_details("agent-alpha"),
+        _make_test_agent_details("agent-beta"),
+        _make_test_agent_details("agent-gamma"),
     ]
 
     result = execute_cleanup(
@@ -76,8 +76,8 @@ def test_execute_cleanup_dry_run_stop_populates_stopped_agents(
 ) -> None:
     """Dry-run stop should list all agent names in stopped_agents."""
     agents = [
-        _make_test_agent_info("agent-one"),
-        _make_test_agent_info("agent-two"),
+        _make_test_agent_details("agent-one"),
+        _make_test_agent_details("agent-two"),
     ]
 
     result = execute_cleanup(
@@ -119,7 +119,7 @@ def test_execute_cleanup_dry_run_returns_cleanup_result_type(
     """Dry-run should return a CleanupResult instance."""
     result = execute_cleanup(
         mng_ctx=temp_mng_ctx,
-        agents=[_make_test_agent_info("test-agent")],
+        agents=[_make_test_agent_details("test-agent")],
         action=CleanupAction.DESTROY,
         is_dry_run=True,
         error_behavior=ErrorBehavior.ABORT,

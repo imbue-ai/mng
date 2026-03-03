@@ -41,7 +41,7 @@ from imbue.mng.utils.cel_utils import compile_cel_filters
 # =============================================================================
 
 
-def _make_host_info() -> HostDetails:
+def _make_host_details() -> HostDetails:
     return HostDetails(
         id=HostId.generate(),
         name="test-host",
@@ -49,7 +49,7 @@ def _make_host_info() -> HostDetails:
     )
 
 
-def _make_agent_info(name: str, host_info: HostDetails) -> AgentDetails:
+def _make_agent_details(name: str, host_info: HostDetails) -> AgentDetails:
     return AgentDetails(
         id=AgentId.generate(),
         name=AgentName(name),
@@ -68,7 +68,7 @@ def _make_agent_info(name: str, host_info: HostDetails) -> AgentDetails:
 # =============================================================================
 
 
-def _make_host_ref(
+def _make_discovered_host(
     host_name: str,
     provider_name: str = "modal",
 ) -> DiscoveredHost:
@@ -79,7 +79,7 @@ def _make_host_ref(
     )
 
 
-def _make_agent_ref(host_id: HostId, provider_name: str = "modal") -> DiscoveredAgent:
+def _make_discovered_agent(host_id: HostId, provider_name: str = "modal") -> DiscoveredAgent:
     return DiscoveredAgent(
         host_id=host_id,
         agent_id=AgentId.generate(),
@@ -101,13 +101,13 @@ def _capture_loguru_warnings() -> Iterator[StringIO]:
 
 def test_warn_on_duplicate_host_names_no_warning_for_unique_names() -> None:
     """warn_on_duplicate_host_names should not warn when all host names are unique."""
-    ref_alpha = _make_host_ref("host-alpha")
-    ref_beta = _make_host_ref("host-beta")
-    ref_gamma = _make_host_ref("host-gamma")
+    ref_alpha = _make_discovered_host("host-alpha")
+    ref_beta = _make_discovered_host("host-beta")
+    ref_gamma = _make_discovered_host("host-gamma")
     agents_by_host = {
-        ref_alpha: [_make_agent_ref(ref_alpha.host_id)],
-        ref_beta: [_make_agent_ref(ref_beta.host_id)],
-        ref_gamma: [_make_agent_ref(ref_gamma.host_id)],
+        ref_alpha: [_make_discovered_agent(ref_alpha.host_id)],
+        ref_beta: [_make_discovered_agent(ref_beta.host_id)],
+        ref_gamma: [_make_discovered_agent(ref_gamma.host_id)],
     }
 
     with _capture_loguru_warnings() as log_output:
@@ -118,13 +118,13 @@ def test_warn_on_duplicate_host_names_no_warning_for_unique_names() -> None:
 
 def test_warn_on_duplicate_host_names_warns_on_duplicate_within_same_provider() -> None:
     """warn_on_duplicate_host_names should warn when the same name appears twice on the same provider."""
-    ref_dup_1 = _make_host_ref("duplicated-name", "modal")
-    ref_dup_2 = _make_host_ref("duplicated-name", "modal")
-    ref_unique = _make_host_ref("unique-name", "modal")
+    ref_dup_1 = _make_discovered_host("duplicated-name", "modal")
+    ref_dup_2 = _make_discovered_host("duplicated-name", "modal")
+    ref_unique = _make_discovered_host("unique-name", "modal")
     agents_by_host = {
-        ref_dup_1: [_make_agent_ref(ref_dup_1.host_id)],
-        ref_dup_2: [_make_agent_ref(ref_dup_2.host_id)],
-        ref_unique: [_make_agent_ref(ref_unique.host_id)],
+        ref_dup_1: [_make_discovered_agent(ref_dup_1.host_id)],
+        ref_dup_2: [_make_discovered_agent(ref_dup_2.host_id)],
+        ref_unique: [_make_discovered_agent(ref_unique.host_id)],
     }
 
     with _capture_loguru_warnings() as log_output:
@@ -138,11 +138,11 @@ def test_warn_on_duplicate_host_names_warns_on_duplicate_within_same_provider() 
 
 def test_warn_on_duplicate_host_names_no_warning_for_same_name_on_different_providers() -> None:
     """warn_on_duplicate_host_names should not warn when the same name exists on different providers."""
-    ref_modal = _make_host_ref("shared-name", "modal")
-    ref_docker = _make_host_ref("shared-name", "docker")
+    ref_modal = _make_discovered_host("shared-name", "modal")
+    ref_docker = _make_discovered_host("shared-name", "docker")
     agents_by_host = {
-        ref_modal: [_make_agent_ref(ref_modal.host_id, "modal")],
-        ref_docker: [_make_agent_ref(ref_docker.host_id, "docker")],
+        ref_modal: [_make_discovered_agent(ref_modal.host_id, "modal")],
+        ref_docker: [_make_discovered_agent(ref_docker.host_id, "docker")],
     }
 
     with _capture_loguru_warnings() as log_output:
@@ -161,11 +161,11 @@ def test_warn_on_duplicate_host_names_empty_input() -> None:
 
 def test_warn_on_duplicate_host_names_no_warning_when_destroyed_host_shares_name() -> None:
     """warn_on_duplicate_host_names should not warn when a destroyed host (no agents) shares a name with an active host."""
-    ref_destroyed = _make_host_ref("reused-name", "modal")
-    ref_active = _make_host_ref("reused-name", "modal")
+    ref_destroyed = _make_discovered_host("reused-name", "modal")
+    ref_active = _make_discovered_host("reused-name", "modal")
     agents_by_host: dict[DiscoveredHost, list[DiscoveredAgent]] = {
         ref_destroyed: [],
-        ref_active: [_make_agent_ref(ref_active.host_id)],
+        ref_active: [_make_discovered_agent(ref_active.host_id)],
     }
 
     with _capture_loguru_warnings() as log_output:
@@ -255,8 +255,8 @@ def test_list_result_initializes_with_empty_lists() -> None:
 def test_list_result_allows_appending() -> None:
     """ListResult agents and errors lists should be mutable."""
     result = ListResult()
-    host_info = _make_host_info()
-    agent = _make_agent_info("test-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("test-agent", host_info)
     result.agents.append(agent)
     assert len(result.agents) == 1
     assert result.agents[0].name == AgentName("test-agent")
@@ -273,8 +273,8 @@ def test_list_result_allows_appending() -> None:
 
 def test_agent_details_to_cel_context_basic_fields() -> None:
     """_agent_details_to_cel_context should convert AgentDetails to a dict with basic fields."""
-    host_info = _make_host_info()
-    agent = _make_agent_info("my-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("my-agent", host_info)
     context = _agent_details_to_cel_context(agent)
 
     assert context["name"] == "my-agent"
@@ -285,7 +285,7 @@ def test_agent_details_to_cel_context_basic_fields() -> None:
 
 def test_agent_details_to_cel_context_computes_age() -> None:
     """_agent_details_to_cel_context should compute 'age' from create_time."""
-    host_info = _make_host_info()
+    host_info = _make_host_details()
     create_time = datetime.now(timezone.utc) - timedelta(hours=2)
     agent = AgentDetails(
         id=AgentId.generate(),
@@ -308,7 +308,7 @@ def test_agent_details_to_cel_context_computes_age() -> None:
 
 def test_agent_details_to_cel_context_computes_runtime() -> None:
     """_agent_details_to_cel_context should set 'runtime' from runtime_seconds."""
-    host_info = _make_host_info()
+    host_info = _make_host_details()
     agent = AgentDetails(
         id=AgentId.generate(),
         name=AgentName("running-agent"),
@@ -328,7 +328,7 @@ def test_agent_details_to_cel_context_computes_runtime() -> None:
 
 def test_agent_details_to_cel_context_computes_idle() -> None:
     """_agent_details_to_cel_context should compute 'idle' from activity times."""
-    host_info = _make_host_info()
+    host_info = _make_host_details()
     activity_time = datetime.now(timezone.utc) - timedelta(minutes=5)
     agent = AgentDetails(
         id=AgentId.generate(),
@@ -357,7 +357,7 @@ def test_agent_details_to_cel_context_normalizes_host_provider() -> None:
         name="test-host",
         provider_name=ProviderInstanceName("modal"),
     )
-    agent = _make_agent_info("test-agent", host_info)
+    agent = _make_agent_details("test-agent", host_info)
     context = _agent_details_to_cel_context(agent)
 
     assert "host" in context
@@ -374,8 +374,8 @@ def test_agent_details_to_cel_context_normalizes_host_provider() -> None:
 
 def test_apply_cel_filters_includes_matching_agent() -> None:
     """_apply_cel_filters should return True when agent matches include filter."""
-    host_info = _make_host_info()
-    agent = _make_agent_info("target-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("target-agent", host_info)
     include_filters, exclude_filters = compile_cel_filters(
         include_filters=('name == "target-agent"',),
         exclude_filters=(),
@@ -385,8 +385,8 @@ def test_apply_cel_filters_includes_matching_agent() -> None:
 
 def test_apply_cel_filters_excludes_non_matching_agent() -> None:
     """_apply_cel_filters should return False when agent does not match include filter."""
-    host_info = _make_host_info()
-    agent = _make_agent_info("other-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("other-agent", host_info)
     include_filters, exclude_filters = compile_cel_filters(
         include_filters=('name == "target-agent"',),
         exclude_filters=(),
@@ -396,8 +396,8 @@ def test_apply_cel_filters_excludes_non_matching_agent() -> None:
 
 def test_apply_cel_filters_exclude_filter_removes_agent() -> None:
     """_apply_cel_filters should return False when agent matches exclude filter."""
-    host_info = _make_host_info()
-    agent = _make_agent_info("unwanted-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("unwanted-agent", host_info)
     include_filters, exclude_filters = compile_cel_filters(
         include_filters=(),
         exclude_filters=('name == "unwanted-agent"',),
@@ -407,8 +407,8 @@ def test_apply_cel_filters_exclude_filter_removes_agent() -> None:
 
 def test_apply_cel_filters_no_filters_includes_all() -> None:
     """_apply_cel_filters should return True when no filters are provided."""
-    host_info = _make_host_info()
-    agent = _make_agent_info("any-agent", host_info)
+    host_info = _make_host_details()
+    agent = _make_agent_details("any-agent", host_info)
     assert _apply_cel_filters(agent, [], []) is True
 
 

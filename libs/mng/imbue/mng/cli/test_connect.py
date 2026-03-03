@@ -31,7 +31,7 @@ from imbue.mng.main import cli
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.utils.testing import cleanup_tmux_session
-from imbue.mng.utils.testing import make_test_agent_info
+from imbue.mng.utils.testing import make_test_agent_details
 from imbue.mng.utils.testing import tmux_session_exists
 
 # =============================================================================
@@ -327,9 +327,9 @@ def test_build_connection_options_maps_all_fields(
 def test_filter_agents_no_filters() -> None:
     """Test filter_agents with no filters applied."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
-        make_test_agent_info("gamma", AgentLifecycleState.RUNNING),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("gamma", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=False, search_query="")
@@ -339,9 +339,9 @@ def test_filter_agents_no_filters() -> None:
 def test_filter_agents_hide_stopped() -> None:
     """Test filter_agents with hide_stopped=True."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
-        make_test_agent_info("gamma", AgentLifecycleState.RUNNING),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("gamma", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=True, search_query="")
@@ -352,9 +352,9 @@ def test_filter_agents_hide_stopped() -> None:
 def test_filter_agents_search_query() -> None:
     """Test filter_agents with search query."""
     agents = [
-        make_test_agent_info("test-alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("test-beta", AgentLifecycleState.RUNNING),
-        make_test_agent_info("other", AgentLifecycleState.RUNNING),
+        make_test_agent_details("test-alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("test-beta", AgentLifecycleState.RUNNING),
+        make_test_agent_details("other", AgentLifecycleState.RUNNING),
     ]
 
     # Case-insensitive search
@@ -370,9 +370,9 @@ def test_filter_agents_search_query() -> None:
 def test_filter_agents_combined_filters() -> None:
     """Test filter_agents with both filters applied."""
     agents = [
-        make_test_agent_info("test-alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("test-beta", AgentLifecycleState.STOPPED),
-        make_test_agent_info("other", AgentLifecycleState.RUNNING),
+        make_test_agent_details("test-alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("test-beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("other", AgentLifecycleState.RUNNING),
     ]
 
     result = filter_agents(agents, hide_stopped=True, search_query="test")
@@ -466,7 +466,7 @@ def test_handle_search_key_other() -> None:
 
 def test_create_selectable_agent_item_displays_agent_info() -> None:
     """Test that _create_selectable_agent_item creates a selectable widget."""
-    agent = make_test_agent_info("test-agent", AgentLifecycleState.RUNNING)
+    agent = make_test_agent_details("test-agent", AgentLifecycleState.RUNNING)
 
     widget = _create_selectable_agent_item(agent, name_width=20, state_width=10)
 
@@ -479,7 +479,7 @@ def test_create_selectable_agent_item_displays_agent_info() -> None:
 
 def test_create_selectable_agent_item_stopped_state() -> None:
     """Test that _create_selectable_agent_item shows stopped state correctly."""
-    agent = make_test_agent_info("stopped-agent", AgentLifecycleState.STOPPED)
+    agent = make_test_agent_details("stopped-agent", AgentLifecycleState.STOPPED)
 
     widget = _create_selectable_agent_item(agent, name_width=20, state_width=10)
 
@@ -514,8 +514,8 @@ def _create_and_refresh_test_state(agents: list[AgentDetails]) -> AgentSelectorS
 def test_agent_selector_state_initializes_with_defaults() -> None:
     """Test that AgentSelectorState initializes with correct defaults."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.STOPPED),
     ]
 
     state = _create_test_selector_state(agents)
@@ -530,9 +530,9 @@ def test_agent_selector_state_initializes_with_defaults() -> None:
 def test_refresh_agent_list_populates_list_walker() -> None:
     """Test that _refresh_agent_list populates the list walker with agents."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
-        make_test_agent_info("gamma", AgentLifecycleState.STOPPED),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_details("gamma", AgentLifecycleState.STOPPED),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -543,8 +543,8 @@ def test_refresh_agent_list_populates_list_walker() -> None:
 def test_refresh_agent_list_applies_hide_stopped_filter() -> None:
     """Test that _refresh_agent_list respects hide_stopped setting."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.STOPPED),
     ]
     state = _create_test_selector_state(agents)
     state.hide_stopped = True
@@ -559,8 +559,8 @@ def test_refresh_agent_list_applies_hide_stopped_filter() -> None:
 def test_refresh_agent_list_applies_search_filter() -> None:
     """Test that _refresh_agent_list respects search_query setting."""
     agents = [
-        make_test_agent_info("alpha-test", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta-prod", AgentLifecycleState.RUNNING),
+        make_test_agent_details("alpha-test", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta-prod", AgentLifecycleState.RUNNING),
     ]
     state = _create_test_selector_state(agents)
     state.search_query = "alpha"
@@ -574,7 +574,7 @@ def test_refresh_agent_list_applies_search_filter() -> None:
 
 def test_refresh_agent_list_updates_status_text() -> None:
     """Test that _refresh_agent_list updates the status text widget."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_test_selector_state(agents)
     state.search_query = "search-term"
 
@@ -587,8 +587,8 @@ def test_refresh_agent_list_updates_status_text() -> None:
 def test_refresh_agent_list_sets_focus_on_first_item() -> None:
     """Test that _refresh_agent_list sets focus on the first item when items exist."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -599,8 +599,8 @@ def test_refresh_agent_list_sets_focus_on_first_item() -> None:
 def test_handle_selector_input_ctrl_r_toggles_hide_stopped() -> None:
     """Test that Ctrl+R toggles the hide_stopped filter."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.STOPPED),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.STOPPED),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -615,7 +615,7 @@ def test_handle_selector_input_ctrl_r_toggles_hide_stopped() -> None:
 
 def test_handle_selector_input_ctrl_c_clears_search_query() -> None:
     """Test that Ctrl+C clears the search query when not empty."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     state.search_query = "test"
 
@@ -626,7 +626,7 @@ def test_handle_selector_input_ctrl_c_clears_search_query() -> None:
 
 def test_handle_selector_input_ctrl_c_double_tap_exits() -> None:
     """Test that double Ctrl+C (within 500ms) raises ExitMainLoop."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
 
     # First Ctrl-c with empty query records the time
@@ -640,8 +640,8 @@ def test_handle_selector_input_ctrl_c_double_tap_exits() -> None:
 def test_handle_selector_input_enter_selects_focused_agent() -> None:
     """Test that Enter selects the currently focused agent."""
     agents = [
-        make_test_agent_info("alpha", AgentLifecycleState.RUNNING),
-        make_test_agent_info("beta", AgentLifecycleState.RUNNING),
+        make_test_agent_details("alpha", AgentLifecycleState.RUNNING),
+        make_test_agent_details("beta", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -665,7 +665,7 @@ def test_handle_selector_input_enter_with_empty_list_sets_no_result() -> None:
 
 def test_handle_selector_input_arrow_keys_pass_through() -> None:
     """Test that arrow keys pass through (return False) for ListBox to handle."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
 
     # Arrow keys should return False to let ListBox handle them
@@ -678,8 +678,8 @@ def test_handle_selector_input_arrow_keys_pass_through() -> None:
 def test_handle_selector_input_printable_key_updates_search() -> None:
     """Test that printable keys update the search query."""
     agents = [
-        make_test_agent_info("xyz-agent", AgentLifecycleState.RUNNING),
-        make_test_agent_info("foo-agent", AgentLifecycleState.RUNNING),
+        make_test_agent_details("xyz-agent", AgentLifecycleState.RUNNING),
+        make_test_agent_details("foo-agent", AgentLifecycleState.RUNNING),
     ]
     state = _create_and_refresh_test_state(agents)
 
@@ -692,7 +692,7 @@ def test_handle_selector_input_printable_key_updates_search() -> None:
 
 def test_handle_selector_input_backspace_removes_last_character() -> None:
     """Test that backspace removes the last character from search query."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     state.search_query = "alph"
 
@@ -703,7 +703,7 @@ def test_handle_selector_input_backspace_removes_last_character() -> None:
 
 def test_selector_input_handler_calls_handle_selector_input() -> None:
     """Test that SelectorInputHandler delegates to _handle_selector_input."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     handler = SelectorInputHandler(state=state)
 
@@ -714,7 +714,7 @@ def test_selector_input_handler_calls_handle_selector_input() -> None:
 
 def test_selector_input_handler_ignores_mouse_events() -> None:
     """Test that SelectorInputHandler returns None for mouse events (tuples)."""
-    agents = [make_test_agent_info("alpha", AgentLifecycleState.RUNNING)]
+    agents = [make_test_agent_details("alpha", AgentLifecycleState.RUNNING)]
     state = _create_and_refresh_test_state(agents)
     handler = SelectorInputHandler(state=state)
 

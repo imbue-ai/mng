@@ -460,7 +460,7 @@ def make_mng_ctx(
     )
 
 
-def make_test_agent_info(
+def make_test_agent_details(
     name: str = "test-agent",
     state: AgentLifecycleState = AgentLifecycleState.RUNNING,
     create_time: datetime | None = None,
