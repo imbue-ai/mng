@@ -942,7 +942,7 @@ def _resolve_model_type(annotation: Any) -> type[BaseModel] | None:
     if origin is types.UnionType or origin is Union:
         args = get_args(annotation)
         if len(args) != 2 or type(None) not in args:
-            raise SwitchError(f"Expected Optional (X | None), got union: {annotation}")
+            raise SwitchError(f"Cannot resolve non-optional union type: {annotation}")
         inner = args[0] if args[1] is type(None) else args[1]
         return _resolve_model_type(inner)
 

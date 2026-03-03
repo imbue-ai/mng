@@ -623,7 +623,7 @@ def test_validate_sort_field_rejects_unknown_deep_field() -> None:
 
 def test_resolve_model_type_raises_on_non_optional_union() -> None:
     """_resolve_model_type should raise SwitchError for unions that are not X | None."""
-    with pytest.raises(SwitchError, match="Expected Optional"):
+    with pytest.raises(SwitchError, match="Cannot resolve non-optional union"):
         _resolve_model_type(str | int)
 
 
