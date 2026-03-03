@@ -422,7 +422,9 @@ class MngConfig(FrozenModel):
         default="mng",
         description="Socket name passed to tmux -L for local agent sessions. "
         "The default 'mng' isolates agent sessions from the user's global tmux. "
-        "Set to 'default' to share the user's global tmux server.",
+        "Set to 'default' to share the user's global tmux server. "
+        "Only change this when no local agents are running, otherwise mng will "
+        "not be able to find existing agent sessions on the old socket.",
     )
     is_nested_tmux_allowed: bool = Field(
         default=False,
