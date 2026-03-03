@@ -148,7 +148,7 @@ def find_agent_for_command(
         )
 
     if not mng_ctx.is_interactive:
-        raise UserInputError("No agent specified and not running in interactive mode (use --headless to suppress)")
+        raise UserInputError("No agent specified and not running in interactive mode (specify an agent name or ID)")
 
     result = select_agent_interactively_with_host(
         mng_ctx,

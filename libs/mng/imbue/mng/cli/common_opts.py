@@ -83,6 +83,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
     - --log-commands: Log executed commands
     - --log-command-output: Log command output
     - --log-env-vars: Log environment variables
+    - --headless: Disable all interactive behavior
     - --context: Project context directory
     - --plugin: Enable plugins
     - --disable-plugin: Disable plugins
