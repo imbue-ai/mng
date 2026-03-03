@@ -146,7 +146,7 @@ TEST_AGENT_ID_1 = "agent-00000000000000000000000000000001"
 TEST_AGENT_ID_2 = "agent-00000000000000000000000000000002"
 
 
-def _make_host_ref(
+def _make_discovered_host(
     provider: str = "local", host_id: str = TEST_HOST_ID_1, host_name: str = "test-host"
 ) -> DiscoveredHost:
     return DiscoveredHost(
@@ -156,7 +156,7 @@ def _make_host_ref(
     )
 
 
-def _make_agent_ref(
+def _make_discovered_agent(
     agent_id: str = TEST_AGENT_ID_1,
     agent_name: str = "test-agent",
     host_id: str = TEST_HOST_ID_1,
@@ -188,8 +188,8 @@ def test_try_reuse_existing_agent_no_agents_found(temp_mng_ctx: MngContext) -> N
 
 def test_try_reuse_existing_agent_no_matching_name(temp_mng_ctx: MngContext) -> None:
     """Returns None when agents exist but none match the name."""
-    host_ref = _make_host_ref()
-    agent_ref = _make_agent_ref(agent_name="other-agent")
+    host_ref = _make_discovered_host()
+    agent_ref = _make_discovered_agent(agent_name="other-agent")
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
@@ -204,8 +204,8 @@ def test_try_reuse_existing_agent_no_matching_name(temp_mng_ctx: MngContext) -> 
 
 def test_try_reuse_existing_agent_filters_by_provider(temp_mng_ctx: MngContext) -> None:
     """Returns None when agent exists but on different provider."""
-    host_ref = _make_host_ref(provider="modal")
-    agent_ref = _make_agent_ref(agent_name="test-agent", provider="modal")
+    host_ref = _make_discovered_host(provider="modal")
+    agent_ref = _make_discovered_agent(agent_name="test-agent", provider="modal")
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),
@@ -220,10 +220,10 @@ def test_try_reuse_existing_agent_filters_by_provider(temp_mng_ctx: MngContext) 
 
 def test_try_reuse_existing_agent_filters_by_host(temp_mng_ctx: MngContext) -> None:
     """Returns None when agent exists but on different host."""
-    host_ref = _make_host_ref(host_id=TEST_HOST_ID_1)
-    agent_ref = _make_agent_ref(agent_name="test-agent", host_id=TEST_HOST_ID_1)
+    host_ref = _make_discovered_host(host_id=TEST_HOST_ID_1)
+    agent_ref = _make_discovered_agent(agent_name="test-agent", host_id=TEST_HOST_ID_1)
 
-    target_host_ref = _make_host_ref(host_id=TEST_HOST_ID_2)
+    target_host_ref = _make_discovered_host(host_id=TEST_HOST_ID_2)
 
     result = _try_reuse_existing_agent(
         agent_name=AgentName("test-agent"),

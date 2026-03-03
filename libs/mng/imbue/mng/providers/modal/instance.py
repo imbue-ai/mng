@@ -2421,14 +2421,14 @@ log "=== Shutdown script completed ==="
 
             # Build HostDetails from cached host record + SSH-collected data
             with trace_span("Assembling host info for {}", host_ref.host_id, _is_trace_span_enabled=False):
-                host_info = self._build_host_details_from_raw(host, host_ref, host_record, raw)
+                host_details = self._build_host_details_from_raw(host, host_ref, host_record, raw)
 
             # Build AgentDetails for each agent
             with trace_span("Assembling agent info for {}", host_ref.host_id, _is_trace_span_enabled=False):
                 certified_data = host_record.certified_host_data if host_record is not None else None
-                agent_infos = self._build_agent_details_from_raw(host_info, certified_data, raw)
+                agent_details_list = self._build_agent_details_from_raw(host_details, certified_data, raw)
 
-            return host_info, agent_infos
+            return host_details, agent_details_list
 
     def _collect_all_listing_data_via_ssh(self, host: Host) -> dict[str, Any] | None:
         """Execute a single SSH command to collect all data needed for listing."""
@@ -2537,7 +2537,7 @@ log "=== Shutdown script completed ==="
 
     def _build_agent_details_from_raw(
         self,
-        host_info: HostDetails,
+        host_details: HostDetails,
         certified_host_data: CertifiedHostData | None,
         raw: dict[str, Any],
     ) -> list[AgentDetails]:
@@ -2555,30 +2555,30 @@ log "=== Shutdown script completed ==="
         ssh_activity = timestamp_to_datetime(raw.get("ssh_activity_mtime"))
         ps_output = raw.get("ps_output", "")
 
-        agent_infos: list[AgentDetails] = []
+        agent_details_list: list[AgentDetails] = []
         for agent_raw in raw.get("agents", []):
             try:
-                agent_info = self._build_single_agent_info(
+                agent_details = self._build_single_agent_details(
                     agent_raw=agent_raw,
-                    host_info=host_info,
+                    host_details=host_details,
                     ssh_activity=ssh_activity,
                     ps_output=ps_output,
                     idle_timeout_seconds=idle_timeout_seconds,
                     activity_sources=activity_sources,
                     idle_mode=idle_mode,
                 )
-                if agent_info is not None:
-                    agent_infos.append(agent_info)
+                if agent_details is not None:
+                    agent_details_list.append(agent_details)
             except (ValueError, KeyError, TypeError) as e:
                 agent_id = agent_raw.get("data", {}).get("id", "unknown")
                 logger.warning("Failed to build listing info for agent {}: {}", agent_id, e)
 
-        return agent_infos
+        return agent_details_list
 
-    def _build_single_agent_info(
+    def _build_single_agent_details(
         self,
         agent_raw: dict[str, Any],
-        host_info: HostDetails,
+        host_details: HostDetails,
         ssh_activity: datetime | None,
         ps_output: str,
         idle_timeout_seconds: int,
@@ -2642,7 +2642,7 @@ log "=== Shutdown script completed ==="
             idle_timeout_seconds=idle_timeout_seconds,
             activity_sources=tuple(s.value for s in activity_sources),
             labels=agent_data.get("labels", {}),
-            host=host_info,
+            host=host_details,
             plugin={},
         )
 
