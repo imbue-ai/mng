@@ -1,38 +1,39 @@
 <!-- This file is auto-generated. Do not edit directly. -->
 <!-- To modify, edit the command's help metadata and run: uv run python scripts/make_cli_docs.py -->
 
-# mng logs
+# mng events
 
 **Synopsis:**
 
 ```text
-mng logs TARGET [LOG_FILE] [--follow] [--tail N] [--head N]
+mng events TARGET [EVENT_FILE] [--filter CEL] [--follow] [--tail N] [--head N]
 ```
 
-View log files from an agent or host [experimental].
+View events from an agent or host [experimental].
 
 TARGET identifies an agent (by name or ID) or a host (by name or ID).
 The command first tries to match TARGET as an agent, then as a host.
 
-If LOG_FILE is not specified, lists all available log files.
-If LOG_FILE is specified, prints its contents.
+If EVENT_FILE is not specified, streams all events from all sources in
+date-sorted order. Use --filter to restrict which events are included
+via a CEL expression. Use --follow to continuously stream new events.
 
-In follow mode (--follow), the command uses tail -f for real-time
-streaming when the host is online (locally or via SSH). When the host
-is offline, it falls back to polling the volume for new content.
+If EVENT_FILE is specified, prints its contents directly.
+
+In follow mode (--follow), the command polls for new events. When the host
+is online, it reads files directly. When offline, it falls back to polling
+the volume. The command handles online/offline transitions automatically.
 Press Ctrl+C to stop.
-
-When listing files, supports custom format templates via --format. Available fields: name, size.
 
 **Usage:**
 
 ```text
-mng logs [OPTIONS] TARGET [LOG_FILENAME]
+mng events [OPTIONS] TARGET [EVENT_FILENAME]
 ```
 ## Arguments
 
-- `TARGET`: Agent or host name/ID whose logs to view
-- `LOG_FILE`: Name of the log file to view (optional; lists files if omitted)
+- `TARGET`: Agent or host name/ID whose events to view
+- `EVENT_FILE`: Name of a specific event file to view (optional; streams all events if omitted)
 
 **Options:**
 
@@ -40,9 +41,15 @@ mng logs [OPTIONS] TARGET [LOG_FILENAME]
 
 | Name | Type | Description | Default |
 | ---- | ---- | ----------- | ------- |
-| `--follow`, `--no-follow` | boolean | Continue running and print new messages as they appear | `False` |
-| `--tail` | integer range | Print the last N lines of the log | None |
-| `--head` | integer range | Print the first N lines of the log | None |
+| `--follow`, `--no-follow` | boolean | Continue running and print new events as they appear | `False` |
+| `--tail` | integer range | Print the last N events (or lines when viewing a specific file) | None |
+| `--head` | integer range | Print the first N events (or lines when viewing a specific file) | None |
+
+## Filtering
+
+| Name | Type | Description | Default |
+| ---- | ---- | ----------- | ------- |
+| `--filter` | text | CEL expression to filter which events to include (e.g. 'source == "messages"') | None |
 
 ## Common
 
@@ -53,7 +60,7 @@ mng logs [OPTIONS] TARGET [LOG_FILENAME]
 | `--jsonl` | boolean | Alias for --format jsonl | `False` |
 | `-q`, `--quiet` | boolean | Suppress all console output | `False` |
 | `-v`, `--verbose` | integer range | Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE | `0` |
-| `--log-file` | path | Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json) | None |
+| `--log-file` | path | Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json) | None |
 | `--log-commands`, `--no-log-commands` | boolean | Log commands that were executed | None |
 | `--log-command-output`, `--no-log-command-output` | boolean | Log stdout/stderr from commands | None |
 | `--log-env-vars`, `--no-log-env-vars` | boolean | Log environment variables (security risk) | None |
@@ -69,32 +76,38 @@ mng logs [OPTIONS] TARGET [LOG_FILENAME]
 
 ## Examples
 
-**List available log files for an agent**
+**Stream all events for an agent**
 
 ```bash
-$ mng logs my-agent
+$ mng events my-agent
 ```
 
-**View a specific log file**
+**Stream only message events**
 
 ```bash
-$ mng logs my-agent output.log
+$ mng events my-agent --filter 'source == "messages"'
 ```
 
-**View the last 50 lines**
+**View last 100 events**
 
 ```bash
-$ mng logs my-agent output.log --tail 50
+$ mng events my-agent --tail 100
 ```
 
-**Follow a log file**
+**Follow all events in real-time**
 
 ```bash
-$ mng logs my-agent output.log --follow
+$ mng events my-agent --follow
 ```
 
-**List files with custom format template**
+**View a specific event file**
 
 ```bash
-$ mng logs my-agent --format '{name}\t{size}'
+$ mng events my-agent messages/events.jsonl
+```
+
+**Follow a specific event file**
+
+```bash
+$ mng events my-agent messages/events.jsonl --follow
 ```

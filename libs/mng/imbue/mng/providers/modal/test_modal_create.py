@@ -20,7 +20,7 @@ import pytest
 
 from imbue.mng import resources
 from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
-from imbue.mng.conftest import ModalSubprocessTestEnv
+from imbue.mng.utils.testing import ModalSubprocessTestEnv
 from imbue.mng.utils.testing import get_short_random_string
 
 

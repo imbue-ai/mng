@@ -54,7 +54,7 @@ def _make_agent_info(
 
 def _make_pr_info(
     number: int = 1,
-    head_branch: str = "mng/test-local",
+    head_branch: str = "mng/test",
     state: PrState = PrState.OPEN,
     is_draft: bool = False,
 ) -> PrInfo:
@@ -94,9 +94,9 @@ def test_build_pr_branch_index_empty() -> None:
 
 
 def test_build_pr_branch_index_single_pr() -> None:
-    pr = _make_pr_info(number=1, head_branch="mng/agent-local")
+    pr = _make_pr_info(number=1, head_branch="mng/agent")
     result = _build_pr_branch_index((pr,))
-    assert result == {"mng/agent-local": pr}
+    assert result == {"mng/agent": pr}
 
 
 def test_build_pr_branch_index_different_branches() -> None:
@@ -135,16 +135,16 @@ def test_build_pr_branch_index_merged_wins_over_closed() -> None:
 def test_resolve_agent_branch_local_with_git(tmp_path: Path) -> None:
     agent = _make_agent_info(name="my-agent", work_dir=tmp_path, provider_name="local")
     cg = MagicMock()
-    with patch("imbue.mng_kanpan.fetcher.get_current_git_branch", return_value="mng/my-agent-local"):
+    with patch("imbue.mng_kanpan.fetcher.get_current_git_branch", return_value="mng/my-agent"):
         branch = _resolve_agent_branch(agent, cg)
-    assert branch == "mng/my-agent-local"
+    assert branch == "mng/my-agent"
 
 
 def test_resolve_agent_branch_local_nonexistent_dir() -> None:
     agent = _make_agent_info(name="my-agent", work_dir=Path("/nonexistent/path"), provider_name="local")
     cg = MagicMock()
     branch = _resolve_agent_branch(agent, cg)
-    assert branch == "mng/my-agent-local"
+    assert branch == "mng/my-agent"
 
 
 def test_resolve_agent_branch_local_git_fails(tmp_path: Path) -> None:
@@ -152,14 +152,7 @@ def test_resolve_agent_branch_local_git_fails(tmp_path: Path) -> None:
     cg = MagicMock()
     with patch("imbue.mng_kanpan.fetcher.get_current_git_branch", return_value=None):
         branch = _resolve_agent_branch(agent, cg)
-    assert branch == "mng/my-agent-local"
-
-
-def test_resolve_agent_branch_remote() -> None:
-    agent = _make_agent_info(name="my-agent", work_dir=Path("/remote/path"), provider_name="modal")
-    cg = MagicMock()
-    branch = _resolve_agent_branch(agent, cg)
-    assert branch == "mng/my-agent-modal"
+    assert branch == "mng/my-agent"
 
 
 # === fetch_board_snapshot ===
@@ -191,7 +184,7 @@ def test_fetch_board_snapshot_integrates_agents_and_prs() -> None:
     agent1 = _make_agent_info(name="agent-1", state=AgentLifecycleState.RUNNING, provider_name="modal")
     agent2 = _make_agent_info(name="agent-2", state=AgentLifecycleState.DONE, provider_name="modal")
 
-    pr1 = _make_pr_info(number=42, head_branch="mng/agent-1-modal", state=PrState.OPEN)
+    pr1 = _make_pr_info(number=42, head_branch="mng/agent-1", state=PrState.OPEN)
     pr_result = FetchPrsResult(prs=(pr1,), error=None)
 
     mock_list_result = MagicMock()

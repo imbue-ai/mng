@@ -52,7 +52,7 @@ Only after doing all of the above should you begin writing code.
 - Before finishing your response, if you have made any changes, then you must ensure that you have run ALL tests in the project(s) you modified, and that they all pass. DO NOT just run a subset of the tests! However, while iterating (e.g. fixing a failing test, developing a feature), run only the relevant tests for rapid feedback -- save the full suite for the final check.
 - To run tests for a single project: "cd libs/mng && uv run pytest" or "cd apps/changelings && uv run pytest". Each project has its own pytest and coverage configuration in its pyproject.toml.
 - While you're iterating, you can pass "--no-cov --cov-fail-under=0" to disable coverge (slightly faster), but during your final check, you *MUST NOT* pass those flags (it will fail in CI anyway)
-- For faster iteration, add "-m 'not tmux and not modal and not docker and not acceptance and not release'" to skip slow infrastructure tests (~30s instead of ~95s). These still run in CI. Note that you *MUST" also pass "--no-cov --cov-fail-under=0" when doing this, otherwise it will complain about a lack of coverage.
+- For faster iteration, add "-m 'not tmux and not modal and not docker and not docker_sdk and not acceptance and not release'" to skip slow infrastructure tests (~30s instead of ~95s). These still run in CI. Note that you *MUST* also pass "--no-cov --cov-fail-under=0" when doing this, otherwise it will complain about a lack of coverage.
 - Running pytest will produce files in .test_output/ (relative to the directory you ran from) for things like slow tests and coverage reports.
 - Note that "uv run pytest" defaults to running all "unit" and "integration" tests, but the "acceptance" tests also run in CI. Do *not* run *all* the acceptance tests locally to validate changes--just allow CI to run them automatically after you finish responding (it's faster than running them locally).
 - If you need to run a specific acceptance or release test to write or fix it, iterate on that specific test locally by calling "just test <full_path>::<test_name>" from the root of the git checkout. Do this rather than re-running all tests in CI.
@@ -67,6 +67,18 @@ Only after doing all of the above should you begin writing code.
 - If you see a flaky test, YOU MUST HIGHLIGHT THIS IN YOUR RESPONSE. Flaky tests must be fixed as soon as possible. Ideally you should finish your task, then if you are allowed to commit, commit, and try to fix the flaky test in a separate commit.
 - Do not add TODO or FIXME unless explicitly asked to do so
 - To reiterate: code correctness and quality is the most important concern when writing code.
+
+## Test fixture discovery
+
+Before writing new tests, read the relevant `conftest.py` and `testing.py` files to avoid reimplementing things that already exist. Test infrastructure lives in these files:
+
+| File pattern | Purpose |
+|---|---|
+| `conftest.py` | Pytest fixtures and hooks, scoped to the directory they're in (auto-discovered by pytest) |
+| `testing.py` | Non-fixture test utilities: factory functions, helpers, context managers (explicitly imported) |
+| `mock_*_test.py` | Concrete mock implementations of interfaces (explicitly imported) |
+
+All fixtures must be in conftest.py, not in individual test files.
 
 # Manual verification and testing
 

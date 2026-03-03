@@ -1,0 +1,22 @@
+slowest 20 durations
+
+0.0557s libs/mngr/imbue/mngr/cli/migrate_test.py::test_migrate_rejects_nonexistent_source_agent
+0.0018s libs/mngr/imbue/mngr/cli/migrate_test.py::test_migrate_requires_source_agent
+0.0017s libs/mngr/imbue/mngr/cli/clone_test.py::test_clone_rejects_from_agent_equals_form
+0.0017s libs/mngr/imbue/mngr/cli/clone_test.py::test_clone_rejects_source_agent_option
+0.0008s libs/mngr/imbue/mngr/cli/clone_test.py::test_clone_rejects_from_agent_option
+0.0007s libs/mngr/imbue/mngr/cli/clone_test.py::test_clone_requires_source_agent
+0.0004s libs/mngr/imbue/mngr/cli/clone_test.py::test_reject_source_agent_options_rejects_from_agent_before_dd
+0.0003s libs/mngr/imbue/mngr/cli/migrate_test.py::test_user_specified_quiet_ignores_after_dd
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_user_specified_quiet_detects_short_flag
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::test_clone_command_exists
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::test_reject_source_agent_options_allows_from_agent_after_dd
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_migrate_command_exists
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_migrate_is_not_create
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_user_specified_no_connect_ignores_after_dd
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::test_build_create_args_preserve_name_skips_when_name_flag_given
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::test_build_create_args_preserve_name_skips_when_positional_given
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_user_specified_no_connect_detects_flag
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::testargs_before_dd_count_trailing_dd
+0.0002s libs/mngr/imbue/mngr/cli/clone_test.py::test_has_name_detects_name_equals_form
+0.0002s libs/mngr/imbue/mngr/cli/migrate_test.py::test_user_specified_quiet_false_when_absent

@@ -110,7 +110,7 @@ def add_common_options(command: TDecorated) -> TDecorated:
         "--log-file",
         type=click.Path(),
         default=None,
-        help="Path to log file (overrides default ~/.mng/logs/<timestamp>-<pid>.json)",
+        help="Path to log file (overrides default ~/.mng/events/logs/<timestamp>-<pid>.json)",
     )(command)
     command = optgroup.option(
         "-v", "--verbose", count=True, help="Increase verbosity (default: BUILD); -v for DEBUG, -vv for TRACE"
@@ -488,6 +488,21 @@ def apply_create_template(
                 updated_params[param_name] = template_value
 
     return updated_params
+
+
+def is_param_explicit(ctx: click.Context, param_name: str) -> bool:
+    """Check whether a CLI parameter was explicitly set on the command line."""
+    return ctx.get_parameter_source(param_name) == ParameterSource.COMMANDLINE
+
+
+def error_if_param_explicit(ctx: click.Context, param_name: str, error_message: str) -> None:
+    """Raise UserInputError if the user explicitly set this parameter on the command line.
+
+    Use this when another flag implies a specific value for this parameter, and the
+    user explicitly chose a conflicting value.
+    """
+    if is_param_explicit(ctx, param_name):
+        raise UserInputError(error_message)
 
 
 @pure
