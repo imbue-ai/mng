@@ -152,3 +152,93 @@ This is a larger change and could be done separately.
 7. (Optional, separate PR) Move default enrichment logic into the provider interface
 
 Steps 1-5 are safe, mechanical refactors that can be done incrementally (each as a separate commit) with no behavioral changes.
+
+## Appendix: Naming the data types
+
+The current type names (`HostReference`/`AgentReference` vs `HostInfo`/`AgentInfo`) don't clearly convey the lightweight-discovery-result vs full-detailed-data distinction. Here are the options considered:
+
+### Option 1: DiscoveredHost/DiscoveredAgent + HostDetails/AgentDetails (recommended)
+
+| Current | Discovery (lightweight) | Full |
+|---|---|---|
+| `HostReference` | `DiscoveredHost` | `HostDetails` |
+| `AgentReference` | `DiscoveredAgent` | `AgentDetails` |
+
+Pros:
+- Directly ties to the "discovery" operation. `discover_hosts_and_agents()` returns `DiscoveredHost`/`DiscoveredAgent` -- the naming tells you where the data came from.
+- Makes the distinction visceral: "discovered" immediately conveys "I found this thing but haven't deeply inspected it yet".
+- `Details` is clear and conventional for the enriched version.
+
+Cons:
+- Adjective-noun pattern is slightly unusual for data types in this codebase (most are Noun-Qualifier like `HostInfo`).
+
+The provider methods would then read:
+
+```python
+# Discovery
+def discover_hosts_and_agents(
+    cg, include_destroyed,
+) -> dict[DiscoveredHost, list[DiscoveredAgent]]: ...
+
+# Enrichment
+def get_host_and_agent_details(
+    host: DiscoveredHost, agents: Sequence[DiscoveredAgent],
+) -> tuple[HostDetails, list[AgentDetails]] | None: ...
+```
+
+### Option 2: HostSummary/AgentSummary + HostDetails/AgentDetails
+
+| Current | Discovery (lightweight) | Full |
+|---|---|---|
+| `HostReference` | `HostSummary` | `HostDetails` |
+| `AgentReference` | `AgentSummary` | `AgentDetails` |
+
+Pros:
+- Very clear what each is. "Summary" implies "I know the basics". "Details" implies "I know everything".
+- Follows the Noun-Qualifier pattern used elsewhere in the codebase.
+
+Cons:
+- "Summary" might imply a summarized/reduced version of the full data, when really it's a fundamentally different data source (certified/offline data vs live-queried data).
+
+### Option 3: HostRecord/AgentRecord + HostDetails/AgentDetails
+
+| Current | Discovery (lightweight) | Full |
+|---|---|---|
+| `HostReference` | `HostRecord` | `HostDetails` |
+| `AgentReference` | `AgentRecord` | `AgentDetails` |
+
+Pros:
+- "Record" conveys stored/persisted data. "Details" conveys live-queried data.
+
+Cons:
+- "Record" is already used by Modal's `HostRecord` (the volume-persisted data structure). Would need to rename that to `ModalHostRecord` or `PersistedHostData`.
+
+### Option 4: HostEntry/AgentEntry + HostDetails/AgentDetails
+
+| Current | Discovery (lightweight) | Full |
+|---|---|---|
+| `HostReference` | `HostEntry` | `HostDetails` |
+| `AgentReference` | `AgentEntry` | `AgentDetails` |
+
+Pros:
+- "Entry" is like "a row in a directory listing" -- you know it exists and its basic attributes.
+
+Cons:
+- "Entry" is generic and doesn't convey the discovery context.
+
+### Option 5: HostIdentity/AgentIdentity + HostDetails/AgentDetails
+
+| Current | Discovery (lightweight) | Full |
+|---|---|---|
+| `HostReference` | `HostIdentity` | `HostDetails` |
+| `AgentReference` | `AgentIdentity` | `AgentDetails` |
+
+Pros:
+- Very precise about what the lightweight version is -- it identifies the thing.
+
+Cons:
+- `AgentReference` contains more than just identity (it has certified_data with work_dir, command, labels, etc.), so "Identity" undersells it.
+
+### Recommendation
+
+Option 1 (`DiscoveredHost`/`DiscoveredAgent` + `HostDetails`/`AgentDetails`) best conveys the relationship between the discovery operation and its output. Option 2 (`HostSummary`/`AgentSummary`) is the runner-up if the adjective-noun pattern feels too unusual.
