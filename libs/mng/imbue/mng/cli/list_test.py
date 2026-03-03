@@ -8,6 +8,7 @@ from datetime import timezone
 from io import StringIO
 from typing import Any
 
+import click
 import pluggy
 import pytest
 from click.testing import CliRunner
@@ -29,6 +30,7 @@ from imbue.mng.cli.list import _parse_slice_spec
 from imbue.mng.cli.list import _render_format_template
 from imbue.mng.cli.list import _should_use_streaming_mode
 from imbue.mng.cli.list import _sort_agents
+from imbue.mng.cli.list import _validate_sort_field
 from imbue.mng.cli.list import list_command
 from imbue.mng.interfaces.data_types import AgentInfo
 from imbue.mng.interfaces.data_types import SnapshotInfo
@@ -562,6 +564,51 @@ def test_sort_agents_by_name_descending() -> None:
     ]
     result = _sort_agents(agents, "name", reverse=True)
     assert [str(a.name) for a in result] == ["charlie", "bravo", "alpha"]
+
+
+# =============================================================================
+# Tests for _validate_sort_field
+# =============================================================================
+
+
+def test_validate_sort_field_accepts_valid_top_level_field() -> None:
+    """_validate_sort_field should accept known AgentInfo fields."""
+    _validate_sort_field("name")
+    _validate_sort_field("state")
+    _validate_sort_field("create_time")
+
+
+def test_validate_sort_field_accepts_valid_host_field() -> None:
+    """_validate_sort_field should accept known HostInfo fields."""
+    _validate_sort_field("host.name")
+    _validate_sort_field("host.state")
+    _validate_sort_field("host.provider_name")
+
+
+def test_validate_sort_field_accepts_dict_subkeys() -> None:
+    """_validate_sort_field should accept arbitrary sub-keys on dict-typed fields."""
+    _validate_sort_field("labels.project")
+    _validate_sort_field("plugin.chat_history.messages")
+    _validate_sort_field("host.tags.env")
+    _validate_sort_field("host.plugin.aws.iam_user")
+
+
+def test_validate_sort_field_rejects_unknown_top_level_field() -> None:
+    """_validate_sort_field should raise for unknown top-level fields."""
+    with pytest.raises(click.BadParameter, match="Unknown sort field"):
+        _validate_sort_field("akldfsdkfjdklfj")
+
+
+def test_validate_sort_field_rejects_unknown_host_field() -> None:
+    """_validate_sort_field should raise for unknown host sub-fields."""
+    with pytest.raises(click.BadParameter, match="Unknown host sort field"):
+        _validate_sort_field("host.nonexistent_field")
+
+
+def test_validate_sort_field_accepts_deep_host_fields() -> None:
+    """_validate_sort_field should accept deeper nesting under known host fields."""
+    _validate_sort_field("host.resource.cpu.count")
+    _validate_sort_field("host.ssh.host")
 
 
 # =============================================================================
@@ -1562,6 +1609,44 @@ def test_list_command_template_format_with_sort_falls_back_to_batch(
     assert len(lines) == 2
     assert lines[0] == "aa-first"
     assert lines[1] == "zz-last"
+
+
+def test_list_command_rejects_invalid_sort_field(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list --sort with an invalid field name should error."""
+    agents = [make_test_agent_info(name="alpha")]
+    _patch_list_agents(monkeypatch, agents)
+
+    result = cli_runner.invoke(
+        list_command,
+        ["--sort", "akldfsdkfjdklfj"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Unknown sort field" in result.output
+
+
+def test_list_command_rejects_invalid_host_sort_field(
+    cli_runner: CliRunner,
+    plugin_manager: pluggy.PluginManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """list --sort host.nonexistent should error."""
+    agents = [make_test_agent_info(name="alpha")]
+    _patch_list_agents(monkeypatch, agents)
+
+    result = cli_runner.invoke(
+        list_command,
+        ["--sort", "host.nonexistent"],
+        obj=plugin_manager,
+    )
+
+    assert result.exit_code != 0
+    assert "Unknown host sort field" in result.output
 
 
 def test_list_command_human_streaming_with_agents(

@@ -34,6 +34,7 @@ from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import HostInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
@@ -311,6 +312,7 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
     # --sort FIELD: Sort by any available field [default: create_time]
     # --sort-order ORDER: Sort order (asc, desc) [default: asc]
     sort_field = opts.sort
+    _validate_sort_field(sort_field)
     sort_reverse = opts.sort_order.lower() == "desc"
 
     # --limit N: Limit number of results returned
@@ -925,6 +927,41 @@ def _format_value_as_string(value: Any) -> str:
         return value
     else:
         return str(value)
+
+
+# Fields on AgentInfo and HostInfo that are dict-typed (allow arbitrary sub-keys when sorting)
+_AGENT_DICT_FIELDS: Final[frozenset[str]] = frozenset({"labels", "plugin"})
+_HOST_DICT_FIELDS: Final[frozenset[str]] = frozenset({"tags", "plugin"})
+
+
+def _validate_sort_field(sort_field: str) -> None:
+    """Validate that the sort field refers to a known field on AgentInfo/HostInfo.
+
+    Raises click.BadParameter if the field is not recognized.
+    """
+    parts = sort_field.split(".")
+    top_level = parts[0].split("[")[0]
+
+    if top_level not in AgentInfo.model_fields:
+        raise click.BadParameter(
+            f"Unknown sort field: '{sort_field}'. "
+            f"Valid top-level fields: {', '.join(sorted(AgentInfo.model_fields.keys()))}",
+            param_hint="--sort",
+        )
+
+    # For single-segment fields or dict-typed agent fields, no further validation needed
+    if len(parts) == 1 or top_level in _AGENT_DICT_FIELDS:
+        return
+
+    # Validate second-level fields under 'host'
+    if top_level == "host" and len(parts) >= 2:
+        second_level = parts[1].split("[")[0]
+        if second_level not in HostInfo.model_fields:
+            raise click.BadParameter(
+                f"Unknown host sort field: '{sort_field}'. "
+                f"Valid host fields: {', '.join(sorted(HostInfo.model_fields.keys()))}",
+                param_hint="--sort",
+            )
 
 
 # Pattern to match a field part with optional bracket notation
