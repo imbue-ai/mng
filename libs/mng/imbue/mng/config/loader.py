@@ -39,6 +39,7 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import PluginName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.registry import get_config_class as get_provider_config_class
+from imbue.mng.utils.env_utils import parse_bool_env
 from imbue.mng.utils.file_utils import atomic_write
 
 # Environment variable prefix for command config overrides.
@@ -112,7 +113,7 @@ def load_config(
     # When MNG_ALLOW_UNKNOWN_CONFIG is set, unknown fields in config files produce
     # warnings instead of errors.  This is useful during development when a branch
     # adds a new config field but other branches don't know about it yet.
-    allow_unknown = os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG", "").lower() in ("1", "true", "yes")
+    allow_unknown = parse_bool_env(os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG", ""))
 
     # Load and merge config files in precedence order (user, project, local)
     for raw in (
