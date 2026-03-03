@@ -1464,7 +1464,7 @@ class Host(BaseHost, OnlineHostInterface):
             resolved = resolve_agent_type(agent_type, self.mng_ctx.config)
 
             state_dir = self.host_dir / "agents" / str(agent_id)
-            self._mkdirs([state_dir, state_dir / "logs"])
+            self._mkdirs([state_dir, state_dir / "events"])
 
             create_time = datetime.now(timezone.utc)
 
