@@ -12,12 +12,10 @@ import psutil
 import pytest
 import toml
 from click.testing import CliRunner
-from pydantic import Field
 from urwid.widget.listbox import SimpleFocusListWalker
 
 import imbue.mng.main
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.agents.agent_registry import load_agents_from_plugins
 from imbue.mng.agents.agent_registry import reset_agent_registry
 from imbue.mng.config.consts import PROFILES_DIRNAME
@@ -32,6 +30,7 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.backend import ModalProviderBackend
 from imbue.mng.providers.registry import load_local_backend_only
 from imbue.mng.providers.registry import reset_backend_registry
+from imbue.mng.utils.testing import ModalSubprocessTestEnv
 from imbue.mng.utils.testing import assert_home_is_temp_directory
 from imbue.mng.utils.testing import cleanup_tmux_session
 from imbue.mng.utils.testing import delete_modal_apps_in_environment
@@ -149,14 +148,11 @@ def tmp_home_dir(tmp_path: Path) -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def _isolate_tmux_server(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[None, None, None]:
+def _isolate_tmux_server(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """Give each test its own isolated tmux server.
 
-    Delegates to the shared isolate_tmux_server() context manager in
-    imbue.mng.utils.testing, which handles TMUX_TMPDIR creation,
-    TMUX env var isolation, and teardown (kill-server + tmpdir cleanup).
+    Delegates to the shared isolate_tmux_server() context manager in testing.py.
+    See its docstring for details on the isolation strategy and why /tmp is used.
     """
     with isolate_tmux_server(monkeypatch):
         yield
@@ -624,14 +620,6 @@ def register_modal_test_environment(environment_name: str) -> None:
 # =============================================================================
 # Modal subprocess test environment fixture (session-scoped)
 # =============================================================================
-
-
-class ModalSubprocessTestEnv(FrozenModel):
-    """Environment configuration for Modal subprocess tests."""
-
-    env: dict[str, str] = Field(description="Environment variables for the subprocess")
-    prefix: str = Field(description="The mng prefix for test isolation")
-    host_dir: Path = Field(description="Path to the temporary host directory")
 
 
 @pytest.fixture(scope="session")
