@@ -1,5 +1,3 @@
-import sys
-
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.api.list import list_agents
@@ -149,8 +147,8 @@ def find_agent_for_command(
             skip_agent_state_check=skip_agent_state_check,
         )
 
-    if not sys.stdin.isatty():
-        raise UserInputError("No agent specified and not running in interactive mode")
+    if not mng_ctx.is_interactive:
+        raise UserInputError("No agent specified and not running in interactive mode (use --headless to suppress)")
 
     result = select_agent_interactively_with_host(
         mng_ctx,

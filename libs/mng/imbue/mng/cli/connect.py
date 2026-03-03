@@ -1,4 +1,3 @@
-import sys
 import time
 from typing import Any
 
@@ -429,7 +428,7 @@ def connect(ctx: click.Context, **kwargs: Any) -> None:
             "connect",
             is_start_desired=opts.start,
         )
-    elif not sys.stdin.isatty():
+    elif not mng_ctx.is_interactive:
         # Default to most recently created agent when running non-interactively
         list_result = list_agents(mng_ctx, is_streaming=False)
         if not list_result.agents:
