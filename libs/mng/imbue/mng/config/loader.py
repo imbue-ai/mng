@@ -112,7 +112,7 @@ def load_config(
     # When MNG_ALLOW_UNKNOWN_CONFIG is set, unknown fields in config files produce
     # warnings instead of errors.  This is useful during development when a branch
     # adds a new config field but other branches don't know about it yet.
-    allow_unknown = bool(os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG"))
+    allow_unknown = os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG", "").lower() in ("1", "true", "yes")
 
     # Load and merge config files in precedence order (user, project, local)
     for raw in (
