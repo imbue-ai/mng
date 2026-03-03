@@ -192,14 +192,15 @@ def connect_to_agent(
     session_name = f"{mng_ctx.config.prefix}{agent.name}"
 
     if host.is_local:
-        is_isolated = mng_ctx.config.is_tmux_isolated_for_local_agents and not os.environ.get("TMUX_TMPDIR")
-        env = os.environ
+        socket_name = mng_ctx.config.tmux_server_socket_name
+        is_different_server = socket_name != "default"
 
+        # Detect nested tmux: if $TMUX is set, we're inside a tmux session
+        env = os.environ
         if os.environ.get("TMUX"):
-            if is_isolated:
-                # Isolated agents use a different tmux server, so this is not
-                # really nesting.  Clear TMUX so tmux doesn't try to talk to
-                # the current server.
+            if is_different_server:
+                # Connecting to a different tmux server -- not really nesting.
+                # Clear TMUX so tmux doesn't refuse the attachment.
                 env = dict(os.environ)
                 del env["TMUX"]
             elif not mng_ctx.config.is_nested_tmux_allowed:
@@ -209,12 +210,7 @@ def connect_to_agent(
                 env = dict(os.environ)
                 del env["TMUX"]
 
-        if is_isolated:
-            if env is os.environ:
-                env = dict(os.environ)
-            env["TMUX_TMPDIR"] = str(mng_ctx.config.tmux_tmpdir)
-
-        os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
+        os.execvpe("tmux", ["tmux", "-L", socket_name, "attach", "-t", session_name], env)
     else:
         ssh_args = _build_ssh_args(host, connection_opts)
 

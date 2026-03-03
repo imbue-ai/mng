@@ -23,7 +23,6 @@ from imbue.mng.hosts.host import _build_start_agent_shell_command
 from imbue.mng.hosts.host import _is_socket_closed_os_error
 from imbue.mng.hosts.host import _parse_boot_time_output
 from imbue.mng.hosts.host import _parse_uptime_output
-from imbue.mng.hosts.host import _prefix_tmux_cmd
 from imbue.mng.interfaces.data_types import PyinfraConnector
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import NamedCommand
@@ -727,30 +726,17 @@ def test_build_start_agent_shell_command_no_onboarding_hook_by_default(
 
 
 # =========================================================================
-# Tests for tmux isolation
+# Tests for tmux socket isolation (-L flag)
 # =========================================================================
 
 
-def test_prefix_tmux_cmd_with_tmpdir() -> None:
-    """_prefix_tmux_cmd should prepend TMUX_TMPDIR= when a tmpdir is given."""
-    result = _prefix_tmux_cmd("tmux list-sessions", Path("/home/user/.mng/tmux"))
-    assert result == "TMUX_TMPDIR=/home/user/.mng/tmux TMUX= tmux list-sessions"
-
-
-def test_prefix_tmux_cmd_without_tmpdir() -> None:
-    """_prefix_tmux_cmd should return the command unchanged when tmpdir is None."""
-    result = _prefix_tmux_cmd("tmux list-sessions", None)
-    assert result == "tmux list-sessions"
-
-
-def test_build_start_agent_shell_command_with_tmux_tmpdir(
+def test_build_start_agent_shell_command_with_socket_flag(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """When tmux_tmpdir is provided, the command should start with export TMUX_TMPDIR."""
+    """When tmux_socket_flag is provided, all tmux commands should include it."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
-    tmux_tmpdir = Path("/home/user/.mng/tmux")
     result = _build_start_agent_shell_command(
         agent=agent,
         session_name=f"mng-{agent.name}",
@@ -760,28 +746,28 @@ def test_build_start_agent_shell_command_with_tmux_tmpdir(
         tmux_config_path=Path("/tmp/tmux.conf"),
         unset_vars=[],
         host_dir=temp_host_dir,
-        tmux_tmpdir=tmux_tmpdir,
+        base_tmux_command="tmux -L mng",
     )
 
-    # The command should start with export TMUX_TMPDIR=... and unset TMUX
-    assert result.startswith("export TMUX_TMPDIR=")
-    assert "/home/user/.mng/tmux" in result
-    assert "unset TMUX" in result
-    # The rest of the command should still be present
-    assert "tmux" in result
+    # The guard should use -L
+    assert "tmux -L mng has-session" in result
+    # The new-session should use -L
+    assert "tmux -L mng -f" in result
     assert "new-session" in result
+    # send-keys should use -L
+    assert "tmux -L mng send-keys" in result
 
 
-def test_build_start_agent_shell_command_without_tmux_tmpdir(
+def test_build_start_agent_shell_command_without_socket_flag(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
     temp_work_dir: Path,
 ) -> None:
-    """When tmux_tmpdir is None, the command should not contain TMUX_TMPDIR."""
+    """When tmux_socket_flag is empty, no -L should appear."""
     agent = _create_test_agent(local_provider, temp_host_dir, temp_work_dir)
     result = _build_command_with_defaults(agent, temp_host_dir)
 
-    assert "TMUX_TMPDIR" not in result
+    assert "-L " not in result
 
 
 # =========================================================================

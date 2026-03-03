@@ -320,7 +320,14 @@ def temp_config(temp_host_dir: Path, mng_test_prefix: str) -> MngConfig:
 
     Use this fixture when calling API functions that need a config.
     """
-    return MngConfig(default_host_dir=temp_host_dir, prefix=mng_test_prefix, is_error_reporting_enabled=False)
+    return MngConfig(
+        default_host_dir=temp_host_dir,
+        prefix=mng_test_prefix,
+        is_error_reporting_enabled=False,
+        # Tests use the default tmux socket so sessions are visible to the test's
+        # TMUX_TMPDIR-isolated server (set by _isolate_tmux_server fixture).
+        tmux_server_socket_name="default",
+    )
 
 
 def make_mng_ctx(
