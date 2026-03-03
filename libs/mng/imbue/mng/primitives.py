@@ -376,6 +376,14 @@ class AgentReference(FrozenModel):
         return tuple(Permission(p) for p in permissions_value)
 
     @property
+    def created_branch_name(self) -> str | None:
+        """Return the git branch name that was created for this agent, or None if not available."""
+        value = self.certified_data.get("created_branch_name")
+        if value is not None:
+            return str(value)
+        return None
+
+    @property
     def labels(self) -> dict[str, str]:
         """Return the labels attached to this agent."""
         return dict(self.certified_data.get("labels", {}))

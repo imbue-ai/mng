@@ -45,6 +45,7 @@ def _make_agent_info(
         type="claude",
         command=CommandString("claude"),
         work_dir=work_dir,
+        branch=f"mng/{name}",
         create_time=datetime.now(tz=timezone.utc),
         start_on_boot=False,
         state=state,

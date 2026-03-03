@@ -33,6 +33,7 @@ def _make_test_agent_info(name: str = "test-agent") -> AgentInfo:
         type="generic",
         command=CommandString("sleep 100"),
         work_dir=Path("/tmp/test"),
+        branch=f"mng/{name}",
         create_time=datetime.now(timezone.utc),
         start_on_boot=False,
         state=AgentLifecycleState.RUNNING,

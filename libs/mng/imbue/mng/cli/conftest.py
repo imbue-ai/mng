@@ -68,6 +68,7 @@ def make_test_agent_info(
         type="generic",
         command=CommandString("sleep 100"),
         work_dir=Path("/tmp/test"),
+        branch=f"mng/{name}",
         create_time=create_time or datetime.now(timezone.utc),
         start_on_boot=False,
         state=state,
