@@ -109,6 +109,11 @@ def load_config(
         commands={"create": CommandDefaults(defaults={"pass_host_env": ["EDITOR"]})},
     )
 
+    # When MNG_ALLOW_UNKNOWN_CONFIG is set, unknown fields in config files produce
+    # warnings instead of errors.  This is useful during development when a branch
+    # adds a new config field but other branches don't know about it yet.
+    allow_unknown = bool(os.environ.get("MNG_ALLOW_UNKNOWN_CONFIG"))
+
     # Load and merge config files in precedence order (user, project, local)
     for raw in (
         try_load_toml(get_user_config_path(profile_dir)),
@@ -116,7 +121,9 @@ def load_config(
         load_local_config(context_dir, root_name, concurrency_group),
     ):
         if raw is not None:
-            config = config.merge_with(parse_config(raw, disabled_plugins=config_disabled_plugins))
+            config = config.merge_with(
+                parse_config(raw, disabled_plugins=config_disabled_plugins, strict=not allow_unknown)
+            )
 
     # Apply environment variable overrides
     prefix = os.environ.get("MNG_PREFIX")
@@ -253,7 +260,7 @@ def _check_unknown_fields(
     model_class: type[BaseModel],
     context: str,
     *,
-    strict: bool = False,
+    strict: bool = True,
 ) -> None:
     """Check for unknown fields in raw_config and either raise or warn.
 
@@ -277,7 +284,7 @@ def _parse_providers(
     raw_providers: dict[str, dict[str, Any]],
     disabled_plugins: frozenset[str],
     *,
-    strict: bool = False,
+    strict: bool = True,
 ) -> dict[ProviderInstanceName, ProviderInstanceConfig]:
     """Parse provider configs using the registry.
 
@@ -325,7 +332,7 @@ def _normalize_cli_args_for_construct(raw_config: dict[str, Any]) -> dict[str, A
 def _parse_agent_types(
     raw_types: dict[str, dict[str, Any]],
     *,
-    strict: bool = False,
+    strict: bool = True,
 ) -> dict[AgentTypeName, AgentTypeConfig]:
     """Parse agent type configs using the registry.
 
@@ -345,7 +352,7 @@ def _parse_agent_types(
 def _parse_plugins(
     raw_plugins: dict[str, dict[str, Any]],
     *,
-    strict: bool = False,
+    strict: bool = True,
 ) -> dict[PluginName, PluginConfig]:
     """Parse plugin configs using the registry.
 
@@ -421,7 +428,7 @@ def block_disabled_plugins(pm: pluggy.PluginManager, disabled_names: frozenset[s
             pm.set_blocked(name)
 
 
-def _parse_logging_config(raw_logging: dict[str, Any], *, strict: bool = False) -> LoggingConfig:
+def _parse_logging_config(raw_logging: dict[str, Any], *, strict: bool = True) -> LoggingConfig:
     """Parse logging config.
 
     Uses model_construct to bypass validation and explicitly set None for unset fields.
@@ -480,14 +487,15 @@ def parse_config(
     raw: dict[str, Any],
     disabled_plugins: frozenset[str],
     *,
-    strict: bool = False,
+    strict: bool = True,
 ) -> MngConfig:
     """Parse a raw config dict into MngConfig.
 
     Uses model_construct to bypass defaults and explicitly set None for unset fields.
 
-    When strict=True, raises ConfigParseError for unknown fields (used by config set).
-    When strict=False (default), logs a warning and ignores unknown fields.
+    When strict=True (default), raises ConfigParseError for unknown fields.
+    When strict=False, logs a warning and ignores unknown fields (used when
+    MNG_ALLOW_UNKNOWN_CONFIG is set to allow forward-compatible config files).
     """
     # Build kwargs with None for unset scalar fields
     kwargs: dict[str, Any] = {}
