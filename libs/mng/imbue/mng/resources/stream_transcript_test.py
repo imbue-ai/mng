@@ -21,6 +21,8 @@ from uuid import uuid4
 
 import pytest
 
+from imbue.mng.utils.testing import get_short_random_string
+
 # -- Helpers --
 
 
@@ -91,7 +93,7 @@ class ScriptRunner:
 
     def add_session(self, session_id: str, lines: list[str]) -> Path:
         """Create a session JSONL file and add the session to the history."""
-        project_hash = uuid4().hex[:8]
+        project_hash = get_short_random_string()
         session_dir = self.claude_projects_dir / project_hash
         session_dir.mkdir(parents=True, exist_ok=True)
         session_file = session_dir / f"{session_id}.jsonl"
