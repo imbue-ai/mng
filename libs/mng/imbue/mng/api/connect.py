@@ -192,10 +192,11 @@ def connect_to_agent(
     session_name = f"{mng_ctx.config.prefix}{agent.name}"
 
     if host.is_local:
+        is_isolated = mng_ctx.config.is_tmux_isolated_for_local_agents and not os.environ.get("TMUX_TMPDIR")
         env = os.environ
 
         if os.environ.get("TMUX"):
-            if agent.is_tmux_isolated:
+            if is_isolated:
                 # Isolated agents use a different tmux server, so this is not
                 # really nesting.  Clear TMUX so tmux doesn't try to talk to
                 # the current server.
@@ -208,12 +209,10 @@ def connect_to_agent(
                 env = dict(os.environ)
                 del env["TMUX"]
 
-        # Set TMUX_TMPDIR if the agent uses isolated tmux
-        if agent.is_tmux_isolated:
-            tmux_tmpdir = mng_ctx.config.tmux_tmpdir
+        if is_isolated:
             if env is os.environ:
                 env = dict(os.environ)
-            env["TMUX_TMPDIR"] = str(tmux_tmpdir)
+            env["TMUX_TMPDIR"] = str(mng_ctx.config.tmux_tmpdir)
 
         os.execvpe("tmux", ["tmux", "attach", "-t", session_name], env)
     else:

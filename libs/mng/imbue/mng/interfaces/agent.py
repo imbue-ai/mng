@@ -42,12 +42,6 @@ class AgentInterface(MutableModel, ABC):
     host_id: HostId = Field(description="ID of the host this agent runs on")
     mng_ctx: MngContext = Field(frozen=True, repr=False, description="Mng context")
     agent_config: AgentTypeConfig = Field(frozen=True, repr=False, description="Agent type config")
-    is_tmux_isolated: bool = Field(
-        frozen=True,
-        default=False,
-        description="Whether this agent uses an isolated tmux server (via TMUX_TMPDIR). "
-        "False for pre-migration agents or non-local agents.",
-    )
 
     @abstractmethod
     def get_host(self) -> OnlineHostInterface:

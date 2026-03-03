@@ -1,4 +1,5 @@
 import json
+import os
 import shlex
 import time
 from datetime import datetime
@@ -84,7 +85,11 @@ class BaseAgent(AgentInterface):
         Sets TMUX_TMPDIR to the isolated server path and clears TMUX so that
         tmux doesn't ignore TMUX_TMPDIR in favor of the current session's server.
         """
-        if self.is_tmux_isolated:
+        if (
+            self.host.is_local
+            and self.mng_ctx.config.is_tmux_isolated_for_local_agents
+            and not os.environ.get("TMUX_TMPDIR")
+        ):
             return f"TMUX_TMPDIR={shlex.quote(str(self.mng_ctx.config.tmux_tmpdir))} TMUX= "
         return ""
 

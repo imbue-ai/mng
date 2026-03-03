@@ -918,7 +918,6 @@ class Host(BaseHost, OnlineHostInterface):
             host=self,
             mng_ctx=self.mng_ctx,
             agent_config=resolved.agent_config,
-            is_tmux_isolated=bool(data.get("is_tmux_isolated")),
         )
 
     def create_agent_work_dir(
@@ -1439,14 +1438,6 @@ class Host(BaseHost, OnlineHostInterface):
             self._mkdirs([state_dir, state_dir / "logs"])
 
             create_time = datetime.now(timezone.utc)
-            # Isolate tmux when the host is local, the config enables it, AND
-            # TMUX_TMPDIR is not already set (an existing TMUX_TMPDIR means the
-            # caller -- or the test harness -- has already arranged isolation).
-            is_tmux_isolated = (
-                self.is_local
-                and self.mng_ctx.config.is_tmux_isolated_for_local_agents
-                and not os.environ.get("TMUX_TMPDIR")
-            )
 
             agent = cast(type[BaseAgent], resolved.agent_class)(
                 id=agent_id,
@@ -1458,7 +1449,6 @@ class Host(BaseHost, OnlineHostInterface):
                 host=self,
                 mng_ctx=self.mng_ctx,
                 agent_config=resolved.agent_config,
-                is_tmux_isolated=is_tmux_isolated,
             )
 
             command = agent.assemble_command(
@@ -1486,7 +1476,6 @@ class Host(BaseHost, OnlineHostInterface):
                 "start_on_boot": False,
                 "labels": dict(options.label_options.labels),
                 "created_branch_name": created_branch_name,
-                "is_tmux_isolated": is_tmux_isolated,
             }
 
             data_path = state_dir / "data.json"
@@ -1765,7 +1754,7 @@ class Host(BaseHost, OnlineHostInterface):
             # Rename the tmux session first (idempotent -- no-ops if session doesn't exist with old name)
             old_session_name = f"{self.mng_ctx.config.prefix}{old_name}"
             new_session_name = f"{self.mng_ctx.config.prefix}{new_name}"
-            tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
+            tmux_tmpdir = self._get_isolated_tmux_tmpdir()
             rename_cmd = _prefix_tmux_cmd(
                 f"tmux has-session -t {shlex.quote(old_session_name)} 2>/dev/null && "
                 f"tmux rename-session -t {shlex.quote(old_session_name)} {shlex.quote(new_session_name)} || true",
@@ -1822,9 +1811,19 @@ class Host(BaseHost, OnlineHostInterface):
             tmux_tmpdir.chmod(0o700)
         return tmux_tmpdir
 
-    def _get_agent_tmux_tmpdir(self, agent: AgentInterface) -> Path | None:
-        """Get the TMUX_TMPDIR for an agent, or None if it uses the global tmux server."""
-        if agent.is_tmux_isolated:
+    def _get_isolated_tmux_tmpdir(self) -> Path | None:
+        """Return the TMUX_TMPDIR for isolated local agents, or None for global tmux.
+
+        Returns None when:
+        - This is not a local host
+        - The config has is_tmux_isolated_for_local_agents=False
+        - TMUX_TMPDIR is already set (the caller already arranged isolation)
+        """
+        if (
+            self.is_local
+            and self.mng_ctx.config.is_tmux_isolated_for_local_agents
+            and not os.environ.get("TMUX_TMPDIR")
+        ):
             return self.mng_ctx.config.tmux_tmpdir
         return None
 
@@ -1971,7 +1970,7 @@ class Host(BaseHost, OnlineHostInterface):
                         onboarding_text = ONBOARDING_TEXT
 
                 session_name = f"{self.mng_ctx.config.prefix}{agent.name}"
-                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
+                tmux_tmpdir = self._get_isolated_tmux_tmpdir()
                 if tmux_tmpdir is not None:
                     self._ensure_tmux_tmpdir()
                 with log_span("Starting agent {} in tmux session {}", agent.name, session_name):
@@ -2046,7 +2045,7 @@ class Host(BaseHost, OnlineHostInterface):
                 if agent is None:
                     continue
 
-                tmux_tmpdir = self._get_agent_tmux_tmpdir(agent)
+                tmux_tmpdir = self._get_isolated_tmux_tmpdir()
                 current_agents.append((agent, tmux_tmpdir))
                 session_name = f"{self.mng_ctx.config.prefix}{agent.name}"
                 all_pids.extend(self._collect_session_pids(session_name, tmux_tmpdir))

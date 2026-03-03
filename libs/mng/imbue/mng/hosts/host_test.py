@@ -14,7 +14,6 @@ from pyinfra.api.host import Host as PyinfraHost
 
 from imbue.mng.agents.base_agent import BaseAgent
 from imbue.mng.config.data_types import AgentTypeConfig
-from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.hosts.host import Host
@@ -738,32 +737,6 @@ def test_build_start_agent_shell_command_without_tmux_tmpdir(
     result = _build_command_with_defaults(agent, temp_host_dir)
 
     assert "TMUX_TMPDIR" not in result
-
-
-def test_create_agent_state_stores_is_tmux_isolated(
-    temp_host_dir: Path,
-    temp_work_dir: Path,
-    temp_mng_ctx: MngContext,
-    local_provider: LocalProviderInstance,
-) -> None:
-    """create_agent_state should store is_tmux_isolated in data.json."""
-    host = local_provider.create_host(HostName("localhost"))
-    assert isinstance(host, Host)
-
-    agent = host.create_agent_state(
-        temp_work_dir,
-        CreateAgentOptions(
-            name=AgentName("test-isolated"),
-            agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 1000"),
-        ),
-    )
-
-    data_path = temp_host_dir / "agents" / str(agent.id) / "data.json"
-    data = json.loads(data_path.read_text())
-    # In tests, the default is False (due to PYTEST_CURRENT_TEST detection)
-    assert "is_tmux_isolated" in data
-    assert data["is_tmux_isolated"] is False
 
 
 # =========================================================================
