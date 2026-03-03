@@ -6,6 +6,7 @@ import random
 import shlex
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import datetime
 from datetime import timezone
@@ -52,6 +53,7 @@ from imbue.mng.interfaces.data_types import RelativePath
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
+from imbue.mng.plugins.hookspecs import OptionStackItem
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.providers.ssh_host_setup import load_resource_script
@@ -1004,12 +1006,12 @@ class ClaudeAgent(BaseAgent):
         overwrites the session ID (since _transfer_claude_session writes the
         most recent session, which may differ from the one being adopted).
         """
-        adopt_session_id = options.plugin_data.get("adopt_session_id")
-        if adopt_session_id is None:
+        adopt_session = options.plugin_data.get("adopt_session")
+        if adopt_session is None:
             return
 
         if options.source_work_dir is None:
-            raise PluginMngError("source_work_dir is required when adopt_session_id is set")
+            raise PluginMngError("source_work_dir is required when adopt_session is set")
 
         source_project_dir = _get_claude_project_dir(options.source_work_dir)
         if not source_project_dir.exists():
@@ -1018,7 +1020,7 @@ class ClaudeAgent(BaseAgent):
             )
 
         # Auto-detect session if empty string
-        session_id = adopt_session_id
+        session_id = adopt_session
         if session_id == "":
             session_id = _find_most_recent_session(source_project_dir)
             logger.info("Auto-detected session: {}", session_id)
@@ -1214,16 +1216,35 @@ def register_agent_type() -> tuple[str, type[AgentInterface] | None, type[AgentT
 
 
 @hookimpl
+def register_cli_options(command_name: str) -> Mapping[str, list[OptionStackItem]] | None:
+    """Register the --adopt-session CLI option for the create command."""
+    if command_name == "create":
+        return {
+            "Behavior": [
+                OptionStackItem(
+                    param_decls=("--adopt-session",),
+                    is_flag=False,
+                    flag_value="",
+                    default=None,
+                    help="Adopt an existing Claude Code session into this agent. "
+                    "Optionally specify a session ID; otherwise auto-detects the most recent session.",
+                ),
+            ]
+        }
+    return None
+
+
+@hookimpl
 def on_before_create(args: OnBeforeCreateArgs) -> OnBeforeCreateArgs | None:
     """Validate and enrich create args when --adopt-session is used.
 
-    When plugin_data contains "adopt_session_id":
+    When plugin_data contains "adopt_session":
     - Validates the agent type is claude (or unset/default)
     - Sets source_work_dir = Path.cwd() if not already set (clone/migrate sets
       it separately; standalone adopt uses the current directory)
     """
-    adopt_session_id = args.agent_options.plugin_data.get("adopt_session_id")
-    if adopt_session_id is None:
+    adopt_session = args.agent_options.plugin_data.get("adopt_session")
+    if adopt_session is None:
         return None
 
     # Validate agent type is claude or unset (defaults to claude)

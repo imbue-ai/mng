@@ -778,7 +778,7 @@ class CreateAgentOptions(FrozenModel):
     plugin_data: dict[str, Any] = Field(
         default_factory=dict,
         description="Opaque dict for plugins to pass data through the creation pipeline. "
-        "Keys are namespaced by plugin (e.g. 'adopt_session_id' for ClaudeAgent).",
+        "Keys are namespaced by plugin (e.g. 'adopt_session' for ClaudeAgent).",
     )
     source_work_dir: Path | None = Field(
         default=None,

@@ -234,7 +234,6 @@ class CreateCliOptions(CommonCliOptions):
     append_to_file: tuple[str, ...]
     prepend_to_file: tuple[str, ...]
     create_directory: tuple[str, ...]
-    adopt_session: str | None
     ready_timeout: float
     yes: bool
 
@@ -338,14 +337,6 @@ class CreateCliOptions(CommonCliOptions):
     default=True,
     show_default=True,
     help="Automatically start offline hosts (source and target) before proceeding",
-)
-@optgroup.option(
-    "--adopt-session",
-    is_flag=False,
-    flag_value="",
-    default=None,
-    help="Adopt an existing Claude Code session into this agent. "
-    "Optionally specify a session ID; otherwise auto-detects the most recent session.",
 )
 @optgroup.group("Agent Source Data (what to include in the new agent)")
 @optgroup.option(
@@ -557,7 +548,12 @@ def create(ctx: click.Context, **kwargs) -> None:
             to_update(mng_ctx.field_ref().is_auto_approve, True),
         )
 
-    result = _handle_create(mng_ctx, output_opts, opts, logging_config)
+    # Collect plugin-registered CLI params so they can be merged into plugin_data
+    plugin_cli_params: dict[str, Any] = {
+        k: v for k, v in ctx.meta.get("plugin_cli_params", {}).items() if v is not None
+    }
+
+    result = _handle_create(mng_ctx, output_opts, opts, logging_config, plugin_cli_params)
     if result is None:
         return
     create_result, connection_opts, output_opts, opts, mng_ctx = result
@@ -569,6 +565,7 @@ def _handle_create(
     output_opts: OutputOptions,
     opts: CreateCliOptions,
     logging_config: LoggingConfig,
+    plugin_cli_params: dict[str, Any] | None = None,
 ) -> tuple[CreateAgentResult, ConnectionOptions, OutputOptions, CreateCliOptions, MngContext] | None:
     # Validate that both --message and --message-file are not provided
     if opts.message is not None and opts.message_file is not None:
@@ -670,6 +667,13 @@ def _handle_create(
         source_location=source_location,
         mng_ctx=mng_ctx,
     )
+
+    # Merge plugin-registered CLI params into plugin_data so plugin hooks can access them
+    if plugin_cli_params:
+        merged = {**agent_opts.plugin_data, **plugin_cli_params}
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().plugin_data, merged),
+        )
 
     # parse the connection options
     connection_opts = ConnectionOptions(
@@ -1403,19 +1407,11 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
-    # (--adopt-session agent-type validation is handled by the ClaudeAgent
-    # plugin's on_before_create hook, not here in core infrastructure.)
-
     # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
     # This is set when cloning from an existing agent (--source-agent).
     # For --adopt-session, the plugin's on_before_create hook sets source_work_dir.
     is_session_transfer = opts.source_agent is not None
     parsed_source_work_dir = source_location.path if is_session_transfer else None
-
-    # Put adopt_session into plugin_data so the ClaudeAgent plugin can access it
-    plugin_data: dict[str, Any] = {}
-    if opts.adopt_session is not None:
-        plugin_data["adopt_session_id"] = opts.adopt_session
 
     agent_opts = CreateAgentOptions(
         agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
@@ -1437,7 +1433,6 @@ def _parse_agent_opts(
         permissions=permissions,
         label_options=label_options,
         provisioning=provisioning,
-        plugin_data=plugin_data,
         source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
