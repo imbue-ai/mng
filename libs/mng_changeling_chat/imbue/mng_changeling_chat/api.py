@@ -1,9 +1,12 @@
+import json
 import os
 import shlex
 from pathlib import Path
 
 from loguru import logger
+from pydantic import Field
 
+from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.connect import build_ssh_base_args
 from imbue.mng.config.data_types import MngContext
@@ -18,6 +21,15 @@ class ChatCommandError(MngError):
     """Raised when the chat command fails."""
 
     ...
+
+
+class ConversationInfo(FrozenModel):
+    """Information about a conversation."""
+
+    conversation_id: str = Field(description="Unique conversation identifier")
+    model: str = Field(description="Model used for this conversation")
+    created_at: str = Field(description="When the conversation was created")
+    updated_at: str = Field(description="When the conversation was last updated")
 
 
 @pure
@@ -43,40 +55,84 @@ def _build_chat_script_path(host_dir: Path) -> str:
 
 
 @pure
-def build_chat_command_args(
-    chat_mode: str,
-    conversation_id: str | None,
-) -> list[str]:
-    """Build the arguments to pass to chat.sh based on the mode.
+def _build_conversation_event_paths(
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+) -> tuple[Path, Path]:
+    """Build paths to conversation and message event files for an agent."""
+    agent_state_dir = host.host_dir / "agents" / str(agent.id)
+    conversations_path = agent_state_dir / "events" / "conversations" / "events.jsonl"
+    messages_path = agent_state_dir / "events" / "messages" / "events.jsonl"
+    return conversations_path, messages_path
 
-    Modes:
-    - "new": start a new conversation
-    - "last": resume the most recently updated conversation
-    - "list": list all conversations
-    - "resume": resume a specific conversation by ID
-    """
-    match chat_mode:
-        case "new":
-            return ["--new"]
-        case "last":
-            # We handle "last" by listing conversations and picking the first one
-            # (they are sorted by updated_at descending by chat.sh --list)
-            # This is handled in the CLI layer before calling into this module,
-            # so this case should not be reached directly.
-            raise ChatCommandError("'last' mode should be resolved before calling build_chat_command_args")
-        case "list":
-            return ["--list"]
-        case "resume":
-            if conversation_id is None:
-                raise ChatCommandError("conversation_id is required for resume mode")
-            return ["--resume", conversation_id]
-        case _:
-            raise ChatCommandError(f"Unknown chat mode: {chat_mode}")
+
+# Remote Python script that reads conversation and message event files and outputs
+# a JSON array of conversation info objects sorted by updated_at descending.
+# Parameterized by {conv_file} and {msg_file} paths.
+_LIST_CONVERSATIONS_SCRIPT_TEMPLATE: str = """
+import json, sys
+from pathlib import Path
+
+conv_file = Path('{conv_file}')
+msg_file = Path('{msg_file}')
+
+if not conv_file.exists():
+    print('[]')
+    sys.exit(0)
+
+convs = {{}}
+for line in conv_file.read_text().splitlines():
+    line = line.strip()
+    if not line:
+        continue
+    try:
+        event = json.loads(line)
+        cid = event['conversation_id']
+        convs[cid] = event
+    except (json.JSONDecodeError, KeyError):
+        continue
+
+if not convs:
+    print('[]')
+    sys.exit(0)
+
+updated_at = {{}}
+for cid, event in convs.items():
+    updated_at[cid] = event.get('timestamp', '')
+
+if msg_file.exists():
+    for line in msg_file.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+            cid = msg.get('conversation_id', '')
+            ts = msg.get('timestamp', '')
+            if cid in convs and ts:
+                if cid not in updated_at or ts > updated_at[cid]:
+                    updated_at[cid] = ts
+        except (json.JSONDecodeError, KeyError):
+            continue
+
+result = []
+for cid, event in convs.items():
+    result.append({{
+        'conversation_id': cid,
+        'model': event.get('model', '?'),
+        'created_at': event.get('timestamp', '?'),
+        'updated_at': updated_at.get(cid, event.get('timestamp', '?')),
+    }})
+
+result.sort(key=lambda r: r['updated_at'], reverse=True)
+print(json.dumps(result))
+"""
 
 
 def _build_remote_chat_script(
     host_dir: Path,
     agent: AgentInterface,
+    host: OnlineHostInterface,
     chat_args: list[str],
 ) -> str:
     """Build a shell script to run chat.sh on a remote host via SSH.
@@ -84,18 +140,12 @@ def _build_remote_chat_script(
     Sets the required environment variables and then execs chat.sh.
     """
     chat_script = _build_chat_script_path(host_dir)
-    agent_state_dir = host_dir / "agents" / str(agent.id)
+    env_vars = _build_chat_env_vars(agent, host)
 
     # Build the shell command that sets env vars and runs chat.sh
+    export_statements = "; ".join(f"export {key}='{value}'" for key, value in env_vars.items())
     escaped_args = " ".join(shlex.quote(arg) for arg in chat_args)
-    return (
-        f"export MNG_HOST_DIR='{host_dir}'; "
-        f"export MNG_AGENT_STATE_DIR='{agent_state_dir}'; "
-        f"export MNG_AGENT_WORK_DIR='{agent.work_dir}'; "
-        f"export MNG_AGENT_ID='{agent.id}'; "
-        f"export MNG_AGENT_NAME='{agent.name}'; "
-        f"exec '{chat_script}' {escaped_args}"
-    )
+    return f"{export_statements}; exec '{chat_script}' {escaped_args}"
 
 
 def run_chat_on_agent(
@@ -136,7 +186,7 @@ def run_chat_on_agent(
         ssh_args = build_ssh_base_args(host, is_unknown_host_allowed=is_unknown_host_allowed)
 
         # Build the remote command script
-        remote_script = _build_remote_chat_script(host.host_dir, agent, chat_args)
+        remote_script = _build_remote_chat_script(host.host_dir, agent, host, chat_args)
         ssh_args.extend(["-t", "bash -c " + shlex.quote(remote_script)])
 
         logger.debug("Running SSH chat command: {}", ssh_args)
@@ -145,71 +195,47 @@ def run_chat_on_agent(
             logger.debug("SSH chat session ended with exit code {}", completed.returncode)
 
 
-def get_latest_conversation_id(
+def list_conversations_on_agent(
     agent: AgentInterface,
     host: OnlineHostInterface,
-) -> str | None:
-    """Get the most recently updated conversation ID for an agent.
+) -> list[ConversationInfo]:
+    """List conversations for an agent by reading event files on the host.
 
-    Reads the conversations and messages event files to find the conversation
-    with the most recent activity.
+    Executes a Python script on the host that reads the conversation and message
+    event JSONL files and returns a JSON array sorted by updated_at descending.
     """
-    agent_state_dir = host.host_dir / "agents" / str(agent.id)
-    conversations_events_path = agent_state_dir / "events" / "conversations" / "events.jsonl"
-    messages_events_path = agent_state_dir / "events" / "messages" / "events.jsonl"
+    conversations_path, messages_path = _build_conversation_event_paths(agent, host)
 
-    # Build a Python script that reads the event files and outputs the latest conversation ID
-    read_script = f"""
-import json, sys
-from pathlib import Path
-
-conv_file = Path('{conversations_events_path}')
-msg_file = Path('{messages_events_path}')
-
-if not conv_file.exists():
-    sys.exit(1)
-
-convs = {{}}
-for line in conv_file.read_text().splitlines():
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-        cid = event['conversation_id']
-        convs[cid] = event.get('timestamp', '')
-    except (json.JSONDecodeError, KeyError):
-        continue
-
-if not convs:
-    sys.exit(1)
-
-# Check messages for latest activity
-updated_at = dict(convs)
-if msg_file.exists():
-    for line in msg_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-            cid = msg.get('conversation_id', '')
-            ts = msg.get('timestamp', '')
-            if cid in convs and ts:
-                if cid not in updated_at or ts > updated_at[cid]:
-                    updated_at[cid] = ts
-        except (json.JSONDecodeError, KeyError):
-            continue
-
-latest_cid = max(updated_at, key=lambda c: updated_at[c])
-print(latest_cid)
-"""
+    read_script = _LIST_CONVERSATIONS_SCRIPT_TEMPLATE.format(
+        conv_file=conversations_path,
+        msg_file=messages_path,
+    )
 
     result = host.execute_command(
         f"python3 -c {shlex.quote(read_script)}",
         cwd=agent.work_dir,
     )
 
-    if result.success and result.stdout.strip():
-        return result.stdout.strip()
-    return None
+    if not result.success:
+        logger.debug("Failed to list conversations: {}", result.stderr)
+        return []
+
+    try:
+        raw_conversations = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        logger.debug("Failed to parse conversation list output: {}", result.stdout)
+        return []
+
+    return [ConversationInfo.model_validate(conv) for conv in raw_conversations]
+
+
+def get_latest_conversation_id(
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+) -> str | None:
+    """Get the most recently updated conversation ID for an agent."""
+    conversations = list_conversations_on_agent(agent, host)
+    if not conversations:
+        return None
+    # Conversations are already sorted by updated_at descending
+    return conversations[0].conversation_id

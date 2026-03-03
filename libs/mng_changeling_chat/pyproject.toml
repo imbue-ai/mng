@@ -61,7 +61,7 @@ omit = [
 name = "mng_changeling_chat layers contract"
 type = "layers"
 layers = [
+    "imbue.mng_changeling_chat.plugin",
     "imbue.mng_changeling_chat.cli",
     "imbue.mng_changeling_chat.api",
-    "imbue.mng_changeling_chat.plugin",
 ]

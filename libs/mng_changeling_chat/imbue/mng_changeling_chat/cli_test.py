@@ -2,8 +2,8 @@
 
 from click.testing import CliRunner
 
+from imbue.mng_changeling_chat.api import ConversationInfo
 from imbue.mng_changeling_chat.cli import ChatCliOptions
-from imbue.mng_changeling_chat.cli import ConversationInfo
 from imbue.mng_changeling_chat.cli import chat
 
 

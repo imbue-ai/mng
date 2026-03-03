@@ -1,5 +1,3 @@
-import json
-import shlex
 import sys
 from typing import Any
 
@@ -7,7 +5,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
-from pydantic import Field
 from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
@@ -20,7 +17,6 @@ from urwid.widget.pile import Pile
 from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
-from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.cli.agent_utils import find_agent_for_command
 from imbue.mng.cli.common_opts import CommonCliOptions
@@ -31,7 +27,9 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng_changeling_chat.api import ConversationInfo
 from imbue.mng_changeling_chat.api import get_latest_conversation_id
+from imbue.mng_changeling_chat.api import list_conversations_on_agent
 from imbue.mng_changeling_chat.api import run_chat_on_agent
 
 
@@ -44,15 +42,6 @@ class ChatCliOptions(CommonCliOptions):
     conversation: str | None
     start: bool
     allow_unknown_host: bool
-
-
-class ConversationInfo(FrozenModel):
-    """Information about a conversation for the interactive selector."""
-
-    conversation_id: str = Field(description="Unique conversation identifier")
-    model: str = Field(description="Model used for this conversation")
-    created_at: str = Field(description="When the conversation was created")
-    updated_at: str = Field(description="When the conversation was last updated")
 
 
 class ConversationSelectorState(MutableModel):
@@ -194,93 +183,6 @@ def _run_conversation_selector(
     return state.result, state.is_new_selected
 
 
-def _list_conversations_on_agent(
-    agent: AgentInterface,
-    host: OnlineHostInterface,
-) -> list[ConversationInfo]:
-    """List conversations for an agent by reading event files on the host."""
-    agent_state_dir = host.host_dir / "agents" / str(agent.id)
-    conversations_events_path = agent_state_dir / "events" / "conversations" / "events.jsonl"
-    messages_events_path = agent_state_dir / "events" / "messages" / "events.jsonl"
-
-    # Build a Python script to read conversations and return JSON
-    read_script = f"""
-import json, sys
-from pathlib import Path
-
-conv_file = Path('{conversations_events_path}')
-msg_file = Path('{messages_events_path}')
-
-if not conv_file.exists():
-    print('[]')
-    sys.exit(0)
-
-convs = {{}}
-for line in conv_file.read_text().splitlines():
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        event = json.loads(line)
-        cid = event['conversation_id']
-        convs[cid] = event
-    except (json.JSONDecodeError, KeyError):
-        continue
-
-if not convs:
-    print('[]')
-    sys.exit(0)
-
-updated_at = {{}}
-for cid, event in convs.items():
-    updated_at[cid] = event.get('timestamp', '')
-
-if msg_file.exists():
-    for line in msg_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-            cid = msg.get('conversation_id', '')
-            ts = msg.get('timestamp', '')
-            if cid in convs and ts:
-                if cid not in updated_at or ts > updated_at[cid]:
-                    updated_at[cid] = ts
-        except (json.JSONDecodeError, KeyError):
-            continue
-
-result = []
-for cid, event in convs.items():
-    result.append({{
-        'conversation_id': cid,
-        'model': event.get('model', '?'),
-        'created_at': event.get('timestamp', '?'),
-        'updated_at': updated_at.get(cid, event.get('timestamp', '?')),
-    }})
-
-result.sort(key=lambda r: r['updated_at'], reverse=True)
-print(json.dumps(result))
-"""
-
-    result = host.execute_command(
-        f"python3 -c {shlex.quote(read_script)}",
-        cwd=agent.work_dir,
-    )
-
-    if not result.success:
-        logger.debug("Failed to list conversations: {}", result.stderr)
-        return []
-
-    try:
-        raw_conversations = json.loads(result.stdout.strip())
-    except json.JSONDecodeError:
-        logger.debug("Failed to parse conversation list output: {}", result.stdout)
-        return []
-
-    return [ConversationInfo.model_validate(conv) for conv in raw_conversations]
-
-
 def _select_conversation_interactively(
     agent: AgentInterface,
     host: OnlineHostInterface,
@@ -290,7 +192,7 @@ def _select_conversation_interactively(
     Returns (conversation_id, is_new_requested).
     If conversation_id is None and is_new_requested is False, the user cancelled.
     """
-    conversations = _list_conversations_on_agent(agent, host)
+    conversations = list_conversations_on_agent(agent, host)
 
     if not conversations:
         logger.info("No conversations found. Starting a new one.")
