@@ -131,6 +131,7 @@ def temp_source_dir(tmp_path: Path) -> Path:
 
 @pytest.mark.acceptance
 @pytest.mark.tmux
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_migrate_local_to_modal_same_name(
     temp_source_dir: Path,

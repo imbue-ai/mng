@@ -428,6 +428,7 @@ def test_mng_create_transfers_git_repo_with_new_branch(
 
 @pytest.mark.acceptance
 @pytest.mark.tmux
+@pytest.mark.rsync
 @pytest.mark.timeout(300)
 def test_mng_clone_transfers_claude_session_to_modal(
     temp_git_repo: Path,
