@@ -161,7 +161,7 @@ Register your plugin via a setuptools entry point in `pyproject.toml`:
 my_plugin = "my_package.plugin_module"
 ```
 
-The entry point name (here `my_plugin`) becomes your plugin's identity -- it appears in `mng plugin list` and is used with `mng plugin disable`. The value points to any Python module containing your `@hookimpl` functions.
+The entry point name (here `my_plugin`) becomes your plugin's identity -- it appears in `mng plugin list` and is the name users pass to `mng plugin enable my_plugin`. The value points to any Python module containing your `@hookimpl` functions.
 
 ### Hook implementations
 
