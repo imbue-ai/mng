@@ -24,14 +24,12 @@ from urwid.widget.pile import Pile
 from urwid.widget.text import Text
 from urwid.widget.wimp import CheckBox
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
-from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
-from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
-from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import AbortError
@@ -142,7 +140,7 @@ def _run_install_wizard(plugins: tuple[RecommendedPlugin, ...]) -> list[str]:
         [
             AttrMap(Text("Plugin Install Wizard", align="center"), "header"),
             Divider(),
-            Text("Select plugins to install:"),
+            Text("mng has a flexible plugin architecture. Here are some recommended\nplugins for you to install:"),
             Divider(),
         ]
     )
@@ -184,14 +182,20 @@ def _run_install_wizard(plugins: tuple[RecommendedPlugin, ...]) -> list[str]:
     return _get_selected_package_names(plugins, checkboxes)
 
 
-def _install_wizard_impl(ctx: click.Context) -> None:
-    """Implementation of the install-wizard command."""
-    mng_ctx, output_opts, opts = setup_command_context(
-        ctx=ctx,
-        command_name="plugin",
-        command_class=CommonCliOptions,
-    )
+_RELAUNCH_HINT: Final[str] = (
+    "You can re-launch the plugin installation wizard with `mng plugin install-wizard`.\n"
+    "See `mng plugin --help` for more information on plugins."
+)
 
+
+def _install_wizard_impl() -> None:
+    """Implementation of the install-wizard command.
+
+    Deliberately avoids ``setup_command_context`` / ``MngContext`` -- all
+    we need is the uv-receipt and a ConcurrencyGroup.  Skipping the full
+    context setup shaves noticeable time off what is an interactive,
+    user-facing flow.
+    """
     receipt_path = require_uv_tool_receipt()
     receipt = read_receipt(receipt_path)
 
@@ -205,19 +209,21 @@ def _install_wizard_impl(ctx: click.Context) -> None:
 
     selected = _run_install_wizard(available)
 
+    write_human_line(_RELAUNCH_HINT)
+
     if not selected:
         write_human_line("No plugins selected.")
         return
 
     command = build_uv_tool_install_add_many(receipt, selected)
 
-    with log_span("Installing plugins: {}", ", ".join(selected)):
+    write_human_line("Installing plugins: {}", ", ".join(selected))
+    with ConcurrencyGroup(name="install-wizard") as cg:
         try:
-            mng_ctx.concurrency_group.run_process_to_completion(command)
+            cg.run_process_to_completion(command)
         except ProcessError as e:
             raise AbortError(
                 f"Failed to install plugins: {e.stderr.strip() or e.stdout.strip()}",
-                original_exception=e,
             ) from e
 
     write_human_line("Installed {} plugin(s): {}", len(selected), ", ".join(selected))
@@ -228,7 +234,7 @@ def _install_wizard_impl(ctx: click.Context) -> None:
 @click.pass_context
 def install_wizard(ctx: click.Context, **kwargs: Any) -> None:
     try:
-        _install_wizard_impl(ctx)
+        _install_wizard_impl()
     except AbortError as e:
         logger.error("Aborted: {}", e.message)
         ctx.exit(1)
