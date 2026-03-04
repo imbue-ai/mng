@@ -4,7 +4,9 @@ import threading
 from io import StringIO
 from threading import Lock
 
+import pluggy
 import pytest
+from click.testing import CliRunner
 
 from imbue.mng.api.discovery_events import DiscoveryEventType
 from imbue.mng.api.discovery_events import emit_agent_discovered
@@ -12,6 +14,7 @@ from imbue.mng.api.discovery_events import get_discovery_events_path
 from imbue.mng.api.discovery_events import make_agent_discovery_event
 from imbue.mng.cli.list import _stream_emit_line
 from imbue.mng.cli.list import _stream_tail_events_file
+from imbue.mng.cli.list import list_command
 from imbue.mng.config.data_types import MngConfig
 from imbue.mng.utils.polling import poll_until
 from imbue.mng.utils.testing import make_test_discovered_agent
@@ -108,3 +111,23 @@ def test_stream_tail_detects_new_content(temp_config: MngConfig) -> None:
     output = captured_output.getvalue()
     output_lines = [ln for ln in output.splitlines() if ln.strip()]
     assert len(output_lines) == 1
+
+
+# === CLI validation tests ===
+
+
+def test_stream_with_running_filter_raises_usage_error(
+    cli_runner: CliRunner, plugin_manager: pluggy.PluginManager
+) -> None:
+    result = cli_runner.invoke(list_command, ["--stream", "--running"], obj=plugin_manager)
+    assert result.exit_code != 0
+
+
+def test_stream_with_include_raises_usage_error(cli_runner: CliRunner, plugin_manager: pluggy.PluginManager) -> None:
+    result = cli_runner.invoke(list_command, ["--stream", "--include", "state == 'RUNNING'"], obj=plugin_manager)
+    assert result.exit_code != 0
+
+
+def test_stream_with_watch_raises_usage_error(cli_runner: CliRunner, plugin_manager: pluggy.PluginManager) -> None:
+    result = cli_runner.invoke(list_command, ["--stream", "--watch", "5"], obj=plugin_manager)
+    assert result.exit_code != 0

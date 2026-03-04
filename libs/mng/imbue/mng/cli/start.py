@@ -247,7 +247,7 @@ def start(ctx: click.Context, **kwargs: Any) -> None:
         online_host.start_agents(agent_ids_to_start)
 
         # Emit discovery events for started agents and host
-        emit_discovery_events_for_host(mng_ctx.config, online_host, provider_name)
+        emit_discovery_events_for_host(mng_ctx.config, online_host)
 
         for match in agent_list:
             started_agents.append(str(match.agent_name))

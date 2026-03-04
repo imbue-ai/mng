@@ -19,6 +19,7 @@ from imbue.imbue_common.logging import format_nanosecond_iso_timestamp
 from imbue.imbue_common.logging import generate_log_event_id
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngConfig
+from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import DiscoveredAgent
@@ -201,23 +202,38 @@ def emit_host_discovered(config: MngConfig, host: DiscoveredHost) -> None:
     logger.trace("Emitted host_discovered event for {}", host.host_name)
 
 
+def _get_provider_name_from_host(host: OnlineHostInterface) -> ProviderInstanceName:
+    """Extract the provider instance name from a host object."""
+    if isinstance(host, Host):
+        return host.provider_instance.name
+    return ProviderInstanceName("unknown")
+
+
 def emit_discovery_events_for_host(
     config: MngConfig,
     host: OnlineHostInterface,
-    provider_name: ProviderInstanceName,
 ) -> None:
     """Emit agent and host discovery events by reading current state from the host.
 
     Re-reads the agent data from the host's filesystem to ensure the emitted
     events contain full certified_data. Also emits a host discovery event.
-    """
-    # Emit host event
-    discovered_host = discovered_host_from_online_host(host, provider_name)
-    emit_host_discovered(config, discovered_host)
+    Extracts provider_name from the host automatically.
 
-    # Emit agent events with full certified_data from the host's filesystem
-    for discovered_agent in host.discover_agents():
-        emit_agent_discovered(config, discovered_agent)
+    Errors are caught and logged at warning level so that event emission
+    never causes the parent command to fail.
+    """
+    try:
+        provider_name = _get_provider_name_from_host(host)
+
+        # Emit host event
+        discovered_host = discovered_host_from_online_host(host, provider_name)
+        emit_host_discovered(config, discovered_host)
+
+        # Emit agent events with full certified_data from the host's filesystem
+        for discovered_agent in host.discover_agents():
+            emit_agent_discovered(config, discovered_agent)
+    except (OSError, ValueError) as e:
+        logger.warning("Failed to emit discovery events: {}", e)
 
 
 def write_full_discovery_snapshot(

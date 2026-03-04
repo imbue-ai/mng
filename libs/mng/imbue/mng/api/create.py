@@ -8,14 +8,12 @@ from imbue.mng.api.data_types import CreateAgentResult
 from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.hosts.host import Host
 from imbue.mng.hosts.host import HostLocation
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import HostEnvironmentOptions
 from imbue.mng.interfaces.host import NewHostOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.plugins.hookspecs import OnBeforeCreateArgs
-from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.utils.env_utils import parse_env_file
 
 
@@ -155,8 +153,7 @@ def create(
             mng_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
 
         # Emit discovery events for the host and newly created agent
-        provider_name = host.provider_instance.name if isinstance(host, Host) else ProviderInstanceName("unknown")
-        emit_discovery_events_for_host(mng_ctx.config, host, provider_name)
+        emit_discovery_events_for_host(mng_ctx.config, host)
 
     return result
 

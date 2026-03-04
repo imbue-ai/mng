@@ -224,7 +224,7 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
                     _output(f"Stopped agent: {m.agent_name}", output_opts)
 
                 # Emit discovery events for stopped agents and host
-                emit_discovery_events_for_host(mng_ctx.config, online_host, provider_name)
+                emit_discovery_events_for_host(mng_ctx.config, online_host)
             case HostInterface():
                 raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot stop agents on offline hosts.")
             case _ as unreachable:
