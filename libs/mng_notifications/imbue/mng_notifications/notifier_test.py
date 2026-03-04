@@ -1,5 +1,3 @@
-"""Unit tests for the notification module."""
-
 import shlex
 from collections.abc import Generator
 

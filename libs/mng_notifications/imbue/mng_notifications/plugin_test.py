@@ -1,5 +1,3 @@
-"""Unit tests for the mng-notifications plugin registration."""
-
 from collections.abc import Sequence
 
 import click

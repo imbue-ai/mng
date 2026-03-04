@@ -1,5 +1,3 @@
-"""Non-fixture test utilities for mng-notifications."""
-
 from collections.abc import Callable
 from typing import Any
 

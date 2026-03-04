@@ -1,5 +1,3 @@
-"""Unit tests for terminal app implementations."""
-
 from imbue.mng_notifications.terminals import ITermApp
 from imbue.mng_notifications.terminals import KittyApp
 from imbue.mng_notifications.terminals import TerminalDotApp

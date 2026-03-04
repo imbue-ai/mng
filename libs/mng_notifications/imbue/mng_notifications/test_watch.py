@@ -1,9 +1,3 @@
-"""Acceptance test for the watch command's state transition detection.
-
-Creates a real agent on a local host, manipulates its active file to
-simulate RUNNING -> WAITING, and verifies the watcher detects it.
-"""
-
 import threading
 from pathlib import Path
 from typing import Any

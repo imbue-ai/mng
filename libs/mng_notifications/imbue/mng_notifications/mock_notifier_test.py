@@ -1,5 +1,3 @@
-"""Concrete mock implementation of Notifier for unit testing."""
-
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng_notifications.notifier import Notifier
 

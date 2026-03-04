@@ -1,5 +1,3 @@
-"""Unit tests for the notifications plugin config."""
-
 from imbue.mng.config.data_types import PluginConfig
 from imbue.mng_notifications.config import NotificationsPluginConfig
 

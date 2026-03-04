@@ -1,5 +1,3 @@
-"""Unit tests for agent state transition detection."""
-
 from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
