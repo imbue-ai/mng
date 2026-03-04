@@ -59,11 +59,21 @@ def _build_terminal_app_command(agent_name: str, terminal_app: str) -> str | Non
 
     match terminal_app.lower():
         case "iterm" | "iterm2":
-            # AppleScript: tell iTerm to open a new tab and run the command
+            # AppleScript: activate iTerm, open a new tab, and type the command.
+            # Uses "write text" rather than "command" so the tab stays open in a
+            # normal shell session after the command finishes.
             escaped_for_applescript = mng_connect.replace("\\", "\\\\").replace('"', '\\"')
             return (
-                f'osascript -e \'tell app "iTerm2" to tell current window '
-                f'to create tab with default profile command "{escaped_for_applescript}"\''
+                "osascript"
+                " -e 'tell app \"iTerm2\"'"
+                " -e 'activate'"
+                " -e 'tell current window'"
+                " -e 'create tab with default profile'"
+                " -e 'tell current session'"
+                f" -e 'write text \"{escaped_for_applescript}\"'"
+                " -e 'end tell'"
+                " -e 'end tell'"
+                " -e 'end tell'"
             )
         case "terminal" | "terminal.app":
             escaped_for_applescript = mng_connect.replace("\\", "\\\\").replace('"', '\\"')
