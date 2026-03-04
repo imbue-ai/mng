@@ -18,6 +18,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_notifications.config import NotificationsPluginConfig
+from imbue.mng_notifications.mock_notifier_test import RecordingNotifier
 from imbue.mng_notifications.watcher import _notify_agent_waiting
 from imbue.mng_notifications.watcher import _poll_agents
 from imbue.mng_notifications.watcher import build_state_map
@@ -152,21 +153,16 @@ def test_build_state_map_empty() -> None:
     assert result == {}
 
 
-def test_notify_agent_waiting_sends_notification(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_notify_agent_waiting_sends_notification() -> None:
     """_notify_agent_waiting sends a desktop notification with the agent name."""
-    notifications: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(
-        "imbue.mng_notifications.watcher.send_desktop_notification",
-        lambda title, message, agent_name, config: notifications.append((title, message, agent_name)),
-    )
+    notifier = RecordingNotifier()
 
     agent = _make_agent(name="my-cool-agent", state=AgentLifecycleState.WAITING)
-    _notify_agent_waiting(agent, NotificationsPluginConfig())
+    _notify_agent_waiting(agent, NotificationsPluginConfig(), notifier)
 
-    assert len(notifications) == 1
-    assert notifications[0][0] == "Agent waiting"
-    assert "my-cool-agent" in notifications[0][1]
-    assert notifications[0][2] == "my-cool-agent"
+    assert len(notifier.calls) == 1
+    assert notifier.calls[0][0] == "Agent waiting"
+    assert "my-cool-agent" in notifier.calls[0][1]
 
 
 def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch) -> None:

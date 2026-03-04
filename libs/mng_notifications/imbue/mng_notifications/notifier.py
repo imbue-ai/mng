@@ -1,6 +1,8 @@
 import platform
 import shlex
 import subprocess
+from abc import ABC
+from abc import abstractmethod
 
 from loguru import logger
 
@@ -9,26 +11,51 @@ from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.terminals import get_terminal_app
 
 
-def send_desktop_notification(
-    title: str,
-    message: str,
-    agent_name: str,
-    config: NotificationsPluginConfig,
-) -> None:
-    """Send a desktop notification, optionally with a click-to-connect action.
+class Notifier(ABC):
+    """Sends desktop notifications."""
 
-    On macOS, uses terminal-notifier (supports click actions).
-    On Linux, uses notify-send (click actions not yet supported).
-    """
-    execute_command = build_execute_command(agent_name, config)
+    @abstractmethod
+    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+        """Send a notification with an optional click action."""
 
+
+class MacOSNotifier(Notifier):
+    """Sends notifications on macOS via terminal-notifier."""
+
+    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+        cmd = ["terminal-notifier", "-title", title, "-message", message]
+        if execute_command is not None:
+            cmd.extend(["-execute", execute_command])
+        try:
+            subprocess.run(cmd, check=False, capture_output=True, timeout=10)
+        except FileNotFoundError:
+            logger.warning("terminal-notifier not found; install with: brew install terminal-notifier")
+        except subprocess.TimeoutExpired:
+            logger.warning("Notification timed out")
+
+
+class LinuxNotifier(Notifier):
+    """Sends notifications on Linux via notify-send."""
+
+    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+        cmd = ["notify-send", title, message]
+        try:
+            subprocess.run(cmd, check=False, capture_output=True, timeout=10)
+        except FileNotFoundError:
+            logger.warning("notify-send not found; install libnotify to enable notifications")
+        except subprocess.TimeoutExpired:
+            logger.warning("Notification timed out")
+
+
+def get_notifier() -> Notifier | None:
+    """Return the appropriate notifier for the current platform, or None if unsupported."""
     system = platform.system()
     if system == "Darwin":
-        _send_macos_notification(title, message, execute_command)
-    elif system == "Linux":
-        _send_linux_notification(title, message)
-    else:
-        logger.warning("Desktop notifications not supported on {}", system)
+        return MacOSNotifier()
+    if system == "Linux":
+        return LinuxNotifier()
+    logger.warning("Desktop notifications not supported on {}", system)
+    return None
 
 
 @pure
@@ -55,26 +82,3 @@ def build_execute_command(agent_name: str, config: NotificationsPluginConfig) ->
     quoted_name = shlex.quote(agent_name)
     mng_connect = f"mng connect {quoted_name}"
     return terminal.build_connect_command(mng_connect)
-
-
-def _send_macos_notification(title: str, message: str, execute_command: str | None) -> None:
-    """Send a notification on macOS using terminal-notifier."""
-    cmd = ["terminal-notifier", "-title", title, "-message", message]
-    if execute_command is not None:
-        cmd.extend(["-execute", execute_command])
-    try:
-        subprocess.run(cmd, check=False, capture_output=True, timeout=10)
-    except FileNotFoundError:
-        logger.warning("terminal-notifier not found; install with: brew install terminal-notifier")
-    except subprocess.TimeoutExpired:
-        logger.warning("Notification timed out")
-
-
-def _send_linux_notification(title: str, message: str) -> None:
-    """Send a notification on Linux using notify-send."""
-    try:
-        subprocess.run(["notify-send", title, message], check=False, capture_output=True, timeout=10)
-    except FileNotFoundError:
-        logger.warning("notify-send not found; install libnotify to enable notifications")
-    except subprocess.TimeoutExpired:
-        logger.warning("Notification timed out")

@@ -1,15 +1,12 @@
 """Unit tests for the notification module."""
 
-import subprocess
-from typing import Any
-
 import pytest
 
 from imbue.mng_notifications.config import NotificationsPluginConfig
-from imbue.mng_notifications.notifier import _send_linux_notification
-from imbue.mng_notifications.notifier import _send_macos_notification
+from imbue.mng_notifications.notifier import LinuxNotifier
+from imbue.mng_notifications.notifier import MacOSNotifier
 from imbue.mng_notifications.notifier import build_execute_command
-from imbue.mng_notifications.notifier import send_desktop_notification
+from imbue.mng_notifications.notifier import get_notifier
 
 
 def _config(
@@ -98,46 +95,29 @@ def test_build_execute_command_unsupported_terminal() -> None:
     assert result is None
 
 
-# --- send_desktop_notification dispatch ---
+# --- get_notifier ---
 
 
-def test_send_desktop_notification_dispatches_to_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_notifier_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Darwin")
-    calls: list[tuple[str, str, str | None]] = []
-    monkeypatch.setattr(
-        "imbue.mng_notifications.notifier._send_macos_notification",
-        lambda t, m, e: calls.append((t, m, e)),
-    )
-
-    send_desktop_notification("Title", "Message", "agent-x", _config())
-
-    assert len(calls) == 1
-    assert calls[0][0] == "Title"
+    assert isinstance(get_notifier(), MacOSNotifier)
 
 
-def test_send_desktop_notification_dispatches_to_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_notifier_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Linux")
-    calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        "imbue.mng_notifications.notifier._send_linux_notification",
-        lambda t, m: calls.append((t, m)),
-    )
-
-    send_desktop_notification("Title", "Message", "agent-x", _config())
-
-    assert len(calls) == 1
+    assert isinstance(get_notifier(), LinuxNotifier)
 
 
-def test_send_desktop_notification_unsupported_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_notifier_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Windows")
-    send_desktop_notification("Title", "Message", "agent-x", _config())
+    assert get_notifier() is None
 
 
-# --- macOS terminal-notifier ---
+# --- MacOSNotifier ---
 
 
-def test_send_macos_notification_calls_terminal_notifier(fake_subprocess_run: list[list[str]]) -> None:
-    _send_macos_notification("Title", "Message", None)
+def test_macos_notifier_builds_correct_command(fake_subprocess_run: list[list[str]]) -> None:
+    MacOSNotifier().notify("Title", "Message", None)
 
     assert len(fake_subprocess_run) == 1
     assert fake_subprocess_run[0][0] == "terminal-notifier"
@@ -145,8 +125,8 @@ def test_send_macos_notification_calls_terminal_notifier(fake_subprocess_run: li
     assert "-execute" not in fake_subprocess_run[0]
 
 
-def test_send_macos_notification_with_execute_command(fake_subprocess_run: list[list[str]]) -> None:
-    _send_macos_notification("Title", "Message", "some-command")
+def test_macos_notifier_includes_execute_command(fake_subprocess_run: list[list[str]]) -> None:
+    MacOSNotifier().notify("Title", "Message", "some-command")
 
     assert len(fake_subprocess_run) == 1
     assert "-execute" in fake_subprocess_run[0]
@@ -154,42 +134,29 @@ def test_send_macos_notification_with_execute_command(fake_subprocess_run: list[
     assert fake_subprocess_run[0][idx + 1] == "some-command"
 
 
-def test_send_macos_notification_handles_missing_terminal_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        raise FileNotFoundError("terminal-notifier not found")
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-    _send_macos_notification("Title", "Message", None)
+# --- LinuxNotifier ---
 
 
-def test_send_macos_notification_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=10)
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-    _send_macos_notification("Title", "Message", None)
-
-
-# --- Linux notify-send ---
-
-
-def test_send_linux_notification_calls_notify_send(fake_subprocess_run: list[list[str]]) -> None:
-    _send_linux_notification("Title", "Message")
+def test_linux_notifier_calls_notify_send(fake_subprocess_run: list[list[str]]) -> None:
+    LinuxNotifier().notify("Title", "Message", None)
 
     assert fake_subprocess_run == [["notify-send", "Title", "Message"]]
 
 
-def test_send_linux_notification_handles_missing_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        raise FileNotFoundError("notify-send not found")
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-    _send_linux_notification("Title", "Message")
+# --- Error handling (missing binaries / timeouts) ---
 
 
-def test_send_linux_notification_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        raise subprocess.TimeoutExpired(cmd=cmd, timeout=10)
+def test_macos_notifier_handles_missing_binary(fake_subprocess_run_raising: None) -> None:
+    MacOSNotifier().notify("Title", "Message", None)
 
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-    _send_linux_notification("Title", "Message")
+
+def test_macos_notifier_handles_timeout(fake_subprocess_run_timeout: None) -> None:
+    MacOSNotifier().notify("Title", "Message", None)
+
+
+def test_linux_notifier_handles_missing_binary(fake_subprocess_run_raising: None) -> None:
+    LinuxNotifier().notify("Title", "Message", None)
+
+
+def test_linux_notifier_handles_timeout(fake_subprocess_run_timeout: None) -> None:
+    LinuxNotifier().notify("Title", "Message", None)

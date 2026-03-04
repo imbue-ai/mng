@@ -11,6 +11,7 @@ from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.primitives import PluginName
 from imbue.mng_notifications.config import NotificationsPluginConfig
+from imbue.mng_notifications.notifier import get_notifier
 from imbue.mng_notifications.watcher import watch_for_waiting_agents
 
 
@@ -67,6 +68,10 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
     elif plugin_config.custom_terminal_command is not None:
         write_human_line("Click-to-connect enabled (custom command)")
 
+    notifier = get_notifier()
+    if notifier is None:
+        return
+
     write_human_line("Watching for agents transitioning to WAITING... (Ctrl+C to stop)")
 
     try:
@@ -76,6 +81,7 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
             include_filters=opts.include,
             exclude_filters=opts.exclude,
             plugin_config=plugin_config,
+            notifier=notifier,
         )
     except KeyboardInterrupt:
         logger.debug("Received keyboard interrupt")
