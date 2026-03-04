@@ -6,7 +6,6 @@ from abc import abstractmethod
 
 from loguru import logger
 
-from imbue.imbue_common.pure import pure
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.terminals import get_terminal_app
 
@@ -60,7 +59,6 @@ def get_notifier() -> Notifier | None:
     return None
 
 
-@pure
 def build_execute_command(agent_name: str, config: NotificationsPluginConfig) -> str | None:
     """Build the shell command to run when the notification is clicked.
 
