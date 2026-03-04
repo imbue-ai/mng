@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import getpass
+import hashlib
 import json
 import os
 import random
@@ -352,6 +354,49 @@ def _read_macos_keychain_credential(label: str, concurrency_group: ConcurrencyGr
         logger.debug("No keychain credential found for label {!r}", label)
         return None
     return result.stdout.strip()
+
+
+def _compute_keychain_label_suffix(config_dir: Path) -> str:
+    """Compute the keychain label suffix for a per-agent CLAUDE_CONFIG_DIR.
+
+    Claude Code appends -<sha256(config_dir)[:8]> to keychain labels when
+    CLAUDE_CONFIG_DIR is set, to avoid collisions between config dirs.
+    """
+    normalized = str(config_dir).encode()
+    return f"-{hashlib.sha256(normalized).hexdigest()[:8]}"
+
+
+def _write_macos_keychain_credential(label: str, value: str, concurrency_group: ConcurrencyGroup) -> bool:
+    """Write a credential to the macOS keychain.
+
+    Uses the label as both the service name (-s) and label (-l), and the
+    current username as the account (-a). Overwrites any existing entry
+    with the same service+account.
+
+    Returns True if the credential was written successfully.
+    """
+    account = getpass.getuser()
+    # Delete any existing entry first (ignore failure if not found)
+    try:
+        concurrency_group.run_process_to_completion(
+            ["security", "delete-generic-password", "-s", label, "-a", account],
+            is_checked_after=False,
+        )
+    except ProcessSetupError:
+        pass
+    # Add the new entry
+    try:
+        result = concurrency_group.run_process_to_completion(
+            ["security", "add-generic-password", "-s", label, "-a", account, "-l", label, "-w", value],
+            is_checked_after=False,
+        )
+    except ProcessSetupError:
+        logger.debug("macOS security binary not found")
+        return False
+    if result.returncode != 0:
+        logger.warning("Failed to write keychain credential for label {!r}: {}", label, result.stderr)
+        return False
+    return True
 
 
 def _provision_background_scripts(host: OnlineHostInterface) -> None:
@@ -873,32 +918,17 @@ class ClaudeAgent(BaseAgent):
         """Set up the per-agent config dir on a local host."""
         # 1. Generate per-agent .claude.json
         claude_json_data = self._build_per_agent_claude_json(options, config)
-        # If no primaryApiKey from the global config, try the macOS keychain
-        if not claude_json_data.get("primaryApiKey") and config.convert_macos_credentials and is_macos():
-            keychain_api_key = _read_macos_keychain_credential("Claude Code", self.mng_ctx.concurrency_group)
-            if keychain_api_key is not None:
-                logger.info("Copying macOS keychain API key into per-agent .claude.json")
-                claude_json_data["primaryApiKey"] = keychain_api_key
         config_json_path = config_dir / ".claude.json"
         host.write_text_file(config_json_path, json.dumps(claude_json_data, indent=2) + "\n")
 
-        # 2. Symlink .credentials.json -> ~/.claude/.credentials.json (or extract from keychain)
-        credentials_source = Path.home() / ".claude" / ".credentials.json"
-        credentials_dest = config_dir / ".credentials.json"
-        if credentials_source.exists():
-            host.execute_command(
-                f"ln -sf {shlex.quote(str(credentials_source))} {shlex.quote(str(credentials_dest))}",
-                timeout_seconds=5.0,
-            )
-        elif config.convert_macos_credentials and is_macos():
-            keychain_credentials = _read_macos_keychain_credential(
-                "Claude Code-credentials", self.mng_ctx.concurrency_group
-            )
-            if keychain_credentials is not None:
-                logger.info("Writing macOS keychain OAuth credentials to per-agent config dir")
-                host.write_text_file(credentials_dest, keychain_credentials)
+        # 2. Copy credentials to the per-agent config dir.
+        # On macOS: copy keychain entries under the per-agent label so Claude Code
+        # finds them (it hashes CLAUDE_CONFIG_DIR into the keychain label).
+        # On Linux: symlink or write .credentials.json as a flat file.
+        if config.convert_macos_credentials and is_macos():
+            self._copy_macos_keychain_credentials(config, config_dir)
         else:
-            logger.debug("No .credentials.json found and keychain conversion not available")
+            self._copy_file_credentials(host, config_dir)
 
         # 3. Copy settings and other items from ~/.claude/ if sync_home_settings
         if config.sync_home_settings:
@@ -909,6 +939,45 @@ class ClaudeAgent(BaseAgent):
                 host.execute_command(
                     f"cp {shlex.quote(str(source_path))} {shlex.quote(str(dest_path))}", timeout_seconds=5.0
                 )
+
+    def _copy_macos_keychain_credentials(self, config: ClaudeAgentConfig, config_dir: Path) -> None:
+        """Copy credentials from the default macOS keychain to the per-agent keychain label.
+
+        Claude Code hashes CLAUDE_CONFIG_DIR into the keychain label, so credentials
+        stored under the default label aren't found. This reads from the default label
+        and writes to the per-agent label so Claude Code finds them.
+        """
+        cg = self.mng_ctx.concurrency_group
+        suffix = _compute_keychain_label_suffix(config_dir)
+
+        # Copy API key (label: "Claude Code" -> "Claude Code-<hash>")
+        api_key = _read_macos_keychain_credential("Claude Code", cg)
+        if api_key is not None:
+            target_label = f"Claude Code{suffix}"
+            if _write_macos_keychain_credential(target_label, api_key, cg):
+                logger.info("Copied API key to per-agent keychain label {!r}", target_label)
+
+        # Copy OAuth credentials (label: "Claude Code-credentials" -> "Claude Code-credentials-<hash>")
+        credentials = _read_macos_keychain_credential("Claude Code-credentials", cg)
+        if credentials is not None:
+            target_label = f"Claude Code-credentials{suffix}"
+            if _write_macos_keychain_credential(target_label, credentials, cg):
+                logger.info("Copied OAuth credentials to per-agent keychain label {!r}", target_label)
+
+    def _copy_file_credentials(self, host: OnlineHostInterface, config_dir: Path) -> None:
+        """Copy file-based credentials to the per-agent config dir (Linux fallback).
+
+        Symlinks .credentials.json if the source file exists.
+        """
+        credentials_source = Path.home() / ".claude" / ".credentials.json"
+        credentials_dest = config_dir / ".credentials.json"
+        if credentials_source.exists():
+            host.execute_command(
+                f"ln -sf {shlex.quote(str(credentials_source))} {shlex.quote(str(credentials_dest))}",
+                timeout_seconds=5.0,
+            )
+        else:
+            logger.debug("No .credentials.json found to symlink")
 
     def _setup_remote_config_dir(
         self,
