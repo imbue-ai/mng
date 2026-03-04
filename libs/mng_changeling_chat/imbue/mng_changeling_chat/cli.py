@@ -1,12 +1,9 @@
-import sys
-import termios
 from typing import Any
 
 import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
-from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
 from urwid.widget.attr_map import AttrMap
@@ -26,6 +23,7 @@ from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.urwid_utils import create_urwid_screen_preserving_terminal
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
@@ -174,24 +172,14 @@ def _run_conversation_selector(  # pragma: no cover
 
     input_handler = ConversationSelectorInputHandler(state=state)
 
-    # Save terminal settings BEFORE creating the Screen, because
-    # tty_signal_keys(intr="undefined") modifies termios to disable SIGINT.
-    # urwid may not restore this properly on exit, permanently breaking Ctrl+C.
-    saved_tty_attrs = termios.tcgetattr(sys.stdin)
-
-    screen = Screen()
-    screen.tty_signal_keys(intr="undefined")
-
-    loop = MainLoop(
-        frame,
-        palette=palette,
-        unhandled_input=input_handler,
-        screen=screen,
-    )
-    try:
+    with create_urwid_screen_preserving_terminal() as screen:
+        loop = MainLoop(
+            frame,
+            palette=palette,
+            unhandled_input=input_handler,
+            screen=screen,
+        )
         loop.run()
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved_tty_attrs)
 
     return state.result, state.is_new_selected
 
