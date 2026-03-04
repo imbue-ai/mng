@@ -85,6 +85,17 @@ def _trigger_background_refresh() -> None:
         pass
 
 
+def _is_combined_short_flags(word: str, flag_options: list[str]) -> bool:
+    """Check if word is a cluster of combined short flags (e.g. -fb for -f -b).
+
+    Returns True only when every character after the leading dash maps to a
+    known single-character flag in flag_options.
+    """
+    if not word.startswith("-") or word.startswith("--") or len(word) < 3:
+        return False
+    return all(f"-{ch}" in flag_options for ch in word[1:])
+
+
 def _get_completions() -> list[str]:
     """Compute completion candidates from environment variables and the cache."""
     comp_words_raw = os.environ.get("COMP_WORDS", "")
@@ -156,7 +167,7 @@ def _get_completions() -> list[str]:
         if choice_key in option_choices:
             # Option with predefined choices (e.g. --on-error abort|continue)
             candidates = option_choices[choice_key]
-        elif prev_word in flag_options:
+        elif prev_word in flag_options or _is_combined_short_flags(prev_word, flag_options):
             # Previous word is a flag -- next position is positional
             if incomplete.startswith("--"):
                 candidates = options_by_command.get(option_key, [])
