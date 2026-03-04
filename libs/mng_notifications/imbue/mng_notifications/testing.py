@@ -19,7 +19,7 @@ def patch_list_agents(monkeypatch: pytest.MonkeyPatch, fn: Callable[..., ListRes
 
 def patch_list_agents_returns(monkeypatch: pytest.MonkeyPatch, result: ListResult) -> None:
     """Make list_agents return a fixed result."""
-    patch_list_agents(monkeypatch, lambda *_args: result)
+    patch_list_agents(monkeypatch, lambda *_args, **_kwargs: result)
 
 
 def _raise_mng_error(*_args: Any, **_kwargs: Any) -> None:
