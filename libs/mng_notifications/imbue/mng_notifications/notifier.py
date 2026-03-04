@@ -84,4 +84,4 @@ def build_execute_command(agent_name: str, config: NotificationsPluginConfig) ->
 
     quoted_name = shlex.quote(agent_name)
     mng_connect = f"mng connect {quoted_name}"
-    return terminal.build_connect_command(mng_connect)
+    return terminal.build_connect_command(mng_connect, agent_name)

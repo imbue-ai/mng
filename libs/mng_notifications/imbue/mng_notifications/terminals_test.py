@@ -8,26 +8,39 @@ from imbue.mng_notifications.terminals import get_terminal_app
 
 
 def test_iterm_build_connect_command() -> None:
-    result = ITermApp().build_connect_command("mng connect my-agent")
+    result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
     assert "iTerm2" in result
-    assert "write text" in result
     assert "mng connect my-agent" in result
 
 
+def test_iterm_searches_existing_tabs() -> None:
+    result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
+    assert "contains" in result
+    assert "my-agent" in result
+    assert "set found to" in result
+
+
+def test_iterm_creates_new_tab_if_not_found() -> None:
+    result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
+    assert "if not found" in result
+    assert "create tab with default profile" in result
+    assert "write text" in result
+
+
 def test_terminal_dot_app_build_connect_command() -> None:
-    result = TerminalDotApp().build_connect_command("mng connect my-agent")
+    result = TerminalDotApp().build_connect_command("mng connect my-agent", "my-agent")
     assert '"Terminal"' in result
     assert "do script" in result
     assert "mng connect my-agent" in result
 
 
 def test_wezterm_build_connect_command() -> None:
-    result = WezTermApp().build_connect_command("mng connect my-agent")
+    result = WezTermApp().build_connect_command("mng connect my-agent", "my-agent")
     assert result == "wezterm cli spawn -- mng connect my-agent"
 
 
 def test_kitty_build_connect_command() -> None:
-    result = KittyApp().build_connect_command("mng connect my-agent")
+    result = KittyApp().build_connect_command("mng connect my-agent", "my-agent")
     assert result == "kitty @ launch --type=tab -- mng connect my-agent"
 
 
