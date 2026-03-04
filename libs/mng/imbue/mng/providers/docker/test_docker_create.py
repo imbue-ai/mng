@@ -1,8 +1,15 @@
+import json
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
 
+import docker
+import docker.errors
 import pytest
 
+from imbue.mng.providers.docker.volume import LABEL_PROVIDER
+from imbue.mng.providers.docker.volume import STATE_CONTAINER_TYPE_LABEL
+from imbue.mng.providers.docker.volume import STATE_CONTAINER_TYPE_VALUE
 from imbue.mng.utils.testing import generate_test_environment_name
 from imbue.mng.utils.testing import get_short_random_string
 from imbue.mng.utils.testing import get_subprocess_test_env
@@ -11,16 +18,70 @@ pytestmark = [pytest.mark.docker, pytest.mark.acceptance, pytest.mark.rsync]
 
 
 @pytest.fixture
-def docker_subprocess_env(tmp_path: Path) -> dict[str, str]:
-    """Create a subprocess test environment for Docker tests."""
+def docker_subprocess_env(tmp_path: Path) -> Generator[dict[str, str], None, None]:
+    """Create a subprocess test environment for Docker tests.
+
+    On teardown, destroys all agents created by this test via ``mng destroy``,
+    then removes the state container and its backing volume.
+    """
     host_dir = tmp_path / "docker-test-hosts"
     host_dir.mkdir()
     prefix = f"{generate_test_environment_name()}-"
-    return get_subprocess_test_env(
+    env = get_subprocess_test_env(
         root_name="mng-docker-test",
         prefix=prefix,
         host_dir=host_dir,
     )
+    yield env
+
+    # Destroy all agents created during the test.
+    try:
+        list_result = subprocess.run(
+            ["uv", "run", "mng", "list", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        if list_result.returncode == 0 and list_result.stdout.strip():
+            for agent in json.loads(list_result.stdout):
+                agent_name = agent.get("name", "")
+                if agent_name:
+                    subprocess.run(
+                        ["uv", "run", "mng", "destroy", agent_name, "--force"],
+                        capture_output=True,
+                        timeout=30,
+                        env=env,
+                    )
+    except (subprocess.TimeoutExpired, Exception):
+        pass
+
+    # Remove the state container and its backing volume.
+    # The state container name follows the pattern {prefix}docker-state-{user_id}.
+    # Since we cannot easily determine user_id, we find the container by labels.
+    try:
+        client = docker.from_env()
+        containers = client.containers.list(
+            all=True,
+            filters={
+                "label": [
+                    f"{STATE_CONTAINER_TYPE_LABEL}={STATE_CONTAINER_TYPE_VALUE}",
+                    f"{LABEL_PROVIDER}=docker",
+                ],
+            },
+        )
+        for container in containers:
+            name = container.name or ""
+            if name.startswith(prefix):
+                # Remove the backing volume (same name as the container).
+                try:
+                    client.volumes.get(name).remove(force=True)
+                except (docker.errors.NotFound, docker.errors.DockerException):
+                    pass
+                container.remove(force=True)
+        client.close()
+    except (docker.errors.DockerException, OSError):
+        pass
 
 
 @pytest.fixture

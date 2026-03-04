@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
+import docker
 import docker.errors
 
 from imbue.mng.config.data_types import MngContext
@@ -8,6 +9,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.docker.config import DockerProviderConfig
 from imbue.mng.providers.docker.instance import DockerProviderInstance
+from imbue.mng.providers.docker.volume import state_volume_name
 from imbue.mng.providers.local.volume import LocalVolume
 from imbue.mng.utils.testing import get_short_random_string
 
@@ -62,6 +64,15 @@ def make_docker_provider_with_cleanup(
             except docker.errors.DockerException:
                 pass
     except (MngError, docker.errors.DockerException):
+        pass
+
+    # Remove the Docker named volume backing the state container.
+    try:
+        user_id = str(mng_ctx.get_profile_user_id())
+        prefix = mng_ctx.config.prefix
+        vol_name = state_volume_name(prefix, user_id)
+        provider._docker_client.volumes.get(vol_name).remove(force=True)
+    except (docker.errors.NotFound, docker.errors.DockerException, OSError, MngError):
         pass
 
     try:
