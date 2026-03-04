@@ -1,5 +1,7 @@
 """Unit tests for the notification module."""
 
+import shlex
+
 import pytest
 
 from imbue.mng_notifications.config import NotificationsPluginConfig
@@ -37,8 +39,6 @@ def test_build_execute_command_custom_command() -> None:
 
 def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
     """Agent names with single quotes are properly escaped via shlex.quote."""
-    import shlex
-
     result = build_execute_command("it's-agent", _config(custom_terminal_command="my-cmd"))
     assert result is not None
     expected_name = shlex.quote("it's-agent")
