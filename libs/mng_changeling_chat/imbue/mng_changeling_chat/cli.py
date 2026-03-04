@@ -4,7 +4,6 @@ import click
 from click_option_group import optgroup
 from loguru import logger
 from pydantic import ConfigDict
-from urwid.display.raw import Screen
 from urwid.event_loop.abstract_loop import ExitMainLoop
 from urwid.event_loop.main_loop import MainLoop
 from urwid.widget.attr_map import AttrMap
@@ -17,12 +16,14 @@ from urwid.widget.text import Text
 from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
+from imbue.imbue_common.pure import pure
 from imbue.mng.cli.agent_utils import find_agent_for_command
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
+from imbue.mng.cli.urwid_utils import create_urwid_screen_preserving_terminal
 from imbue.mng.errors import UserInputError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
@@ -31,6 +32,9 @@ from imbue.mng_changeling_chat.api import ConversationInfo
 from imbue.mng_changeling_chat.api import get_latest_conversation_id
 from imbue.mng_changeling_chat.api import list_conversations_on_agent
 from imbue.mng_changeling_chat.api import run_chat_on_agent
+
+CHANGELING_LABEL_KEY = "changeling"
+CHANGELING_LABEL_VALUE = "true"
 
 
 class ChatCliOptions(CommonCliOptions):
@@ -80,11 +84,11 @@ def _handle_conversation_selector_input(  # pragma: no cover
         if state.list_walker:
             _, focus_index = state.list_walker.get_focus()
             if focus_index is not None:
-                # Index 0 is the "[New conversation]" entry
-                if focus_index == 0:
+                # Last entry is "[New conversation]"
+                if focus_index == len(state.conversations):
                     state.is_new_selected = True
-                elif focus_index - 1 < len(state.conversations):
-                    state.result = state.conversations[focus_index - 1]
+                elif focus_index < len(state.conversations):
+                    state.result = state.conversations[focus_index]
         raise ExitMainLoop()
 
     # Let arrow keys pass through to the ListBox for navigation
@@ -121,13 +125,13 @@ def _run_conversation_selector(  # pragma: no cover
 
     list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
 
-    # Add a "[New conversation]" option at the top
+    for conversation in conversations:
+        list_walker.append(_create_selectable_conversation_item(conversation, cid_width, model_width))
+
+    # Add "[New conversation]" at the bottom
     new_conv_text = "[New conversation]"
     new_conv_item = SelectableIcon(new_conv_text, cursor_position=0)
     list_walker.append(AttrMap(new_conv_item, None, focus_map="reversed"))
-
-    for conversation in conversations:
-        list_walker.append(_create_selectable_conversation_item(conversation, cid_width, model_width))
 
     list_walker.set_focus(0)
 
@@ -168,16 +172,14 @@ def _run_conversation_selector(  # pragma: no cover
 
     input_handler = ConversationSelectorInputHandler(state=state)
 
-    screen = Screen()
-    screen.tty_signal_keys(intr="undefined")
-
-    loop = MainLoop(
-        frame,
-        palette=palette,
-        unhandled_input=input_handler,
-        screen=screen,
-    )
-    loop.run()
+    with create_urwid_screen_preserving_terminal() as screen:
+        loop = MainLoop(
+            frame,
+            palette=palette,
+            unhandled_input=input_handler,
+            screen=screen,
+        )
+        loop.run()
 
     return state.result, state.is_new_selected
 
@@ -275,6 +277,12 @@ def _resolve_latest_conversation_args(
         return ["--resume", latest_cid]
 
 
+@pure
+def _is_changeling(labels: dict[str, str]) -> bool:
+    """Check if an agent's labels indicate it is a changeling."""
+    return labels.get(CHANGELING_LABEL_KEY) == CHANGELING_LABEL_VALUE
+
+
 @click.command()
 @click.argument("agent", default=None, required=False)
 @optgroup.group("General")
@@ -319,18 +327,31 @@ def chat(ctx: click.Context, **kwargs: Any) -> None:  # pragma: no cover
         command_class=ChatCliOptions,
     )
 
-    # Find the agent
+    # Find a changeling agent.
+    # When an agent is specified by name/ID, find it and validate its label.
+    # When interactive with no agent specified, filter the selector to changelings only.
     result = find_agent_for_command(
         mng_ctx=mng_ctx,
         agent_identifier=opts.agent,
         command_usage="chat <agent>",
         host_filter=None,
         is_start_desired=opts.start,
+        agent_filter=lambda a: _is_changeling(a.labels),
+        no_agents_message="No changeling agents found",
     )
     if result is None:
         logger.info("No agent selected")
         return
     agent, host = result
+
+    # Validate changeling label when agent was specified by name/ID
+    # (the agent_filter only applies to interactive selection)
+    if opts.agent is not None and not _is_changeling(agent.get_labels()):
+        raise UserInputError(
+            f"Agent '{agent.name}' is not a changeling and does not support chat. "
+            f"Only agents with the label {CHANGELING_LABEL_KEY}={CHANGELING_LABEL_VALUE} "
+            f"can be chatted with."
+        )
 
     # Determine chat mode and build args
     chat_args = resolve_chat_args(opts, agent, host, is_interactive=mng_ctx.is_interactive)

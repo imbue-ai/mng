@@ -5,7 +5,10 @@ from click.testing import CliRunner
 
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.host import Host
+from imbue.mng_changeling_chat.cli import CHANGELING_LABEL_KEY
+from imbue.mng_changeling_chat.cli import CHANGELING_LABEL_VALUE
 from imbue.mng_changeling_chat.cli import ChatCliOptions
+from imbue.mng_changeling_chat.cli import _is_changeling
 from imbue.mng_changeling_chat.cli import _resolve_latest_conversation_args
 from imbue.mng_changeling_chat.cli import chat
 from imbue.mng_changeling_chat.cli import resolve_chat_args
@@ -222,3 +225,20 @@ def test_resolve_latest_conversation_args_resumes_latest(
     result = _resolve_latest_conversation_args(agent, host)
 
     assert result == ["--resume", "conv-abc"]
+
+
+# =========================================================================
+# Tests for _is_changeling
+# =========================================================================
+
+
+def test_is_changeling_returns_true_for_changeling_label() -> None:
+    assert _is_changeling({CHANGELING_LABEL_KEY: CHANGELING_LABEL_VALUE}) is True
+
+
+def test_is_changeling_returns_false_for_missing_label() -> None:
+    assert _is_changeling({}) is False
+
+
+def test_is_changeling_returns_false_for_wrong_value() -> None:
+    assert _is_changeling({CHANGELING_LABEL_KEY: "false"}) is False

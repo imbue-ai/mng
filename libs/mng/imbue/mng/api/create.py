@@ -5,6 +5,7 @@ from loguru import logger
 from imbue.imbue_common.logging import log_call
 from imbue.imbue_common.logging import log_span
 from imbue.mng.api.data_types import CreateAgentResult
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.providers import get_provider_instance
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import HostLocation
@@ -150,6 +151,9 @@ def create(
         # Call on_agent_created hooks to notify plugins about the new agent
         with log_span("Calling on_agent_created hooks"):
             mng_ctx.pm.hook.on_agent_created(agent=result.agent, host=result.host)
+
+        # Emit discovery events for the host and newly created agent
+        emit_discovery_events_for_host(mng_ctx.config, host)
 
     return result
 
