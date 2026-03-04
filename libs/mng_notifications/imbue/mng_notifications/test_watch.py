@@ -67,6 +67,7 @@ def test_watcher_detects_running_to_waiting_transition(
 
     # Start the watcher in a background thread with a very short poll interval
     notifier = RecordingNotifier()
+    stop_event = threading.Event()
 
     watcher_thread = threading.Thread(
         target=watch_for_waiting_agents,
@@ -77,8 +78,8 @@ def test_watcher_detects_running_to_waiting_transition(
             "exclude_filters": (),
             "plugin_config": NotificationsPluginConfig(),
             "notifier": notifier,
+            "stop_event": stop_event,
         },
-        daemon=True,
     )
     watcher_thread.start()
 
@@ -100,4 +101,6 @@ def test_watcher_detects_running_to_waiting_transition(
         assert notifier.calls[0][0] == "Agent waiting"
         assert "watch-test" in notifier.calls[0][1]
     finally:
+        stop_event.set()
+        watcher_thread.join(timeout=5)
         host.stop_agents([agent.id], timeout_seconds=3.0)

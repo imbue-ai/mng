@@ -1,3 +1,4 @@
+import threading
 import time
 from collections.abc import Mapping
 from collections.abc import Sequence
@@ -43,10 +44,11 @@ def watch_for_waiting_agents(
     exclude_filters: tuple[str, ...],
     plugin_config: NotificationsPluginConfig,
     notifier: Notifier,
+    stop_event: threading.Event | None = None,
 ) -> None:
     """Poll agents and send notifications when RUNNING -> WAITING transitions occur.
 
-    This runs indefinitely until interrupted (KeyboardInterrupt).
+    Runs until stop_event is set (if provided) or until interrupted.
     """
     previous_states: dict[AgentId, AgentLifecycleState] = {}
 
@@ -56,8 +58,14 @@ def watch_for_waiting_agents(
         previous_states = build_state_map(agents)
         logger.info("Tracking {} agent(s)", len(previous_states))
 
-    while True:
-        time.sleep(interval_seconds)
+    while stop_event is None or not stop_event.is_set():
+        if stop_event is not None:
+            stop_event.wait(timeout=interval_seconds)
+            if stop_event.is_set():
+                break
+        else:
+            time.sleep(interval_seconds)
+
         agents = _poll_agents(mng_ctx, include_filters, exclude_filters)
         if agents is None:
             continue

@@ -38,7 +38,7 @@ class LinuxNotifier(Notifier):
 
     def notify(self, title: str, message: str, execute_command: str | None) -> None:
         if execute_command is not None:
-            logger.debug("notify-send does not support click actions; ignoring execute_command")
+            raise NotImplementedError("notify-send does not support click actions; use notification_only = true")
         cmd = ["notify-send", title, message]
         try:
             subprocess.run(cmd, check=False, capture_output=True, timeout=10)
