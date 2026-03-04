@@ -171,21 +171,32 @@ new_conversation() {
         tool_args=$(build_tool_args)
         log "Starting live-chat session: model=$model tool_args='$tool_args'"
 
-        # llm live-chat prints "PID: <pid> | Conversation: <id>" to stdout
-        # before the interactive session. We use a trap + background watcher
-        # to capture this from the llm logs database once it starts, so the
-        # conversation appears in our event logs for the web UI.
+        # llm live-chat creates a conversation in the llm database. We need
+        # to register the correct conversation ID in our events file. Record
+        # the current max rowid so the background process can find the NEW
+        # conversation (rather than picking up a stale one from a prior session).
+        local _llm_db _max_rowid
+        _llm_db=$(llm logs path 2>/dev/null || echo "")
+        _max_rowid=0
+        if [ -n "$_llm_db" ] && [ -f "$_llm_db" ]; then
+            _max_rowid=$(sqlite3 "$_llm_db" "SELECT COALESCE(MAX(rowid), 0) FROM conversations" 2>/dev/null || echo "0")
+        fi
+
         (
-            # Wait for llm to create its conversation in the database
-            sleep 2
-            _LLM_DB=$(llm logs path 2>/dev/null || echo "")
-            if [ -n "$_LLM_DB" ] && [ -f "$_LLM_DB" ]; then
-                _LATEST_CID=$(sqlite3 "$_LLM_DB" "SELECT id FROM conversations ORDER BY rowid DESC LIMIT 1" 2>/dev/null || true)
-                if [ -n "$_LATEST_CID" ]; then
-                    append_conversation_event "$_LATEST_CID" "$model" "conversation_created"
-                    log "Recorded conversation event for llm-generated cid=$_LATEST_CID"
+            # Poll for a conversation created after we started (rowid > saved).
+            for _i in $(seq 1 60); do
+                sleep 1
+                if [ -n "$_llm_db" ] && [ -f "$_llm_db" ]; then
+                    _new_cid=$(sqlite3 "$_llm_db" \
+                        "SELECT id FROM conversations WHERE rowid > $_max_rowid ORDER BY rowid ASC LIMIT 1" \
+                        2>/dev/null || true)
+                    if [ -n "$_new_cid" ]; then
+                        append_conversation_event "$_new_cid" "$model" "conversation_created"
+                        log "Recorded conversation event for new cid=$_new_cid (rowid > $_max_rowid)"
+                        break
+                    fi
                 fi
-            fi
+            done
         ) &
 
         # shellcheck disable=SC2086
