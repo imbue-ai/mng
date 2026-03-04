@@ -1153,9 +1153,9 @@ def get_files_for_deploy(
 ) -> dict[Path, Path | str]:
     """Register claude-specific files for scheduled deployments.
 
-    Files are written to paths relative to $CLAUDE_CONFIG_DIR (which is set
-    by modify_env_vars_for_deploy). At deploy time, the provisioning system
-    maps these paths into the per-agent config directory.
+    Files use ~/.claude/ prefix paths and are staged to $HOME/.claude/ in
+    the deploy image. At runtime, mng create triggers provisioning which
+    copies these into the per-agent config directory (CLAUDE_CONFIG_DIR).
 
     Always includes settings.json and .claude.json (using generated defaults
     when local files are unavailable or user settings are excluded).
@@ -1166,9 +1166,9 @@ def get_files_for_deploy(
 
     local_claude_dir = Path.home() / ".claude"
 
-    # Always ship settings.json and .claude.json to the config dir.
-    # These use ~/.claude/ prefix paths which the deploy system maps to
-    # the per-agent config dir via CLAUDE_CONFIG_DIR.
+    # Always ship settings.json and .claude.json to $HOME/.claude/ in the
+    # deploy image. These serve as source material that provisioning reads
+    # when setting up the per-agent config dir at runtime.
     files[Path("~/.claude/settings.json")] = _build_settings_json_content(include_user_settings)
     # we set the time to a constant for better caching:
     FIXED_TIME = datetime(2026, 2, 23, 3, 4, 7, tzinfo=timezone.utc)
