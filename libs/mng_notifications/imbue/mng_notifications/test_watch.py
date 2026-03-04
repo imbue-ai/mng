@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from imbue.mng.api.list import ListResult
+from imbue.mng.api.list import list_agents as real_list_agents
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -23,6 +24,7 @@ from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.utils.polling import wait_for
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.mock_notifier_test import RecordingNotifier
+from imbue.mng_notifications.testing import patch_list_agents
 from imbue.mng_notifications.watcher import watch_for_waiting_agents
 
 
@@ -66,14 +68,13 @@ def test_watcher_detects_running_to_waiting_transition(
 
     # Wrap list_agents to signal when the initial poll completes
     polled_event = threading.Event()
-    real_list_agents = __import__("imbue.mng.api.list", fromlist=["list_agents"]).list_agents
 
     def signaling_list_agents(mng_ctx: Any, **kwargs: Any) -> ListResult:
         result = real_list_agents(mng_ctx, **kwargs)
         polled_event.set()
         return result
 
-    monkeypatch.setattr("imbue.mng_notifications.watcher.list_agents", signaling_list_agents)
+    patch_list_agents(monkeypatch, signaling_list_agents)
 
     notifier = RecordingNotifier()
     stop_event = threading.Event()

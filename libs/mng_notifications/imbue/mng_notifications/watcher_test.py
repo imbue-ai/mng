@@ -4,7 +4,6 @@ from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -23,6 +22,8 @@ from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.mock_notifier_test import RecordingNotifier
+from imbue.mng_notifications.testing import patch_list_agents_raises
+from imbue.mng_notifications.testing import patch_list_agents_returns
 from imbue.mng_notifications.watcher import _notify_agent_waiting
 from imbue.mng_notifications.watcher import _poll_agents
 from imbue.mng_notifications.watcher import build_state_map
@@ -178,12 +179,7 @@ def test_notify_agent_waiting_sends_notification(notification_cg: ConcurrencyGro
 def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch, temp_mng_ctx: MngContext) -> None:
     """_poll_agents returns the list of agents from list_agents."""
     agent = _make_agent(name="polled-agent")
-    fake_result = ListResult(agents=[agent])
-
-    monkeypatch.setattr(
-        "imbue.mng_notifications.watcher.list_agents",
-        lambda mng_ctx, **kwargs: fake_result,
-    )
+    patch_list_agents_returns(monkeypatch, ListResult(agents=[agent]))
 
     result = _poll_agents(temp_mng_ctx, (), ())
 
@@ -194,14 +190,7 @@ def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch, temp_mn
 
 def test_poll_agents_returns_none_on_mng_error(monkeypatch: pytest.MonkeyPatch, temp_mng_ctx: MngContext) -> None:
     """_poll_agents returns None when list_agents raises MngError."""
-
-    def fail_list_agents(mng_ctx: Any, **kwargs: Any) -> None:
-        raise MngError("connection failed")
-
-    monkeypatch.setattr(
-        "imbue.mng_notifications.watcher.list_agents",
-        fail_list_agents,
-    )
+    patch_list_agents_raises(monkeypatch, MngError("connection failed"))
 
     result = _poll_agents(temp_mng_ctx, (), ())
 

@@ -11,7 +11,7 @@ from imbue.mng_notifications.notifier import LinuxNotifier
 from imbue.mng_notifications.notifier import MacOSNotifier
 from imbue.mng_notifications.notifier import build_execute_command
 from imbue.mng_notifications.notifier import get_notifier
-from imbue.mng_notifications.testing import FakePlatform
+from imbue.mng_notifications.testing import patch_platform
 
 
 def _config(
@@ -119,18 +119,18 @@ def test_build_execute_command_unsupported_terminal() -> None:
 # --- get_notifier ---
 
 
-def test_get_notifier_macos(fake_platform: FakePlatform) -> None:
-    fake_platform.set("Darwin")
+def test_get_notifier_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_platform(monkeypatch, "Darwin")
     assert isinstance(get_notifier(), MacOSNotifier)
 
 
-def test_get_notifier_linux(fake_platform: FakePlatform) -> None:
-    fake_platform.set("Linux")
+def test_get_notifier_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_platform(monkeypatch, "Linux")
     assert isinstance(get_notifier(), LinuxNotifier)
 
 
-def test_get_notifier_unsupported(fake_platform: FakePlatform) -> None:
-    fake_platform.set("Windows")
+def test_get_notifier_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
+    patch_platform(monkeypatch, "Windows")
     assert get_notifier() is None
 
 

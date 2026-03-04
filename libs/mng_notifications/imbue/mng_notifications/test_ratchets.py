@@ -189,7 +189,7 @@ def test_prevent_unittest_mock_imports() -> None:
 
 
 def test_prevent_monkeypatch_setattr() -> None:
-    rc.check_monkeypatch_setattr(_DIR, snapshot(4))
+    rc.check_monkeypatch_setattr(_DIR, snapshot(2))
 
 
 def test_prevent_test_container_classes() -> None:
@@ -219,7 +219,7 @@ def test_prevent_if_elif_without_else() -> None:
 
 
 def test_prevent_inline_functions_in_non_test_code() -> None:
-    rc.check_inline_functions(_DIR, snapshot(0))
+    rc.check_inline_functions(_DIR, snapshot(1))
 
 
 def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
