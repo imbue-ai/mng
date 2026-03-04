@@ -62,9 +62,12 @@ class ITermApp(TerminalApp):
             " -e 'end tell'"
         )
 
-        # Shell script: find tmux session -> find client TTY -> match iTerm tab -> or create new
+        # Shell script: find tmux session -> find client TTY -> match iTerm tab -> or create new.
+        # terminal-notifier runs with a bare system PATH (/usr/bin:/bin:/usr/sbin:/sbin),
+        # so we get the user's real PATH from their login shell first.
         return (
-            f"SESSION=$(tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -F {quoted_agent} | head -1)"
+            "export PATH=$($SHELL -lc 'echo $PATH' 2>/dev/null || echo $PATH);"
+            f" SESSION=$(tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -F {quoted_agent} | head -1)"
             ' && if [ -n "$SESSION" ]; then'
             " for CLIENT_TTY in $(tmux list-clients -t \"$SESSION\" -F '#{client_tty}' 2>/dev/null); do"
             f' FOUND=$({activate_script} -- "$CLIENT_TTY" 2>/dev/null);'
