@@ -1,14 +1,21 @@
 import json
 from pathlib import Path
 
+from imbue.imbue_common.event_envelope import EventType
+from imbue.mng.api.discovery_events import AgentDestroyedEvent
 from imbue.mng.api.discovery_events import AgentDiscoveryEvent
+from imbue.mng.api.discovery_events import DISCOVERY_EVENT_SOURCE
 from imbue.mng.api.discovery_events import DiscoveryEventType
 from imbue.mng.api.discovery_events import FullDiscoverySnapshotEvent
+from imbue.mng.api.discovery_events import HostDestroyedEvent
 from imbue.mng.api.discovery_events import HostDiscoveryEvent
+from imbue.mng.api.discovery_events import _make_envelope_fields
 from imbue.mng.api.discovery_events import append_discovery_event
 from imbue.mng.api.discovery_events import discovered_agent_from_agent_details
 from imbue.mng.api.discovery_events import discovered_host_from_agent_details
+from imbue.mng.api.discovery_events import emit_agent_destroyed
 from imbue.mng.api.discovery_events import emit_agent_discovered
+from imbue.mng.api.discovery_events import emit_host_destroyed
 from imbue.mng.api.discovery_events import emit_host_discovered
 from imbue.mng.api.discovery_events import extract_agents_and_hosts_from_full_listing
 from imbue.mng.api.discovery_events import find_latest_full_snapshot_offset
@@ -20,6 +27,7 @@ from imbue.mng.api.discovery_events import make_host_discovery_event
 from imbue.mng.api.discovery_events import parse_discovery_event_line
 from imbue.mng.api.discovery_events import write_full_discovery_snapshot
 from imbue.mng.config.data_types import MngConfig
+from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
@@ -248,3 +256,71 @@ def test_find_latest_full_snapshot_offset_finds_last_full_event(temp_config: Mng
     assert len(remaining_lines) == 2
     first_data = json.loads(remaining_lines[0])
     assert first_data["type"] == DiscoveryEventType.DISCOVERY_FULL
+
+
+# === Destroy Event Tests ===
+
+
+def test_emit_agent_destroyed_writes_to_file(temp_config: MngConfig) -> None:
+    agent_id = AgentId.generate()
+    host_id = HostId.generate()
+    emit_agent_destroyed(temp_config, agent_id, host_id)
+
+    events_path = get_discovery_events_path(temp_config)
+    lines = events_path.read_text().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == DiscoveryEventType.AGENT_DESTROYED
+    assert data["agent_id"] == str(agent_id)
+    assert data["host_id"] == str(host_id)
+
+
+def test_emit_host_destroyed_writes_to_file(temp_config: MngConfig) -> None:
+    host_id = HostId.generate()
+    agent_ids = (AgentId.generate(), AgentId.generate())
+    emit_host_destroyed(temp_config, host_id, agent_ids)
+
+    events_path = get_discovery_events_path(temp_config)
+    lines = events_path.read_text().splitlines()
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["type"] == DiscoveryEventType.HOST_DESTROYED
+    assert data["host_id"] == str(host_id)
+    assert len(data["agent_ids"]) == 2
+
+
+def test_parse_agent_destroyed_event_round_trips() -> None:
+    agent_id = AgentId.generate()
+    host_id = HostId.generate()
+    timestamp, event_id = _make_envelope_fields()
+    event = AgentDestroyedEvent(
+        timestamp=timestamp,
+        type=EventType(DiscoveryEventType.AGENT_DESTROYED),
+        event_id=event_id,
+        source=DISCOVERY_EVENT_SOURCE,
+        agent_id=agent_id,
+        host_id=host_id,
+    )
+    line = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
+    parsed = parse_discovery_event_line(line)
+    assert isinstance(parsed, AgentDestroyedEvent)
+    assert parsed.agent_id == agent_id
+
+
+def test_parse_host_destroyed_event_round_trips() -> None:
+    host_id = HostId.generate()
+    agent_ids = (AgentId.generate(),)
+    timestamp, event_id = _make_envelope_fields()
+    event = HostDestroyedEvent(
+        timestamp=timestamp,
+        type=EventType(DiscoveryEventType.HOST_DESTROYED),
+        event_id=event_id,
+        source=DISCOVERY_EVENT_SOURCE,
+        host_id=host_id,
+        agent_ids=agent_ids,
+    )
+    line = json.dumps(event.model_dump(mode="json"), separators=(",", ":"))
+    parsed = parse_discovery_event_line(line)
+    assert isinstance(parsed, HostDestroyedEvent)
+    assert parsed.host_id == host_id
+    assert len(parsed.agent_ids) == 1

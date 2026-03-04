@@ -22,8 +22,10 @@ from imbue.mng.config.data_types import MngConfig
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
+from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 
@@ -35,6 +37,8 @@ class DiscoveryEventType(UpperCaseStrEnum):
 
     AGENT_DISCOVERED = auto()
     HOST_DISCOVERED = auto()
+    AGENT_DESTROYED = auto()
+    HOST_DESTROYED = auto()
     DISCOVERY_FULL = auto()
 
 
@@ -51,6 +55,20 @@ class HostDiscoveryEvent(EventEnvelope):
     """A discovery event recording a single host state change."""
 
     host: DiscoveredHost = Field(description="The discovered host data")
+
+
+class AgentDestroyedEvent(EventEnvelope):
+    """A discovery event recording that an agent was destroyed."""
+
+    agent_id: AgentId = Field(description="ID of the destroyed agent")
+    host_id: HostId = Field(description="ID of the host the agent was on")
+
+
+class HostDestroyedEvent(EventEnvelope):
+    """A discovery event recording that a host was destroyed."""
+
+    host_id: HostId = Field(description="ID of the destroyed host")
+    agent_ids: tuple[AgentId, ...] = Field(description="IDs of agents that were on the host")
 
 
 class FullDiscoverySnapshotEvent(EventEnvelope):
@@ -202,6 +220,40 @@ def emit_host_discovered(config: MngConfig, host: DiscoveredHost) -> None:
     logger.trace("Emitted host_discovered event for {}", host.host_name)
 
 
+def emit_agent_destroyed(config: MngConfig, agent_id: AgentId, host_id: HostId) -> None:
+    """Build and append an agent destroyed event."""
+    timestamp, event_id = _make_envelope_fields()
+    event = AgentDestroyedEvent(
+        timestamp=timestamp,
+        type=EventType(DiscoveryEventType.AGENT_DESTROYED),
+        event_id=event_id,
+        source=DISCOVERY_EVENT_SOURCE,
+        agent_id=agent_id,
+        host_id=host_id,
+    )
+    append_discovery_event(config, event)
+    logger.trace("Emitted agent_destroyed event for {}", agent_id)
+
+
+def emit_host_destroyed(
+    config: MngConfig,
+    host_id: HostId,
+    agent_ids: Sequence[AgentId],
+) -> None:
+    """Build and append a host destroyed event."""
+    timestamp, event_id = _make_envelope_fields()
+    event = HostDestroyedEvent(
+        timestamp=timestamp,
+        type=EventType(DiscoveryEventType.HOST_DESTROYED),
+        event_id=event_id,
+        source=DISCOVERY_EVENT_SOURCE,
+        host_id=host_id,
+        agent_ids=tuple(agent_ids),
+    )
+    append_discovery_event(config, event)
+    logger.trace("Emitted host_destroyed event for {}", host_id)
+
+
 def _get_provider_name_from_host(host: OnlineHostInterface) -> ProviderInstanceName:
     """Extract the provider instance name from a host object."""
     if isinstance(host, Host):
@@ -255,10 +307,13 @@ def write_full_discovery_snapshot(
 # === Event Parsing ===
 
 
+DiscoveryEvent = (
+    AgentDiscoveryEvent | HostDiscoveryEvent | AgentDestroyedEvent | HostDestroyedEvent | FullDiscoverySnapshotEvent
+)
+
+
 @pure
-def parse_discovery_event_line(
-    line: str,
-) -> AgentDiscoveryEvent | HostDiscoveryEvent | FullDiscoverySnapshotEvent | None:
+def parse_discovery_event_line(line: str) -> DiscoveryEvent | None:
     """Parse a single JSONL line into the appropriate discovery event type.
 
     Returns None if the line cannot be parsed or is not a recognized discovery event.
@@ -277,6 +332,10 @@ def parse_discovery_event_line(
             return AgentDiscoveryEvent.model_validate(data)
         case DiscoveryEventType.HOST_DISCOVERED:
             return HostDiscoveryEvent.model_validate(data)
+        case DiscoveryEventType.AGENT_DESTROYED:
+            return AgentDestroyedEvent.model_validate(data)
+        case DiscoveryEventType.HOST_DESTROYED:
+            return HostDestroyedEvent.model_validate(data)
         case DiscoveryEventType.DISCOVERY_FULL:
             return FullDiscoverySnapshotEvent.model_validate(data)
         case _:
