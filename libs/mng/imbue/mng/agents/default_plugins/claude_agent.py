@@ -990,10 +990,15 @@ class ClaudeAgent(BaseAgent):
         else:
             _provision_file_credentials(host, config_dir)
 
-        # 3. Copy settings and other items from ~/.claude/ if sync_home_settings
+        # 3. Always write settings.json (ensures skipDangerousModePermissionPrompt is set)
+        host.write_text_file(config_dir / "settings.json", _build_settings_json_content(config.sync_home_settings))
+
+        # 4. Copy other items from ~/.claude/ (skills, agents, commands) if sync_home_settings
         if config.sync_home_settings:
             home_claude = Path.home() / ".claude"
             for relative_path, source_path in _collect_claude_home_dir_files(home_claude).items():
+                if relative_path == "settings.json":
+                    continue
                 dest_path = config_dir / relative_path
                 host.execute_command(f"mkdir -p {shlex.quote(str(dest_path.parent))}", timeout_seconds=5.0)
                 host.execute_command(
