@@ -151,10 +151,14 @@ def _collect_claude_home_dir_files(claude_dir: Path) -> dict[str, Path]:
 
 
 def _build_settings_json_content(sync_local: bool) -> str:
-    """Build settings.json content for the per-agent config dir.
+    """Build settings.json content for remote/deploy per-agent config dirs.
 
     Uses the local file as a base when sync_local is True and the file exists,
-    otherwise uses generated defaults. Always forces skipDangerousModePermissionPrompt=True.
+    otherwise uses generated defaults. Forces skipDangerousModePermissionPrompt=True
+    and disables fastMode (not supported via the API on remote hosts).
+
+    Not used for local hosts -- those copy ~/.claude/settings.json as-is to
+    preserve the user's exact settings.
     """
     local_path = Path.home() / ".claude" / "settings.json"
     if sync_local and local_path.exists():
@@ -990,15 +994,10 @@ class ClaudeAgent(BaseAgent):
         else:
             _provision_file_credentials(host, config_dir)
 
-        # 3. Always write settings.json (ensures skipDangerousModePermissionPrompt is set)
-        host.write_text_file(config_dir / "settings.json", _build_settings_json_content(config.sync_home_settings))
-
-        # 4. Copy other items from ~/.claude/ (skills, agents, commands) if sync_home_settings
+        # 3. Copy settings and other items from ~/.claude/ if sync_home_settings
         if config.sync_home_settings:
             home_claude = Path.home() / ".claude"
             for relative_path, source_path in _collect_claude_home_dir_files(home_claude).items():
-                if relative_path == "settings.json":
-                    continue
                 dest_path = config_dir / relative_path
                 host.execute_command(f"mkdir -p {shlex.quote(str(dest_path.parent))}", timeout_seconds=5.0)
                 host.execute_command(
