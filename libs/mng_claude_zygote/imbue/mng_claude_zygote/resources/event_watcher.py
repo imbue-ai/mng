@@ -681,16 +681,30 @@ def _run_delivery_loop(
             event_buffer.clear()
 
         if not pending:
-            stop_event.wait(timeout=_DELIVERY_POLL_INTERVAL_SECONDS)
-            continue
+            # Even with no new events, check for timed-out held chat messages
+            if held_user_messages:
+                deliverable_lines = _separate_chat_events([], held_user_messages)
+                if deliverable_lines:
+                    last_parsed = {}
+                    for line in deliverable_lines:
+                        try:
+                            last_parsed = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                else:
+                    stop_event.wait(timeout=_DELIVERY_POLL_INTERVAL_SECONDS)
+                    continue
+            else:
+                stop_event.wait(timeout=_DELIVERY_POLL_INTERVAL_SECONDS)
+                continue
+        else:
+            # Parse and filter for catch-up
+            deliverable_lines, last_parsed, is_catching_up = _filter_catchup_events(
+                pending, delivery_state, is_catching_up
+            )
 
-        # Parse and filter for catch-up
-        deliverable_lines, last_parsed, is_catching_up = _filter_catchup_events(
-            pending, delivery_state, is_catching_up
-        )
-
-        # Separate chat events: hold user messages until assistant responds
-        deliverable_lines = _separate_chat_events(deliverable_lines, held_user_messages)
+            # Separate chat events: hold user messages until assistant responds
+            deliverable_lines = _separate_chat_events(deliverable_lines, held_user_messages)
 
         if not deliverable_lines:
             continue
