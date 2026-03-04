@@ -1,3 +1,4 @@
+import shlex
 from abc import ABC
 from abc import abstractmethod
 
@@ -17,30 +18,37 @@ class TerminalApp(ABC):
 
 
 class ITermApp(TerminalApp):
-    """iTerm2 on macOS. Finds an existing tab connected to the agent, or opens a new one."""
+    """iTerm2 on macOS. Finds an existing tab attached to the agent's tmux session, or opens a new one."""
 
     def build_connect_command(self, mng_connect: str, agent_name: str) -> str:
         escaped_cmd = _escape_for_applescript(mng_connect)
-        escaped_name = _escape_for_applescript(agent_name)
-        # Search all windows/tabs for one whose session name contains the agent name.
-        # If found, select that tab and activate the window. Otherwise, create a new
-        # tab and run the connect command.
-        return (
+        quoted_agent = shlex.quote(agent_name)
+
+        # AppleScript that takes a TTY argument, searches iTerm tabs for it, and activates it.
+        activate_script = (
             "osascript"
+            " -e 'on run argv'"
+            " -e 'set targetTTY to item 1 of argv'"
             " -e 'tell app \"iTerm2\"'"
-            " -e 'set found to false'"
             " -e 'repeat with w in windows'"
             " -e 'repeat with t in tabs of w'"
-            f" -e 'if name of current session of t contains \"{escaped_name}\" then'"
+            " -e 'if tty of current session of t is targetTTY then'"
             " -e 'select t'"
             " -e 'set index of w to 1'"
-            " -e 'set found to true'"
-            " -e 'exit repeat'"
+            " -e 'activate'"
+            " -e 'return \"found\"'"
             " -e 'end if'"
             " -e 'end repeat'"
-            " -e 'if found then exit repeat'"
             " -e 'end repeat'"
-            " -e 'if not found then'"
+            " -e 'return \"notfound\"'"
+            " -e 'end tell'"
+            " -e 'end run'"
+        )
+
+        create_tab_script = (
+            "osascript"
+            " -e 'tell app \"iTerm2\"'"
+            " -e 'activate'"
             " -e 'if (count of windows) is 0 then'"
             " -e 'create window with default profile'"
             " -e 'else'"
@@ -51,9 +59,18 @@ class ITermApp(TerminalApp):
             " -e 'tell current session of current window'"
             f" -e 'write text \"{escaped_cmd}\"'"
             " -e 'end tell'"
-            " -e 'end if'"
-            " -e 'activate'"
             " -e 'end tell'"
+        )
+
+        # Shell script: find tmux session -> find client TTY -> match iTerm tab -> or create new
+        return (
+            f"SESSION=$(tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -F {quoted_agent} | head -1)"
+            ' && if [ -n "$SESSION" ]; then'
+            " for CLIENT_TTY in $(tmux list-clients -t \"$SESSION\" -F '#{client_tty}' 2>/dev/null); do"
+            f' FOUND=$({activate_script} -- "$CLIENT_TTY" 2>/dev/null);'
+            ' if [ "$FOUND" = "found" ]; then exit 0; fi;'
+            " done; fi;"
+            f" {create_tab_script}"
         )
 
 

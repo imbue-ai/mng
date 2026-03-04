@@ -7,24 +7,25 @@ from imbue.mng_notifications.terminals import WezTermApp
 from imbue.mng_notifications.terminals import get_terminal_app
 
 
-def test_iterm_build_connect_command() -> None:
+def test_iterm_searches_tmux_clients() -> None:
     result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
-    assert "iTerm2" in result
-    assert "mng connect my-agent" in result
-
-
-def test_iterm_searches_existing_tabs() -> None:
-    result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
-    assert "contains" in result
+    assert "tmux list-sessions" in result
+    assert "tmux list-clients" in result
     assert "my-agent" in result
-    assert "set found to" in result
+
+
+def test_iterm_activates_matching_tab_by_tty() -> None:
+    result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
+    assert "tty of current session of t is targetTTY" in result
+    assert "select t" in result
+    assert "activate" in result
 
 
 def test_iterm_creates_new_tab_if_not_found() -> None:
     result = ITermApp().build_connect_command("mng connect my-agent", "my-agent")
-    assert "if not found" in result
     assert "create tab with default profile" in result
     assert "write text" in result
+    assert "mng connect my-agent" in result
 
 
 def test_terminal_dot_app_build_connect_command() -> None:
