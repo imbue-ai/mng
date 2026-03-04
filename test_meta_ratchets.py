@@ -7,7 +7,6 @@ from inline_snapshot import snapshot
 from imbue.imbue_common.ratchet_testing.common_ratchets import RegexRatchetRule
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule_all_files
 from imbue.imbue_common.ratchet_testing.core import _get_all_files_with_extension
-from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_import_lint_errors
 from imbue.imbue_common.ratchet_testing.ratchets import find_bash_scripts_without_strict_mode
 
@@ -19,11 +18,6 @@ _EXCLUDED_PROJECTS: frozenset[str] = frozenset({"flexmux", "claude_web_view", "s
 _SELF_EXCLUSION: tuple[str, ...] = ("test_meta_ratchets.py",)
 
 pytestmark = pytest.mark.xdist_group(name="meta_ratchets")
-
-
-def teardown_module() -> None:
-    """Clear ratchet LRU caches after all tests in this module complete."""
-    clear_ratchet_caches()
 
 
 def _get_all_project_dirs() -> list[Path]:

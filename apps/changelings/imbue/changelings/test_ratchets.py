@@ -51,7 +51,6 @@ from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_UNITTEST_
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_WHILE_TRUE
 from imbue.imbue_common.ratchet_testing.common_ratchets import PREVENT_YAML_USAGE
 from imbue.imbue_common.ratchet_testing.common_ratchets import check_ratchet_rule
-from imbue.imbue_common.ratchet_testing.core import clear_ratchet_caches
 from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import _is_test_file
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
@@ -69,11 +68,6 @@ _SELF_EXCLUSION: tuple[str, ...] = ("test_ratchets.py",)
 
 # Group all ratchet tests onto a single xdist worker to benefit from LRU caching
 pytestmark = pytest.mark.xdist_group(name="ratchets")
-
-
-def teardown_module() -> None:
-    """Clear ratchet LRU caches after all tests in this module complete."""
-    clear_ratchet_caches()
 
 
 def _get_changelings_source_dir() -> Path:
