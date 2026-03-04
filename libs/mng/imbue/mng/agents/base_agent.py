@@ -38,6 +38,10 @@ _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
+# Messages at or above this length use load-buffer/paste-buffer instead of send-keys
+# to avoid tmux "command too long" errors.
+_LONG_MESSAGE_THRESHOLD: Final[int] = 1024
+
 # Default timeout for signal-based synchronization
 # Note that this does need to be fairly long, since it can take a little while for the machine to respond if you're unlucky
 _DEFAULT_ENTER_SUBMISSION_WAIT_FOR_TIMEOUT_SECONDS: Final[float] = 10.0
@@ -353,12 +357,38 @@ class BaseAgent(AgentInterface):
         """Capture the current tmux pane content for this agent."""
         return self._capture_pane_content(self.tmux_target)
 
+    def _send_tmux_literal_keys(self, tmux_target: str, message: str) -> None:
+        """Send literal text to a tmux pane, choosing the best method by length.
+
+        For short messages (< 1024 chars), uses ``tmux send-keys -l``.
+        For long messages (>= 1024 chars), writes the text to a temp file on
+        the host and uses ``tmux load-buffer`` + ``tmux paste-buffer`` to avoid
+        the tmux "command too long" error.
+        """
+        if len(message) < _LONG_MESSAGE_THRESHOLD:
+            send_msg_cmd = f"tmux send-keys -t '{tmux_target}' -l {shlex.quote(message)}"
+            result = self.host.execute_command(send_msg_cmd)
+            if not result.success:
+                raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+        else:
+            tmp_path = Path("/tmp/mng-msg-buffer.txt")
+            self.host.write_text_file(tmp_path, message)
+            load_cmd = f"tmux load-buffer {shlex.quote(str(tmp_path))}"
+            result = self.host.execute_command(load_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name), f"tmux load-buffer failed: {result.stderr or result.stdout}"
+                )
+            paste_cmd = f"tmux paste-buffer -t '{tmux_target}'"
+            result = self.host.execute_command(paste_cmd)
+            if not result.success:
+                raise SendMessageError(
+                    str(self.name), f"tmux paste-buffer failed: {result.stderr or result.stdout}"
+                )
+
     def _send_message_simple(self, tmux_target: str, message: str) -> None:
         """Send a message directly without waiting for paste confirmation."""
-        send_msg_cmd = f"tmux send-keys -t '{tmux_target}' -l {shlex.quote(message)}"
-        result = self.host.execute_command(send_msg_cmd)
-        if not result.success:
-            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+        self._send_tmux_literal_keys(tmux_target, message)
 
         send_enter_cmd = f"tmux send-keys -t '{tmux_target}' Enter"
         result = self.host.execute_command(send_enter_cmd)
@@ -381,10 +411,7 @@ class BaseAgent(AgentInterface):
         ``_send_enter_and_wait`` for submission signal synchronization.
         """
         # Send keys WITHOUT a trailing newline (so it probably does not submit)
-        send_msg_cmd = f"tmux send-keys -t '{tmux_target}' -l {shlex.quote(message)}"
-        result = self.host.execute_command(send_msg_cmd)
-        if not result.success:
-            raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
+        self._send_tmux_literal_keys(tmux_target, message)
 
         # Wait for the pasted content to appear on screen
         self._wait_for_paste_visible(tmux_target, message)

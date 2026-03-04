@@ -12,6 +12,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
+from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -2184,6 +2185,36 @@ To reconnect later, run:
 
 This popup won't show again in future sessions."""
 
+# Messages at or above this length use load-buffer/paste-buffer instead of send-keys
+# to avoid tmux "command too long" errors.
+_LONG_MESSAGE_THRESHOLD: Final[int] = 1024
+
+
+def _build_tmux_send_literal_steps(
+    tmux_target: str,
+    text: str,
+    host_dir: Path,
+) -> list[str]:
+    """Build shell command steps to send literal text to a tmux pane.
+
+    For short text (< 1024 chars), uses ``tmux send-keys -l``.
+    For long text (>= 1024 chars), writes to a temp file via printf and uses
+    ``tmux load-buffer`` + ``tmux paste-buffer`` to avoid the tmux
+    "command too long" error.
+    """
+    quoted_target = shlex.quote(tmux_target)
+    if len(text) < _LONG_MESSAGE_THRESHOLD:
+        return [f"tmux send-keys -t {quoted_target} -l {shlex.quote(text)}"]
+    else:
+        tmp_path = host_dir / "tmp" / "tmux-buffer.txt"
+        quoted_path = shlex.quote(str(tmp_path))
+        return [
+            f"mkdir -p {shlex.quote(str(tmp_path.parent))}",
+            f"printf %s {shlex.quote(text)} > {quoted_path}",
+            f"tmux load-buffer {quoted_path}",
+            f"tmux paste-buffer -t {quoted_target}",
+        ]
+
 
 @pure
 def _build_start_agent_shell_command(
@@ -2288,7 +2319,7 @@ def _build_start_agent_shell_command(
             f" -c {shlex.quote(str(agent.work_dir))}"
             f" {shlex.quote(env_shell_cmd)}"
         )
-        steps.append(f"tmux send-keys -t {shlex.quote(window_target)} -l {shlex.quote(str(named_cmd.command))}")
+        steps.extend(_build_tmux_send_literal_steps(window_target, str(named_cmd.command), host_dir))
         steps.append(f"tmux send-keys -t {shlex.quote(window_target)} Enter")
 
     # If we created additional windows, select the first window (the main agent)
@@ -2299,9 +2330,9 @@ def _build_start_agent_shell_command(
     # Send the agent command as literal keys, then Enter to execute.
     # Target window :0 explicitly so this works even after additional windows
     # have been created (which changes the active window).
-    agent_window = shlex.quote(session_name + ":0")
-    steps.append(f"tmux send-keys -t {agent_window} -l {shlex.quote(command)}")
-    steps.append(f"tmux send-keys -t {agent_window} Enter")
+    agent_window_target = session_name + ":0"
+    steps.extend(_build_tmux_send_literal_steps(agent_window_target, command, host_dir))
+    steps.append(f"tmux send-keys -t {shlex.quote(agent_window_target)} Enter")
 
     # Record START activity for idle detection by writing JSON to the activity file
     # The authoritative activity time is the file's mtime, not the JSON content
