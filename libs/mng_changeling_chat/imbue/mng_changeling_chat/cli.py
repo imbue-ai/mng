@@ -1,3 +1,5 @@
+import sys
+import termios
 from typing import Any
 
 import click
@@ -31,6 +33,9 @@ from imbue.mng_changeling_chat.api import ConversationInfo
 from imbue.mng_changeling_chat.api import get_latest_conversation_id
 from imbue.mng_changeling_chat.api import list_conversations_on_agent
 from imbue.mng_changeling_chat.api import run_chat_on_agent
+
+CHANGELING_LABEL_KEY = "changeling"
+CHANGELING_LABEL_VALUE = "true"
 
 
 class ChatCliOptions(CommonCliOptions):
@@ -80,11 +85,11 @@ def _handle_conversation_selector_input(  # pragma: no cover
         if state.list_walker:
             _, focus_index = state.list_walker.get_focus()
             if focus_index is not None:
-                # Index 0 is the "[New conversation]" entry
-                if focus_index == 0:
+                # Last entry is "[New conversation]"
+                if focus_index == len(state.conversations):
                     state.is_new_selected = True
-                elif focus_index - 1 < len(state.conversations):
-                    state.result = state.conversations[focus_index - 1]
+                elif focus_index < len(state.conversations):
+                    state.result = state.conversations[focus_index]
         raise ExitMainLoop()
 
     # Let arrow keys pass through to the ListBox for navigation
@@ -121,13 +126,13 @@ def _run_conversation_selector(  # pragma: no cover
 
     list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
 
-    # Add a "[New conversation]" option at the top
+    for conversation in conversations:
+        list_walker.append(_create_selectable_conversation_item(conversation, cid_width, model_width))
+
+    # Add "[New conversation]" at the bottom
     new_conv_text = "[New conversation]"
     new_conv_item = SelectableIcon(new_conv_text, cursor_position=0)
     list_walker.append(AttrMap(new_conv_item, None, focus_map="reversed"))
-
-    for conversation in conversations:
-        list_walker.append(_create_selectable_conversation_item(conversation, cid_width, model_width))
 
     list_walker.set_focus(0)
 
@@ -171,13 +176,22 @@ def _run_conversation_selector(  # pragma: no cover
     screen = Screen()
     screen.tty_signal_keys(intr="undefined")
 
+    # Save terminal settings so we can restore them after urwid exits.
+    # urwid's tty_signal_keys(intr="undefined") disables SIGINT at the terminal
+    # level, and may not restore it properly, which would break Ctrl+C in the
+    # subsequent chat session.
+    saved_tty_attrs = termios.tcgetattr(sys.stdin)
+
     loop = MainLoop(
         frame,
         palette=palette,
         unhandled_input=input_handler,
         screen=screen,
     )
-    loop.run()
+    try:
+        loop.run()
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved_tty_attrs)
 
     return state.result, state.is_new_selected
 
@@ -331,6 +345,14 @@ def chat(ctx: click.Context, **kwargs: Any) -> None:  # pragma: no cover
         logger.info("No agent selected")
         return
     agent, host = result
+
+    # Only changeling agents support chat
+    labels = agent.get_labels()
+    if labels.get(CHANGELING_LABEL_KEY) != CHANGELING_LABEL_VALUE:
+        raise UserInputError(
+            f"Agent '{agent.name}' is not a changeling and does not support chat. "
+            f"Only agents with the label {CHANGELING_LABEL_KEY}={CHANGELING_LABEL_VALUE} can be chatted with."
+        )
 
     # Determine chat mode and build args
     chat_args = resolve_chat_args(opts, agent, host, is_interactive=mng_ctx.is_interactive)
