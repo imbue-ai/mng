@@ -46,7 +46,7 @@ def _make_discovered_agent() -> DiscoveredAgent:
     return DiscoveredAgent(
         host_id=HostId.generate(),
         agent_id=AgentId.generate(),
-        agent_name=AgentName(f"test-agent-{uuid4().hex[:8]}"),
+        agent_name=AgentName(f"test-agent-{uuid4().hex}"),
         provider_name=ProviderInstanceName("local"),
     )
 
@@ -54,7 +54,7 @@ def _make_discovered_agent() -> DiscoveredAgent:
 def _make_discovered_host() -> DiscoveredHost:
     return DiscoveredHost(
         host_id=HostId.generate(),
-        host_name=HostName(f"test-host-{uuid4().hex[:8]}"),
+        host_name=HostName(f"test-host-{uuid4().hex}"),
         provider_name=ProviderInstanceName("local"),
     )
 
@@ -67,7 +67,7 @@ def _make_agent_details(host_id: HostId, provider_name: ProviderInstanceName) ->
     )
     return AgentDetails(
         id=AgentId.generate(),
-        name=AgentName(f"test-agent-{uuid4().hex[:8]}"),
+        name=AgentName(f"test-agent-{uuid4().hex}"),
         type="claude",
         command=CommandString("echo test"),
         work_dir=Path("/tmp/test"),
