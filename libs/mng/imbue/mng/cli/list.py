@@ -19,7 +19,7 @@ from tabulate import tabulate
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.list import ErrorInfo
-from imbue.mng.api.list import agent_to_cel_context
+from imbue.mng.api.list import agent_details_to_cel_context
 from imbue.mng.api.list import list_agents as api_list_agents
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
@@ -34,7 +34,7 @@ from imbue.mng.cli.watch_mode import run_watch_loop
 from imbue.mng.config.completion_writer import write_cli_completions_cache
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.config.data_types import OutputOptions
-from imbue.mng.interfaces.data_types import AgentInfo
+from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
@@ -508,7 +508,7 @@ class _LimitedJsonlEmitter(MutableModel):
     count: int = 0
     _lock: Lock = PrivateAttr(default_factory=Lock)
 
-    def __call__(self, agent: AgentInfo) -> None:
+    def __call__(self, agent: AgentDetails) -> None:
         with self._lock:
             if self.limit is not None and self.count >= self.limit:
                 return
@@ -525,7 +525,7 @@ class _StreamingTemplateEmitter(MutableModel):
     _lock: Lock = PrivateAttr(default_factory=Lock)
     _count: int = PrivateAttr(default=0)
 
-    def __call__(self, agent: AgentInfo) -> None:
+    def __call__(self, agent: AgentDetails) -> None:
         line = _render_format_template(self.format_template, agent)
         with self._lock:
             if self.limit is not None and self._count >= self.limit:
@@ -612,7 +612,7 @@ class _StreamingHumanRenderer(MutableModel):
 
             self.output.flush()
 
-    def __call__(self, agent: AgentInfo) -> None:
+    def __call__(self, agent: AgentDetails) -> None:
         """Handle a single agent result (on_agent callback)."""
         with self._lock:
             if self.limit is not None and self._count >= self.limit:
@@ -719,7 +719,7 @@ def _format_streaming_header_row(fields: Sequence[str], column_widths: dict[str,
 
 
 @pure
-def _format_streaming_agent_row(agent: AgentInfo, fields: Sequence[str], column_widths: dict[str, int]) -> str:
+def _format_streaming_agent_row(agent: AgentDetails, fields: Sequence[str], column_widths: dict[str, int]) -> str:
     """Format a single agent as a streaming output row."""
     parts: list[str] = []
     for field in fields:
@@ -803,7 +803,7 @@ def _run_list_iteration(params: _ListIterationParams, ctx: click.Context) -> Non
         ctx.exit(1)
 
 
-def _emit_json_output(agents: list[AgentInfo], errors: list[ErrorInfo]) -> None:
+def _emit_json_output(agents: list[AgentDetails], errors: list[ErrorInfo]) -> None:
     """Emit JSON output with all agents."""
     agents_data = [agent.model_dump(mode="json") for agent in agents]
     errors_data = [error.model_dump(mode="json") for error in errors]
@@ -814,7 +814,7 @@ def _emit_json_output(agents: list[AgentInfo], errors: list[ErrorInfo]) -> None:
     emit_final_json(output_data)
 
 
-def _emit_jsonl_agent(agent: AgentInfo) -> None:
+def _emit_jsonl_agent(agent: AgentDetails) -> None:
     """Emit a single agent as a JSONL line (streaming callback)."""
     agent_data = agent.model_dump(mode="json")
     emit_final_json(agent_data)
@@ -826,7 +826,7 @@ def _emit_jsonl_error(error: ErrorInfo) -> None:
     emit_final_json(error_data)
 
 
-def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None) -> None:
+def _emit_human_output(agents: list[AgentDetails], fields: list[str] | None = None) -> None:
     """Emit human-readable table output with optional field selection."""
     if not agents:
         return
@@ -856,7 +856,7 @@ def _emit_human_output(agents: list[AgentInfo], fields: list[str] | None = None)
     write_human_line("\n" + table)
 
 
-def _emit_template_output(agents: list[AgentInfo], template: str, output: Any) -> None:
+def _emit_template_output(agents: list[AgentDetails], template: str, output: Any) -> None:
     """Emit template-formatted output, one line per agent."""
     for agent in agents:
         line = _render_format_template(template, agent)
@@ -929,7 +929,7 @@ class _CelSortKeyExtractor:
     program: Any
     is_descending: bool
 
-    def __call__(self, pair: tuple[AgentInfo, dict[str, Any]]) -> tuple[int, str]:
+    def __call__(self, pair: tuple[AgentDetails, dict[str, Any]]) -> tuple[int, str]:
         _, ctx = pair
         value = evaluate_cel_sort_key(self.program, ctx)
         if value is None:
@@ -940,9 +940,9 @@ class _CelSortKeyExtractor:
 
 
 def _sort_agents_by_cel(
-    agents: list[AgentInfo],
+    agents: list[AgentDetails],
     compiled_sort_keys: Sequence[tuple[Any, bool]],
-) -> list[AgentInfo]:
+) -> list[AgentDetails]:
     """Sort agents using compiled CEL sort key expressions.
 
     Supports multiple sort keys with per-key direction (asc/desc).
@@ -953,10 +953,10 @@ def _sort_agents_by_cel(
         return agents
 
     # Precompute CEL contexts once for all agents
-    cel_contexts = [build_cel_context(agent_to_cel_context(agent)) for agent in agents]
+    cel_contexts = [build_cel_context(agent_details_to_cel_context(agent)) for agent in agents]
 
     # Pair agents with their precomputed contexts for sorting
-    paired: list[tuple[AgentInfo, dict[str, Any]]] = list(zip(agents, cel_contexts, strict=True))
+    paired: list[tuple[AgentDetails, dict[str, Any]]] = list(zip(agents, cel_contexts, strict=True))
 
     # Sort by each key in reverse order of significance (stable sort preserves earlier orderings)
     for program, is_descending in reversed(compiled_sort_keys):
@@ -968,8 +968,8 @@ def _sort_agents_by_cel(
     return [agent for agent, _ in paired]
 
 
-def _get_field_value(agent: AgentInfo, field: str) -> str:
-    """Extract a field value from an AgentInfo object and return as string.
+def _get_field_value(agent: AgentDetails, field: str) -> str:
+    """Extract a field value from an AgentDetails object and return as string.
 
     Supports nested fields like "host.name" and list slicing syntax like
     "host.snapshots[0]" or "host.snapshots[:3]".
@@ -1024,11 +1024,11 @@ def _get_field_value(agent: AgentInfo, field: str) -> str:
 
 
 @pure
-def _render_format_template(template: str, agent: AgentInfo) -> str:
+def _render_format_template(template: str, agent: AgentDetails) -> str:
     """Expand a str.format()-style template using agent field values.
 
     Pre-resolves field names via _get_field_value() (which supports nested
-    attribute access and bracket notation on AgentInfo), then delegates
+    attribute access and bracket notation on AgentDetails), then delegates
     template expansion to the shared render_format_template helper.
     """
     # Pre-resolve all referenced field names using the agent-specific field resolver

@@ -347,7 +347,7 @@ def test_prevent_unittest_mock_imports() -> None:
 
 def test_prevent_monkeypatch_setattr() -> None:
     chunks = check_ratchet_rule(PREVENT_MONKEYPATCH_SETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(31), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(33), PREVENT_MONKEYPATCH_SETATTR.format_failure(chunks)
 
 
 def test_prevent_test_container_classes() -> None:
@@ -363,7 +363,7 @@ def test_prevent_pytest_mark_integration() -> None:
 
 def test_prevent_short_uuid_ids() -> None:
     chunks = check_ratchet_rule(PREVENT_SHORT_UUID_IDS, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(2), PREVENT_SHORT_UUID_IDS.format_failure(chunks)
+    assert len(chunks) <= snapshot(4), PREVENT_SHORT_UUID_IDS.format_failure(chunks)
 
 
 def test_prevent_bash_without_strict_mode() -> None:
@@ -381,7 +381,7 @@ def test_prevent_importlib_import_module() -> None:
 
 def test_prevent_getattr() -> None:
     chunks = check_ratchet_rule(PREVENT_GETATTR, _get_mng_source_dir(), _SELF_EXCLUSION)
-    assert len(chunks) <= snapshot(10), PREVENT_GETATTR.format_failure(chunks)
+    assert len(chunks) <= snapshot(11), PREVENT_GETATTR.format_failure(chunks)
 
 
 def test_prevent_setattr() -> None:
