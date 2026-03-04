@@ -1,9 +1,10 @@
 """Lightweight tab completion entrypoint -- no heavy third-party imports.
 
 Reads COMP_WORDS and COMP_CWORD from the environment (same protocol click
-uses), resolves the completion context from a JSON cache file, and prints
-results. This avoids importing click, pydantic, pluggy, or any plugin code
-on every TAB press.
+uses), resolves command completions from a JSON cache file and agent name
+completions from the discovery event stream, then prints results. This
+avoids importing click, pydantic, pluggy, or any plugin code on every TAB
+press.
 
 Invoked as: python -m imbue.mng.cli.complete {zsh|bash}
 """

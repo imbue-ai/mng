@@ -1457,7 +1457,7 @@ def _list_stream(
                 _write_unfiltered_full_snapshot(mng_ctx, error_behavior)
                 # The tail thread will pick up the new snapshot and emit it
             except (MngError, OSError) as e:
-                logger.trace("Stream poll failed: {}", e)
+                logger.warning("Stream poll failed (continuing): {}", e)
     except KeyboardInterrupt:
         pass
     finally:

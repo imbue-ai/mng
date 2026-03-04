@@ -350,20 +350,21 @@ def find_latest_full_snapshot_offset(events_path: Path) -> int:
     if not events_path.exists():
         return 0
 
-    # Read all lines and find the last DISCOVERY_FULL line offset
+    # Read all lines and find the last DISCOVERY_FULL line byte offset.
+    # Use f.tell() to track byte positions rather than len(line) which counts
+    # characters and would be wrong for multi-byte UTF-8 content.
     last_full_offset = 0
-    current_offset = 0
-    with open(events_path) as f:
-        for line in f:
-            stripped = line.strip()
+    with open(events_path, "rb") as f:
+        for raw_line in f:
+            line_start = f.tell() - len(raw_line)
+            stripped = raw_line.strip()
             if stripped:
                 try:
                     data = json.loads(stripped)
                     if data.get("type") == DiscoveryEventType.DISCOVERY_FULL:
-                        last_full_offset = current_offset
+                        last_full_offset = line_start
                 except json.JSONDecodeError:
                     pass
-            current_offset += len(line)
 
     return last_full_offset
 
