@@ -40,10 +40,12 @@ def test_build_execute_command_custom_command() -> None:
 
 def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
     """Agent names with single quotes are properly escaped via shlex.quote."""
+    import shlex
+
     result = build_execute_command("it's-agent", _config(custom_terminal_command="my-cmd"))
     assert result is not None
-    assert "MNG_AGENT_NAME=" in result
-    assert "my-cmd" in result
+    expected_name = shlex.quote("it's-agent")
+    assert f"MNG_AGENT_NAME={expected_name}" in result
 
 
 def test_build_execute_command_custom_takes_precedence() -> None:
