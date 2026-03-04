@@ -25,9 +25,6 @@ def make_resolver_with_data(
 ) -> MngCliBackendResolver:
     """Create a MngCliBackendResolver pre-populated with test data.
 
-    This replaces the old FakeMngCli pattern. Instead of injecting a fake CLI,
-    we create the resolver and directly update its state.
-
     agents_json is a JSON string matching `mng list --json` format, used to populate
     agent IDs and SSH info. server_logs is a mapping of agent ID string to raw
     servers.jsonl content, parsed to populate the server URL map for each agent.

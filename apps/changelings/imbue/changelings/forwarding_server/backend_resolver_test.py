@@ -3,8 +3,9 @@ from pathlib import Path
 
 from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
 from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
-from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
+from imbue.changelings.forwarding_server.backend_resolver import MngStreamManager
 from imbue.changelings.forwarding_server.backend_resolver import ParsedAgentsResult
+from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import parse_agent_ids_from_json
 from imbue.changelings.forwarding_server.backend_resolver import parse_agents_from_json
 from imbue.changelings.forwarding_server.backend_resolver import parse_server_log_records
@@ -83,7 +84,7 @@ def test_static_list_servers_for_agent_returns_empty_for_unknown_agent() -> None
 # -- parse_server_log_records tests --
 
 
-def testparse_server_log_records_parses_valid_jsonl() -> None:
+def test_parse_server_log_records_parses_valid_jsonl() -> None:
     text = '{"server": "web", "url": "http://127.0.0.1:9100"}\n'
     records = parse_server_log_records(text)
 
@@ -92,12 +93,12 @@ def testparse_server_log_records_parses_valid_jsonl() -> None:
     assert records[0].url == "http://127.0.0.1:9100"
 
 
-def testparse_server_log_records_returns_empty_for_empty_input() -> None:
+def test_parse_server_log_records_returns_empty_for_empty_input() -> None:
     assert parse_server_log_records("") == []
     assert parse_server_log_records("\n") == []
 
 
-def testparse_server_log_records_skips_invalid_lines() -> None:
+def test_parse_server_log_records_skips_invalid_lines() -> None:
     text = 'bad line\n{"server": "web", "url": "http://127.0.0.1:9100"}\n'
     records = parse_server_log_records(text)
 
@@ -105,7 +106,7 @@ def testparse_server_log_records_skips_invalid_lines() -> None:
     assert records[0].url == "http://127.0.0.1:9100"
 
 
-def testparse_server_log_records_returns_multiple_records() -> None:
+def test_parse_server_log_records_returns_multiple_records() -> None:
     text = '{"server": "web", "url": "http://127.0.0.1:9100"}\n{"server": "api", "url": "http://127.0.0.1:9200"}\n'
     records = parse_server_log_records(text)
 
@@ -117,7 +118,7 @@ def testparse_server_log_records_returns_multiple_records() -> None:
 # -- parse_agent_ids_from_json tests --
 
 
-def testparse_agent_ids_from_json_parses_valid_output() -> None:
+def test_parse_agent_ids_from_json_parses_valid_output() -> None:
     json_output = make_agents_json(_AGENT_A, _AGENT_B)
     ids = parse_agent_ids_from_json(json_output)
 
@@ -125,11 +126,11 @@ def testparse_agent_ids_from_json_parses_valid_output() -> None:
     assert _AGENT_B in ids
 
 
-def testparse_agent_ids_from_json_returns_empty_for_none() -> None:
+def test_parse_agent_ids_from_json_returns_empty_for_none() -> None:
     assert parse_agent_ids_from_json(None) == ()
 
 
-def testparse_agent_ids_from_json_returns_empty_for_invalid_json() -> None:
+def test_parse_agent_ids_from_json_returns_empty_for_invalid_json() -> None:
     assert parse_agent_ids_from_json("not json") == ()
 
 
@@ -248,7 +249,7 @@ def _make_agents_json_with_ssh(*agents: tuple[str, dict[str, object] | None]) ->
     return json.dumps({"agents": agent_list})
 
 
-def testparse_agents_from_json_extracts_agent_ids() -> None:
+def test_parse_agents_from_json_extracts_agent_ids() -> None:
     json_str = _make_agents_json_with_ssh(
         (str(_AGENT_A), None),
         (str(_AGENT_B), None),
@@ -258,7 +259,7 @@ def testparse_agents_from_json_extracts_agent_ids() -> None:
     assert _AGENT_B in result.agent_ids
 
 
-def testparse_agents_from_json_extracts_ssh_info() -> None:
+def test_parse_agents_from_json_extracts_ssh_info() -> None:
     ssh_data = {
         "user": "root",
         "host": "remote.example.com",
@@ -276,14 +277,14 @@ def testparse_agents_from_json_extracts_ssh_info() -> None:
     assert ssh_info.key_path == Path("/home/user/.mng/providers/modal/modal_ssh_key")
 
 
-def testparse_agents_from_json_returns_none_ssh_for_local_agents() -> None:
+def test_parse_agents_from_json_returns_none_ssh_for_local_agents() -> None:
     json_str = _make_agents_json_with_ssh((str(_AGENT_A), None))
     result = parse_agents_from_json(json_str)
 
     assert str(_AGENT_A) not in result.ssh_info_by_agent_id
 
 
-def testparse_agents_from_json_handles_mixed_local_and_remote() -> None:
+def test_parse_agents_from_json_handles_mixed_local_and_remote() -> None:
     ssh_data = {
         "user": "root",
         "host": "remote.example.com",
@@ -301,18 +302,18 @@ def testparse_agents_from_json_handles_mixed_local_and_remote() -> None:
     assert str(_AGENT_B) in result.ssh_info_by_agent_id
 
 
-def testparse_agents_from_json_returns_empty_for_none() -> None:
+def test_parse_agents_from_json_returns_empty_for_none() -> None:
     result = parse_agents_from_json(None)
     assert result.agent_ids == ()
     assert result.ssh_info_by_agent_id == {}
 
 
-def testparse_agents_from_json_returns_empty_for_invalid_json() -> None:
+def test_parse_agents_from_json_returns_empty_for_invalid_json() -> None:
     result = parse_agents_from_json("not json")
     assert result.agent_ids == ()
 
 
-def testparse_agents_from_json_skips_agents_with_invalid_ssh() -> None:
+def test_parse_agents_from_json_skips_agents_with_invalid_ssh() -> None:
     json_str = json.dumps(
         {
             "agents": [
@@ -379,3 +380,100 @@ def test_backend_resolver_interface_default_get_ssh_info_returns_none() -> None:
 
     resolver = MinimalResolver()
     assert resolver.get_ssh_info(_AGENT_A) is None
+
+
+# -- MngStreamManager tests (calling methods directly, no subprocesses) --
+
+
+def _make_stream_manager() -> MngStreamManager:
+    """Create a MngStreamManager with a fresh resolver, without starting subprocesses."""
+    resolver = MngCliBackendResolver()
+    return MngStreamManager(resolver=resolver)
+
+
+def test_stream_manager_on_list_stream_output_ignores_stderr() -> None:
+    manager = _make_stream_manager()
+    manager._on_list_stream_output("some stderr line", is_stderr=True)
+    assert manager.resolver.list_known_agent_ids() == ()
+
+
+def test_stream_manager_on_list_stream_output_ignores_empty_lines() -> None:
+    manager = _make_stream_manager()
+    manager._on_list_stream_output("", is_stderr=False)
+    manager._on_list_stream_output("  \n", is_stderr=False)
+    assert manager.resolver.list_known_agent_ids() == ()
+
+
+def test_stream_manager_on_list_stream_output_ignores_non_full_events() -> None:
+    """Non-DISCOVERY_FULL events are ignored and do not update the resolver."""
+    manager = _make_stream_manager()
+    # Use an unrecognized event type so parse_discovery_event_line returns None
+    line = json.dumps({
+        "type": "SOME_OTHER_EVENT",
+        "timestamp": "2026-01-01T00:00:00Z",
+        "event_id": "evt-test-001",
+        "source": "mng/discovery",
+    })
+    manager._on_list_stream_output(line, is_stderr=False)
+    assert manager.resolver.list_known_agent_ids() == ()
+
+
+def test_stream_manager_handle_discovery_line_ignores_invalid_json() -> None:
+    manager = _make_stream_manager()
+    manager._handle_discovery_line("not valid json {{{")
+    assert manager.resolver.list_known_agent_ids() == ()
+
+
+def test_stream_manager_on_events_stream_output_updates_servers() -> None:
+    manager = _make_stream_manager()
+    manager._events_servers[str(_AGENT_A)] = {}
+
+    server_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
+    manager._on_events_stream_output(server_line, is_stderr=False, agent_id=_AGENT_A)
+
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
+
+
+def test_stream_manager_on_events_stream_output_ignores_stderr() -> None:
+    manager = _make_stream_manager()
+    manager._events_servers[str(_AGENT_A)] = {}
+
+    manager._on_events_stream_output("stderr noise", is_stderr=True, agent_id=_AGENT_A)
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
+
+
+def test_stream_manager_on_events_stream_output_ignores_invalid_json() -> None:
+    manager = _make_stream_manager()
+    manager._events_servers[str(_AGENT_A)] = {}
+
+    manager._on_events_stream_output("not json", is_stderr=False, agent_id=_AGENT_A)
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
+
+
+def test_stream_manager_on_events_stream_output_accumulates_servers() -> None:
+    """Multiple server records for the same agent accumulate in the server map."""
+    manager = _make_stream_manager()
+    manager._events_servers[str(_AGENT_A)] = {}
+
+    web_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
+    api_line = json.dumps({"server": "api", "url": "http://127.0.0.1:9200"})
+
+    manager._on_events_stream_output(web_line, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(api_line, is_stderr=False, agent_id=_AGENT_A)
+
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_API) == "http://127.0.0.1:9200"
+
+
+def test_stream_manager_on_events_stream_output_later_entry_overrides_earlier() -> None:
+    """A later server record for the same server name replaces the earlier URL."""
+    manager = _make_stream_manager()
+    manager._events_servers[str(_AGENT_A)] = {}
+
+    line1 = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
+    line2 = json.dumps({"server": "web", "url": "http://127.0.0.1:9200"})
+
+    manager._on_events_stream_output(line1, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(line2, is_stderr=False, agent_id=_AGENT_A)
+
+    assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9200"

@@ -219,6 +219,11 @@ class MngCliBackendResolver(BackendResolverInterface):
         with self._lock:
             return self._agents_result.ssh_info_by_agent_id.get(str(agent_id))
 
+    def get_all_ssh_info(self) -> Mapping[str, RemoteSSHInfo]:
+        """Return a snapshot of all known SSH info, keyed by agent ID string. Thread-safe."""
+        with self._lock:
+            return dict(self._agents_result.ssh_info_by_agent_id)
+
 
 # -- MngStreamManager --
 
@@ -308,11 +313,11 @@ class MngStreamManager(MutableModel):
         else:
             # Just update agent IDs, preserving existing SSH info
             agent_ids = tuple(agent.agent_id for agent in event.agents)
-            current = self.resolver._agents_result
+            existing_ssh_info = self.resolver.get_all_ssh_info()
             self.resolver.update_agents(
                 ParsedAgentsResult(
                     agent_ids=agent_ids,
-                    ssh_info_by_agent_id=current.ssh_info_by_agent_id,
+                    ssh_info_by_agent_id=existing_ssh_info,
                 )
             )
             self._sync_events_streams(new_ids)
