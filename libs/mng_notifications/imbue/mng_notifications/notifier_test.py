@@ -30,10 +30,15 @@ def test_build_execute_command_no_config() -> None:
 
 
 def test_build_execute_command_custom_command() -> None:
-    """custom_terminal_command is used with MNG_AGENT_NAME exported for shell expansion."""
-    result = build_execute_command("agent-x", _config(custom_terminal_command="my-cmd $MNG_AGENT_NAME"))
+    """custom_terminal_command is used with MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN exported for shell expansion."""
+    result = build_execute_command(
+        "agent-x", _config(custom_terminal_command="my-cmd $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN")
+    )
     assert result is not None
-    assert result == "export MNG_AGENT_NAME=agent-x && my-cmd $MNG_AGENT_NAME"
+    assert (
+        result
+        == "export MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN=agent-x && my-cmd $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN"
+    )
 
 
 def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
@@ -41,7 +46,7 @@ def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
     result = build_execute_command("it's-agent", _config(custom_terminal_command="my-cmd"))
     assert result is not None
     expected_name = shlex.quote("it's-agent")
-    assert result == f"export MNG_AGENT_NAME={expected_name} && my-cmd"
+    assert result == f"export MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN={expected_name} && my-cmd"
 
 
 def test_build_execute_command_custom_takes_precedence() -> None:

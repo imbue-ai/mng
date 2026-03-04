@@ -14,7 +14,7 @@ class NotificationsPluginConfig(PluginConfig):
     Or with a custom command:
 
         [plugins.notifications]
-        custom_terminal_command = "open -a MyTerminal --args mng connect $MNG_AGENT_NAME"
+        custom_terminal_command = "open -a MyTerminal --args mng connect $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN"
     """
 
     terminal_app: str | None = Field(
@@ -24,7 +24,7 @@ class NotificationsPluginConfig(PluginConfig):
     custom_terminal_command: str | None = Field(
         default=None,
         description="Custom shell command to run on notification click. "
-        "$MNG_AGENT_NAME is set in the environment to the agent's name.",
+        "$MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN is set in the environment to the agent's name.",
     )
 
     def merge_with(self, override: "PluginConfig") -> "NotificationsPluginConfig":

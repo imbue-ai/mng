@@ -66,7 +66,7 @@ def build_execute_command(agent_name: str, config: NotificationsPluginConfig) ->
     """
     if config.custom_terminal_command is not None:
         quoted_name = shlex.quote(agent_name)
-        return f"export MNG_AGENT_NAME={quoted_name} && {config.custom_terminal_command}"
+        return f"export MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN={quoted_name} && {config.custom_terminal_command}"
 
     if config.terminal_app is None:
         return None
