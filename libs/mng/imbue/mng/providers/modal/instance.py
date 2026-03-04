@@ -553,8 +553,7 @@ class ModalProviderInstance(BaseProviderInstance):
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
     modal_app_name: str = Field(frozen=True, description="The Modal app name for this instance")
     modal_environment_name: str = Field(frozen=True, description="The Modal environment name for user isolation")
-    modal_app_factory: Callable[[], ModalProviderApp] | None = Field(
-        default=None,
+    modal_app_factory: Callable[[], ModalProviderApp] = Field(
         frozen=True,
         description="Factory that lazily creates the Modal app context and volume",
     )
@@ -588,9 +587,6 @@ class ModalProviderInstance(BaseProviderInstance):
         """
         if self.modal_app is not None:
             return self.modal_app
-
-        if self.modal_app_factory is None:
-            raise MngError("Modal app factory not configured -- cannot lazily create Modal app")
 
         self.modal_app = self.modal_app_factory()
         return self.modal_app
