@@ -5,11 +5,12 @@ simulate RUNNING -> WAITING, and verifies the watcher detects it.
 """
 
 import threading
-import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from imbue.mng.api.list import ListResult
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.host import CreateAgentOptions
@@ -33,6 +34,7 @@ def test_watcher_detects_running_to_waiting_transition(
     temp_host_dir: Path,
     tmp_path: Path,
     temp_mng_ctx: MngContext,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Create a real agent, simulate RUNNING -> WAITING via the active file,
     and verify the watcher sends a notification."""
@@ -42,7 +44,6 @@ def test_watcher_detects_running_to_waiting_transition(
     work_dir = tmp_path / "work_dir"
     work_dir.mkdir()
 
-    # Create and start an agent with a long-running command
     agent = host.create_agent_state(
         work_dir_path=work_dir,
         options=CreateAgentOptions(
@@ -53,19 +54,27 @@ def test_watcher_detects_running_to_waiting_transition(
     )
     host.start_agents([agent.id])
 
-    # Touch the active file so the agent reports as RUNNING
     agent_state_dir = temp_host_dir / "agents" / str(agent.id)
     active_file = agent_state_dir / "active"
     active_file.touch()
 
-    # Verify the agent is RUNNING
     wait_for(
         lambda: agent.get_lifecycle_state() == AgentLifecycleState.RUNNING,
         timeout=5,
         error_message="Agent did not reach RUNNING state",
     )
 
-    # Start the watcher in a background thread with a very short poll interval
+    # Wrap list_agents to signal when the initial poll completes
+    polled_event = threading.Event()
+    real_list_agents = __import__("imbue.mng.api.list", fromlist=["list_agents"]).list_agents
+
+    def signaling_list_agents(mng_ctx: Any, **kwargs: Any) -> ListResult:
+        result = real_list_agents(mng_ctx, **kwargs)
+        polled_event.set()
+        return result
+
+    monkeypatch.setattr("imbue.mng_notifications.watcher.list_agents", signaling_list_agents)
+
     notifier = RecordingNotifier()
     stop_event = threading.Event()
 
@@ -84,13 +93,10 @@ def test_watcher_detects_running_to_waiting_transition(
     watcher_thread.start()
 
     try:
-        # Wait for the watcher to complete its initial poll (establishes baseline)
-        time.sleep(1.5)
+        polled_event.wait(timeout=5)
 
-        # Remove the active file to trigger RUNNING -> WAITING
         active_file.unlink()
 
-        # Wait for the notification to appear
         wait_for(
             lambda: len(notifier.calls) > 0,
             timeout=5,

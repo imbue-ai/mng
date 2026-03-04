@@ -118,18 +118,15 @@ def test_build_execute_command_unsupported_terminal() -> None:
 # --- get_notifier ---
 
 
-def test_get_notifier_macos(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Darwin")
+def test_get_notifier_macos(fake_platform_darwin: None) -> None:
     assert isinstance(get_notifier(), MacOSNotifier)
 
 
-def test_get_notifier_linux(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Linux")
+def test_get_notifier_linux(fake_platform_linux: None) -> None:
     assert isinstance(get_notifier(), LinuxNotifier)
 
 
-def test_get_notifier_unsupported(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Windows")
+def test_get_notifier_unsupported(fake_platform_unsupported: None) -> None:
     assert get_notifier() is None
 
 
