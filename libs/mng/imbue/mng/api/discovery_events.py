@@ -19,7 +19,6 @@ from imbue.imbue_common.logging import format_nanosecond_iso_timestamp
 from imbue.imbue_common.logging import generate_log_event_id
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngConfig
-from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import OnlineHostInterface
 from imbue.mng.primitives import AgentId
@@ -254,28 +253,31 @@ def emit_host_destroyed(
     logger.trace("Emitted host_destroyed event for {}", host_id)
 
 
-def _get_provider_name_from_host(host: OnlineHostInterface) -> ProviderInstanceName:
-    """Extract the provider instance name from a host object."""
-    if isinstance(host, Host):
-        return host.provider_instance.name
-    return ProviderInstanceName("unknown")
-
-
 def emit_discovery_events_for_host(
     config: MngConfig,
     host: OnlineHostInterface,
+    provider_name: ProviderInstanceName | None = None,
 ) -> None:
     """Emit agent and host discovery events by reading current state from the host.
 
     Re-reads the agent data from the host's filesystem to ensure the emitted
     events contain full certified_data. Also emits a host discovery event.
-    Extracts provider_name from the host automatically.
+
+    If provider_name is not provided, it is inferred from the host's discovered
+    agents (each DiscoveredAgent carries its provider_name).
 
     Errors are caught and logged at warning level so that event emission
     never causes the parent command to fail.
     """
     try:
-        provider_name = _get_provider_name_from_host(host)
+        # Infer provider_name from the host's agents if not provided
+        if provider_name is None:
+            discovered_agents = host.discover_agents()
+            if discovered_agents:
+                provider_name = discovered_agents[0].provider_name
+            else:
+                provider_name = ProviderInstanceName("unknown")
+                logger.debug("Could not infer provider_name for host {} (no agents), using 'unknown'", host.id)
 
         # Emit host event
         discovered_host = discovered_host_from_online_host(host, provider_name)
@@ -363,25 +365,35 @@ def find_latest_full_snapshot_offset(events_path: Path) -> int:
                     data = json.loads(stripped)
                     if data.get("type") == DiscoveryEventType.DISCOVERY_FULL:
                         last_full_offset = line_start
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.trace("Skipped malformed JSONL line in discovery events: {}", e)
 
     return last_full_offset
 
 
 def extract_agents_and_hosts_from_full_listing(
     agent_details_list: Sequence[AgentDetails],
+    additional_hosts: Sequence[DiscoveredHost] = (),
 ) -> tuple[tuple[DiscoveredAgent, ...], tuple[DiscoveredHost, ...]]:
-    """Extract deduplicated DiscoveredAgent and DiscoveredHost tuples from AgentDetails."""
+    """Extract deduplicated DiscoveredAgent and DiscoveredHost tuples from AgentDetails.
+
+    Hosts are collected from both the agent details (each agent references its host)
+    and the additional_hosts parameter (to include hosts that have no agents).
+    """
     discovered_agents = tuple(discovered_agent_from_agent_details(a) for a in agent_details_list)
 
-    # Deduplicate hosts by host_id
-    seen_host_ids: set[str] = set()
+    # Deduplicate hosts by host_id, starting with hosts from agent details
+    seen_host_ids: set[HostId] = set()
     discovered_hosts: list[DiscoveredHost] = []
     for agent_details in agent_details_list:
-        host_id_str = str(agent_details.host.id)
-        if host_id_str not in seen_host_ids:
-            seen_host_ids.add(host_id_str)
+        if agent_details.host.id not in seen_host_ids:
+            seen_host_ids.add(agent_details.host.id)
             discovered_hosts.append(discovered_host_from_agent_details(agent_details))
+
+    # Include additional hosts (e.g. hosts with no agents)
+    for host in additional_hosts:
+        if host.host_id not in seen_host_ids:
+            seen_host_ids.add(host.host_id)
+            discovered_hosts.append(host)
 
     return discovered_agents, tuple(discovered_hosts)
