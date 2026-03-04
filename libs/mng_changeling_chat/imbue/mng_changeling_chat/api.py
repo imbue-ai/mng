@@ -49,6 +49,54 @@ def _build_chat_env_vars(
 
 
 @pure
+def _build_env_file_paths(
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+) -> tuple[Path, Path]:
+    """Build paths to the host and agent env files."""
+    host_env_path = host.host_dir / "env"
+    agent_state_dir = host.host_dir / "agents" / str(agent.id)
+    agent_env_path = agent_state_dir / "env"
+    return host_env_path, agent_env_path
+
+
+def _load_env_file_into_dict(env_path: Path, env: dict[str, str]) -> None:
+    """Parse a shell-style env file and add its variables to the dict.
+
+    Handles KEY=VALUE lines, ignoring comments and blank lines.
+    Strips optional surrounding quotes from values.
+    """
+    if not env_path.exists():
+        return
+
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        # Strip surrounding quotes (single or double)
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        env[key] = value
+
+
+@pure
+def _build_source_env_prefix(host_env_path: Path, agent_env_path: Path) -> str:
+    """Build a shell prefix that sources host and agent env files if they exist.
+
+    Sources host env first, then agent env (agent can override host).
+    Uses set -a / set +a to auto-export all sourced variables.
+    """
+    host_env = shlex.quote(str(host_env_path))
+    agent_env = shlex.quote(str(agent_env_path))
+    return f"set -a; [ -f {host_env} ] && . {host_env} || true; [ -f {agent_env} ] && . {agent_env} || true; set +a; "
+
+
+@pure
 def _build_chat_script_path(host_dir: Path) -> str:
     """Build the path to the chat.sh script on the host."""
     return str(host_dir / "commands" / "chat.sh")
@@ -140,16 +188,21 @@ def _build_remote_chat_script(
 ) -> str:
     """Build a shell script to run chat.sh on a remote host via SSH.
 
-    Sets the required environment variables and then execs chat.sh.
+    Sources the host and agent env files (for API keys etc.), sets the
+    required MNG_ environment variables, and then execs chat.sh.
     """
     chat_script = _build_chat_script_path(host_dir)
     env_vars = _build_chat_env_vars(agent, host)
+    host_env_path, agent_env_path = _build_env_file_paths(agent, host)
+
+    # Source env files first (for API keys, etc.), then set MNG_ vars
+    source_prefix = _build_source_env_prefix(host_env_path, agent_env_path)
 
     # Use shlex.quote for each value to prevent shell injection from
     # agent names or paths containing special characters
     export_statements = "; ".join(f"export {key}={shlex.quote(value)}" for key, value in env_vars.items())
     escaped_args = " ".join(shlex.quote(arg) for arg in chat_args)
-    return f"{export_statements}; exec {shlex.quote(chat_script)} {escaped_args}"
+    return f"{source_prefix}{export_statements}; exec {shlex.quote(chat_script)} {escaped_args}"
 
 
 def run_chat_on_agent(  # pragma: no cover
@@ -174,8 +227,12 @@ def run_chat_on_agent(  # pragma: no cover
                 f"Chat script not found at {chat_script}. Is this agent a changeling with chat support?"
             )
 
-        # Build environment with the required MNG_ variables
+        # Build environment: start with current env, source host/agent env files
+        # (for API keys etc.), then overlay the MNG_ variables
         env = dict(os.environ)
+        host_env_path, agent_env_path = _build_env_file_paths(agent, host)
+        _load_env_file_into_dict(host_env_path, env)
+        _load_env_file_into_dict(agent_env_path, env)
         env.update(_build_chat_env_vars(agent, host))
 
         # Handle nested tmux (chat.sh may call llm live-chat which is interactive)
@@ -189,7 +246,7 @@ def run_chat_on_agent(  # pragma: no cover
     else:
         ssh_args = build_ssh_base_args(host, is_unknown_host_allowed=is_unknown_host_allowed)
 
-        # Build the remote command script
+        # Build the remote command script (sources env files + runs chat.sh)
         remote_script = _build_remote_chat_script(host.host_dir, agent, host, chat_args)
         ssh_args.extend(["-t", "bash -c " + shlex.quote(remote_script)])
 
