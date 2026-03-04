@@ -4,13 +4,10 @@ import pytest
 from inline_snapshot import snapshot
 
 from imbue.imbue_common.ratchet_testing import standard_ratchet_checks as rc
-from imbue.imbue_common.ratchet_testing.ratchets import TEST_FILE_PATTERNS
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_ruff_errors
 from imbue.imbue_common.ratchet_testing.ratchets import check_no_type_errors
 
-# mng's test_ratchets.py is nested one level deeper than other projects (in utils/),
-# so the source dir is parent.parent instead of parent.parent.parent
-_DIR = Path(__file__).parent.parent
+_DIR = Path(__file__).parent.parent.parent
 
 pytestmark = pytest.mark.xdist_group(name="ratchets")
 
@@ -19,7 +16,7 @@ pytestmark = pytest.mark.xdist_group(name="ratchets")
 
 
 def test_prevent_todos() -> None:
-    rc.check_todos(_DIR, snapshot(2))
+    rc.check_todos(_DIR, snapshot(0))
 
 
 def test_prevent_exec_usage() -> None:
@@ -35,7 +32,7 @@ def test_prevent_while_true() -> None:
 
 
 def test_prevent_time_sleep() -> None:
-    rc.check_time_sleep(_DIR, snapshot(1))
+    rc.check_time_sleep(_DIR, snapshot(0))
 
 
 def test_prevent_global_keyword() -> None:
@@ -54,11 +51,11 @@ def test_prevent_bare_except() -> None:
 
 
 def test_prevent_broad_exception_catch() -> None:
-    rc.check_broad_exception_catch(_DIR, snapshot(1))
+    rc.check_broad_exception_catch(_DIR, snapshot(0))
 
 
 def test_prevent_base_exception_catch() -> None:
-    rc.check_base_exception_catch(_DIR, snapshot(1))
+    rc.check_base_exception_catch(_DIR, snapshot(0))
 
 
 def test_prevent_builtin_exception_raises() -> None:
@@ -69,7 +66,7 @@ def test_prevent_builtin_exception_raises() -> None:
 
 
 def test_prevent_inline_imports() -> None:
-    rc.check_inline_imports(_DIR, snapshot(3))
+    rc.check_inline_imports(_DIR, snapshot(0))
 
 
 def test_prevent_relative_imports() -> None:
@@ -85,11 +82,11 @@ def test_prevent_importlib_import_module() -> None:
 
 
 def test_prevent_getattr() -> None:
-    rc.check_getattr(_DIR, snapshot(10))
+    rc.check_getattr(_DIR, snapshot(0))
 
 
 def test_prevent_setattr() -> None:
-    rc.check_setattr(_DIR, snapshot(1))
+    rc.check_setattr(_DIR, snapshot(0))
 
 
 # --- Banned libraries and patterns ---
@@ -163,7 +160,7 @@ def test_prevent_typing_builtin_imports() -> None:
 
 
 def test_prevent_short_uuid_ids() -> None:
-    rc.check_short_uuid_ids(_DIR, snapshot(2))
+    rc.check_short_uuid_ids(_DIR, snapshot(0))
 
 
 # --- Pydantic / models ---
@@ -188,11 +185,11 @@ def test_prevent_click_echo() -> None:
 
 
 def test_prevent_unittest_mock_imports() -> None:
-    rc.check_unittest_mock_imports(_DIR, snapshot(3))
+    rc.check_unittest_mock_imports(_DIR, snapshot(0))
 
 
 def test_prevent_monkeypatch_setattr() -> None:
-    rc.check_monkeypatch_setattr(_DIR, snapshot(31))
+    rc.check_monkeypatch_setattr(_DIR, snapshot(2))
 
 
 def test_prevent_test_container_classes() -> None:
@@ -207,13 +204,11 @@ def test_prevent_pytest_mark_integration() -> None:
 
 
 def test_prevent_os_fork() -> None:
-    rc.check_os_fork(_DIR, snapshot(3))
+    rc.check_os_fork(_DIR, snapshot(0))
 
 
 def test_prevent_direct_subprocess_usage() -> None:
-    # testing.py files are test infrastructure and excluded alongside test files
-    excluded = TEST_FILE_PATTERNS + ("testing.py",)
-    rc.check_direct_subprocess(_DIR, snapshot(25), excluded_patterns=excluded)
+    rc.check_direct_subprocess(_DIR, snapshot(0))
 
 
 # --- AST-based ratchets ---
@@ -232,11 +227,11 @@ def test_prevent_importing_underscore_prefixed_names_in_non_test_code() -> None:
 
 
 def test_prevent_init_methods_in_non_exception_classes() -> None:
-    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(3))
+    rc.check_init_methods_in_non_exception_classes(_DIR, snapshot(0))
 
 
 def test_prevent_cast_usage() -> None:
-    rc.check_cast_usage(_DIR, snapshot(10))
+    rc.check_cast_usage(_DIR, snapshot(0))
 
 
 def test_prevent_assert_isinstance_usage() -> None:
@@ -247,21 +242,14 @@ def test_prevent_assert_isinstance_usage() -> None:
 
 
 def test_prevent_code_in_init_files() -> None:
-    rc.check_code_in_init_files(
-        _DIR,
-        snapshot(0),
-        allowed_root_init_lines={
-            "import pluggy",
-            'hookimpl = pluggy.HookimplMarker("mng")',
-        },
-    )
+    rc.check_code_in_init_files(_DIR, snapshot(0))
 
 
 def test_no_type_errors() -> None:
     """Ensure the codebase has zero type errors."""
-    check_no_type_errors(Path(__file__).parent.parent.parent.parent)
+    check_no_type_errors(_DIR)
 
 
 def test_no_ruff_errors() -> None:
     """Ensure the codebase has zero ruff linting errors."""
-    check_no_ruff_errors(Path(__file__).parent.parent.parent.parent)
+    check_no_ruff_errors(_DIR)
