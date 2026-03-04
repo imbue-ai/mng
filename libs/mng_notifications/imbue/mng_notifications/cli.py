@@ -67,6 +67,8 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
         write_human_line("Click-to-connect enabled (terminal: {})", plugin_config.terminal_app)
     elif plugin_config.custom_terminal_command is not None:
         write_human_line("Click-to-connect enabled (custom command)")
+    else:
+        pass
 
     notifier = get_notifier()
     if notifier is None:
