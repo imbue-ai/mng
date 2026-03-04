@@ -34,7 +34,7 @@ def test_get_claude_config_backup_path_returns_home_dot_claude_json_bak() -> Non
 
 
 def test_find_project_config_exact_match() -> None:
-    """Test that _find_project_config finds exact match."""
+    """Test that find_project_config finds exact match."""
     projects = {
         "/Users/test/project1": {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
         "/Users/test/project2": {"allowedTools": [], "hasTrustDialogAccepted": False},
@@ -44,7 +44,7 @@ def test_find_project_config_exact_match() -> None:
 
 
 def test_find_project_config_ancestor_match() -> None:
-    """Test that _find_project_config finds closest ancestor."""
+    """Test that find_project_config finds closest ancestor."""
     projects = {
         "/Users/test/project": {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
     }
@@ -54,7 +54,7 @@ def test_find_project_config_ancestor_match() -> None:
 
 
 def test_find_project_config_no_match() -> None:
-    """Test that _find_project_config returns None when no match."""
+    """Test that find_project_config returns None when no match."""
     projects = {
         "/Users/test/project1": {"allowedTools": ["bash"], "hasTrustDialogAccepted": True},
     }
@@ -63,7 +63,7 @@ def test_find_project_config_no_match() -> None:
 
 
 def test_find_project_config_empty_projects() -> None:
-    """Test that _find_project_config returns None for empty projects."""
+    """Test that find_project_config returns None for empty projects."""
     result = find_project_config({}, Path("/Users/test/project"))
     assert result is None
 
