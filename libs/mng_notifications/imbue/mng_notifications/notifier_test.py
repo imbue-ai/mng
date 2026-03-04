@@ -31,7 +31,7 @@ def test_build_execute_command_no_config() -> None:
 
 
 def test_build_execute_command_custom_command() -> None:
-    """custom_terminal_command is used with MNG_AGENT_NAME export."""
+    """custom_terminal_command is used with MNG_AGENT_NAME."""
     result = build_execute_command("agent-x", _config(custom_terminal_command="my-cmd $MNG_AGENT_NAME"))
     assert result is not None
     assert "MNG_AGENT_NAME=agent-x" in result
@@ -136,36 +136,22 @@ def test_send_desktop_notification_unsupported_platform(monkeypatch: pytest.Monk
 # --- macOS terminal-notifier ---
 
 
-def test_send_macos_notification_calls_terminal_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        calls.append(cmd)
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-
+def test_send_macos_notification_calls_terminal_notifier(fake_subprocess_run: list[list[str]]) -> None:
     _send_macos_notification("Title", "Message", None)
 
-    assert len(calls) == 1
-    assert calls[0][0] == "terminal-notifier"
-    assert "-title" in calls[0]
-    assert "-execute" not in calls[0]
+    assert len(fake_subprocess_run) == 1
+    assert fake_subprocess_run[0][0] == "terminal-notifier"
+    assert "-title" in fake_subprocess_run[0]
+    assert "-execute" not in fake_subprocess_run[0]
 
 
-def test_send_macos_notification_with_execute_command(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        calls.append(cmd)
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-
+def test_send_macos_notification_with_execute_command(fake_subprocess_run: list[list[str]]) -> None:
     _send_macos_notification("Title", "Message", "some-command")
 
-    assert len(calls) == 1
-    assert "-execute" in calls[0]
-    idx = calls[0].index("-execute")
-    assert calls[0][idx + 1] == "some-command"
+    assert len(fake_subprocess_run) == 1
+    assert "-execute" in fake_subprocess_run[0]
+    idx = fake_subprocess_run[0].index("-execute")
+    assert fake_subprocess_run[0][idx + 1] == "some-command"
 
 
 def test_send_macos_notification_handles_missing_terminal_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,17 +173,10 @@ def test_send_macos_notification_handles_timeout(monkeypatch: pytest.MonkeyPatch
 # --- Linux notify-send ---
 
 
-def test_send_linux_notification_calls_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **kwargs: Any) -> None:
-        calls.append(cmd)
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-
+def test_send_linux_notification_calls_notify_send(fake_subprocess_run: list[list[str]]) -> None:
     _send_linux_notification("Title", "Message")
 
-    assert calls == [["notify-send", "Title", "Message"]]
+    assert fake_subprocess_run == [["notify-send", "Title", "Message"]]
 
 
 def test_send_linux_notification_handles_missing_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
