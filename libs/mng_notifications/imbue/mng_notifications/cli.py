@@ -70,6 +70,7 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
 
     notifier = get_notifier()
     if notifier is None:
+        write_human_line("Desktop notifications are not supported on this platform")
         return
 
     write_human_line("Watching for agents transitioning to WAITING... (Ctrl+C to stop)")
