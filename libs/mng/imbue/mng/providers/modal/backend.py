@@ -183,6 +183,46 @@ def _exit_modal_app_context(handle: ModalAppContextHandle) -> None:
             handle.output_capture_context.__exit__(None, None, None)
 
 
+class ModalAppFactory(FrozenModel):
+    """Factory that lazily creates a Modal app context and volume.
+
+    Used by ModalProviderInstance._ensure_modal_app() to defer environment creation
+    until an operation actually requires it. This prevents read-only operations like
+    ``mng list`` from creating Modal environments as a side effect.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    provider_instance_name: ProviderInstanceName
+    app_name: str
+    environment_name: str
+    is_persistent: bool
+    concurrency_group: ConcurrencyGroup
+
+    def __call__(self) -> ModalProviderApp:
+        try:
+            app, context_handle = ModalProviderBackend._get_or_create_app(
+                self.app_name, self.environment_name, self.is_persistent, self.concurrency_group
+            )
+            volume = ModalProviderBackend.get_volume_for_app(self.app_name)
+
+            app_name = self.app_name
+            return ModalProviderApp(
+                app_name=self.app_name,
+                environment_name=self.environment_name,
+                app=app,
+                volume=volume,
+                close_callback=lambda: ModalProviderBackend.close_app(app_name),
+                get_output_callback=lambda: context_handle.output_buffer.getvalue(),
+            )
+        except modal.exception.AuthError as e:
+            raise MngError(
+                "Modal is not authorized: run 'uvx modal token set' to authenticate, or disable this provider "
+                f"with 'mng config set --scope local providers.{self.provider_instance_name}.is_enabled false'. "
+                f"(original error: {e})",
+            ) from e
+
+
 class ModalProviderBackend(ProviderBackendInterface):
     """Backend for creating Modal sandbox provider instances.
 
@@ -387,7 +427,13 @@ Supported build arguments for the modal provider:
         config: ProviderInstanceConfig,
         mng_ctx: MngContext,
     ) -> ProviderInstanceInterface:
-        """Build a Modal provider instance."""
+        """Build a Modal provider instance.
+
+        The Modal app context and volume are NOT created here -- they are lazily
+        initialized on first use by ModalProviderInstance._ensure_modal_app().
+        This prevents read-only operations like ``mng list`` from creating Modal
+        environments as a side effect.
+        """
         if not isinstance(config, ModalProviderConfig):
             raise ConfigStructureError(f"Expected ModalProviderConfig, got {type(config).__name__}")
 
@@ -417,33 +463,20 @@ Supported build arguments for the modal provider:
             logger.warning("Truncating Modal app name to {} characters: {}", max_app_name_length, app_name)
             app_name = app_name[:max_app_name_length]
 
-        # Create the ModalProviderApp that manages the Modal app and its resources
-        try:
-            app, context_handle = ModalProviderBackend._get_or_create_app(
-                app_name, environment_name, config.is_persistent, mng_ctx.concurrency_group
-            )
-            volume = ModalProviderBackend.get_volume_for_app(app_name)
-
-            modal_app = ModalProviderApp(
-                app_name=app_name,
-                environment_name=environment_name,
-                app=app,
-                volume=volume,
-                close_callback=lambda: ModalProviderBackend.close_app(app_name),
-                get_output_callback=lambda: context_handle.output_buffer.getvalue(),
-            )
-        except modal.exception.AuthError as e:
-            raise MngError(
-                "Modal is not authorized: run 'uvx modal token set' to authenticate, or disable this provider with "
-                f"'mng config set --scope local providers.{name}.is_enabled false'. (original error: {e})",
-            ) from e
-
         return ModalProviderInstance(
             name=name,
             host_dir=host_dir,
             mng_ctx=mng_ctx,
             config=config,
-            modal_app=modal_app,
+            modal_app_name=app_name,
+            modal_environment_name=environment_name,
+            modal_app_factory=ModalAppFactory(
+                provider_instance_name=name,
+                app_name=app_name,
+                environment_name=environment_name,
+                is_persistent=config.is_persistent,
+                concurrency_group=mng_ctx.concurrency_group,
+            ),
         )
 
 

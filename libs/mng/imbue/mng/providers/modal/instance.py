@@ -551,7 +551,14 @@ class ModalProviderInstance(BaseProviderInstance):
     _host_record_cache_by_id: dict[HostId, HostRecord] = PrivateAttr(default_factory=dict)
 
     config: ModalProviderConfig = Field(frozen=True, description="Modal provider configuration")
-    modal_app: ModalProviderApp = Field(frozen=True, description="Modal app manager")
+    modal_app_name: str = Field(frozen=True, description="The Modal app name for this instance")
+    modal_environment_name: str = Field(frozen=True, description="The Modal environment name for user isolation")
+    modal_app_factory: Callable[[], ModalProviderApp] | None = Field(
+        default=None,
+        frozen=True,
+        description="Factory that lazily creates the Modal app context and volume",
+    )
+    modal_app: ModalProviderApp | None = Field(default=None, description="Modal app manager (lazily initialized)")
 
     @property
     def supports_snapshots(self) -> bool:
@@ -569,15 +576,34 @@ class ModalProviderInstance(BaseProviderInstance):
     def supports_mutable_tags(self) -> bool:
         return True
 
+    def _ensure_modal_app(self) -> ModalProviderApp:
+        """Lazily create the Modal app context and volume.
+
+        Called on first access when a Modal app is actually needed (e.g., creating
+        hosts, listing sandboxes). This avoids creating Modal environments as a side
+        effect of read-only operations like listing when no environment exists yet.
+
+        Uses the modal_app_factory callback provided by the backend to create
+        the app context, avoiding circular imports between instance.py and backend.py.
+        """
+        if self.modal_app is not None:
+            return self.modal_app
+
+        if self.modal_app_factory is None:
+            raise MngError("Modal app factory not configured -- cannot lazily create Modal app")
+
+        self.modal_app = self.modal_app_factory()
+        return self.modal_app
+
     @property
     def app_name(self) -> str:
-        """Get the Modal app name from the modal_app manager."""
-        return self.modal_app.app_name
+        """Get the Modal app name for this instance."""
+        return self.modal_app_name
 
     @property
     def environment_name(self) -> str:
-        """Get the Modal environment name from the modal_app manager."""
-        return self.modal_app.environment_name
+        """Get the Modal environment name for user isolation."""
+        return self.modal_environment_name
 
     @property
     def _keys_dir(self) -> Path:
@@ -674,7 +700,8 @@ class ModalProviderInstance(BaseProviderInstance):
         mounted inside sandboxes and writable by untrusted code). The state
         volume is only accessed by mng itself and contains trusted data.
         """
-        return ModalVolume.model_construct(modal_volume=self.modal_app.volume)
+        modal_app = self._ensure_modal_app()
+        return ModalVolume.model_construct(modal_volume=modal_app.volume)
 
     def _get_host_record_path(self, host_id: HostId) -> str:
         """Get the path for a host record on the volume."""
@@ -1423,16 +1450,15 @@ log "=== Shutdown script completed ==="
         return parse_sandbox_tags(tags)
 
     def _get_modal_app(self) -> modal.App:
-        """Get or create the Modal app for this provider instance.
+        """Get the Modal app for this provider instance, creating it if needed.
 
-        The app is lazily created by the modal_app manager when first needed.
-        This allows basic property tests to run without Modal credentials.
+        The app is lazily created when first needed. This allows basic property
+        tests to run without Modal credentials, and prevents read-only operations
+        like listing from creating Modal environments as a side effect.
 
-        Modal output is captured at the modal_app level.
-
-        Raises modal.exception.AuthError if Modal credentials are not configured.
+        Raises ModalAuthError if Modal credentials are not configured.
         """
-        return self.modal_app.app
+        return self._ensure_modal_app().app
 
     def get_captured_output(self) -> str:
         """Get all captured Modal output for this provider instance.
@@ -1443,6 +1469,8 @@ log "=== Shutdown script completed ==="
 
         Returns an empty string if no app has been created yet.
         """
+        if self.modal_app is None:
+            return ""
         return self.modal_app.get_captured_output()
 
     def _lookup_sandbox_by_host_id_once(self, host_id: HostId) -> modal.Sandbox | None:
@@ -2323,6 +2351,9 @@ log "=== Shutdown script completed ==="
         1. List running sandbox host IDs (with tags fetched in parallel)
         2. Read all host records from the state volume
         3. Read all agent data from the state volume (for all hosts)
+
+        Returns empty results if the Modal environment doesn't exist yet (i.e.,
+        no agents have ever been created on this provider).
         """
         with trace_span("Loading data for refs", _is_trace_span_enabled=False):
             try:
@@ -2336,6 +2367,10 @@ log "=== Shutdown script completed ==="
                 all_host_records, agent_data_by_host_id = host_and_agent_future.result()
             except modal.exception.AuthError as e:
                 raise ModalAuthError() from e
+            except modal.exception.NotFoundError:
+                # Environment doesn't exist yet -- no agents have been created on this provider
+                logger.trace("Modal environment {} not found, returning empty results", self.environment_name)
+                return {}
 
         # Build DiscoveredHost -> [DiscoveredAgent] mapping from host records
         result: dict[DiscoveredHost, list[DiscoveredAgent]] = {}
@@ -3062,9 +3097,11 @@ log "=== Shutdown script completed ==="
         """Clean up the Modal app context.
 
         Exits the app.run() context manager if one was created for this app_name.
-        This makes the app ephemeral and prevents accumulation.
+        No-op if the app was never initialized (e.g., only read-only operations
+        were performed and the environment didn't exist).
         """
-        self.modal_app.close()
+        if self.modal_app is not None:
+            self.modal_app.close()
 
 
 def _build_modal_secrets_from_env(
