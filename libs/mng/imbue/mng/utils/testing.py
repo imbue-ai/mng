@@ -978,12 +978,24 @@ AllowUsers {current_user}
 
 
 def make_test_discovered_agent() -> DiscoveredAgent:
-    """Create a DiscoveredAgent with random IDs for testing."""
+    """Create a DiscoveredAgent with random IDs and realistic certified_data for testing."""
+    agent_id = AgentId.generate()
+    agent_name = AgentName(f"test-agent-{uuid4().hex}")
     return DiscoveredAgent(
         host_id=HostId.generate(),
-        agent_id=AgentId.generate(),
-        agent_name=AgentName(f"test-agent-{uuid4().hex}"),
+        agent_id=agent_id,
+        agent_name=agent_name,
         provider_name=ProviderInstanceName("local"),
+        certified_data={
+            "id": str(agent_id),
+            "name": str(agent_name),
+            "type": "claude",
+            "command": "claude --model sonnet",
+            "work_dir": "/tmp/test",
+            "start_on_boot": False,
+            "labels": {},
+            "permissions": [],
+        },
     )
 
 

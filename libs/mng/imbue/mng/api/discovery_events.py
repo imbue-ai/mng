@@ -4,7 +4,6 @@ from datetime import datetime
 from datetime import timezone
 from enum import auto
 from pathlib import Path
-from typing import Any
 from typing import Final
 
 from loguru import logger
@@ -20,14 +19,10 @@ from imbue.imbue_common.logging import format_nanosecond_iso_timestamp
 from imbue.imbue_common.logging import generate_log_event_id
 from imbue.imbue_common.pure import pure
 from imbue.mng.config.data_types import MngConfig
-from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.host import OnlineHostInterface
-from imbue.mng.primitives import AgentId
-from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
-from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 
@@ -85,7 +80,7 @@ def get_discovery_events_path(config: MngConfig) -> Path:
 
 @pure
 def discovered_agent_from_agent_details(agent_details: AgentDetails) -> DiscoveredAgent:
-    """Convert an AgentDetails to a lightweight DiscoveredAgent."""
+    """Convert an AgentDetails to a DiscoveredAgent with full certified_data."""
     return DiscoveredAgent(
         host_id=agent_details.host.id,
         agent_id=agent_details.id,
@@ -113,20 +108,16 @@ def discovered_host_from_agent_details(agent_details: AgentDetails) -> Discovere
 
 
 @pure
-def build_discovered_agent(
-    agent_id: AgentId,
-    agent_name: AgentName,
-    host_id: HostId,
+def discovered_host_from_online_host(
+    host: OnlineHostInterface,
     provider_name: ProviderInstanceName,
-    certified_data: dict[str, Any] | None = None,
-) -> DiscoveredAgent:
-    """Build a DiscoveredAgent from individual fields."""
-    return DiscoveredAgent(
-        host_id=host_id,
-        agent_id=agent_id,
-        agent_name=agent_name,
+) -> DiscoveredHost:
+    """Build a DiscoveredHost from an online host interface."""
+    certified = host.get_certified_data()
+    return DiscoveredHost(
+        host_id=host.id,
+        host_name=HostName(certified.host_name),
         provider_name=provider_name,
-        certified_data=certified_data or {},
     )
 
 
@@ -203,43 +194,30 @@ def emit_agent_discovered(config: MngConfig, agent: DiscoveredAgent) -> None:
     logger.trace("Emitted agent_discovered event for {}", agent.agent_name)
 
 
-@pure
-def _get_provider_name_from_host(host: OnlineHostInterface) -> ProviderInstanceName:
-    """Extract the provider instance name from a host object."""
-    if isinstance(host, Host):
-        return host.provider_instance.name
-    return ProviderInstanceName("unknown")
-
-
-def safe_emit_agent_discovered(
-    config: MngConfig,
-    agent_id: AgentId,
-    agent_name: AgentName,
-    host: OnlineHostInterface,
-) -> None:
-    """Build and emit an agent discovery event, swallowing I/O errors.
-
-    This is the standard integration point for commands that modify agents.
-    Extracts provider_name from the host automatically.
-    OSError from file I/O is caught and logged at trace level.
-    """
-    try:
-        discovered = build_discovered_agent(
-            agent_id=agent_id,
-            agent_name=agent_name,
-            host_id=host.id,
-            provider_name=_get_provider_name_from_host(host),
-        )
-        emit_agent_discovered(config, discovered)
-    except OSError as e:
-        logger.trace("Failed to emit agent discovery event: {}", e)
-
-
 def emit_host_discovered(config: MngConfig, host: DiscoveredHost) -> None:
     """Build and append a host discovery event."""
     event = make_host_discovery_event(host)
     append_discovery_event(config, event)
     logger.trace("Emitted host_discovered event for {}", host.host_name)
+
+
+def emit_discovery_events_for_host(
+    config: MngConfig,
+    host: OnlineHostInterface,
+    provider_name: ProviderInstanceName,
+) -> None:
+    """Emit agent and host discovery events by reading current state from the host.
+
+    Re-reads the agent data from the host's filesystem to ensure the emitted
+    events contain full certified_data. Also emits a host discovery event.
+    """
+    # Emit host event
+    discovered_host = discovered_host_from_online_host(host, provider_name)
+    emit_host_discovered(config, discovered_host)
+
+    # Emit agent events with full certified_data from the host's filesystem
+    for discovered_agent in host.discover_agents():
+        emit_agent_discovered(config, discovered_agent)
 
 
 def write_full_discovery_snapshot(

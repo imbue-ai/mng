@@ -12,7 +12,7 @@ from imbue.concurrency_group.errors import ProcessError
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.mng.api.data_types import GcResourceTypes
 from imbue.mng.api.discover import discover_all_hosts_and_agents
-from imbue.mng.api.discovery_events import safe_emit_agent_discovered
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.gc import gc as api_gc
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.api.providers import get_provider_instance
@@ -32,6 +32,7 @@ from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import HostOfflineError
 from imbue.mng.errors import MngError
 from imbue.mng.errors import UserInputError
+from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
@@ -40,6 +41,7 @@ from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.providers.base_provider import BaseProviderInstance
 from imbue.mng.utils.git_utils import find_source_repo_of_worktree
 from imbue.mng.utils.git_utils import remove_worktree
@@ -307,8 +309,9 @@ def destroy(ctx: click.Context, **kwargs) -> None:
             destroyed_agents.append(agent.name)
             _output(f"Destroyed agent: {agent.name}", output_opts)
 
-            # Emit discovery event for destroyed agent
-            safe_emit_agent_discovered(mng_ctx.config, agent.id, agent.name, host)
+            # Emit discovery events (agent is gone, this emits remaining agents + host)
+            provider_name = host.provider_instance.name if isinstance(host, Host) else ProviderInstanceName("unknown")
+            emit_discovery_events_for_host(mng_ctx.config, host, provider_name)
 
         except MngError as e:
             _output(f"Error destroying agent {agent.name}: {e}", output_opts)

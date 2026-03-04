@@ -6,7 +6,7 @@ from click_option_group import optgroup
 from loguru import logger
 
 from imbue.mng.api.discover import discover_all_hosts_and_agents
-from imbue.mng.api.discovery_events import safe_emit_agent_discovered
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
@@ -18,8 +18,10 @@ from imbue.mng.cli.output_helpers import emit_final_json
 from imbue.mng.cli.output_helpers import write_human_line
 from imbue.mng.config.data_types import OutputOptions
 from imbue.mng.errors import UserInputError
+from imbue.mng.hosts.host import Host
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.primitives import ProviderInstanceName
 
 
 class RenameCliOptions(CommonCliOptions):
@@ -126,8 +128,9 @@ def rename(ctx: click.Context, **kwargs: Any) -> None:
     # Perform the rename
     updated_agent = host.rename_agent(agent, new_agent_name)
 
-    # Emit discovery event for renamed agent
-    safe_emit_agent_discovered(mng_ctx.config, updated_agent.id, updated_agent.name, host)
+    # Emit discovery events for renamed agent and host
+    rename_provider_name = host.provider_instance.name if isinstance(host, Host) else ProviderInstanceName("unknown")
+    emit_discovery_events_for_host(mng_ctx.config, host, rename_provider_name)
 
     # Warn that the git branch was not renamed (only in human output mode)
     if output_opts.output_format == OutputFormat.HUMAN:

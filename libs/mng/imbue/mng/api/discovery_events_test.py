@@ -9,7 +9,6 @@ from imbue.mng.api.discovery_events import DiscoveryEventType
 from imbue.mng.api.discovery_events import FullDiscoverySnapshotEvent
 from imbue.mng.api.discovery_events import HostDiscoveryEvent
 from imbue.mng.api.discovery_events import append_discovery_event
-from imbue.mng.api.discovery_events import build_discovered_agent
 from imbue.mng.api.discovery_events import discovered_agent_from_agent_details
 from imbue.mng.api.discovery_events import discovered_host_from_agent_details
 from imbue.mng.api.discovery_events import emit_agent_discovered
@@ -103,23 +102,6 @@ def test_make_full_discovery_snapshot_event_has_correct_fields() -> None:
 
 
 # === Conversion Helper Tests ===
-
-
-def test_build_discovered_agent_creates_correct_object() -> None:
-    agent_id = AgentId.generate()
-    agent_name = AgentName("my-agent")
-    host_id = HostId.generate()
-    provider_name = ProviderInstanceName("local")
-    agent = build_discovered_agent(
-        agent_id=agent_id,
-        agent_name=agent_name,
-        host_id=host_id,
-        provider_name=provider_name,
-    )
-    assert agent.agent_id == agent_id
-    assert agent.agent_name == agent_name
-    assert agent.host_id == host_id
-    assert agent.provider_name == provider_name
 
 
 def test_discovered_agent_from_agent_details_preserves_key_fields() -> None:

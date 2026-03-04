@@ -5,7 +5,7 @@ from typing import assert_never
 import click
 from click_option_group import optgroup
 
-from imbue.mng.api.discovery_events import safe_emit_agent_discovered
+from imbue.mng.api.discovery_events import emit_discovery_events_for_host
 from imbue.mng.api.find import find_agents_by_identifiers_or_state
 from imbue.mng.api.find import group_agents_by_host
 from imbue.mng.api.providers import get_provider_instance
@@ -223,9 +223,8 @@ def stop(ctx: click.Context, **kwargs: Any) -> None:
                     stopped_agents.append(str(m.agent_name))
                     _output(f"Stopped agent: {m.agent_name}", output_opts)
 
-                # Emit discovery events for stopped agents
-                for m in agent_list:
-                    safe_emit_agent_discovered(mng_ctx.config, m.agent_id, m.agent_name, online_host)
+                # Emit discovery events for stopped agents and host
+                emit_discovery_events_for_host(mng_ctx.config, online_host, provider_name)
             case HostInterface():
                 raise HostOfflineError(f"Host '{host_id_str}' is offline. Cannot stop agents on offline hosts.")
             case _ as unreachable:
