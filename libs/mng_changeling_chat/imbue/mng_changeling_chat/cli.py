@@ -174,14 +174,13 @@ def _run_conversation_selector(  # pragma: no cover
 
     input_handler = ConversationSelectorInputHandler(state=state)
 
+    # Save terminal settings BEFORE creating the Screen, because
+    # tty_signal_keys(intr="undefined") modifies termios to disable SIGINT.
+    # urwid may not restore this properly on exit, permanently breaking Ctrl+C.
+    saved_tty_attrs = termios.tcgetattr(sys.stdin)
+
     screen = Screen()
     screen.tty_signal_keys(intr="undefined")
-
-    # Save terminal settings so we can restore them after urwid exits.
-    # urwid's tty_signal_keys(intr="undefined") disables SIGINT at the terminal
-    # level, and may not restore it properly, which would break Ctrl+C in the
-    # subsequent chat session.
-    saved_tty_attrs = termios.tcgetattr(sys.stdin)
 
     loop = MainLoop(
         frame,

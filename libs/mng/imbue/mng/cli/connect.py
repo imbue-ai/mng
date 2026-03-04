@@ -1,3 +1,5 @@
+import sys
+import termios
 import time
 from typing import Any
 
@@ -301,7 +303,11 @@ def _run_agent_selector(agents: list[AgentDetails]) -> AgentDetails | None:
 
     input_handler = SelectorInputHandler(state=state)
 
-    # Create screen and disable Ctrl-c SIGINT mapping so we can handle it as a key
+    # Save terminal settings BEFORE creating the Screen, because
+    # tty_signal_keys(intr="undefined") modifies termios to disable SIGINT.
+    # urwid may not restore this properly on exit, permanently breaking Ctrl+C.
+    saved_tty_attrs = termios.tcgetattr(sys.stdin)
+
     screen = Screen()
     screen.tty_signal_keys(intr="undefined")
 
@@ -311,7 +317,10 @@ def _run_agent_selector(agents: list[AgentDetails]) -> AgentDetails | None:
         unhandled_input=input_handler,
         screen=screen,
     )
-    loop.run()
+    try:
+        loop.run()
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, saved_tty_attrs)
 
     return state.result
 
