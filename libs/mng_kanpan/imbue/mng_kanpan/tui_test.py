@@ -3,6 +3,7 @@
 import subprocess
 from concurrent.futures import Future
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -144,6 +145,31 @@ def _make_state(
         focused_agent_name=None,
         steady_footer_text="  Loading...",
     )
+
+
+def _make_state_with_focus(
+    entries: tuple[AgentBoardEntry, ...],
+    commands: dict[str, CustomCommand] | None = None,
+) -> _KanpanState:
+    """Create a state with board widgets built and focus on the first agent."""
+    state = _make_state(snapshot=_make_snapshot(entries=entries), commands=commands)
+    walker = _build_board_widgets(state)
+    state.list_walker = walker
+    agent_idx = next(iter(state.index_to_entry.keys()))
+    walker.set_focus(agent_idx)
+    return state
+
+
+def _make_done_future(result: subprocess.CompletedProcess[str]) -> Future[subprocess.CompletedProcess[str]]:
+    future: Future[subprocess.CompletedProcess[str]] = Future()
+    future.set_result(result)
+    return future
+
+
+def _make_failed_future(error: Exception) -> Future[subprocess.CompletedProcess[str]]:
+    future: Future[subprocess.CompletedProcess[str]] = Future()
+    future.set_exception(error)
+    return future
 
 
 # =============================================================================
@@ -391,9 +417,7 @@ def test_build_board_widgets_with_entries_creates_sections() -> None:
     )
     state = _make_state(snapshot=_make_snapshot(entries=entries))
     walker = _build_board_widgets(state)
-    # Should have: section heading + agent for merged, divider, section heading + agent for cooking
     assert len(walker) >= 4
-    # index_to_entry should have 2 agent entries
     assert len(state.index_to_entry) == 2
 
 
@@ -428,25 +452,14 @@ def test_get_focused_entry_returns_none_when_no_walker() -> None:
 
 
 def test_get_focused_entry_returns_entry_when_focused() -> None:
-    entries = (_make_entry(name="focused-agent"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    # Focus on the agent entry (not the section heading)
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
+    state = _make_state_with_focus(entries=(_make_entry(name="focused-agent"),))
     entry = _get_focused_entry(state)
     assert entry is not None
     assert entry.name == AgentName("focused-agent")
 
 
 def test_is_focus_on_first_selectable_true() -> None:
-    entries = (_make_entry(name="only-agent"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    first_idx = min(state.index_to_entry.keys())
-    walker.set_focus(first_idx)
+    state = _make_state_with_focus(entries=(_make_entry(name="only-agent"),))
     assert _is_focus_on_first_selectable(state) is True
 
 
@@ -456,19 +469,11 @@ def test_is_focus_on_first_selectable_false_when_no_walker() -> None:
 
 
 def test_clear_focus_moves_to_top() -> None:
-    entries = (
-        _make_entry(name="agent-a"),
-        _make_entry(name="agent-b"),
-    )
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    # Focus on the last agent
-    last_idx = max(state.index_to_entry.keys())
-    walker.set_focus(last_idx)
+    entries = (_make_entry(name="agent-a"), _make_entry(name="agent-b"))
+    state = _make_state_with_focus(entries=entries)
     _clear_focus(state)
     assert state.focused_agent_name is None
-    _, focus_pos = walker.get_focus()
+    _, focus_pos = state.list_walker.get_focus()
     assert focus_pos == 0
 
 
@@ -478,10 +483,7 @@ def test_clear_focus_moves_to_top() -> None:
 
 
 def test_update_snapshot_mute_sets_muted() -> None:
-    entries = (
-        _make_entry(name="agent-a", is_muted=False),
-        _make_entry(name="agent-b", is_muted=False),
-    )
+    entries = (_make_entry(name="agent-a", is_muted=False), _make_entry(name="agent-b", is_muted=False))
     state = _make_state(snapshot=_make_snapshot(entries=entries))
     _update_snapshot_mute(state, AgentName("agent-a"), True)
     assert state.snapshot is not None
@@ -498,7 +500,7 @@ def test_update_snapshot_mute_unsets_muted() -> None:
     assert state.snapshot.entries[0].is_muted is False
 
 
-def test_update_snapshot_mute_no_snapshot_is_noop() -> None:
+def test_update_snapshot_mute_no_snapshot_does_not_create_one() -> None:
     state = _make_state(snapshot=None)
     _update_snapshot_mute(state, AgentName("agent-a"), True)
     assert state.snapshot is None
@@ -510,22 +512,19 @@ def test_update_snapshot_mute_no_snapshot_is_noop() -> None:
 
 
 def test_input_handler_q_exits() -> None:
-    state = _make_state()
-    handler = _KanpanInputHandler(state=state)
+    handler = _KanpanInputHandler(state=_make_state())
     with pytest.raises(ExitMainLoop):
         handler("q")
 
 
 def test_input_handler_uppercase_q_exits() -> None:
-    state = _make_state()
-    handler = _KanpanInputHandler(state=state)
+    handler = _KanpanInputHandler(state=_make_state())
     with pytest.raises(ExitMainLoop):
         handler("Q")
 
 
 def test_input_handler_ctrl_c_exits() -> None:
-    state = _make_state()
-    handler = _KanpanInputHandler(state=state)
+    handler = _KanpanInputHandler(state=_make_state())
     with pytest.raises(ExitMainLoop):
         handler("ctrl c")
 
@@ -535,11 +534,11 @@ def test_input_handler_ignores_mouse_events() -> None:
     handler = _KanpanInputHandler(state=state)
     result = handler(("mouse press", 1, 0, 0))
     assert result is None
+    assert state.pending_delete_name is None
 
 
 def test_input_handler_passes_through_navigation_keys() -> None:
-    state = _make_state()
-    handler = _KanpanInputHandler(state=state)
+    handler = _KanpanInputHandler(state=_make_state())
     assert handler("down") is None
     assert handler("page up") is None
     assert handler("page down") is None
@@ -548,8 +547,7 @@ def test_input_handler_passes_through_navigation_keys() -> None:
 
 
 def test_input_handler_swallows_unknown_keys() -> None:
-    state = _make_state()
-    handler = _KanpanInputHandler(state=state)
+    handler = _KanpanInputHandler(state=_make_state())
     result = handler("x")
     assert result is True
 
@@ -558,8 +556,6 @@ def test_input_handler_pending_delete_y_confirms() -> None:
     state = _make_state()
     state.pending_delete_name = AgentName("doomed-agent")
     handler = _KanpanInputHandler(state=state)
-    # y confirms; since there's no executor, _confirm_delete will clear pending
-    # and try to execute (but won't because there's no loop). The key is it doesn't raise.
     result = handler("y")
     assert result is True
     assert state.pending_delete_name is None
@@ -568,19 +564,16 @@ def test_input_handler_pending_delete_y_confirms() -> None:
 def test_input_handler_pending_delete_other_key_cancels() -> None:
     state = _make_state()
     state.pending_delete_name = AgentName("doomed-agent")
+    state.steady_footer_text = "  Steady"
     handler = _KanpanInputHandler(state=state)
     result = handler("n")
     assert result is True
     assert state.pending_delete_name is None
+    assert state.footer_left_text.get_text()[0] == "  Steady"
 
 
 def test_input_handler_up_on_first_selectable_clears_focus() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    first_idx = min(state.index_to_entry.keys())
-    walker.set_focus(first_idx)
+    state = _make_state_with_focus(entries=(_make_entry(name="agent-a"),))
     handler = _KanpanInputHandler(state=state)
     result = handler("up")
     assert result is True
@@ -644,6 +637,13 @@ def test_show_transient_message_updates_footer() -> None:
     assert state.footer_left_text.get_text()[0] == "  Operation succeeded"
 
 
+def test_show_transient_message_with_loop_schedules_alarm() -> None:
+    state = _make_state()
+    state.loop = MagicMock()
+    _show_transient_message(state, "  Test message")
+    state.loop.set_alarm_in.assert_called_once()
+
+
 def test_restore_footer_restores_steady_state() -> None:
     state = _make_state()
     state.steady_footer_text = "  Last refresh: 12:00:00"
@@ -652,8 +652,16 @@ def test_restore_footer_restores_steady_state() -> None:
     assert state.footer_left_text.get_text()[0] == "  Last refresh: 12:00:00"
 
 
+def test_on_restore_footer_callback_restores_footer() -> None:
+    state = _make_state()
+    state.steady_footer_text = "  Steady state text"
+    _show_transient_message(state, "  Temporary")
+    _on_restore_footer(MagicMock(), state)
+    assert state.footer_left_text.get_text()[0] == "  Steady state text"
+
+
 # =============================================================================
-# Tests for _cancel_delete
+# Tests for _cancel_delete and _confirm_delete
 # =============================================================================
 
 
@@ -666,152 +674,6 @@ def test_cancel_delete_clears_pending_and_restores_footer() -> None:
     assert state.footer_left_text.get_text()[0] == "  Steady state"
 
 
-# =============================================================================
-# Tests for _dispatch_command
-# =============================================================================
-
-
-def test_dispatch_command_refresh_builtin_without_loop_is_noop() -> None:
-    state = _make_state()
-    cmd = CustomCommand(name="refresh")
-    _dispatch_command(state, "r", cmd)
-    # No crash, no state change (no loop set)
-
-
-def test_dispatch_command_delete_builtin_without_focus_is_noop() -> None:
-    state = _make_state()
-    cmd = CustomCommand(name="delete")
-    _dispatch_command(state, "d", cmd)
-    # No focused entry, so nothing happens
-
-
-def test_dispatch_command_push_builtin_without_focus_is_noop() -> None:
-    state = _make_state()
-    cmd = CustomCommand(name="push")
-    _dispatch_command(state, "p", cmd)
-    # No focused entry, so nothing happens
-
-
-def test_dispatch_command_mute_builtin_without_focus_is_noop() -> None:
-    state = _make_state()
-    cmd = CustomCommand(name="mute")
-    _dispatch_command(state, "m", cmd)
-    # No focused entry, so nothing happens
-
-
-# =============================================================================
-# Tests for _delete_focused_agent
-# =============================================================================
-
-
-def test_delete_focused_agent_already_deleting_is_noop() -> None:
-    state = _make_state()
-    state.delete_future = MagicMock()
-    _delete_focused_agent(state)
-    # Should return early, no crash
-
-
-def test_delete_focused_agent_no_focus_is_noop() -> None:
-    state = _make_state()
-    _delete_focused_agent(state)
-    # No focused entry, no crash
-
-
-def test_delete_focused_agent_non_merged_prompts_confirmation() -> None:
-    entries = (_make_entry(name="unmerged-agent", pr=_make_pr(state=PrState.OPEN)),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
-    _delete_focused_agent(state)
-    assert state.pending_delete_name == AgentName("unmerged-agent")
-    assert "confirm" in state.footer_left_text.get_text()[0].lower()
-
-
-# =============================================================================
-# Tests for _push_focused_agent
-# =============================================================================
-
-
-def test_push_focused_agent_already_pushing_is_noop() -> None:
-    state = _make_state()
-    state.push_future = MagicMock()
-    _push_focused_agent(state)
-    # Should return early
-
-
-def test_push_focused_agent_no_focus_is_noop() -> None:
-    state = _make_state()
-    _push_focused_agent(state)
-    # No focused entry
-
-
-def test_push_focused_agent_no_work_dir_shows_message() -> None:
-    entries = (_make_entry(name="remote-agent", work_dir=None),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
-    _push_focused_agent(state)
-    assert "Cannot push" in state.footer_left_text.get_text()[0]
-
-
-# =============================================================================
-# Tests for _refresh_display
-# =============================================================================
-
-
-def test_refresh_display_rebuilds_body() -> None:
-    entries = (
-        _make_entry(name="agent-a"),
-        _make_entry(name="agent-b"),
-    )
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    _refresh_display(state)
-    assert state.list_walker is not None
-    assert len(state.index_to_entry) == 2
-
-
-def test_refresh_display_preserves_focus_by_name() -> None:
-    entries = (
-        _make_entry(name="agent-a"),
-        _make_entry(name="agent-b"),
-    )
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    _refresh_display(state)
-    # Focus on agent-b
-    for idx, entry in state.index_to_entry.items():
-        if entry.name == AgentName("agent-b"):
-            state.list_walker.set_focus(idx)
-            break
-    # Refresh again - should restore focus to agent-b
-    _refresh_display(state)
-    focused = _get_focused_entry(state)
-    assert focused is not None
-    assert focused.name == AgentName("agent-b")
-
-
-# =============================================================================
-# Tests for _on_restore_footer callback
-# =============================================================================
-
-
-def test_on_restore_footer_callback_restores_footer() -> None:
-    state = _make_state()
-    state.steady_footer_text = "  Steady state text"
-    _show_transient_message(state, "  Temporary")
-    loop = MagicMock()
-    _on_restore_footer(loop, state)
-    assert state.footer_left_text.get_text()[0] == "  Steady state text"
-
-
-# =============================================================================
-# Tests for _confirm_delete
-# =============================================================================
-
-
 def test_confirm_delete_clears_pending_and_resets_attr() -> None:
     state = _make_state()
     state.pending_delete_name = AgentName("agent-to-delete")
@@ -819,11 +681,11 @@ def test_confirm_delete_clears_pending_and_resets_attr() -> None:
     assert state.pending_delete_name is None
 
 
-def test_confirm_delete_with_none_pending_is_noop() -> None:
+def test_confirm_delete_with_none_pending_does_not_create_executor() -> None:
     state = _make_state()
     state.pending_delete_name = None
     _confirm_delete(state)
-    # No crash, no executor creation
+    assert state.executor is None
 
 
 # =============================================================================
@@ -833,7 +695,6 @@ def test_confirm_delete_with_none_pending_is_noop() -> None:
 
 def test_execute_delete_sets_footer_and_creates_executor(monkeypatch: pytest.MonkeyPatch) -> None:
     state = _make_state()
-    # Monkeypatch _run_destroy to avoid subprocess
     monkeypatch.setattr(
         "imbue.mng_kanpan.tui._run_destroy",
         lambda name: subprocess.CompletedProcess(args=[], returncode=0),
@@ -847,44 +708,184 @@ def test_execute_delete_sets_footer_and_creates_executor(monkeypatch: pytest.Mon
 
 
 # =============================================================================
+# Tests for _dispatch_command
+# =============================================================================
+
+
+def test_dispatch_command_refresh_without_loop_does_not_start_refresh() -> None:
+    state = _make_state()
+    _dispatch_command(state, "r", CustomCommand(name="refresh"))
+    assert state.refresh_future is None
+
+
+def test_dispatch_command_delete_without_focus_does_not_set_pending() -> None:
+    state = _make_state()
+    _dispatch_command(state, "d", CustomCommand(name="delete"))
+    assert state.pending_delete_name is None
+    assert state.delete_future is None
+
+
+def test_dispatch_command_push_without_focus_does_not_start_push() -> None:
+    state = _make_state()
+    _dispatch_command(state, "p", CustomCommand(name="push"))
+    assert state.push_future is None
+
+
+def test_dispatch_command_mute_without_focus_does_not_change_snapshot() -> None:
+    state = _make_state(snapshot=_make_snapshot())
+    original_snapshot = state.snapshot
+    _dispatch_command(state, "m", CustomCommand(name="mute"))
+    assert state.snapshot is original_snapshot
+
+
+def test_dispatch_command_refresh_with_loop_starts_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("imbue.mng_kanpan.tui.fetch_board_snapshot", lambda ctx: _make_snapshot())
+    state = _make_state()
+    state.loop = MagicMock()
+    _dispatch_command(state, "r", CustomCommand(name="refresh"))
+    assert state.refresh_future is not None
+    assert state.executor is not None
+    state.executor.shutdown(wait=True)
+
+
+def test_dispatch_command_custom_shell_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = _make_state_with_focus(entries=(_make_entry(name="agent-a"),))
+    cmd = CustomCommand(name="custom", command="echo hello")
+    _dispatch_command(state, "x", cmd)
+    assert "Running custom" in state.footer_left_text.get_text()[0]
+    assert state.executor is not None
+    state.executor.shutdown(wait=True)
+
+
+# =============================================================================
+# Tests for _delete_focused_agent
+# =============================================================================
+
+
+def test_delete_focused_agent_already_deleting_does_not_start_new() -> None:
+    state = _make_state()
+    existing_future = MagicMock()
+    state.delete_future = existing_future
+    _delete_focused_agent(state)
+    assert state.delete_future is existing_future
+
+
+def test_delete_focused_agent_no_focus_does_not_set_pending() -> None:
+    state = _make_state()
+    _delete_focused_agent(state)
+    assert state.pending_delete_name is None
+    assert state.delete_future is None
+
+
+def test_delete_focused_agent_non_merged_prompts_confirmation() -> None:
+    state = _make_state_with_focus(entries=(_make_entry(name="unmerged-agent", pr=_make_pr(state=PrState.OPEN)),))
+    _delete_focused_agent(state)
+    assert state.pending_delete_name == AgentName("unmerged-agent")
+    assert "confirm" in state.footer_left_text.get_text()[0].lower()
+
+
+def test_delete_focused_agent_merged_pr_executes_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "imbue.mng_kanpan.tui._run_destroy",
+        lambda name: subprocess.CompletedProcess(args=[], returncode=0),
+    )
+    state = _make_state_with_focus(entries=(_make_entry(name="merged-agent", pr=_make_pr(state=PrState.MERGED)),))
+    _delete_focused_agent(state)
+    assert state.pending_delete_name is None
+    assert state.deleting_agent_name == AgentName("merged-agent")
+    assert state.executor is not None
+    state.executor.shutdown(wait=True)
+
+
+# =============================================================================
+# Tests for _push_focused_agent
+# =============================================================================
+
+
+def test_push_focused_agent_already_pushing_does_not_start_new() -> None:
+    state = _make_state()
+    existing_future = MagicMock()
+    state.push_future = existing_future
+    _push_focused_agent(state)
+    assert state.push_future is existing_future
+
+
+def test_push_focused_agent_no_focus_does_not_set_pushing() -> None:
+    state = _make_state()
+    _push_focused_agent(state)
+    assert state.pushing_agent_name is None
+
+
+def test_push_focused_agent_no_work_dir_shows_message() -> None:
+    state = _make_state_with_focus(entries=(_make_entry(name="remote-agent", work_dir=None),))
+    _push_focused_agent(state)
+    assert "Cannot push" in state.footer_left_text.get_text()[0]
+
+
+def test_push_focused_agent_with_work_dir_starts_push(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "imbue.mng_kanpan.tui._run_git_push",
+        lambda work_dir: subprocess.CompletedProcess(args=[], returncode=0),
+    )
+    state = _make_state_with_focus(entries=(_make_entry(name="local-agent", work_dir=Path("/tmp/work")),))
+    _push_focused_agent(state)
+    assert state.pushing_agent_name == AgentName("local-agent")
+    assert "Pushing local-agent" in state.footer_left_text.get_text()[0]
+    assert state.executor is not None
+    state.executor.shutdown(wait=True)
+
+
+# =============================================================================
+# Tests for _refresh_display
+# =============================================================================
+
+
+def test_refresh_display_rebuilds_body() -> None:
+    entries = (_make_entry(name="agent-a"), _make_entry(name="agent-b"))
+    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    _refresh_display(state)
+    assert state.list_walker is not None
+    assert len(state.index_to_entry) == 2
+
+
+def test_refresh_display_preserves_focus_by_name() -> None:
+    entries = (_make_entry(name="agent-a"), _make_entry(name="agent-b"))
+    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    _refresh_display(state)
+    for idx, entry in state.index_to_entry.items():
+        if entry.name == AgentName("agent-b"):
+            state.list_walker.set_focus(idx)
+            break
+    _refresh_display(state)
+    focused = _get_focused_entry(state)
+    assert focused is not None
+    assert focused.name == AgentName("agent-b")
+
+
+# =============================================================================
 # Tests for _on_delete_poll and _finish_delete
 # =============================================================================
 
 
-def _make_done_future(result: subprocess.CompletedProcess[str]) -> Future[subprocess.CompletedProcess[str]]:
-    future: Future[subprocess.CompletedProcess[str]] = Future()
-    future.set_result(result)
-    return future
-
-
-def _make_failed_future(error: Exception) -> Future[subprocess.CompletedProcess[str]]:
-    future: Future[subprocess.CompletedProcess[str]] = Future()
-    future.set_exception(error)
-    return future
-
-
-def test_on_delete_poll_no_future_is_noop() -> None:
+def test_on_delete_poll_no_future_does_not_schedule() -> None:
     state = _make_state()
     state.delete_future = None
     loop = MagicMock()
     _on_delete_poll(loop, state)
-    # No crash
+    loop.set_alarm_in.assert_not_called()
 
 
-def test_on_delete_poll_with_done_future_calls_finish() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+def test_on_delete_poll_with_done_future_clears_it() -> None:
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.delete_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     state.deleting_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _on_delete_poll(loop, state)
-    # _finish_delete should have been called, clearing delete_future
+    _on_delete_poll(MagicMock(), state)
     assert state.delete_future is None
 
 
 def test_on_delete_poll_not_done_schedules_next_tick() -> None:
     state = _make_state()
-    state.delete_future = Future()  # Not done
+    state.delete_future = Future()
     state.deleting_agent_name = AgentName("agent-a")
     loop = MagicMock()
     _on_delete_poll(loop, state)
@@ -892,42 +893,37 @@ def test_on_delete_poll_not_done_schedules_next_tick() -> None:
 
 
 def test_finish_delete_success_shows_message() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.delete_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     state.deleting_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_delete(loop, state)
+    _finish_delete(MagicMock(), state)
     assert state.delete_future is None
     assert state.deleting_agent_name is None
     assert "Deleted agent-a" in state.footer_left_text.get_text()[0]
 
 
 def test_finish_delete_failure_shows_error() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.delete_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=1, stderr="some error"))
     state.deleting_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_delete(loop, state)
+    _finish_delete(MagicMock(), state)
     assert "Failed to delete" in state.footer_left_text.get_text()[0]
 
 
 def test_finish_delete_exception_shows_error() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.delete_future = _make_failed_future(RuntimeError("connection lost"))
     state.deleting_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_delete(loop, state)
+    _finish_delete(MagicMock(), state)
     assert "Failed to delete" in state.footer_left_text.get_text()[0]
 
 
-def test_finish_delete_no_future_is_noop() -> None:
+def test_finish_delete_no_future_does_not_change_state() -> None:
     state = _make_state()
     state.delete_future = None
-    loop = MagicMock()
-    _finish_delete(loop, state)
+    original_text = state.footer_left_text.get_text()[0]
+    _finish_delete(MagicMock(), state)
+    assert state.footer_left_text.get_text()[0] == original_text
 
 
 # =============================================================================
@@ -935,20 +931,19 @@ def test_finish_delete_no_future_is_noop() -> None:
 # =============================================================================
 
 
-def test_on_push_poll_no_future_is_noop() -> None:
+def test_on_push_poll_no_future_does_not_schedule() -> None:
     state = _make_state()
     state.push_future = None
     loop = MagicMock()
     _on_push_poll(loop, state)
+    loop.set_alarm_in.assert_not_called()
 
 
-def test_on_push_poll_done_future_calls_finish() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+def test_on_push_poll_done_future_clears_it() -> None:
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.push_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     state.pushing_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _on_push_poll(loop, state)
+    _on_push_poll(MagicMock(), state)
     assert state.push_future is None
 
 
@@ -962,33 +957,27 @@ def test_on_push_poll_not_done_schedules_next() -> None:
 
 
 def test_finish_push_success_shows_message() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.push_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     state.pushing_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_push(loop, state)
+    _finish_push(MagicMock(), state)
     assert state.push_future is None
     assert "Pushed agent-a" in state.footer_left_text.get_text()[0]
 
 
 def test_finish_push_failure_shows_error() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.push_future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=1, stderr="rejected"))
     state.pushing_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_push(loop, state)
+    _finish_push(MagicMock(), state)
     assert "Failed to push" in state.footer_left_text.get_text()[0]
 
 
 def test_finish_push_exception_shows_error() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     state.push_future = _make_failed_future(RuntimeError("timeout"))
     state.pushing_agent_name = AgentName("agent-a")
-    loop = MagicMock()
-    _finish_push(loop, state)
+    _finish_push(MagicMock(), state)
     assert "Failed to push" in state.footer_left_text.get_text()[0]
 
 
@@ -997,11 +986,12 @@ def test_finish_push_exception_shows_error() -> None:
 # =============================================================================
 
 
-def test_on_spinner_tick_no_future_is_noop() -> None:
+def test_on_spinner_tick_no_future_does_not_schedule() -> None:
     state = _make_state()
     state.refresh_future = None
     loop = MagicMock()
     _on_spinner_tick(loop, state)
+    loop.set_alarm_in.assert_not_called()
 
 
 def test_on_spinner_tick_not_done_animates() -> None:
@@ -1014,24 +1004,18 @@ def test_on_spinner_tick_not_done_animates() -> None:
 
 
 def test_on_spinner_tick_done_finishes_refresh() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    snapshot = _make_snapshot(entries=entries)
+    snapshot = _make_snapshot(entries=(_make_entry(name="agent-a"),))
     state = _make_state(snapshot=snapshot)
     done_future: Future[BoardSnapshot] = Future()
     done_future.set_result(snapshot)
     state.refresh_future = done_future
-    loop = MagicMock()
-    _on_spinner_tick(loop, state)
+    _on_spinner_tick(MagicMock(), state)
     assert state.refresh_future is None
 
 
 def test_start_refresh_creates_executor_and_schedules_spinner(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("imbue.mng_kanpan.tui.fetch_board_snapshot", lambda ctx: _make_snapshot())
     state = _make_state()
-    # Monkeypatch fetch_board_snapshot to return a snapshot immediately
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui.fetch_board_snapshot",
-        lambda ctx: _make_snapshot(),
-    )
     loop = MagicMock()
     _start_refresh(loop, state)
     assert state.executor is not None
@@ -1041,9 +1025,8 @@ def test_start_refresh_creates_executor_and_schedules_spinner(monkeypatch: pytes
 
 
 def test_schedule_next_refresh_sets_alarm() -> None:
-    state = _make_state()
     loop = MagicMock()
-    _schedule_next_refresh(loop, state)
+    _schedule_next_refresh(loop, _make_state())
     loop.set_alarm_in.assert_called_once()
 
 
@@ -1053,14 +1036,12 @@ def test_schedule_next_refresh_sets_alarm() -> None:
 
 
 def test_finish_refresh_updates_snapshot_and_display() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    snapshot = _make_snapshot(entries=entries)
+    snapshot = _make_snapshot(entries=(_make_entry(name="agent-a"),))
     state = _make_state(snapshot=None)
     done_future: Future[BoardSnapshot] = Future()
     done_future.set_result(snapshot)
     state.refresh_future = done_future
-    loop = MagicMock()
-    _finish_refresh(loop, state)
+    _finish_refresh(MagicMock(), state)
     assert state.snapshot is not None
     assert state.refresh_future is None
     assert "Last refresh" in state.footer_left_text.get_text()[0]
@@ -1072,19 +1053,18 @@ def test_finish_refresh_handles_exception() -> None:
     failed_future: Future[BoardSnapshot] = Future()
     failed_future.set_exception(RuntimeError("fetch failed"))
     state.refresh_future = failed_future
-    loop = MagicMock()
-    _finish_refresh(loop, state)
+    _finish_refresh(MagicMock(), state)
     assert state.refresh_future is None
-    # Old entries should still be present, errors appended
     assert state.snapshot is not None
     assert any("Refresh failed" in e for e in state.snapshot.errors)
 
 
-def test_finish_refresh_no_future_is_noop() -> None:
+def test_finish_refresh_no_future_does_not_change_state() -> None:
     state = _make_state()
     state.refresh_future = None
-    loop = MagicMock()
-    _finish_refresh(loop, state)
+    original_text = state.footer_left_text.get_text()[0]
+    _finish_refresh(MagicMock(), state)
+    assert state.footer_left_text.get_text()[0] == original_text
 
 
 # =============================================================================
@@ -1096,8 +1076,7 @@ def test_on_custom_command_poll_done_success() -> None:
     state = _make_state()
     future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     cmd = CustomCommand(name="test-cmd", command="echo hello")
-    loop = MagicMock()
-    _on_custom_command_poll(loop, (state, future, cmd, AgentName("agent-a")))
+    _on_custom_command_poll(MagicMock(), (state, future, cmd, AgentName("agent-a")))
     assert "test-cmd completed" in state.footer_left_text.get_text()[0]
 
 
@@ -1105,8 +1084,7 @@ def test_on_custom_command_poll_done_failure() -> None:
     state = _make_state()
     future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=1, stderr="oops"))
     cmd = CustomCommand(name="test-cmd", command="echo hello")
-    loop = MagicMock()
-    _on_custom_command_poll(loop, (state, future, cmd, AgentName("agent-a")))
+    _on_custom_command_poll(MagicMock(), (state, future, cmd, AgentName("agent-a")))
     assert "test-cmd failed" in state.footer_left_text.get_text()[0]
 
 
@@ -1114,8 +1092,7 @@ def test_on_custom_command_poll_done_exception() -> None:
     state = _make_state()
     future = _make_failed_future(RuntimeError("boom"))
     cmd = CustomCommand(name="test-cmd", command="echo hello")
-    loop = MagicMock()
-    _on_custom_command_poll(loop, (state, future, cmd, AgentName("agent-a")))
+    _on_custom_command_poll(MagicMock(), (state, future, cmd, AgentName("agent-a")))
     assert "test-cmd failed" in state.footer_left_text.get_text()[0]
 
 
@@ -1129,14 +1106,16 @@ def test_on_custom_command_poll_not_done_animates() -> None:
     loop.set_alarm_in.assert_called_once()
 
 
-def test_on_custom_command_poll_refreshes_afterwards() -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+def test_on_custom_command_poll_refreshes_afterwards_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("imbue.mng_kanpan.tui.fetch_board_snapshot", lambda ctx: _make_snapshot())
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="agent-a"),)))
     future = _make_done_future(subprocess.CompletedProcess(args=[], returncode=0))
     cmd = CustomCommand(name="test-cmd", command="echo hello", refresh_afterwards=True)
     loop = MagicMock()
     _on_custom_command_poll(loop, (state, future, cmd, AgentName("agent-a")))
-    # Should trigger a refresh after completion
+    assert state.refresh_future is not None
+    assert state.executor is not None
+    state.executor.shutdown(wait=True)
 
 
 # =============================================================================
@@ -1144,19 +1123,15 @@ def test_on_custom_command_poll_refreshes_afterwards() -> None:
 # =============================================================================
 
 
-def test_mute_focused_agent_no_focus_is_noop() -> None:
-    state = _make_state()
+def test_mute_focused_agent_no_focus_does_not_change_snapshot() -> None:
+    state = _make_state(snapshot=_make_snapshot())
+    original_snapshot = state.snapshot
     _mute_focused_agent(state)
-    # No crash
+    assert state.snapshot is original_snapshot
 
 
 def test_mute_focused_agent_toggles_and_updates_ui() -> None:
-    entries = (_make_entry(name="agent-to-mute", is_muted=False),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
+    state = _make_state_with_focus(entries=(_make_entry(name="agent-to-mute", is_muted=False),))
     _mute_focused_agent(state)
     assert state.snapshot is not None
     assert state.snapshot.entries[0].is_muted is True
@@ -1170,83 +1145,10 @@ def test_mute_focused_agent_toggles_and_updates_ui() -> None:
 # =============================================================================
 
 
-def test_run_shell_command_no_focus_is_noop() -> None:
+def test_run_shell_command_no_focus_does_not_create_executor() -> None:
     state = _make_state()
-    cmd = CustomCommand(name="test", command="echo hello")
-    _run_shell_command(state, cmd)
-    # No crash
-
-
-# =============================================================================
-# Tests for _dispatch_command with custom commands
-# =============================================================================
-
-
-def test_dispatch_command_custom_shell_command(monkeypatch: pytest.MonkeyPatch) -> None:
-    entries = (_make_entry(name="agent-a"),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
-    cmd = CustomCommand(name="custom", command="echo hello")
-    _dispatch_command(state, "x", cmd)
-    assert "Running custom" in state.footer_left_text.get_text()[0]
-    assert state.executor is not None
-    state.executor.shutdown(wait=True)
-
-
-# =============================================================================
-# Tests for _load_user_commands with dict-typed commands
-# =============================================================================
-
-
-def test_load_user_commands_parses_dict_as_custom_command() -> None:
-    mng_ctx = MagicMock()
-    mng_ctx.config.plugins = {
-        PluginName("kanpan"): KanpanPluginConfig(commands={"x": CustomCommand(name="from-model", command="echo test")})
-    }
-    commands = _load_user_commands(mng_ctx)
-    assert "x" in commands
-    assert commands["x"].name == "from-model"
-
-
-def test_load_user_commands_no_kanpan_plugin_returns_empty() -> None:
-    mng_ctx = MagicMock()
-    mng_ctx.config.plugins = {}
-    commands = _load_user_commands(mng_ctx)
-    assert commands == {}
-
-
-def test_load_user_commands_wrong_plugin_type_returns_empty() -> None:
-    mng_ctx = MagicMock()
-    mng_ctx.config.plugins = {PluginName("kanpan"): "not-a-config"}
-    commands = _load_user_commands(mng_ctx)
-    assert commands == {}
-
-
-# =============================================================================
-# Tests for _delete_focused_agent with safe-to-delete (merged PR)
-# =============================================================================
-
-
-def test_delete_focused_agent_merged_pr_executes_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui._run_destroy",
-        lambda name: subprocess.CompletedProcess(args=[], returncode=0),
-    )
-    entries = (_make_entry(name="merged-agent", pr=_make_pr(state=PrState.MERGED)),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
-    _delete_focused_agent(state)
-    # Safe to delete, so no confirmation needed
-    assert state.pending_delete_name is None
-    assert state.deleting_agent_name == AgentName("merged-agent")
-    assert state.executor is not None
-    state.executor.shutdown(wait=True)
+    _run_shell_command(state, CustomCommand(name="test", command="echo hello"))
+    assert state.executor is None
 
 
 # =============================================================================
@@ -1255,10 +1157,7 @@ def test_delete_focused_agent_merged_pr_executes_immediately(monkeypatch: pytest
 
 
 def test_on_auto_refresh_alarm_starts_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui.fetch_board_snapshot",
-        lambda ctx: _make_snapshot(),
-    )
+    monkeypatch.setattr("imbue.mng_kanpan.tui.fetch_board_snapshot", lambda ctx: _make_snapshot())
     state = _make_state()
     state.refresh_future = None
     loop = MagicMock()
@@ -1270,10 +1169,11 @@ def test_on_auto_refresh_alarm_starts_refresh(monkeypatch: pytest.MonkeyPatch) -
 
 def test_on_auto_refresh_alarm_skips_if_already_refreshing() -> None:
     state = _make_state()
-    state.refresh_future = Future()  # Already refreshing
+    existing_future = Future()
+    state.refresh_future = existing_future
     loop = MagicMock()
     _on_auto_refresh_alarm(loop, state)
-    # Should not start another refresh
+    assert state.refresh_future is existing_future
 
 
 # =============================================================================
@@ -1281,24 +1181,21 @@ def test_on_auto_refresh_alarm_skips_if_already_refreshing() -> None:
 # =============================================================================
 
 
-def test_on_mute_persist_poll_success() -> None:
+def test_on_mute_persist_poll_success_does_not_revert() -> None:
     state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="a", is_muted=True),)))
     future: Future[bool] = Future()
     future.set_result(True)
-    loop = MagicMock()
-    _on_mute_persist_poll(loop, (state, future, AgentName("a"), True))
-    # Success, no revert
+    _on_mute_persist_poll(MagicMock(), (state, future, AgentName("a"), True))
+    assert state.snapshot is not None
+    assert state.snapshot.entries[0].is_muted is True
 
 
 def test_on_mute_persist_poll_failure_reverts() -> None:
-    entries = (_make_entry(name="a", is_muted=True),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
+    state = _make_state(snapshot=_make_snapshot(entries=(_make_entry(name="a", is_muted=True),)))
     _refresh_display(state)
     future: Future[bool] = Future()
     future.set_exception(RuntimeError("persist failed"))
-    loop = MagicMock()
-    _on_mute_persist_poll(loop, (state, future, AgentName("a"), True))
-    # Should revert mute
+    _on_mute_persist_poll(MagicMock(), (state, future, AgentName("a"), True))
     assert state.snapshot is not None
     assert state.snapshot.entries[0].is_muted is False
 
@@ -1312,84 +1209,30 @@ def test_on_mute_persist_poll_not_done_schedules_next() -> None:
 
 
 # =============================================================================
-# Tests for run_kanpan (mocked MainLoop)
+# Tests for _load_user_commands
 # =============================================================================
 
 
-def test_run_kanpan_creates_and_runs_loop(
-    monkeypatch: pytest.MonkeyPatch,
-    temp_mng_ctx: object,
-) -> None:
-    monkeypatch.setattr("imbue.mng_kanpan.tui.Screen", lambda: MagicMock())
-
-    def mock_main_loop(*args, **kwargs):  # type: ignore[no-untyped-def]
-        return MagicMock()
-
-    monkeypatch.setattr("imbue.mng_kanpan.tui.MainLoop", mock_main_loop)
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui.fetch_board_snapshot",
-        lambda ctx: _make_snapshot(),
-    )
-    run_kanpan(temp_mng_ctx)  # type: ignore[arg-type]
+def test_load_user_commands_parses_model() -> None:
+    mng_ctx = MagicMock()
+    mng_ctx.config.plugins = {
+        PluginName("kanpan"): KanpanPluginConfig(commands={"x": CustomCommand(name="from-model", command="echo test")})
+    }
+    commands = _load_user_commands(mng_ctx)
+    assert "x" in commands
+    assert commands["x"].name == "from-model"
 
 
-# =============================================================================
-# Tests for _push_focused_agent with work_dir (executor path)
-# =============================================================================
+def test_load_user_commands_no_kanpan_plugin_returns_empty() -> None:
+    mng_ctx = MagicMock()
+    mng_ctx.config.plugins = {}
+    assert _load_user_commands(mng_ctx) == {}
 
 
-def test_push_focused_agent_with_work_dir_starts_push(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui._run_git_push",
-        lambda work_dir: subprocess.CompletedProcess(args=[], returncode=0),
-    )
-    entries = (_make_entry(name="local-agent", work_dir=Path("/tmp/work")),)
-    state = _make_state(snapshot=_make_snapshot(entries=entries))
-    walker = _build_board_widgets(state)
-    state.list_walker = walker
-    agent_idx = next(iter(state.index_to_entry.keys()))
-    walker.set_focus(agent_idx)
-    _push_focused_agent(state)
-    assert state.pushing_agent_name == AgentName("local-agent")
-    assert "Pushing local-agent" in state.footer_left_text.get_text()[0]
-    assert state.executor is not None
-    state.executor.shutdown(wait=True)
-
-
-# =============================================================================
-# Tests for _dispatch_command refresh with loop
-# =============================================================================
-
-
-def test_dispatch_command_refresh_with_loop_starts_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "imbue.mng_kanpan.tui.fetch_board_snapshot",
-        lambda ctx: _make_snapshot(),
-    )
-    state = _make_state()
-    state.loop = MagicMock()
-    cmd = CustomCommand(name="refresh")
-    _dispatch_command(state, "r", cmd)
-    assert state.refresh_future is not None
-    assert state.executor is not None
-    state.executor.shutdown(wait=True)
-
-
-# =============================================================================
-# Tests for _show_transient_message with loop
-# =============================================================================
-
-
-def test_show_transient_message_with_loop_schedules_alarm() -> None:
-    state = _make_state()
-    state.loop = MagicMock()
-    _show_transient_message(state, "  Test message")
-    state.loop.set_alarm_in.assert_called_once()
-
-
-# =============================================================================
-# Tests for _load_user_commands with dict values (model_construct path)
-# =============================================================================
+def test_load_user_commands_wrong_plugin_type_returns_empty() -> None:
+    mng_ctx = MagicMock()
+    mng_ctx.config.plugins = {PluginName("kanpan"): "not-a-config"}
+    assert _load_user_commands(mng_ctx) == {}
 
 
 def test_load_user_commands_handles_dict_values() -> None:
@@ -1402,3 +1245,22 @@ def test_load_user_commands_handles_dict_values() -> None:
     commands = _load_user_commands(mng_ctx)
     assert "x" in commands
     assert commands["x"].name == "from-dict"
+
+
+# =============================================================================
+# Tests for run_kanpan (mocked MainLoop)
+# =============================================================================
+
+
+def test_run_kanpan_creates_and_runs_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    temp_mng_ctx: Any,
+) -> None:
+    monkeypatch.setattr("imbue.mng_kanpan.tui.Screen", lambda: MagicMock())
+
+    def mock_main_loop(*args: object, **kwargs: object) -> MagicMock:
+        return MagicMock()
+
+    monkeypatch.setattr("imbue.mng_kanpan.tui.MainLoop", mock_main_loop)
+    monkeypatch.setattr("imbue.mng_kanpan.tui.fetch_board_snapshot", lambda ctx: _make_snapshot())
+    run_kanpan(temp_mng_ctx)

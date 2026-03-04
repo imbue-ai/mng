@@ -1,10 +1,14 @@
 """Unit tests for the tutor TUI."""
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from urwid.event_loop.abstract_loop import ExitMainLoop
+from urwid.widget.attr_map import AttrMap
+from urwid.widget.listbox import SimpleFocusListWalker
 from urwid.widget.text import Text
+from urwid.widget.wimp import SelectableIcon
 
 from imbue.mng.primitives import AgentName
 from imbue.mng_tutor.data_types import AgentExistsCheck
@@ -64,6 +68,24 @@ def _make_runner_state(
         frame=frame,
         status_text=status_text,
     )
+
+
+def _make_selector_handler() -> tuple[_LessonSelectorInputHandler, _LessonSelectorState]:
+    """Create a selector handler and its state for testing."""
+    lessons = (_make_lesson(),)
+    list_walker: SimpleFocusListWalker[AttrMap] = SimpleFocusListWalker([])
+    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
+    handler = _LessonSelectorInputHandler(state=state)
+    return handler, state
+
+
+def _mock_main_loop_factory() -> object:
+    """Create a factory that returns a MagicMock MainLoop, ignoring constructor args."""
+
+    def factory(*args: object, **kwargs: object) -> MagicMock:
+        return MagicMock()
+
+    return factory
 
 
 # =============================================================================
@@ -153,32 +175,18 @@ def test_refresh_display_sets_frame_body() -> None:
 
 
 def test_selector_input_handler_q_exits() -> None:
-    from urwid.widget.listbox import SimpleFocusListWalker
-
-    lessons = (_make_lesson(),)
-    list_walker = SimpleFocusListWalker([])
-    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
-    handler = _LessonSelectorInputHandler(state=state)
+    handler, _ = _make_selector_handler()
     with pytest.raises(ExitMainLoop):
         handler("q")
 
 
 def test_selector_input_handler_ctrl_c_exits() -> None:
-    from urwid.widget.listbox import SimpleFocusListWalker
-
-    lessons = (_make_lesson(),)
-    list_walker = SimpleFocusListWalker([])
-    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
-    handler = _LessonSelectorInputHandler(state=state)
+    handler, _ = _make_selector_handler()
     with pytest.raises(ExitMainLoop):
         handler("ctrl c")
 
 
 def test_selector_input_handler_enter_sets_result_index() -> None:
-    from urwid.widget.attr_map import AttrMap
-    from urwid.widget.listbox import SimpleFocusListWalker
-    from urwid.widget.wimp import SelectableIcon
-
     lessons = (_make_lesson(title="L1"), _make_lesson(title="L2"))
     items = [
         AttrMap(SelectableIcon(f"  {idx + 1}. {lesson.title}", cursor_position=0), None)
@@ -194,12 +202,7 @@ def test_selector_input_handler_enter_sets_result_index() -> None:
 
 
 def test_selector_input_handler_arrow_keys_pass_through() -> None:
-    from urwid.widget.listbox import SimpleFocusListWalker
-
-    lessons = (_make_lesson(),)
-    list_walker = SimpleFocusListWalker([])
-    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
-    handler = _LessonSelectorInputHandler(state=state)
+    handler, _ = _make_selector_handler()
     assert handler("up") is None
     assert handler("down") is None
     assert handler("page up") is None
@@ -209,25 +212,17 @@ def test_selector_input_handler_arrow_keys_pass_through() -> None:
 
 
 def test_selector_input_handler_ignores_mouse_events() -> None:
-    from urwid.widget.listbox import SimpleFocusListWalker
-
-    lessons = (_make_lesson(),)
-    list_walker = SimpleFocusListWalker([])
-    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
-    handler = _LessonSelectorInputHandler(state=state)
+    handler, state = _make_selector_handler()
     result = handler(("mouse press", 1, 0, 0))
     assert result is None
+    assert state.result_index is None
 
 
 def test_selector_input_handler_swallows_other_keys() -> None:
-    from urwid.widget.listbox import SimpleFocusListWalker
-
-    lessons = (_make_lesson(),)
-    list_walker = SimpleFocusListWalker([])
-    state = _LessonSelectorState(lessons=lessons, list_walker=list_walker)
-    handler = _LessonSelectorInputHandler(state=state)
+    handler, state = _make_selector_handler()
     result = handler("x")
     assert result is True
+    assert state.result_index is None
 
 
 # =============================================================================
@@ -290,9 +285,7 @@ def test_on_check_alarm_step_not_passed_schedules_next(monkeypatch: pytest.Monke
     monkeypatch.setattr("imbue.mng_tutor.tui.run_check", lambda check, ctx: False)
     loop = MagicMock()
     _on_check_alarm(loop, state)
-    # Should schedule next check since step not passed
     loop.set_alarm_in.assert_called_once()
-    # Step should still be incomplete
     assert state.step_completed[0] is False
 
 
@@ -301,9 +294,7 @@ def test_on_check_alarm_step_passed_advances(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("imbue.mng_tutor.tui.run_check", lambda check, ctx: True)
     loop = MagicMock()
     _on_check_alarm(loop, state)
-    # Step should be marked complete
     assert state.step_completed[0] is True
-    # Should schedule next check for step 2
     loop.set_alarm_in.assert_called_once()
 
 
@@ -312,7 +303,6 @@ def test_on_check_alarm_last_step_passed_shows_complete(monkeypatch: pytest.Monk
     monkeypatch.setattr("imbue.mng_tutor.tui.run_check", lambda check, ctx: True)
     loop = MagicMock()
     _on_check_alarm(loop, state)
-    # Both steps complete
     assert state.step_completed[1] is True
     status_text = state.status_text.get_text()[0]
     assert "complete" in str(status_text).lower()
@@ -321,18 +311,6 @@ def test_on_check_alarm_last_step_passed_shows_complete(monkeypatch: pytest.Monk
 # =============================================================================
 # Tests for run_lesson_selector and run_lesson_runner (mocked MainLoop)
 # =============================================================================
-
-
-def _mock_main_loop_factory(**overrides):  # type: ignore[no-untyped-def]
-    """Create a factory that returns a MagicMock MainLoop, ignoring constructor args."""
-
-    def factory(*args, **kwargs):  # type: ignore[no-untyped-def]
-        loop = MagicMock()
-        for key, value in overrides.items():
-            setattr(loop, key, value)
-        return loop
-
-    return factory
 
 
 def test_run_lesson_selector_returns_none_on_quit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -346,9 +324,8 @@ def test_run_lesson_selector_returns_none_on_quit(monkeypatch: pytest.MonkeyPatc
 def test_run_lesson_selector_returns_selected_lesson(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("imbue.mng_tutor.tui.Screen", lambda: MagicMock())
 
-    def fake_main_loop(*args, **kwargs):  # type: ignore[no-untyped-def]
+    def fake_main_loop(*args: Any, **kwargs: Any) -> MagicMock:
         loop = MagicMock()
-        # Extract the unhandled_input handler from kwargs or positional args
         handler = kwargs.get("unhandled_input") or (args[2] if len(args) > 2 else None)
         if handler is not None:
             handler.state.result_index = 0
@@ -363,9 +340,9 @@ def test_run_lesson_selector_returns_selected_lesson(monkeypatch: pytest.MonkeyP
 
 def test_run_lesson_runner_completes(
     monkeypatch: pytest.MonkeyPatch,
-    temp_mng_ctx: object,
+    temp_mng_ctx: Any,
 ) -> None:
     monkeypatch.setattr("imbue.mng_tutor.tui.Screen", lambda: MagicMock())
     monkeypatch.setattr("imbue.mng_tutor.tui.MainLoop", _mock_main_loop_factory())
     lesson = _make_lesson()
-    run_lesson_runner(lesson, temp_mng_ctx)  # type: ignore[arg-type]
+    run_lesson_runner(lesson, temp_mng_ctx)
