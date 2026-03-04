@@ -50,7 +50,7 @@ def test_watcher_detects_running_to_waiting_transition(
         options=CreateAgentOptions(
             name=AgentName("watch-test"),
             agent_type=AgentTypeName("generic"),
-            command=CommandString("sleep 3600"),
+            command=CommandString("sleep 1000"),
         ),
     )
     host.start_agents([agent.id])
