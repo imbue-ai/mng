@@ -438,7 +438,6 @@ def _list_impl(ctx: click.Context, **kwargs) -> None:
                 ctx=ctx,
                 mng_ctx=mng_ctx,
                 max_interval_seconds=opts.watch,
-                error_behavior=error_behavior,
             )
         except KeyboardInterrupt:
             logger.info("\nWatch mode stopped")
@@ -1219,7 +1218,6 @@ def _list_watch_with_stream(
     ctx: click.Context,
     mng_ctx: MngContext,
     max_interval_seconds: int,
-    error_behavior: ErrorBehavior,
 ) -> None:
     """Watch mode backed by the discovery event stream.
 
