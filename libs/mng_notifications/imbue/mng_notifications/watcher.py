@@ -1,13 +1,14 @@
 import threading
-import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.list import list_agents
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
@@ -50,21 +51,20 @@ def watch_for_waiting_agents(
 
     Runs until stop_event is set (if provided) or until interrupted.
     """
+    if stop_event is None:
+        stop_event = threading.Event()
+
     previous_states: dict[AgentId, AgentLifecycleState] = {}
 
-    # Initial poll to establish baseline (no notifications on first poll)
     agents = _poll_agents(mng_ctx, include_filters, exclude_filters)
     if agents is not None:
         previous_states = build_state_map(agents)
         logger.info("Tracking {} agent(s)", len(previous_states))
 
-    while stop_event is None or not stop_event.is_set():
-        if stop_event is not None:
-            stop_event.wait(timeout=interval_seconds)
-            if stop_event.is_set():
-                break
-        else:
-            time.sleep(interval_seconds)
+    while not stop_event.is_set():
+        stop_event.wait(timeout=interval_seconds)
+        if stop_event.is_set():
+            break
 
         agents = _poll_agents(mng_ctx, include_filters, exclude_filters)
         if agents is None:
@@ -72,7 +72,7 @@ def watch_for_waiting_agents(
 
         transitioned = detect_waiting_transitions(previous_states, agents)
         for agent in transitioned:
-            _notify_agent_waiting(agent, plugin_config, notifier)
+            _notify_agent_waiting(agent, plugin_config, notifier, mng_ctx.concurrency_group)
 
         previous_states = build_state_map(agents)
 
@@ -92,7 +92,7 @@ def _poll_agents(
             error_behavior=ErrorBehavior.CONTINUE,
         )
         return result.agents
-    except Exception:
+    except MngError:
         logger.opt(exception=True).debug("Failed to poll agents")
         return None
 
@@ -101,10 +101,11 @@ def _notify_agent_waiting(
     agent: AgentDetails,
     plugin_config: NotificationsPluginConfig,
     notifier: Notifier,
+    cg: ConcurrencyGroup,
 ) -> None:
     """Send a notification that an agent has transitioned to WAITING."""
     title = "Agent waiting"
     message = f"{agent.name} is waiting for input"
     execute_command = build_execute_command(str(agent.name), plugin_config)
     logger.info("{} ({}): RUNNING -> WAITING", agent.name, agent.id)
-    notifier.notify(title, message, execute_command)
+    notifier.notify(title, message, execute_command, cg)

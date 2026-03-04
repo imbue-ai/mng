@@ -1,5 +1,6 @@
 """Unit tests for agent state transition detection."""
 
+from collections.abc import Generator
 from datetime import datetime
 from datetime import timezone
 from pathlib import Path
@@ -7,7 +8,10 @@ from typing import Any
 
 import pytest
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.api.list import ListResult
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.primitives import AgentId
@@ -51,6 +55,12 @@ def _make_agent(
         labels={},
         host=_make_host_details(),
     )
+
+
+@pytest.fixture()
+def notification_cg() -> Generator[ConcurrencyGroup, None, None]:
+    with ConcurrencyGroup(name="test-notification") as group:
+        yield group
 
 
 def test_detect_waiting_transitions_running_to_waiting() -> None:
@@ -153,19 +163,19 @@ def test_build_state_map_empty() -> None:
     assert result == {}
 
 
-def test_notify_agent_waiting_sends_notification() -> None:
+def test_notify_agent_waiting_sends_notification(notification_cg: ConcurrencyGroup) -> None:
     """_notify_agent_waiting sends a desktop notification with the agent name."""
     notifier = RecordingNotifier()
 
     agent = _make_agent(name="my-cool-agent", state=AgentLifecycleState.WAITING)
-    _notify_agent_waiting(agent, NotificationsPluginConfig(), notifier)
+    _notify_agent_waiting(agent, NotificationsPluginConfig(), notifier, notification_cg)
 
     assert len(notifier.calls) == 1
     assert notifier.calls[0][0] == "Agent waiting"
     assert "my-cool-agent" in notifier.calls[0][1]
 
 
-def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch, temp_mng_ctx: MngContext) -> None:
     """_poll_agents returns the list of agents from list_agents."""
     agent = _make_agent(name="polled-agent")
     fake_result = ListResult(agents=[agent])
@@ -175,24 +185,24 @@ def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch) -> None
         lambda mng_ctx, **kwargs: fake_result,
     )
 
-    result = _poll_agents(None, (), ())  # type: ignore[arg-type]
+    result = _poll_agents(temp_mng_ctx, (), ())
 
     assert result is not None
     assert len(result) == 1
     assert result[0].name == AgentName("polled-agent")
 
 
-def test_poll_agents_returns_none_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_poll_agents returns None when list_agents raises an exception."""
+def test_poll_agents_returns_none_on_mng_error(monkeypatch: pytest.MonkeyPatch, temp_mng_ctx: MngContext) -> None:
+    """_poll_agents returns None when list_agents raises MngError."""
 
     def fail_list_agents(mng_ctx: Any, **kwargs: Any) -> None:
-        raise RuntimeError("connection failed")
+        raise MngError("connection failed")
 
     monkeypatch.setattr(
         "imbue.mng_notifications.watcher.list_agents",
         fail_list_agents,
     )
 
-    result = _poll_agents(None, (), ())  # type: ignore[arg-type]
+    result = _poll_agents(temp_mng_ctx, (), ())
 
     assert result is None

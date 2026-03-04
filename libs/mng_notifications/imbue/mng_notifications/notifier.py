@@ -1,11 +1,11 @@
 import platform
 import shlex
-import subprocess
 from abc import ABC
 from abc import abstractmethod
 
 from loguru import logger
 
+from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.terminals import get_terminal_app
 
@@ -14,38 +14,33 @@ class Notifier(ABC):
     """Sends desktop notifications."""
 
     @abstractmethod
-    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+    def notify(self, title: str, message: str, execute_command: str | None, cg: ConcurrencyGroup) -> None:
         """Send a notification with an optional click action."""
 
 
 class MacOSNotifier(Notifier):
     """Sends notifications on macOS via terminal-notifier."""
 
-    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+    def notify(self, title: str, message: str, execute_command: str | None, cg: ConcurrencyGroup) -> None:
         cmd = ["terminal-notifier", "-title", title, "-message", message]
         if execute_command is not None:
             cmd.extend(["-execute", execute_command])
         try:
-            subprocess.run(cmd, check=False, capture_output=True, timeout=10)
+            cg.run_process_to_completion(cmd, timeout=10, is_checked_after=False)
         except FileNotFoundError:
             logger.warning("terminal-notifier not found; install with: brew install terminal-notifier")
-        except subprocess.TimeoutExpired:
-            logger.warning("Notification timed out")
 
 
 class LinuxNotifier(Notifier):
     """Sends notifications on Linux via notify-send."""
 
-    def notify(self, title: str, message: str, execute_command: str | None) -> None:
+    def notify(self, title: str, message: str, execute_command: str | None, cg: ConcurrencyGroup) -> None:
         if execute_command is not None:
             raise NotImplementedError("notify-send does not support click actions; use notification_only = true")
-        cmd = ["notify-send", title, message]
         try:
-            subprocess.run(cmd, check=False, capture_output=True, timeout=10)
+            cg.run_process_to_completion(["notify-send", title, message], timeout=10, is_checked_after=False)
         except FileNotFoundError:
             logger.warning("notify-send not found; install libnotify to enable notifications")
-        except subprocess.TimeoutExpired:
-            logger.warning("Notification timed out")
 
 
 def get_notifier() -> Notifier | None:

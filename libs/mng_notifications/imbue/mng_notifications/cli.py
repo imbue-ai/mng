@@ -110,7 +110,7 @@ To enable click-to-connect (opens a terminal tab running mng connect),
 configure the plugin in settings.toml:
 
     [plugins.notifications]
-    terminal_app = "iTerm"  # or Terminal, WezTerm, Kitty
+    terminal_app = "iTerm"
 
 Or use a custom command (MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN is set in the environment):
 

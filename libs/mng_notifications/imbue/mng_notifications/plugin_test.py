@@ -22,8 +22,5 @@ def test_register_cli_commands_returns_watch_command() -> None:
 
 def test_plugin_config_is_registered() -> None:
     """Verify that the notifications plugin config is registered."""
-    # Importing plugin.py triggers register_plugin_config at module level
-    import imbue.mng_notifications.plugin  # noqa: F401
-
     config_class = get_plugin_config_class("notifications")
     assert config_class is NotificationsPluginConfig
