@@ -14,6 +14,7 @@ from imbue.changelings.config.data_types import MNG_BINARY
 from imbue.changelings.forwarding_server.ssh_tunnel import RemoteSSHInfo
 from imbue.changelings.primitives import ServerName
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
+from imbue.concurrency_group.local_process import RunningProcess
 from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.mng.api.discovery_events import FullDiscoverySnapshotEvent
@@ -239,6 +240,7 @@ class MngStreamManager(MutableModel):
     _cg: ConcurrencyGroup = PrivateAttr(default_factory=lambda: ConcurrencyGroup(name="mng-stream-manager"))
     _known_agent_ids: set[str] = PrivateAttr(default_factory=set)
     _events_servers: dict[str, dict[str, str]] = PrivateAttr(default_factory=dict)
+    _events_processes: dict[str, RunningProcess] = PrivateAttr(default_factory=dict)
     _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)
 
     def start(self) -> None:
@@ -303,11 +305,19 @@ class MngStreamManager(MutableModel):
         self._sync_events_streams(new_ids)
 
     def _sync_events_streams(self, new_agent_ids: set[str]) -> None:
-        """Start events streams for newly discovered agents."""
+        """Start events streams for new agents and stop streams for removed agents."""
         with self._lock:
             previously_known = set(self._known_agent_ids)
             self._known_agent_ids = new_agent_ids
 
+            # Stop streams for agents that are no longer present
+            for aid_str in previously_known - new_agent_ids:
+                process = self._events_processes.pop(aid_str, None)
+                if process is not None:
+                    process.terminate()
+                self._events_servers.pop(aid_str, None)
+
+            # Start streams for newly discovered agents
             for aid_str in new_agent_ids - previously_known:
                 self._start_events_stream(AgentId(aid_str))
 
@@ -333,7 +343,8 @@ class MngStreamManager(MutableModel):
         aid_str = str(agent_id)
         self._events_servers[aid_str] = {}
 
-        self._cg.run_process_in_background(
+        process = self._cg.run_process_in_background(
             command=[self.mng_binary, "events", aid_str, SERVERS_LOG_FILENAME, "--follow", "--quiet"],
             on_output=lambda line, is_stderr: self._on_events_stream_output(line, is_stderr, agent_id),
         )
+        self._events_processes[aid_str] = process
