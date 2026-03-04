@@ -21,6 +21,11 @@ fi
 SESSION="$1"
 WINDOW="$2"
 
+STOP_HOOK_SCRIPT_NAME="run_reviewer:$WINDOW"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/stop_hook_common.sh"
+
+_log_to_file "INFO" "run_reviewer started (pid=$$, ppid=$PPID, session=$SESSION, window=$WINDOW)"
+
 # Configuration
 REVIEW_TIMEOUT=600  # 10 minutes max wait for review
 POLL_INTERVAL=5     # Check every 5 seconds
@@ -44,6 +49,7 @@ if [[ -f "$CACHE_COMMIT_FILE" && -f "$CACHE_OUTPUT_FILE" && -f "$CACHE_EXIT_CODE
         mkdir -p "$REVIEW_OUTPUT_DIR"
         cp "$CACHE_OUTPUT_FILE" "$REVIEW_OUTPUT_FILE"
         echo -e "[$WINDOW] Commit $CURRENT_COMMIT already reviewed -- using cached results (exit code $CACHED_EXIT_CODE)"
+        _log_to_file "INFO" "Cache hit for commit $CURRENT_COMMIT, exiting with cached code $CACHED_EXIT_CODE"
         exit "$CACHED_EXIT_CODE"
     fi
 fi
@@ -52,32 +58,24 @@ fi
 rm -rf $REVIEW_DONE_MARKER
 rm -rf $REVIEW_OUTPUT_FILE
 
-# Colors for output (disabled if not a terminal)
-if [[ -t 2 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    NC='\033[0m'
-else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    NC=''
-fi
-
+# Override console log functions to include window name prefix
 log_error() {
     echo -e "${RED}[$WINDOW] ERROR: $1${NC}" >&2
+    _log_to_file "ERROR" "$1"
 }
 
 log_warn() {
     echo -e "${YELLOW}[$WINDOW] WARN: $1${NC}" >&2
+    _log_to_file "WARN" "$1"
 }
 
 log_info() {
     echo -e "${GREEN}[$WINDOW] $1${NC}"
+    _log_to_file "INFO" "$1"
 }
 
 # Send the review command to the tmux window
+_log_to_file "INFO" "Sending review commands to tmux $SESSION:$WINDOW"
 log_info "Triggering review in $SESSION:$WINDOW..."
 tmux send-keys -t "$SESSION:$WINDOW" "/clear"
 # see below note
@@ -101,12 +99,14 @@ while true; do
 
     if [[ $CURRENT_TIME -ge $END_TIME ]]; then
         log_error "Timeout waiting for review after ${REVIEW_TIMEOUT}s"
+        _log_to_file "ERROR" "Timeout waiting for review after ${REVIEW_TIMEOUT}s, exiting with 3"
         exit 3
     fi
 
     if [[ -f "$REVIEW_DONE_MARKER" ]]; then
         ELAPSED=$((CURRENT_TIME - START_TIME))
         log_info "Review completed in ${ELAPSED}s"
+        _log_to_file "INFO" "Review done marker found after ${ELAPSED}s"
         break
     fi
 
@@ -127,7 +127,10 @@ else
     # Confidence may be numeric (0.0-1.0) or a string ("HIGH", "MEDIUM", "LOW")
     log_info "Sorting review results..."
 
-    jq -s 'sort_by(
+    # Use flatten to normalize: if the reviewer outputs a JSON array instead of
+    # JSONL, jq -s wraps it into [[...]], and sort_by(.severity) would fail with
+    # "Cannot index array with string". flatten unwraps the nested array.
+    jq -s 'flatten | sort_by(
       (if .severity == "CRITICAL" then 0
        elif .severity == "MAJOR" then 1
        elif .severity == "MINOR" then 2
@@ -161,12 +164,57 @@ cache_results() {
     echo "$exit_code" > "$CACHE_EXIT_CODE_FILE"
 }
 
+# Upload reviewer output to a Modal volume for data collection (best-effort).
+# Tries two methods (both allowed to fail):
+#   1. Direct copy to a mounted volume path + sync (works inside Modal sandbox)
+#   2. Upload via `modal volume put` CLI (works when running locally)
+UPLOAD_VOLUME_NAME="code-review-json"
+UPLOAD_VOLUME_MOUNT="/code_reviews"
+
+upload_reviewer_output() {
+    local output_file="$1"
+    local commit="$2"
+
+    # Extract reviewer number from window name (e.g., "reviewer_0" -> "0")
+    local reviewer_num="${WINDOW#reviewer_}"
+
+    # Build nested directory path from commit hash to work around per-directory
+    # file limits on Modal volumes.  First 4 chunks of 4 hex chars become
+    # directory levels; the remaining 24 chars become the final directory.
+    # e.g. 63dced2455b3a9a54942169b02273ac568757f8e
+    #   -> 63dc/ed24/55b3/a9a5/4942169b02273ac568757f8e/
+    local nested_path="${commit:0:4}/${commit:4:4}/${commit:8:4}/${commit:12:4}/${commit:16}"
+    local filename="${reviewer_num}.json"
+
+    # Method 1: Copy to mounted volume + sync (Modal sandbox)
+    local mount_dir="${UPLOAD_VOLUME_MOUNT}/${nested_path}"
+    if mkdir -p "${mount_dir}" 2>/dev/null && cp "$output_file" "${mount_dir}/${filename}" 2>/dev/null; then
+        if sync "${UPLOAD_VOLUME_MOUNT}" 2>/dev/null; then
+            log_info "Uploaded reviewer output to mounted volume at ${mount_dir}/${filename}"
+        else
+            log_warn "Copied to mounted volume but sync failed"
+        fi
+    else
+        log_warn "Direct volume copy failed (expected if not running in Modal)"
+    fi
+
+    # Method 2: Upload via modal CLI (local machine with Modal credentials)
+    if uv run modal volume put "${UPLOAD_VOLUME_NAME}" "$output_file" "/${nested_path}/${filename}" --force 2>/dev/null; then
+        log_info "Uploaded reviewer output via modal volume put"
+    else
+        log_warn "modal volume put failed (expected if not running locally with Modal credentials)"
+    fi
+}
+
 if [[ "$BLOCKING_ISSUES" -gt 0 ]]; then
     log_error "Found $BLOCKING_ISSUES blocking issues (CRITICAL/MAJOR with confidence >= 0.7)"
     cache_results 2
+    _log_to_file "INFO" "Found $BLOCKING_ISSUES blocking issues, exiting with 2"
     exit 2
 fi
 
 log_info "Reviewer $WINDOW completed successfully (no blocking issues)"
+upload_reviewer_output "$REVIEW_OUTPUT_FILE" "$CURRENT_COMMIT"
 cache_results 0
+_log_to_file "INFO" "run_reviewer completed successfully, exiting with 0"
 exit 0

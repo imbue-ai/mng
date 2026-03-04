@@ -1,0 +1,62 @@
+[project]
+name = "mng-recursive"
+version = "0.1.0"
+description = "Recursive mng plugin: injects mng config and dependencies into remote hosts during provisioning"
+requires-python = ">=3.11"
+dependencies = [
+    "mng==0.1.4",
+]
+
+[project.entry-points.mng]
+recursive = "imbue.mng_recursive.plugin"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["imbue"]
+
+[tool.uv.sources]
+mng = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["imbue/mng_recursive"]
+python_files = ["*_test.py", "test_*.py"]
+python_classes = []
+python_functions = ["test_*"]
+addopts = [
+  "--tb=short",
+  "--strict-markers",
+  "--timeout=10",
+  "-n 4",
+  "--dist=worksteal",
+  "--cov=imbue.mng_recursive",
+  "--cov-report=term-missing",
+  "--cov-fail-under=65",
+  "-m not acceptance and not release",
+]
+markers = [
+    "acceptance: acceptance tests (run in CI)",
+    "release: release tests (run in CI)",
+]
+
+[tool.coverage.run]
+source = ["imbue/mng_recursive"]
+
+[tool.coverage.report]
+fail_under = 65
+omit = [
+    "*_test.py",
+    "test_*.py",
+    "conftest.py",
+]
+exclude_lines = [
+    "pragma: no cover",
+]
+
+[tool.pyright]
+venvPath = "../.."
+venv = ".venv"
+pythonVersion = "3.11"
+strict = ["**/*.py"]

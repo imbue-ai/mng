@@ -8,11 +8,11 @@ Your task is to make ONE improvement to the codebase by fixing a random thing ab
 In order to make this process easier for you, our FIXMEs are specially formatted:
 
 ```python
-# FIXME[priority]: (<description>) [attempts=N]
+# FIXME(priority)[attempts=N]: (description)
 #  (optional additional context)
 ```
 
-where `<description>` is a short description of what needs to be fixed, and `N` is the number of prior attempts made to fix it (if any). 
+where `description` is a short description of what needs to be fixed, and `N` is the number of prior attempts made to fix it (if any). 
 If there have been no prior attempts, the `[attempts=N]` part may be omitted.
 The priority is simply an integer, with 0 being the highest priority. priority may or may not be present. 
 If not present, assume priority=3
@@ -22,7 +22,7 @@ Before doing any of the below, the first step is to check that the tests are pas
 If the tests are not ALL passing (including all linters, ratchets, type checks, etc), *then this is the thing for you to fix*. In particular, you must follow this process:
 
 1. revert the changes from the previous commit by calling "git revert --no-commit HEAD" (so that the changed are in your current working tree, but not yet committed)
-2. update the FIXME that was attempted in the previous commit to increment the attempts count by 1 (if there were no prior attempts, add "[attempts=1]", if there were some prior attempts, increment the number by 1).
+2. update the FIXME that was attempted in the previous commit to increment the attempts count by 1 (if there were no prior attempts, add "[attempts=1]", if there were some prior attempts, increment the number by 1). Note that it should then look something like this: `# FIXME[attempts=1]: (original description)` or `# FIXME0[attempts=2]: (original description)`, ie, the `[attempts=N]` part goes before the ":"
 3. extend the optional additional context of the FIXME with a brief note about why you were unable to fix it
 4. commit all of this.
 5. proceed directly to "# The Final Step" below.
@@ -41,7 +41,7 @@ Once the tests are passing, be sure that you have removed ONLY that FIXME, then 
 If you were unable to fix the issue and get all the tests passing, do the following instead:
 
 1. Revert any changes you made while attempting to fix the issue
-2. Update the FIXME to increment the attempts count by 1 (if there were no prior attempts, add "[attempts=1]", if there were some prior attempts, increment the number by 1).
+2. Update the FIXME to increment the attempts count by 1 (if there were no prior attempts, add "[attempts=1]", if there were some prior attempts, increment the number by 1). Note that it should then look something like this: `# FIXME[attempts=1]: (original description)` or `# FIXME0[attempts=2]: (original description)`, ie, the `[attempts=N]` part goes before the ":"
 3. Extend the optional additional context with a brief note about why you were unable to fix it this time.
 4. Commit this updated FIXME (be sure that nothing else is being changed!)
 

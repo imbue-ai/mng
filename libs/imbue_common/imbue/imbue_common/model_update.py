@@ -20,7 +20,7 @@ class NestedFieldUpdateError(ValueError):
 
 
 class FieldProxy:
-    """Proxy that records attribute access paths for type-safe model_copy updates.
+    """Proxy that records attribute access paths for type-safe model_copy_update.
 
     Used by FrozenModel.field_ref() and MutableModel.field_ref() to create type-safe
     references to model fields. The type checker sees field_ref() as returning Self,
@@ -28,16 +28,14 @@ class FieldProxy:
     declared type. to_update() then constrains the value to match that type.
 
     Usage:
-        updated = my_model.model_copy(
-            update=to_update_dict(
-                to_update(my_model.field_ref().some_field, new_value),
-                to_update(my_model.field_ref().other_field, other_value),
-            )
+        updated = my_model.model_copy_update(
+            to_update(my_model.field_ref().some_field, new_value),
+            to_update(my_model.field_ref().other_field, other_value),
         )
 
     Only single-level field access is supported. Chained access like
     model.field_ref().nested.child produces a dotted path ("nested.child") which
-    pydantic's model_copy silently mishandles. to_update_dict() raises
+    pydantic's model_copy silently mishandles. model_copy_update() raises
     NestedFieldUpdateError if any key contains a dot.
     """
 
