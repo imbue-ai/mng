@@ -20,14 +20,10 @@ from urwid.widget.wimp import SelectableIcon
 
 from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
-from imbue.mng.api.discover import discover_all_hosts_and_agents
-from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
-from imbue.mng.api.list import list_agents
 from imbue.mng.cli.agent_utils import find_agent_for_command
 from imbue.mng.cli.common_opts import CommonCliOptions
 from imbue.mng.cli.common_opts import add_common_options
 from imbue.mng.cli.common_opts import setup_command_context
-from imbue.mng.cli.connect import select_agent_interactively
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.errors import UserInputError
@@ -347,47 +343,28 @@ def chat(ctx: click.Context, **kwargs: Any) -> None:  # pragma: no cover
     # Find a changeling agent.
     # When an agent is specified by name/ID, find it and validate its label.
     # When interactive with no agent specified, filter the selector to changelings only.
-    if opts.agent is not None:
-        result = find_agent_for_command(
-            mng_ctx=mng_ctx,
-            agent_identifier=opts.agent,
-            command_usage="chat <agent>",
-            host_filter=None,
-            is_start_desired=opts.start,
+    result = find_agent_for_command(
+        mng_ctx=mng_ctx,
+        agent_identifier=opts.agent,
+        command_usage="chat <agent>",
+        host_filter=None,
+        is_start_desired=opts.start,
+        agent_filter=lambda a: _is_changeling(a.labels),
+        no_agents_message="No changeling agents found",
+    )
+    if result is None:
+        logger.info("No agent selected")
+        return
+    agent, host = result
+
+    # Validate changeling label when agent was specified by name/ID
+    # (the agent_filter only applies to interactive selection)
+    if opts.agent is not None and not _is_changeling(agent.get_labels()):
+        raise UserInputError(
+            f"Agent '{agent.name}' is not a changeling and does not support chat. "
+            f"Only agents with the label {CHANGELING_LABEL_KEY}={CHANGELING_LABEL_VALUE} "
+            f"can be chatted with."
         )
-        if result is None:
-            logger.info("No agent selected")
-            return
-        agent, host = result
-        if not _is_changeling(agent.get_labels()):
-            raise UserInputError(
-                f"Agent '{agent.name}' is not a changeling and does not support chat. "
-                f"Only agents with the label {CHANGELING_LABEL_KEY}={CHANGELING_LABEL_VALUE} "
-                f"can be chatted with."
-            )
-    elif not mng_ctx.is_interactive:
-        raise UserInputError("No agent specified and not running in interactive mode (specify an agent name or ID)")
-    else:
-        list_result = list_agents(mng_ctx, is_streaming=False)
-        changeling_agents = [a for a in list_result.agents if _is_changeling(a.labels)]
-        if not changeling_agents:
-            raise UserInputError("No changeling agents found")
-        selected = select_agent_interactively(changeling_agents)
-        if selected is None:
-            logger.info("No agent selected")
-            return
-        agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
-        find_result = find_and_maybe_start_agent_by_name_or_id(
-            str(selected.id),
-            agents_by_host,
-            mng_ctx,
-            "chat",
-            is_start_desired=opts.start,
-        )
-        if find_result is None:
-            logger.info("No agent selected")
-            return
-        agent, host = find_result
 
     # Determine chat mode and build args
     chat_args = resolve_chat_args(opts, agent, host, is_interactive=mng_ctx.is_interactive)
