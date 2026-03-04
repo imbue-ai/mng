@@ -352,11 +352,11 @@ def test_get_expected_process_name_uses_command_basename(
     assert test_agent.get_expected_process_name() == "sleep"
 
 
-def test_uses_marker_based_send_message_returns_false_by_default(
+def test_uses_paste_detection_send_returns_false_by_default(
     test_agent: BaseAgent,
 ) -> None:
-    """Test that uses_marker_based_send_message returns False by default."""
-    assert test_agent.uses_marker_based_send_message() is False
+    """Test that uses_paste_detection_send returns False by default."""
+    assert test_agent.uses_paste_detection_send() is False
 
 
 def test_tmux_target_appends_window_zero(

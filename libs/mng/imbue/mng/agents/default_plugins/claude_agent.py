@@ -504,7 +504,7 @@ class ClaudeAgent(BaseAgent):
         """
         return "claude"
 
-    def uses_marker_based_send_message(self) -> bool:
+    def uses_paste_detection_send(self) -> bool:
         """Enable paste-detection send_message for Claude Code.
 
         Claude Code echoes input to the terminal and has a complex input handler

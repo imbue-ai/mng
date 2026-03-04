@@ -281,7 +281,7 @@ class BaseAgent(AgentInterface):
         sending Enter. This avoids race conditions where Enter could be
         interpreted as a literal newline instead of a submit action.
 
-        Subclasses can enable this by overriding uses_marker_based_send_message().
+        Subclasses can enable this by overriding uses_paste_detection_send().
 
         Before sending, runs preflight checks (e.g., dialog detection) that
         subclasses can customize by overriding _preflight_send_message().
@@ -289,12 +289,12 @@ class BaseAgent(AgentInterface):
         with log_span("Sending message to agent {} (length={})", self.name, len(message)):
             self._preflight_send_message(self.tmux_target)
 
-            if self.uses_marker_based_send_message():
-                self._send_message_with_marker(self.tmux_target, message)
+            if self.uses_paste_detection_send():
+                self._send_message_with_paste_detection(self.tmux_target, message)
             else:
                 self._send_message_simple(self.tmux_target, message)
 
-    def uses_marker_based_send_message(self) -> bool:
+    def uses_paste_detection_send(self) -> bool:
         """Return True to use paste-detection synchronization for send_message.
 
         When enabled, send_message sends text without a trailing newline, waits
@@ -365,7 +365,7 @@ class BaseAgent(AgentInterface):
         if not result.success:
             raise SendMessageError(str(self.name), f"tmux send-keys Enter failed: {result.stderr or result.stdout}")
 
-    def _send_message_with_marker(self, tmux_target: str, message: str) -> None:
+    def _send_message_with_paste_detection(self, tmux_target: str, message: str) -> None:
         """Send a message using paste-detection synchronization.
 
         Sends the message text WITHOUT a trailing newline, then waits for
