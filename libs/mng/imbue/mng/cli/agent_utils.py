@@ -1,5 +1,3 @@
-import sys
-
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.find import find_and_maybe_start_agent_by_name_or_id
@@ -134,7 +132,7 @@ def find_agent_for_command(
     """Find an agent by identifier, or interactively if no identifier given.
 
     Returns (agent, host) tuple, or None if the user cancelled interactive selection.
-    Raises UserInputError if no agent specified and stdin is not a TTY.
+    Raises UserInputError if no agent specified and not running in interactive mode.
     """
     if agent_identifier is not None:
         agents_by_host, _ = discover_all_hosts_and_agents(mng_ctx, include_destroyed=False)
@@ -149,8 +147,8 @@ def find_agent_for_command(
             skip_agent_state_check=skip_agent_state_check,
         )
 
-    if not sys.stdin.isatty():
-        raise UserInputError("No agent specified and not running in interactive mode")
+    if not mng_ctx.is_interactive:
+        raise UserInputError("No agent specified and not running in interactive mode (specify an agent name or ID)")
 
     result = select_agent_interactively_with_host(
         mng_ctx,
