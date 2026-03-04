@@ -14,6 +14,8 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import NestedTmuxError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng.utils.env_utils import build_source_env_shell_commands
+from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.interactive_subprocess import run_interactive_subprocess
 
 
@@ -61,39 +63,14 @@ def _build_env_file_paths(
 
 
 def _load_env_file_into_dict(env_path: Path, env: dict[str, str]) -> None:
-    """Parse a shell-style env file and add its variables to the dict.
+    """Parse an env file and add its variables to the dict.
 
-    Handles KEY=VALUE lines, ignoring comments and blank lines.
-    Strips optional surrounding quotes from values.
+    Uses the shared parse_env_file utility (backed by python-dotenv).
     """
     if not env_path.exists():
         return
-
-    for line in env_path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip()
-        value = value.strip()
-        # Strip surrounding quotes (single or double)
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-        env[key] = value
-
-
-@pure
-def _build_source_env_prefix(host_env_path: Path, agent_env_path: Path) -> str:
-    """Build a shell prefix that sources host and agent env files if they exist.
-
-    Sources host env first, then agent env (agent can override host).
-    Uses set -a / set +a to auto-export all sourced variables.
-    """
-    host_env = shlex.quote(str(host_env_path))
-    agent_env = shlex.quote(str(agent_env_path))
-    return f"set -a; [ -f {host_env} ] && . {host_env} || true; [ -f {agent_env} ] && . {agent_env} || true; set +a; "
+    parsed = parse_env_file(env_path.read_text())
+    env.update(parsed)
 
 
 @pure
@@ -196,7 +173,8 @@ def _build_remote_chat_script(
     host_env_path, agent_env_path = _build_env_file_paths(agent, host)
 
     # Source env files first (for API keys, etc.), then set MNG_ vars
-    source_prefix = _build_source_env_prefix(host_env_path, agent_env_path)
+    source_commands = build_source_env_shell_commands(host_env_path, agent_env_path)
+    source_prefix = "; ".join(source_commands) + "; "
 
     # Use shlex.quote for each value to prevent shell injection from
     # agent names or paths containing special characters

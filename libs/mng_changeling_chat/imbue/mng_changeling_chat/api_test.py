@@ -13,12 +13,12 @@ from imbue.mng.hosts.host import Host
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
+from imbue.mng.utils.env_utils import build_source_env_shell_commands
 from imbue.mng_changeling_chat.api import ChatCommandError
 from imbue.mng_changeling_chat.api import _build_chat_env_vars
 from imbue.mng_changeling_chat.api import _build_chat_script_path
 from imbue.mng_changeling_chat.api import _build_conversation_event_paths
 from imbue.mng_changeling_chat.api import _build_remote_chat_script
-from imbue.mng_changeling_chat.api import _build_source_env_prefix
 from imbue.mng_changeling_chat.api import _load_env_file_into_dict
 from imbue.mng_changeling_chat.api import get_latest_conversation_id
 from imbue.mng_changeling_chat.api import list_conversations_on_agent
@@ -319,14 +319,15 @@ def test_load_env_file_does_nothing_when_missing(tmp_path: Path) -> None:
 # =========================================================================
 
 
-def test_build_source_env_prefix_sources_host_then_agent_env() -> None:
-    result = _build_source_env_prefix(Path("/host/env"), Path("/agent/env"))
+def test_build_source_env_shell_commands_sources_host_then_agent_env() -> None:
+    commands = build_source_env_shell_commands(Path("/host/env"), Path("/agent/env"))
 
-    assert "set -a" in result
-    assert "set +a" in result
+    joined = " ".join(commands)
+    assert "set -a" in joined
+    assert "set +a" in joined
     # Host env sourced before agent env
-    host_pos = result.index("/host/env")
-    agent_pos = result.index("/agent/env")
+    host_pos = joined.index("/host/env")
+    agent_pos = joined.index("/agent/env")
     assert host_pos < agent_pos
 
 
