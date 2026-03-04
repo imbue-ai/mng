@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 from typing import assert_never
 
@@ -18,14 +19,14 @@ from imbue.mng.primitives import OutputFormat
 from imbue.mng.uv_tool import get_receipt_path
 
 
-def _require_uv_tool_for_self_upgrade() -> None:
+def _require_uv_tool_for_self_upgrade(receipt_path: Path | None) -> None:
     """Raise AbortError if mng was not installed via ``uv tool``.
 
     Uses the same detection mechanism as ``require_uv_tool_receipt`` but
     provides an error message specific to self-upgrade (rather than plugin
     management).
     """
-    if get_receipt_path() is None:
+    if receipt_path is None:
         raise AbortError(
             "The current mng instance is not installed via 'uv tool install'. "
             "To upgrade mng, use whatever commands you use to manage Python dependencies."
@@ -58,19 +59,26 @@ def _self_upgrade_impl(ctx: click.Context) -> None:
         command_class=SelfUpgradeCliOptions,
     )
 
-    _require_uv_tool_for_self_upgrade()
+    _require_uv_tool_for_self_upgrade(get_receipt_path())
 
+    stdout = _run_uv_tool_upgrade(mng_ctx.concurrency_group)
+    _emit_self_upgrade_result(stdout, output_opts)
+
+
+def _run_uv_tool_upgrade(concurrency_group: Any) -> str:
+    """Run ``uv tool upgrade mng`` and return the stripped stdout.
+
+    Raises AbortError if the process fails.
+    """
     command = ("uv", "tool", "upgrade", "mng")
-
     try:
-        result = mng_ctx.concurrency_group.run_process_to_completion(command)
+        result = concurrency_group.run_process_to_completion(command)
     except ProcessError as e:
         raise AbortError(
             f"Failed to upgrade mng: {e.stderr.strip() or e.stdout.strip()}",
             original_exception=e,
         ) from e
-
-    _emit_self_upgrade_result(result.stdout.strip(), output_opts)
+    return result.stdout.strip()
 
 
 def _emit_self_upgrade_result(
