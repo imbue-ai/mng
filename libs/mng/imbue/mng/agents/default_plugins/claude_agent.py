@@ -186,8 +186,8 @@ def _build_claude_json_for_agent(
         data = _generate_claude_json(version, current_time=current_time)
     data["bypassPermissionsModeAccepted"] = True
     data["effortCalloutDismissed"] = True
-    # Add trust for work_dir so Claude doesn't show the
-    # trust dialog (which would intercept tmux send-keys input):
+    # Add trust for work_dir so Claude doesn't show the trust dialog
+    # (which would intercept tmux send-keys input):
     projects = data.setdefault("projects", {})
     projects.setdefault(str(work_dir), {})["hasTrustDialogAccepted"] = True
     return data
