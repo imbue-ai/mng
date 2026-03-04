@@ -72,5 +72,6 @@ In addition to the above, mng also automatically sets these inside agent tmux se
 - `MNG_AGENT_STATE_DIR` - Per-agent directory for status, plugins, logs, etc. (`$MNG_HOST_DIR/agents/$MNG_AGENT_ID/`)
 - `MNG_AGENT_WORK_DIR` - The directory containing your project files, where the agent starts
 - `MNG_HOST_DIR` - The base directory for all mng data on the host
+- `MNG_CHAIN_OF_COMMAND` - JSON-encoded list of agent IDs representing the chain of commanding agents (set by the `mng_recursive` plugin when an agent creates a sub-agent). Empty or unset for top-level agents.
 
 These variables are available inside agent sessions and can be used in scripts, hooks, and by agents themselves. See [conventions](../conventions.md) for directory layouts.

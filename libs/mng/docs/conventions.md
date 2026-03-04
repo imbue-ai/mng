@@ -19,5 +19,6 @@ Unless otherwise specified, `mng` assumes:
 - `MNG_AGENT_NAME` — The agent's human-readable name
 - `MNG_AGENT_STATE_DIR` — The per-agent directory for status, activity, plugins. See [agent spec](../future_specs/agent.md) for data layout (default: `$MNG_HOST_DIR/agents/$MNG_AGENT_ID/`)
 - `MNG_AGENT_WORK_DIR` — The directory in which the agent is started, which contains your project files
+- `MNG_CHAIN_OF_COMMAND` — JSON-encoded list of agent IDs representing the chain of commanding agents (set by the `mng_recursive` plugin when an agent creates a sub-agent)
 
 See [environment variables](./concepts/environment_variables.md) for the full list and how to set custom variables.
