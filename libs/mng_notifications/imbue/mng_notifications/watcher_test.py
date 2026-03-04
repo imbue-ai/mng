@@ -10,7 +10,6 @@ import pytest
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.mng.api.list import ListResult
 from imbue.mng.config.data_types import MngContext
-from imbue.mng.errors import MngError
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.primitives import AgentId
@@ -22,7 +21,7 @@ from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.mock_notifier_test import RecordingNotifier
-from imbue.mng_notifications.testing import patch_list_agents_raises
+from imbue.mng_notifications.testing import patch_list_agents_raises_mng_error
 from imbue.mng_notifications.testing import patch_list_agents_returns
 from imbue.mng_notifications.watcher import _notify_agent_waiting
 from imbue.mng_notifications.watcher import _poll_agents
@@ -190,7 +189,7 @@ def test_poll_agents_returns_agent_list(monkeypatch: pytest.MonkeyPatch, temp_mn
 
 def test_poll_agents_returns_none_on_mng_error(monkeypatch: pytest.MonkeyPatch, temp_mng_ctx: MngContext) -> None:
     """_poll_agents returns None when list_agents raises MngError."""
-    patch_list_agents_raises(monkeypatch, MngError("connection failed"))
+    patch_list_agents_raises_mng_error(monkeypatch)
 
     result = _poll_agents(temp_mng_ctx, (), ())
 
