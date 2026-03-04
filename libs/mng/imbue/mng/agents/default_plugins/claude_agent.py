@@ -506,7 +506,7 @@ class ClaudeAgent(BaseAgent):
         is set. It lives under the agent's state dir following the existing
         plugin/<name>/ convention.
         """
-        return self._get_agent_dir() / "plugin" / "claude" / "config"
+        return self._get_agent_dir() / "plugin" / "claude" / "anthropic"
 
     def get_extra_env_vars(self) -> dict[str, str]:
         """Return CLAUDE_CONFIG_DIR pointing to the per-agent config directory."""
