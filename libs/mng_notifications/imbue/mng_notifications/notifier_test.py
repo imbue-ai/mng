@@ -1,51 +1,130 @@
 """Unit tests for the notification module."""
 
 import subprocess
+from typing import Any
 
 import pytest
 
-from imbue.mng_notifications.notifier import _escape_applescript_string
+from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.notifier import _send_linux_notification
 from imbue.mng_notifications.notifier import _send_macos_notification
+from imbue.mng_notifications.notifier import _shell_escape
+from imbue.mng_notifications.notifier import build_execute_command
 from imbue.mng_notifications.notifier import send_desktop_notification
 
 
-def test_escape_applescript_string_plain() -> None:
-    """Plain string passes through unchanged."""
-    assert _escape_applescript_string("hello world") == "hello world"
+def _config(
+    terminal_app: str | None = None,
+    custom_terminal_command: str | None = None,
+) -> NotificationsPluginConfig:
+    return NotificationsPluginConfig(
+        terminal_app=terminal_app,
+        custom_terminal_command=custom_terminal_command,
+    )
 
 
-def test_escape_applescript_string_double_quotes() -> None:
-    """Double quotes are escaped."""
-    assert _escape_applescript_string('say "hi"') == 'say \\"hi\\"'
+# --- shell escaping ---
 
 
-def test_escape_applescript_string_backslash() -> None:
-    """Backslashes are escaped before quotes."""
-    assert _escape_applescript_string("a\\b") == "a\\\\b"
+def test_shell_escape_plain() -> None:
+    assert _shell_escape("hello") == "hello"
 
 
-def test_escape_applescript_string_both() -> None:
-    """Backslash followed by quote is properly double-escaped."""
-    assert _escape_applescript_string('a\\"b') == 'a\\\\\\"b'
+def test_shell_escape_single_quotes() -> None:
+    assert _shell_escape("it's") == "it'\\''s"
+
+
+# --- build_execute_command ---
+
+
+def test_build_execute_command_no_config() -> None:
+    """No terminal_app or custom_command returns None."""
+    assert build_execute_command("agent-x", _config()) is None
+
+
+def test_build_execute_command_custom_command() -> None:
+    """custom_terminal_command is used with MNG_AGENT_NAME export."""
+    result = build_execute_command("agent-x", _config(custom_terminal_command="my-cmd $MNG_AGENT_NAME"))
+    assert result is not None
+    assert "MNG_AGENT_NAME='agent-x'" in result
+    assert "my-cmd $MNG_AGENT_NAME" in result
+
+
+def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
+    """Agent names with single quotes are properly escaped."""
+    result = build_execute_command("it's-agent", _config(custom_terminal_command="my-cmd"))
+    assert result is not None
+    assert "it'\\''s-agent" in result
+
+
+def test_build_execute_command_custom_takes_precedence() -> None:
+    """custom_terminal_command takes precedence over terminal_app."""
+    result = build_execute_command(
+        "agent-x",
+        _config(terminal_app="iTerm", custom_terminal_command="my-cmd"),
+    )
+    assert result is not None
+    assert "my-cmd" in result
+    assert "iTerm" not in result
+
+
+def test_build_execute_command_iterm() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="iTerm"))
+    assert result is not None
+    assert "iTerm2" in result
+    assert "mng connect" in result
+    assert "agent-x" in result
+
+
+def test_build_execute_command_iterm2() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="iterm2"))
+    assert result is not None
+    assert "iTerm2" in result
+
+
+def test_build_execute_command_terminal_app() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="Terminal"))
+    assert result is not None
+    assert '"Terminal"' in result
+    assert "do script" in result
+
+
+def test_build_execute_command_wezterm() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="WezTerm"))
+    assert result is not None
+    assert "wezterm cli spawn" in result
+
+
+def test_build_execute_command_kitty() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="Kitty"))
+    assert result is not None
+    assert "kitty @" in result
+    assert "--type=tab" in result
+
+
+def test_build_execute_command_unsupported_terminal() -> None:
+    result = build_execute_command("agent-x", _config(terminal_app="Hyper"))
+    assert result is None
+
+
+# --- send_desktop_notification dispatch ---
 
 
 def test_send_desktop_notification_dispatches_to_macos(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On Darwin, send_desktop_notification calls _send_macos_notification."""
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Darwin")
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, str | None]] = []
     monkeypatch.setattr(
         "imbue.mng_notifications.notifier._send_macos_notification",
-        lambda t, m: calls.append((t, m)),
+        lambda t, m, e: calls.append((t, m, e)),
     )
 
-    send_desktop_notification("Title", "Message")
+    send_desktop_notification("Title", "Message", "agent-x", _config())
 
-    assert calls == [("Title", "Message")]
+    assert len(calls) == 1
+    assert calls[0][0] == "Title"
 
 
 def test_send_desktop_notification_dispatches_to_linux(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On Linux, send_desktop_notification calls _send_linux_notification."""
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Linux")
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(
@@ -53,92 +132,94 @@ def test_send_desktop_notification_dispatches_to_linux(monkeypatch: pytest.Monke
         lambda t, m: calls.append((t, m)),
     )
 
-    send_desktop_notification("Title", "Message")
+    send_desktop_notification("Title", "Message", "agent-x", _config())
 
-    assert calls == [("Title", "Message")]
+    assert len(calls) == 1
 
 
 def test_send_desktop_notification_unsupported_platform(monkeypatch: pytest.MonkeyPatch) -> None:
-    """On unsupported platforms, a warning is logged (no crash)."""
     monkeypatch.setattr("imbue.mng_notifications.notifier.platform.system", lambda: "Windows")
-
-    # Should not raise
-    send_desktop_notification("Title", "Message")
+    send_desktop_notification("Title", "Message", "agent-x", _config())
 
 
-def test_send_macos_notification_calls_osascript(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_send_macos_notification calls osascript with the correct script."""
+# --- macOS terminal-notifier ---
+
+
+def test_send_macos_notification_calls_terminal_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[list[str]] = []
 
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
         calls.append(cmd)
 
     monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
 
-    _send_macos_notification("Test Title", "Test message")
+    _send_macos_notification("Title", "Message", None)
 
     assert len(calls) == 1
-    assert calls[0][0] == "osascript"
-    assert calls[0][1] == "-e"
-    assert "Test Title" in calls[0][2]
-    assert "Test message" in calls[0][2]
+    assert calls[0][0] == "terminal-notifier"
+    assert "-title" in calls[0]
+    assert "-execute" not in calls[0]
 
 
-def test_send_macos_notification_handles_missing_osascript(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Missing osascript logs a warning rather than crashing."""
+def test_send_macos_notification_with_execute_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
 
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
-        raise FileNotFoundError("osascript not found")
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
+        calls.append(cmd)
 
     monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
 
-    # Should not raise
-    _send_macos_notification("Title", "Message")
+    _send_macos_notification("Title", "Message", "some-command")
+
+    assert len(calls) == 1
+    assert "-execute" in calls[0]
+    idx = calls[0].index("-execute")
+    assert calls[0][idx + 1] == "some-command"
+
+
+def test_send_macos_notification_handles_missing_terminal_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
+        raise FileNotFoundError("terminal-notifier not found")
+
+    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
+    _send_macos_notification("Title", "Message", None)
 
 
 def test_send_macos_notification_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Timeout during osascript is handled gracefully."""
-
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=10)
 
     monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
+    _send_macos_notification("Title", "Message", None)
 
-    _send_macos_notification("Title", "Message")
+
+# --- Linux notify-send ---
 
 
 def test_send_linux_notification_calls_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
-    """_send_linux_notification calls notify-send with title and message."""
     calls: list[list[str]] = []
 
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
         calls.append(cmd)
-
-    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-
-    _send_linux_notification("Test Title", "Test message")
-
-    assert len(calls) == 1
-    assert calls[0] == ["notify-send", "Test Title", "Test message"]
-
-
-def test_send_linux_notification_handles_missing_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Missing notify-send logs a warning rather than crashing."""
-
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
-        raise FileNotFoundError("notify-send not found")
 
     monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
 
     _send_linux_notification("Title", "Message")
 
+    assert calls == [["notify-send", "Title", "Message"]]
+
+
+def test_send_linux_notification_handles_missing_notify_send(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
+        raise FileNotFoundError("notify-send not found")
+
+    monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
+    _send_linux_notification("Title", "Message")
+
 
 def test_send_linux_notification_handles_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Timeout during notify-send is handled gracefully."""
-
-    def fake_run(cmd: list[str], **kwargs: object) -> None:
+    def fake_run(cmd: list[str], **kwargs: Any) -> None:
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=10)
 
     monkeypatch.setattr("imbue.mng_notifications.notifier.subprocess.run", fake_run)
-
     _send_linux_notification("Title", "Message")

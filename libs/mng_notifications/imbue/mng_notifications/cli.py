@@ -8,6 +8,9 @@ from imbue.mng.cli.common_opts import setup_command_context
 from imbue.mng.cli.help_formatter import CommandHelpMetadata
 from imbue.mng.cli.help_formatter import add_pager_help_option
 from imbue.mng.cli.output_helpers import write_human_line
+from imbue.mng.config.data_types import MngContext
+from imbue.mng.primitives import PluginName
+from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.watcher import watch_for_waiting_agents
 
 
@@ -17,6 +20,14 @@ class WatchCliOptions(CommonCliOptions):
     interval: float
     include: tuple[str, ...]
     exclude: tuple[str, ...]
+
+
+def _get_plugin_config(mng_ctx: MngContext) -> NotificationsPluginConfig:
+    """Get the notifications plugin config, falling back to defaults."""
+    config = mng_ctx.config.plugins.get(PluginName("notifications"))
+    if config is not None and isinstance(config, NotificationsPluginConfig):
+        return config
+    return NotificationsPluginConfig()
 
 
 @click.command()
@@ -49,6 +60,13 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
         command_class=WatchCliOptions,
     )
 
+    plugin_config = _get_plugin_config(mng_ctx)
+
+    if plugin_config.terminal_app is not None:
+        write_human_line("Click-to-connect enabled (terminal: {})", plugin_config.terminal_app)
+    elif plugin_config.custom_terminal_command is not None:
+        write_human_line("Click-to-connect enabled (custom command)")
+
     write_human_line("Watching for agents transitioning to WAITING... (Ctrl+C to stop)")
 
     try:
@@ -57,6 +75,7 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
             interval_seconds=opts.interval,
             include_filters=opts.include,
             exclude_filters=opts.exclude,
+            plugin_config=plugin_config,
         )
     except KeyboardInterrupt:
         logger.debug("Received keyboard interrupt")
@@ -71,8 +90,19 @@ CommandHelpMetadata(
     description="""Polls all agents at a regular interval and sends a desktop notification
 when any agent transitions from RUNNING to WAITING state.
 
-On macOS, notifications are sent via the Notification Center (using osascript).
-On Linux, notifications are sent via notify-send (requires libnotify).
+On macOS, notifications are sent via terminal-notifier (install with:
+brew install terminal-notifier). On Linux, via notify-send (libnotify).
+
+To enable click-to-connect (opens a terminal tab running mng connect),
+configure the plugin in settings.toml:
+
+    [plugins.notifications]
+    terminal_app = "iTerm"  # or Terminal, WezTerm, Kitty
+
+Or use a custom command (MNG_AGENT_NAME is set in the environment):
+
+    [plugins.notifications]
+    custom_terminal_command = "my-terminal -e mng connect $MNG_AGENT_NAME"
 
 Press Ctrl+C to stop watching.""",
     examples=(

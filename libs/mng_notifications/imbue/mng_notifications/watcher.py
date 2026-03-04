@@ -11,6 +11,7 @@ from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import ErrorBehavior
+from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.notifier import send_desktop_notification
 
 
@@ -39,6 +40,7 @@ def watch_for_waiting_agents(
     interval_seconds: float,
     include_filters: tuple[str, ...],
     exclude_filters: tuple[str, ...],
+    plugin_config: NotificationsPluginConfig,
 ) -> None:
     """Poll agents and send notifications when RUNNING -> WAITING transitions occur.
 
@@ -60,7 +62,7 @@ def watch_for_waiting_agents(
 
         transitioned = detect_waiting_transitions(previous_states, agents)
         for agent in transitioned:
-            _notify_agent_waiting(agent)
+            _notify_agent_waiting(agent, plugin_config)
 
         previous_states = build_state_map(agents)
 
@@ -85,9 +87,9 @@ def _poll_agents(
         return None
 
 
-def _notify_agent_waiting(agent: AgentDetails) -> None:
+def _notify_agent_waiting(agent: AgentDetails, plugin_config: NotificationsPluginConfig) -> None:
     """Send a notification that an agent has transitioned to WAITING."""
     title = "Agent waiting"
     message = f"{agent.name} is waiting for input"
     logger.info("{} ({}): RUNNING -> WAITING", agent.name, agent.id)
-    send_desktop_notification(title, message)
+    send_desktop_notification(title, message, str(agent.name), plugin_config)

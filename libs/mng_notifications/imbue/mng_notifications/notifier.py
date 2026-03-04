@@ -3,41 +3,92 @@ import subprocess
 
 from loguru import logger
 
+from imbue.imbue_common.pure import pure
+from imbue.mng_notifications.config import NotificationsPluginConfig
 
-def send_desktop_notification(title: str, message: str) -> None:
-    """Send a desktop notification using native OS facilities.
 
-    On macOS, uses osascript (Notification Center).
-    On Linux, uses notify-send (libnotify).
+def send_desktop_notification(
+    title: str,
+    message: str,
+    agent_name: str,
+    config: NotificationsPluginConfig,
+) -> None:
+    """Send a desktop notification, optionally with a click-to-connect action.
+
+    On macOS, uses terminal-notifier (supports click actions).
+    On Linux, uses notify-send (click actions not yet supported).
     """
+    execute_command = build_execute_command(agent_name, config)
+
     system = platform.system()
     if system == "Darwin":
-        _send_macos_notification(title, message)
+        _send_macos_notification(title, message, execute_command)
     elif system == "Linux":
         _send_linux_notification(title, message)
     else:
         logger.warning("Desktop notifications not supported on {}", system)
 
 
-def _escape_applescript_string(s: str) -> str:
-    """Escape a string for use inside AppleScript double quotes."""
-    return s.replace("\\", "\\\\").replace('"', '\\"')
+@pure
+def _shell_escape(s: str) -> str:
+    """Escape a string for use inside single quotes in a shell command."""
+    return s.replace("'", "'\\''")
 
 
-def _send_macos_notification(title: str, message: str) -> None:
-    """Send a notification on macOS using osascript."""
-    escaped_title = _escape_applescript_string(title)
-    escaped_message = _escape_applescript_string(message)
-    script = f'display notification "{escaped_message}" with title "{escaped_title}"'
+@pure
+def build_execute_command(agent_name: str, config: NotificationsPluginConfig) -> str | None:
+    """Build the shell command to run when the notification is clicked.
+
+    Returns None if no terminal_app or custom_terminal_command is configured.
+    """
+    if config.custom_terminal_command is not None:
+        escaped_name = _shell_escape(agent_name)
+        return f"export MNG_AGENT_NAME='{escaped_name}' && {config.custom_terminal_command}"
+
+    if config.terminal_app is None:
+        return None
+
+    return _build_terminal_app_command(agent_name, config.terminal_app)
+
+
+@pure
+def _build_terminal_app_command(agent_name: str, terminal_app: str) -> str | None:
+    """Build a connect command for a known terminal application."""
+    escaped_name = _shell_escape(agent_name)
+    mng_connect = f"mng connect '{escaped_name}'"
+
+    match terminal_app.lower():
+        case "iterm" | "iterm2":
+            # AppleScript: tell iTerm to open a new tab and run the command
+            escaped_for_applescript = mng_connect.replace("\\", "\\\\").replace('"', '\\"')
+            return (
+                f'osascript -e \'tell app "iTerm2" to tell current window '
+                f'to create tab with default profile command "{escaped_for_applescript}"\''
+            )
+        case "terminal" | "terminal.app":
+            escaped_for_applescript = mng_connect.replace("\\", "\\\\").replace('"', '\\"')
+            return f'osascript -e \'tell app "Terminal" to do script "{escaped_for_applescript}"\''
+        case "wezterm":
+            return f"wezterm cli spawn -- {mng_connect}"
+        case "kitty":
+            return f"kitty @ launch --type=tab -- {mng_connect}"
+        case _:
+            logger.warning(
+                "Unsupported terminal app: {}. Use custom_terminal_command instead.",
+                terminal_app,
+            )
+            return None
+
+
+def _send_macos_notification(title: str, message: str, execute_command: str | None) -> None:
+    """Send a notification on macOS using terminal-notifier."""
+    cmd = ["terminal-notifier", "-title", title, "-message", message]
+    if execute_command is not None:
+        cmd.extend(["-execute", execute_command])
     try:
-        subprocess.run(
-            ["osascript", "-e", script],
-            check=False,
-            capture_output=True,
-            timeout=10,
-        )
+        subprocess.run(cmd, check=False, capture_output=True, timeout=10)
     except FileNotFoundError:
-        logger.warning("osascript not found; cannot send notification")
+        logger.warning("terminal-notifier not found; install with: brew install terminal-notifier")
     except subprocess.TimeoutExpired:
         logger.warning("Notification timed out")
 
@@ -45,12 +96,7 @@ def _send_macos_notification(title: str, message: str) -> None:
 def _send_linux_notification(title: str, message: str) -> None:
     """Send a notification on Linux using notify-send."""
     try:
-        subprocess.run(
-            ["notify-send", title, message],
-            check=False,
-            capture_output=True,
-            timeout=10,
-        )
+        subprocess.run(["notify-send", title, message], check=False, capture_output=True, timeout=10)
     except FileNotFoundError:
         logger.warning("notify-send not found; install libnotify to enable notifications")
     except subprocess.TimeoutExpired:
