@@ -11,6 +11,7 @@ from imbue.mng_notifications.notifier import LinuxNotifier
 from imbue.mng_notifications.notifier import MacOSNotifier
 from imbue.mng_notifications.notifier import build_execute_command
 from imbue.mng_notifications.notifier import get_notifier
+from imbue.mng_notifications.testing import FakePlatform
 
 
 def _config(
@@ -118,15 +119,18 @@ def test_build_execute_command_unsupported_terminal() -> None:
 # --- get_notifier ---
 
 
-def test_get_notifier_macos(fake_platform_darwin: None) -> None:
+def test_get_notifier_macos(fake_platform: FakePlatform) -> None:
+    fake_platform.set("Darwin")
     assert isinstance(get_notifier(), MacOSNotifier)
 
 
-def test_get_notifier_linux(fake_platform_linux: None) -> None:
+def test_get_notifier_linux(fake_platform: FakePlatform) -> None:
+    fake_platform.set("Linux")
     assert isinstance(get_notifier(), LinuxNotifier)
 
 
-def test_get_notifier_unsupported(fake_platform_unsupported: None) -> None:
+def test_get_notifier_unsupported(fake_platform: FakePlatform) -> None:
+    fake_platform.set("Windows")
     assert get_notifier() is None
 
 
