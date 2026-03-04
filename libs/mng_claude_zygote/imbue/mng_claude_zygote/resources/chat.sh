@@ -172,27 +172,37 @@ new_conversation() {
         log "Starting live-chat session: model=$model tool_args='$tool_args'"
 
         # llm live-chat prints "PID: <pid> | Conversation: <id>" to stdout
-        # before the interactive session. We use a trap + background watcher
-        # to capture this from the llm logs database once it starts, so the
-        # conversation appears in our event logs for the web UI.
+        # before the interactive session. We capture the output via `script`
+        # (which preserves TTY for interactivity) and parse the conversation
+        # ID from it in a background process.
+        local _script_out
+        _script_out=$(mktemp)
+
         (
-            # Wait for llm to create its conversation in the database
-            sleep 2
-            _LLM_DB=$(llm logs path 2>/dev/null || echo "")
-            if [ -n "$_LLM_DB" ] && [ -f "$_LLM_DB" ]; then
-                _LATEST_CID=$(sqlite3 "$_LLM_DB" "SELECT id FROM conversations ORDER BY rowid DESC LIMIT 1" 2>/dev/null || true)
-                if [ -n "$_LATEST_CID" ]; then
-                    append_conversation_event "$_LATEST_CID" "$model" "conversation_created"
-                    log "Recorded conversation event for llm-generated cid=$_LATEST_CID"
+            # Poll the script output file for the conversation ID line.
+            # Strip ANSI escape codes before matching since script captures
+            # raw terminal output.
+            for _i in $(seq 1 60); do
+                sleep 1
+                _llm_cid=$(sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' "$_script_out" 2>/dev/null \
+                    | grep -m1 'Conversation: ' \
+                    | sed 's/.*Conversation: //' \
+                    | tr -d '[:space:]' || true)
+                if [ -n "$_llm_cid" ]; then
+                    append_conversation_event "$_llm_cid" "$model" "conversation_created"
+                    log "Recorded conversation event for llm cid=$_llm_cid"
+                    break
                 fi
-            fi
+            done
         ) &
 
+        # script -q: quiet (no "Script started" messages)
+        # script -f: flush after each write
         # shellcheck disable=SC2086
         if [ -n "$message" ]; then
-            exec llm live-chat -m "$model" "${sys_args[@]}" $tool_args "$message"
+            exec script -qf "$_script_out" -c "llm live-chat -m '$model' ${sys_args[*]} $tool_args $(printf '%q' "$message")"
         else
-            exec llm live-chat -m "$model" "${sys_args[@]}" $tool_args
+            exec script -qf "$_script_out" -c "llm live-chat -m '$model' ${sys_args[*]} $tool_args"
         fi
     fi
 }
