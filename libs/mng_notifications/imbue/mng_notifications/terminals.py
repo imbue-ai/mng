@@ -62,19 +62,25 @@ class ITermApp(TerminalApp):
             " -e 'end tell'"
         )
 
-        # Shell script: find tmux session -> find client TTY -> match iTerm tab -> or create new.
         # terminal-notifier runs with a bare system PATH (/usr/bin:/bin:/usr/sbin:/sbin),
-        # so we get the user's real PATH from their login shell first.
-        return (
-            "export PATH=$($SHELL -lc 'echo $PATH' 2>/dev/null || echo $PATH);"
-            f" SESSION=$(tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -F {quoted_agent} | head -1)"
-            ' && if [ -n "$SESSION" ]; then'
+        # so we resolve the user's real PATH from their login shell first.
+        resolve_path = "export PATH=$($SHELL -lc 'echo $PATH' 2>/dev/null || echo $PATH)"
+
+        # Find the tmux session containing this agent name
+        find_session = (
+            f"SESSION=$(tmux list-sessions -F '#{{session_name}}' 2>/dev/null | grep -F {quoted_agent} | head -1)"
+        )
+
+        # Loop through attached tmux clients and try to find a matching iTerm tab by TTY
+        find_existing_tab = (
+            'if [ -n "$SESSION" ]; then'
             " for CLIENT_TTY in $(tmux list-clients -t \"$SESSION\" -F '#{client_tty}' 2>/dev/null); do"
             f' FOUND=$({activate_script} -- "$CLIENT_TTY" 2>/dev/null);'
             ' if [ "$FOUND" = "found" ]; then exit 0; fi;'
-            " done; fi;"
-            f" {create_tab_script}"
+            " done; fi"
         )
+
+        return f"{resolve_path}; {find_session} && {find_existing_tab}; {create_tab_script}"
 
 
 class TerminalDotApp(TerminalApp):
