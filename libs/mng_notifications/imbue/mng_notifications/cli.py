@@ -25,7 +25,7 @@ class WatchCliOptions(CommonCliOptions):
     "--interval",
     "-i",
     type=float,
-    default=5.0,
+    default=30.0,
     show_default=True,
     help="Polling interval in seconds",
 )
