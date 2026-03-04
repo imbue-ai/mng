@@ -77,8 +77,8 @@ class ModalLoguruWriter:
     def write(self, text: str) -> int:
         """Write text to loguru, deduplicating consecutive identical messages."""
         # stripped = text.strip()
-        # if stripped == "":
-        #     return len(text)
+        if text.strip() == "":
+            return len(text)
         try:
             logger.log(LogLevel.BUILD.value, "{}", text, source="modal", app_id=self.app_id, app_name=self.app_name)
         except ValueError as e:

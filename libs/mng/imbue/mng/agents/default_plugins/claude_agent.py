@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import pdb
 import random
 import shlex
 from abc import ABC
@@ -923,7 +922,6 @@ class ClaudeAgent(BaseAgent):
             #  causes the write to go to a temp file (same file path + ".tmp") and then renames it to the original
             #  That flag should, for now, default to False (for performance reasons), and be set to True at this callsite
             #  We should leave a note here as well (that claude really dislikes non-atomic writes to this file)
-            pdb.set_trace()
             host.write_text_file(Path(".claude.json"), json.dumps(claude_json_data, indent=2) + "\n")
 
             if config.sync_claude_credentials:
