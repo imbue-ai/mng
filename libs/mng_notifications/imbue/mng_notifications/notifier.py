@@ -43,7 +43,7 @@ def build_execute_command(agent_name: str, config: NotificationsPluginConfig) ->
     """
     if config.custom_terminal_command is not None:
         escaped_name = _shell_escape(agent_name)
-        return f"export MNG_AGENT_NAME='{escaped_name}' && {config.custom_terminal_command}"
+        return f"MNG_AGENT_NAME='{escaped_name}' {config.custom_terminal_command}"
 
     if config.terminal_app is None:
         return None
