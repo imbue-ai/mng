@@ -1,5 +1,3 @@
-"""File watcher for transcript updates."""
-
 import asyncio
 from pathlib import Path
 from typing import Any

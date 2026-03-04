@@ -1,5 +1,3 @@
-"""CLI entry point for claude-web-view."""
-
 import argparse
 import logging
 import socket

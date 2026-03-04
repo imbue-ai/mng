@@ -223,6 +223,9 @@ frontend-dist/
 # files necessary to smuggle session id into reviewers
 .claude/sessionid
 
+# Claude Code local settings (session-specific permissions)
+.claude/settings.local.json
+
 # PR status and URL files written by main_claude_stop_hook.sh for status line display
 .claude/pr_url
 .claude/pr_status
@@ -230,24 +233,38 @@ frontend-dist/
 # History of commits reviewed by main_claude_stop_hook.sh (to detect stuck agents)
 .claude/reviewed_commits
 
-# local claude settings:
-.claude/settings.local.json
-
 # Local Claude settings backup files
 .claude/*.bak
 
-# Local mngr settings (not committed)
-.mngr/settings.local.toml
+# Local mng settings (not committed)
+.mng/settings.local.toml
 
 # so the user can make their own notification script
 scripts/notify_user.local.sh
 
-# Test output files (slow tests, coverage summaries) for agent consumption
-.claude/tests_outputs/
+# Test output files (slow tests, coverage summaries)
+.test_output/
 
 # Active session marker file (used to detect interrupted sessions)
 .claude/active
 
 # we stick the image build artifacts here
-.mngr/dev/build/
-.mngr/dev/secrets/
+.mng/dev/build/
+.mng/dev/secrets/
+
+# Offload caches and local files
+.offload/**
+test-results/**
+current.tar.gz
+
+# Changelings deploy-time build artifacts
+.changelings/
+
+# Autofix working artifacts
+.autofix/
+
+# Demo recordings (asciinema .cast, .txt, and scripts)
+.demos/
+
+# for git worktrees from other repos
+.external_worktrees/
