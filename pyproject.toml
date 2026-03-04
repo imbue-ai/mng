@@ -10,6 +10,9 @@ dependencies = [
     "click>=8.0.0",
 ]
 
+[tool.uv.sources]
+imbue-common = { workspace = true }
+
 [tool.uv.workspace]
 members = ["libs/*", "apps/*"]
 
@@ -25,57 +28,59 @@ dev = [
     "pytest-profiling",
     "line-profiler",
     "import-linter>=2.0",
-    "mkdocs-click>=0.9.0",
+    "semver>=3.0",
+    "tomlkit>=0.12.0",
+    "imbue-common[dev]",
 ]
 
+# Shared pytest settings (markers, filterwarnings, coverage report config)
+# are centralized in:
+#   libs/imbue_common/imbue/imbue_common/conftest_hooks.py
+# The settings below remain here because they are read from pyproject.toml
+# before any hooks run: addopts, coverage.run, inline-snapshot, timeout_func_only.
 [tool.pytest.ini_options]
 # Only timeout the test function itself, not fixtures. This is required because
 # --timeout-method=signal sends SIGALRM which kills the entire xdist worker process
 # if it fires during fixture setup/teardown (especially the session-scoped cleanup).
 timeout_func_only = true
+# Use xunit1 format to enable record_xml_attribute fixture for consistent classnames
+junit_family = "xunit1"
 pythonpath = [
-  "apps/*",
-  "libs/*"
-]
-testpaths = [
   "apps/*",
   "libs/*",
 ]
-filterwarnings = [
-  # Suppress grpclib warning that occurs during garbage collection when Channel.__del__ is called
-  # after the connection's transport has already been cleaned up. This is a known issue in grpclib.
-  "ignore:Exception ignored in.*Channel.__del__.*:pytest.PytestUnraisableExceptionWarning",
-  # Suppress coverage warning about modules being imported before coverage starts measuring.
-  # This happens because pytest collects tests (importing modules) before coverage.py starts.
-  "ignore:Module imbue\\..* was previously imported, but not measured:coverage.exceptions.CoverageWarning",
+testpaths = [
+  "test_meta_ratchets.py",
+  "apps/*",
+  "libs/*",
+  "scripts",
 ]
 addopts = [
   "-n 4",
-  "--cov=imbue.mngr",
+  "--dist=worksteal",
+  "--cov=imbue.mng",
   "--cov=imbue.imbue_common",
-  "--cov=imbue.mngr_opencode",
+  "--cov=imbue.mng_opencode",
+  "--cov=imbue.mng_pair",
+  "--cov=imbue.mng_schedule",
+  "--cov=imbue.mng_ttyd",
+  "--cov=imbue.mng_tutor",
+  "--cov=imbue.mng_claude_zygote",
+  "--cov=imbue.mng_elena_code",
+  "--cov=imbue.mng_kanpan",
+  "--cov=imbue.mng_recursive",
+  "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
   "--cov-report=xml",
-  # Coverage threshold lowered from 80% to 78% due to SSH-specific file transfer code
-  # in hosts/host.py that can only be tested via Modal acceptance tests (requires SSH).
-  # The acceptance tests cover these paths when run in CI.
   "--cov-fail-under=80",
   "--durations=20",
   "--timeout=10",
   "--timeout-method=signal",
-  # to hopefully see why a worker crashes, rather than just trying to re-run it
   "--max-worker-restart=0",
-  # skip acceptance and release tests by default (they require network access)
   "-m not acceptance and not release",
-  # make the output more expected for claude--these custom flags suppress the terminal output for coverage and slow tests
-  # then it just outputs the path where the output can be found
   "--slow-tests-to-file",
   "--coverage-to-file",
-]
-markers = [
-  "acceptance: marks tests as requiring network access, Modal credentials, etc. These are required to pass in CI",
-  "release: marks tests as being required for release (but not for merging PRs)",
 ]
 
 [tool.ruff]
@@ -107,7 +112,7 @@ order-by-type = false
 known-first-party = [
     "imbue",
     "imbue_common",
-    "mngr",
+    "mng",
     "sculptor_desktop",
 ]
 
@@ -120,10 +125,13 @@ format-command="uv run ruff format --force-exclude --config pyproject.toml --std
 [tool.ty.src]
 exclude = ["scripts/style_guide.py", "contrib/"]
 
+[tool.ty.environment]
+extra-paths = ["scripts"]
+
 [tool.coverage.run]
 source = ["imbue"]
 parallel = true
-concurrency = ["multiprocessing"]
+concurrency = ["multiprocessing", "thread"]
 omit = [
     "*_test.py",
     "test_*.py",
@@ -131,54 +139,64 @@ omit = [
     "*/conftest.py",
     # Test utility modules contain helpers only used by tests
     "*/utils/testing.py",
+    "*/utils/plugin_testing.py",
     "libs/imbue_common/imbue/imbue_common/ratchet_testing/ratchets.py",
     # Modal provider requires network access for testing
-    "libs/mngr/imbue/mngr/providers/modal/*",
+    "libs/mng/imbue/mng/providers/modal/*",
+    # Docker provider requires a Docker daemon for testing
+    "libs/mng/imbue/mng/providers/docker/instance.py",
+    "libs/mng/imbue/mng/providers/docker/volume.py",
+    "libs/mng/imbue/mng/providers/docker/testing.py",
+    # Changeling deploy modules run on Modal and require infrastructure to test
+    "apps/changelings/imbue/changelings/deploy/cron_runner.py",
+    "apps/changelings/imbue/changelings/deploy/remote_runner.py",
+    "apps/changelings/imbue/changelings/deploy/verification.py",
+    # Schedule plugin cron runner and verification run on Modal and require infrastructure to test
+    "libs/mng_schedule/imbue/mng_schedule/implementations/modal/cron_runner.py",
+    "libs/mng_schedule/imbue/mng_schedule/implementations/modal/verification.py",
+    # Tutor TUI is interactive and should not have automated tests
+    "libs/mng_tutor/imbue/mng_tutor/tui.py",
+    "libs/mng_tutor/imbue/mng_tutor/cli.py",
+    # Kanpan TUI is interactive and should not have automated tests
+    "libs/mng_kanpan/imbue/mng_kanpan/tui.py",
+    "libs/mng_kanpan/imbue/mng_kanpan/cli.py",
+    # don't bother with anything in scripts
+    "scripts/*",
 ]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "case _ as unreachable:",
-    "assert_never(unreachable)",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-    "^\\s*\\.\\.\\.$",  # Matches lines containing only "..."
-]
-skip_empty = true
-precision = 2
-sort = "Cover"
-
-[tool.coverage.html]
-directory = "htmlcov"
 
 [tool.importlinter]
 root_package = "imbue"
 
 [[tool.importlinter.contracts]]
-name = "mngr layers contract"
+name = "mng layers contract"
 type = "layers"
 layers = [
-    "imbue.mngr.main",
-    "imbue.mngr.cli",
-    "imbue.mngr.api",
-    "imbue.mngr.agents",
-    "imbue.mngr.providers",
-    "imbue.mngr.hosts",
-    "imbue.mngr.interfaces",
-    "imbue.mngr.config",
-    "imbue.mngr.utils",
-    "imbue.mngr.errors",
-    "imbue.mngr.primitives",
+    "imbue.mng.main",
+    "imbue.mng.cli",
+    "imbue.mng.api",
+    "imbue.mng.agents",
+    "imbue.mng.providers",
+    "imbue.mng.hosts",
+    "imbue.mng.plugins",
+    "imbue.mng.interfaces",
+    "imbue.mng.config",
+    "imbue.mng.utils",
+    "imbue.mng.errors",
+    "imbue.mng.primitives",
 ]
-ignore_imports = [
-    "imbue.mngr.hosts.test_host -> imbue.mngr.providers.local.instance",
-    "imbue.mngr.cli.test_create -> imbue.mngr.main",
-    "imbue.mngr.utils.logging_test -> imbue.mngr.config.data_types",
-    "imbue.mngr.utils.testing -> imbue.mngr.providers.local.instance",
-    "imbue.mngr.utils.testing -> imbue.mngr.config.data_types",
+
+[[tool.importlinter.contracts]]
+name = "changelings layers contract"
+type = "layers"
+layers = [
+    "imbue.changelings.desktop_client",
+    "imbue.changelings.cli",
+    "imbue.changelings.deployment",
+    "imbue.changelings.forwarding_server",
+    "imbue.changelings.core",
+    "imbue.changelings.interfaces",
+    "imbue.changelings.config",
+    "imbue.changelings.errors",
+    "imbue.changelings.utils",
+    "imbue.changelings.primitives",
 ]
