@@ -35,12 +35,21 @@ class ConversationInfo(FrozenModel):
 
 
 @pure
+def get_agent_state_dir(
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+) -> Path:
+    """Get the agent's state directory on the host."""
+    return host.host_dir / "agents" / str(agent.id)
+
+
+@pure
 def _build_chat_env_vars(
     agent: AgentInterface,
     host: OnlineHostInterface,
 ) -> dict[str, str]:
     """Build the environment variables needed by chat.sh."""
-    agent_state_dir = host.host_dir / "agents" / str(agent.id)
+    agent_state_dir = get_agent_state_dir(agent, host)
     return {
         "MNG_HOST_DIR": str(host.host_dir),
         "MNG_AGENT_STATE_DIR": str(agent_state_dir),
@@ -57,8 +66,7 @@ def _build_env_file_paths(
 ) -> tuple[Path, Path]:
     """Build paths to the host and agent env files."""
     host_env_path = host.host_dir / "env"
-    agent_state_dir = host.host_dir / "agents" / str(agent.id)
-    agent_env_path = agent_state_dir / "env"
+    agent_env_path = host.get_agent_env_path(agent)
     return host_env_path, agent_env_path
 
 
@@ -85,7 +93,7 @@ def _build_conversation_event_paths(
     host: OnlineHostInterface,
 ) -> tuple[Path, Path]:
     """Build paths to conversation and message event files for an agent."""
-    agent_state_dir = host.host_dir / "agents" / str(agent.id)
+    agent_state_dir = get_agent_state_dir(agent, host)
     conversations_path = agent_state_dir / "events" / "conversations" / "events.jsonl"
     messages_path = agent_state_dir / "events" / "messages" / "events.jsonl"
     return conversations_path, messages_path
