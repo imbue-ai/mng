@@ -236,16 +236,26 @@ def resolve_chat_args(
     elif opts.conversation is not None:
         return ["--resume", opts.conversation]
     elif is_interactive:
-        # Interactive mode: show conversation selector
-        conversation_id, is_new_requested = _select_conversation_interactively(agent, host)  # pragma: no cover
-        if is_new_requested:  # pragma: no cover
-            return ["--new"]  # pragma: no cover
-        elif conversation_id is not None:  # pragma: no cover
-            return ["--resume", conversation_id]  # pragma: no cover
-        else:
-            return None  # pragma: no cover
+        return _resolve_interactive_chat_args(agent, host)
     else:
         return _resolve_latest_conversation_args(agent, host)
+
+
+def _resolve_interactive_chat_args(  # pragma: no cover
+    agent: AgentInterface,
+    host: OnlineHostInterface,
+) -> list[str] | None:
+    """Show the interactive conversation selector and return chat args.
+
+    Returns the args list, or None if the user cancelled.
+    """
+    conversation_id, is_new_requested = _select_conversation_interactively(agent, host)
+    if is_new_requested:
+        return ["--new"]
+    elif conversation_id is not None:
+        return ["--resume", conversation_id]
+    else:
+        return None
 
 
 def _resolve_latest_conversation_args(
