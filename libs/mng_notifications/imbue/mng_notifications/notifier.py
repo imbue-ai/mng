@@ -1,4 +1,5 @@
 import platform
+import shlex
 import subprocess
 
 from loguru import logger
@@ -30,20 +31,14 @@ def send_desktop_notification(
 
 
 @pure
-def _shell_escape(s: str) -> str:
-    """Escape a string for use inside single quotes in a shell command."""
-    return s.replace("'", "'\\''")
-
-
-@pure
 def build_execute_command(agent_name: str, config: NotificationsPluginConfig) -> str | None:
     """Build the shell command to run when the notification is clicked.
 
     Returns None if no terminal_app or custom_terminal_command is configured.
     """
     if config.custom_terminal_command is not None:
-        escaped_name = _shell_escape(agent_name)
-        return f"MNG_AGENT_NAME='{escaped_name}' {config.custom_terminal_command}"
+        quoted_name = shlex.quote(agent_name)
+        return f"MNG_AGENT_NAME={quoted_name} {config.custom_terminal_command}"
 
     if config.terminal_app is None:
         return None
@@ -54,8 +49,8 @@ def build_execute_command(agent_name: str, config: NotificationsPluginConfig) ->
 @pure
 def _build_terminal_app_command(agent_name: str, terminal_app: str) -> str | None:
     """Build a connect command for a known terminal application."""
-    escaped_name = _shell_escape(agent_name)
-    mng_connect = f"mng connect '{escaped_name}'"
+    quoted_name = shlex.quote(agent_name)
+    mng_connect = f"mng connect {quoted_name}"
 
     match terminal_app.lower():
         case "iterm" | "iterm2":

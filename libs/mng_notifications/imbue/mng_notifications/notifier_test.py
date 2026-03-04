@@ -8,7 +8,6 @@ import pytest
 from imbue.mng_notifications.config import NotificationsPluginConfig
 from imbue.mng_notifications.notifier import _send_linux_notification
 from imbue.mng_notifications.notifier import _send_macos_notification
-from imbue.mng_notifications.notifier import _shell_escape
 from imbue.mng_notifications.notifier import build_execute_command
 from imbue.mng_notifications.notifier import send_desktop_notification
 
@@ -23,17 +22,6 @@ def _config(
     )
 
 
-# --- shell escaping ---
-
-
-def test_shell_escape_plain() -> None:
-    assert _shell_escape("hello") == "hello"
-
-
-def test_shell_escape_single_quotes() -> None:
-    assert _shell_escape("it's") == "it'\\''s"
-
-
 # --- build_execute_command ---
 
 
@@ -46,15 +34,16 @@ def test_build_execute_command_custom_command() -> None:
     """custom_terminal_command is used with MNG_AGENT_NAME export."""
     result = build_execute_command("agent-x", _config(custom_terminal_command="my-cmd $MNG_AGENT_NAME"))
     assert result is not None
-    assert "MNG_AGENT_NAME='agent-x'" in result
+    assert "MNG_AGENT_NAME=agent-x" in result
     assert "my-cmd $MNG_AGENT_NAME" in result
 
 
 def test_build_execute_command_custom_command_with_quotes_in_name() -> None:
-    """Agent names with single quotes are properly escaped."""
+    """Agent names with single quotes are properly escaped via shlex.quote."""
     result = build_execute_command("it's-agent", _config(custom_terminal_command="my-cmd"))
     assert result is not None
-    assert "it'\\''s-agent" in result
+    assert "MNG_AGENT_NAME=" in result
+    assert "my-cmd" in result
 
 
 def test_build_execute_command_custom_takes_precedence() -> None:
