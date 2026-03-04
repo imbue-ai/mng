@@ -63,13 +63,17 @@ def watch(ctx: click.Context, **kwargs: object) -> None:
 
     plugin_config = _get_plugin_config(mng_ctx)
 
-    if plugin_config.terminal_app is not None:
+    if plugin_config.notification_only:
+        write_human_line("Notification-only mode (no click-to-connect)")
+    elif plugin_config.terminal_app is not None:
         write_human_line("Click-to-connect enabled (terminal: {})", plugin_config.terminal_app)
     elif plugin_config.custom_terminal_command is not None:
         write_human_line("Click-to-connect enabled (custom command)")
     else:
         write_human_line("No terminal configured -- notifications will not have click-to-connect.")
-        write_human_line("Set plugins.notifications.terminal_app or custom_terminal_command in settings.toml.")
+        write_human_line(
+            "Set plugins.notifications.terminal_app, custom_terminal_command, or notification_only in settings.toml."
+        )
 
     notifier = get_notifier()
     if notifier is None:

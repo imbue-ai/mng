@@ -17,6 +17,10 @@ class NotificationsPluginConfig(PluginConfig):
         custom_terminal_command = "open -a MyTerminal --args mng connect $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN"
     """
 
+    notification_only: bool = Field(
+        default=False,
+        description="Send plain notifications without click-to-connect terminal integration.",
+    )
     terminal_app: str | None = Field(
         default=None,
         description="Terminal application for click-to-connect. Supported: iTerm, Terminal, WezTerm, Kitty",
@@ -33,6 +37,9 @@ class NotificationsPluginConfig(PluginConfig):
             return self
         return NotificationsPluginConfig(
             enabled=override.enabled if override.enabled is not None else self.enabled,
+            notification_only=override.notification_only
+            if override.notification_only is not None
+            else self.notification_only,
             terminal_app=override.terminal_app if override.terminal_app is not None else self.terminal_app,
             custom_terminal_command=override.custom_terminal_command
             if override.custom_terminal_command is not None
