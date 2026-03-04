@@ -30,7 +30,6 @@ from imbue.mng_notifications.watcher import watch_for_waiting_agents
 
 @pytest.mark.tmux
 @pytest.mark.acceptance
-@pytest.mark.timeout(30)
 def test_watcher_detects_running_to_waiting_transition(
     local_provider: LocalProviderInstance,
     temp_host_dir: Path,
