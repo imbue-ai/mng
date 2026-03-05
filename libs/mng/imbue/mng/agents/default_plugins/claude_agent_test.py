@@ -550,57 +550,26 @@ def test_build_readiness_hooks_config_has_session_start_hook() -> None:
     assert "mv" in session_id_hook
 
 
-def test_build_readiness_hooks_config_has_user_prompt_submit_hook() -> None:
-    """build_readiness_hooks_config should include UserPromptSubmit hook that creates active file and clears permissions_waiting."""
+@pytest.mark.parametrize(
+    "hook_name, expected_substrings",
+    [
+        ("UserPromptSubmit", ["touch", "active", "permissions_waiting"]),
+        ("PermissionRequest", ["touch", "permissions_waiting"]),
+        ("PostToolUse", ["rm", "permissions_waiting"]),
+        ("PostToolUseFailure", ["rm", "permissions_waiting"]),
+    ],
+)
+def test_build_readiness_hooks_config_has_hook(hook_name: str, expected_substrings: list[str]) -> None:
+    """build_readiness_hooks_config should include the expected hook with correct command."""
     config = build_readiness_hooks_config()
 
-    assert "UserPromptSubmit" in config["hooks"]
-    assert len(config["hooks"]["UserPromptSubmit"]) == 1
-    hook = config["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook_name in config["hooks"]
+    assert len(config["hooks"][hook_name]) == 1
+    hook = config["hooks"][hook_name][0]["hooks"][0]
     assert hook["type"] == "command"
-    assert "touch" in hook["command"]
     assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "active" in hook["command"]
-    assert "permissions_waiting" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_permission_request_hook() -> None:
-    """build_readiness_hooks_config should include PermissionRequest hook that creates permissions_waiting file."""
-    config = build_readiness_hooks_config()
-
-    assert "PermissionRequest" in config["hooks"]
-    assert len(config["hooks"]["PermissionRequest"]) == 1
-    hook = config["hooks"]["PermissionRequest"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    assert "touch" in hook["command"]
-    assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "permissions_waiting" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_post_tool_use_hook() -> None:
-    """build_readiness_hooks_config should include PostToolUse hook that removes permissions_waiting file."""
-    config = build_readiness_hooks_config()
-
-    assert "PostToolUse" in config["hooks"]
-    assert len(config["hooks"]["PostToolUse"]) == 1
-    hook = config["hooks"]["PostToolUse"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    assert "rm" in hook["command"]
-    assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "permissions_waiting" in hook["command"]
-
-
-def test_build_readiness_hooks_config_has_post_tool_use_failure_hook() -> None:
-    """build_readiness_hooks_config should include PostToolUseFailure hook that removes permissions_waiting file."""
-    config = build_readiness_hooks_config()
-
-    assert "PostToolUseFailure" in config["hooks"]
-    assert len(config["hooks"]["PostToolUseFailure"]) == 1
-    hook = config["hooks"]["PostToolUseFailure"][0]["hooks"][0]
-    assert hook["type"] == "command"
-    assert "rm" in hook["command"]
-    assert "MNG_AGENT_STATE_DIR" in hook["command"]
-    assert "permissions_waiting" in hook["command"]
+    for substring in expected_substrings:
+        assert substring in hook["command"], f"Expected '{substring}' in {hook_name} hook command"
 
 
 def test_build_readiness_hooks_config_has_notification_idle_hook() -> None:
