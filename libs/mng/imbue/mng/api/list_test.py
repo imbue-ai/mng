@@ -5,6 +5,7 @@ from datetime import timedelta
 from datetime import timezone
 from io import StringIO
 from pathlib import Path
+from threading import Lock
 
 import pytest
 from loguru import logger
@@ -16,12 +17,18 @@ from imbue.mng.api.list import ErrorInfo
 from imbue.mng.api.list import HostErrorInfo
 from imbue.mng.api.list import ListResult
 from imbue.mng.api.list import ProviderErrorInfo
+from imbue.mng.api.list import _ListAgentsParams
 from imbue.mng.api.list import _agent_details_to_cel_context
 from imbue.mng.api.list import _apply_cel_filters
+from imbue.mng.api.list import _collect_and_emit_details_for_host
+from imbue.mng.api.list import _process_host_with_error_handling
 from imbue.mng.api.list import list_agents
 from imbue.mng.config.data_types import MngContext
+from imbue.mng.errors import HostAuthenticationError
+from imbue.mng.errors import HostConnectionError
 from imbue.mng.hosts.host import Host
 from imbue.mng.interfaces.data_types import AgentDetails
+from imbue.mng.interfaces.data_types import CertifiedHostData
 from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.primitives import AgentId
@@ -31,9 +38,13 @@ from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import DiscoveredHost
+from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
+from imbue.mng.primitives import HostState
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.providers.mock_provider_test import MockProviderInstance
+from imbue.mng.providers.mock_provider_test import make_offline_host
 from imbue.mng.utils.cel_utils import compile_cel_filters
 
 # =============================================================================
@@ -595,3 +606,211 @@ def test_discover_all_hosts_and_agents_groups_agents_by_host(
                 found_agent = True
                 break
     assert found_agent
+
+
+# =============================================================================
+# HostConnectionError fallback tests (regression for mng list crash)
+# =============================================================================
+
+
+def _make_list_params(error_behavior: ErrorBehavior = ErrorBehavior.ABORT) -> _ListAgentsParams:
+    """Create minimal _ListAgentsParams for testing."""
+    return _ListAgentsParams(
+        compiled_include_filters=[],
+        compiled_exclude_filters=[],
+        error_behavior=error_behavior,
+        on_agent=None,
+        on_error=None,
+    )
+
+
+class _ConnectionErrorMockProvider(MockProviderInstance):
+    """Mock provider that raises HostConnectionError from get_host_and_agent_details.
+
+    This simulates the scenario where a remote host (e.g., Modal) is unreachable
+    via SSH during listing.
+    """
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    _error_to_raise: HostConnectionError = HostConnectionError("SSH error (Connection reset by peer)")
+
+    def __init__(self, error_to_raise: HostConnectionError | None = None, **kwargs):
+        super().__init__(**kwargs)
+        if error_to_raise is not None:
+            self._error_to_raise = error_to_raise
+
+    def get_host_and_agent_details(self, host_ref, agent_refs):
+        raise self._error_to_raise
+
+    def to_offline_host(self, host_id):
+        for h in self.mock_hosts:
+            if h.id == host_id:
+                return h
+        raise HostConnectionError(f"No offline host for {host_id}")
+
+
+def test_collect_host_details_falls_back_to_offline_on_connection_error(
+    temp_mng_ctx: MngContext,
+    temp_host_dir: Path,
+) -> None:
+    """When get_host_and_agent_details raises HostConnectionError, the host should
+    be listed using offline data instead of crashing."""
+    host_id = HostId.generate()
+    host_name = HostName("unreachable-host")
+    now = datetime.now(timezone.utc)
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name=str(host_name),
+        created_at=now,
+        updated_at=now,
+    )
+
+    provider = _ConnectionErrorMockProvider(
+        name=ProviderInstanceName("test-provider"),
+        host_dir=temp_host_dir,
+        mng_ctx=temp_mng_ctx,
+    )
+    offline_host = make_offline_host(certified_data, provider, temp_mng_ctx)
+    provider.mock_hosts = [offline_host]
+
+    host_ref = DiscoveredHost(
+        host_id=host_id,
+        host_name=host_name,
+        provider_name=provider.name,
+    )
+    agent_ref = DiscoveredAgent(
+        host_id=host_id,
+        agent_id=AgentId.generate(),
+        agent_name=AgentName("test-agent"),
+        provider_name=provider.name,
+        certified_data={"command": "sleep 100"},
+    )
+
+    result = ListResult()
+    params = _make_list_params()
+
+    _collect_and_emit_details_for_host(
+        host_ref=host_ref,
+        agent_refs=[agent_ref],
+        provider=provider,
+        params=params,
+        result=result,
+        results_lock=Lock(),
+    )
+
+    # Agent should be listed with STOPPED state (offline fallback)
+    assert len(result.agents) == 1
+    assert result.agents[0].name == AgentName("test-agent")
+    assert result.agents[0].state == AgentLifecycleState.STOPPED
+    # Host should NOT be marked as UNAUTHENTICATED (it's a connection error, not auth)
+    assert result.agents[0].host.state != HostState.UNAUTHENTICATED
+
+
+def test_collect_host_details_marks_auth_failure_on_authentication_error(
+    temp_mng_ctx: MngContext,
+    temp_host_dir: Path,
+) -> None:
+    """When get_host_and_agent_details raises HostAuthenticationError, the host
+    should be listed as UNAUTHENTICATED."""
+    host_id = HostId.generate()
+    host_name = HostName("auth-failed-host")
+    now = datetime.now(timezone.utc)
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name=str(host_name),
+        created_at=now,
+        updated_at=now,
+    )
+
+    provider = _ConnectionErrorMockProvider(
+        error_to_raise=HostAuthenticationError("Auth failed"),
+        name=ProviderInstanceName("test-provider"),
+        host_dir=temp_host_dir,
+        mng_ctx=temp_mng_ctx,
+    )
+    offline_host = make_offline_host(certified_data, provider, temp_mng_ctx)
+    provider.mock_hosts = [offline_host]
+
+    host_ref = DiscoveredHost(
+        host_id=host_id,
+        host_name=host_name,
+        provider_name=provider.name,
+    )
+    agent_ref = DiscoveredAgent(
+        host_id=host_id,
+        agent_id=AgentId.generate(),
+        agent_name=AgentName("auth-agent"),
+        provider_name=provider.name,
+        certified_data={"command": "sleep 100"},
+    )
+
+    result = ListResult()
+    params = _make_list_params()
+
+    _collect_and_emit_details_for_host(
+        host_ref=host_ref,
+        agent_refs=[agent_ref],
+        provider=provider,
+        params=params,
+        result=result,
+        results_lock=Lock(),
+    )
+
+    assert len(result.agents) == 1
+    assert result.agents[0].host.state == HostState.UNAUTHENTICATED
+
+
+def test_process_host_with_error_handling_catches_host_connection_error(
+    temp_mng_ctx: MngContext,
+    temp_host_dir: Path,
+) -> None:
+    """_process_host_with_error_handling should not crash on HostConnectionError
+    when error_behavior is CONTINUE."""
+    host_id = HostId.generate()
+    host_name = HostName("error-host")
+    now = datetime.now(timezone.utc)
+    certified_data = CertifiedHostData(
+        host_id=str(host_id),
+        host_name=str(host_name),
+        created_at=now,
+        updated_at=now,
+    )
+
+    provider = _ConnectionErrorMockProvider(
+        name=ProviderInstanceName("test-provider"),
+        host_dir=temp_host_dir,
+        mng_ctx=temp_mng_ctx,
+    )
+    offline_host = make_offline_host(certified_data, provider, temp_mng_ctx)
+    provider.mock_hosts = [offline_host]
+
+    host_ref = DiscoveredHost(
+        host_id=host_id,
+        host_name=host_name,
+        provider_name=provider.name,
+    )
+    agent_ref = DiscoveredAgent(
+        host_id=host_id,
+        agent_id=AgentId.generate(),
+        agent_name=AgentName("error-agent"),
+        provider_name=provider.name,
+        certified_data={"command": "sleep 100"},
+    )
+
+    result = ListResult()
+    params = _make_list_params(error_behavior=ErrorBehavior.CONTINUE)
+
+    # Should not raise
+    _process_host_with_error_handling(
+        host_ref=host_ref,
+        agent_refs=[agent_ref],
+        provider=provider,
+        params=params,
+        result=result,
+        results_lock=Lock(),
+    )
+
+    # Agent should be listed (fell back to offline data)
+    assert len(result.agents) == 1
+    assert result.errors == []

@@ -9,6 +9,10 @@ from typing import Any
 
 from loguru import logger
 from pydantic import Field
+from tenacity import retry
+from tenacity import retry_if_exception_type
+from tenacity import stop_after_attempt
+from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -485,6 +489,31 @@ def _build_agent_details_from_offline_ref(
     )
 
 
+@retry(
+    retry=retry_if_exception_type(HostConnectionError),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _get_host_listing_data_with_retry(
+    host_ref: DiscoveredHost,
+    agent_refs: list[DiscoveredAgent],
+    provider: ProviderInstanceInterface,
+) -> tuple[HostDetails, list[AgentDetails]] | HostInterface:
+    """Try to get host listing data, retrying once on transient SSH failures.
+
+    Returns either a (HostDetails, AgentDetails list) tuple from the provider's optimized
+    path, or a HostInterface from the per-field fallback path.
+    Raises HostConnectionError if all retry attempts fail.
+    """
+    listing_data = provider.get_host_and_agent_details(host_ref, agent_refs)
+    if listing_data is not None:
+        return listing_data
+
+    # Fall back to per-field collection
+    return provider.get_host(host_ref.host_id)
+
+
 def _collect_and_emit_details_for_host(
     host_ref: DiscoveredHost,
     agent_refs: list[DiscoveredAgent],
@@ -495,10 +524,11 @@ def _collect_and_emit_details_for_host(
 ) -> None:
     is_authentication_failure = False
     try:
-        # Try the provider's optimized listing method first
-        listing_data = provider.get_host_and_agent_details(host_ref, agent_refs)
-        if listing_data is not None:
-            host_details, agent_details_list = listing_data
+        host_or_listing = _get_host_listing_data_with_retry(host_ref, agent_refs, provider)
+
+        # If the provider returned full listing data, emit it and return
+        if isinstance(host_or_listing, tuple):
+            host_details, agent_details_list = host_or_listing
             for agent_details in agent_details_list:
                 # Apply CEL filters if provided
                 if params.compiled_include_filters or params.compiled_exclude_filters:
@@ -512,10 +542,9 @@ def _collect_and_emit_details_for_host(
                     params.on_agent(agent_details)
             return
 
-        # Fall back to per-field collection
-        host = provider.get_host(host_ref.host_id)
+        host = host_or_listing
     except HostConnectionError as e:
-        logger.debug("Host {} unreachable, falling back to offline data: {}", host_ref.host_id, e)
+        logger.debug("Host {} unreachable after retries, falling back to offline data: {}", host_ref.host_id, e)
         host = provider.to_offline_host(host_ref.host_id)
         is_authentication_failure = isinstance(e, HostAuthenticationError)
 
@@ -597,7 +626,7 @@ def _process_host_with_error_handling(
             results_lock,
         )
 
-    except (MngError, BaseMngError) as e:
+    except BaseMngError as e:
         if params.error_behavior == ErrorBehavior.ABORT:
             raise
         error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)
