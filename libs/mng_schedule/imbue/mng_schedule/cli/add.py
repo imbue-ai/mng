@@ -92,15 +92,12 @@ def _has_tag_with_key(mng_args: Sequence[str], tag_key: str) -> bool:
 def auto_fix_create_args(
     args: str,
     trigger_name: str,
-    ssh_public_key: str | None,
 ) -> str:
     """Auto-fix args for a create command to ensure they work as expected.
 
     Adds the following flags if not already present:
     - --headless: so we never attempt interactive prompts
     - --no-connect: so we don't try to automatically connect
-    - --await-ready: to make sure the command actually worked
-    - --authorized-key <key>: so you can connect to the host via SSH
     - --tag SCHEDULE=<name>: to make it easy to filter scheduled agents
 
     Only the mng args (before any '--' separator) are checked and modified.
@@ -114,12 +111,6 @@ def auto_fix_create_args(
 
     if not _has_flag(mng_args, "--no-connect", "--connect"):
         mng_args.append("--no-connect")
-
-    if not _has_flag(mng_args, "--await-ready", "--no-await-ready"):
-        mng_args.append("--await-ready")
-
-    if ssh_public_key is not None and not _has_flag(mng_args, "--authorized-key"):
-        mng_args.extend(["--authorized-key", ssh_public_key])
 
     if not _has_tag_with_key(mng_args, "SCHEDULE"):
         mng_args.extend(["--tag", f"SCHEDULE={trigger_name}"])
@@ -167,22 +158,6 @@ def check_safe_create_command(args: str) -> str | None:
         "(e.g. --new-branch 'my-branch-{DATE}') or --reuse to avoid creating "
         "conflicting agents/branches on each scheduled run."
     )
-
-
-def _get_provider_ssh_public_key(
-    provider: LocalProviderInstance | ModalProviderInstance,
-) -> str | None:
-    """Get the SSH public key for the given provider, or None if not applicable.
-
-    For modal: returns the provider's SSH public key (for agent --authorized-key).
-    For local: returns None (local provider doesn't use SSH for agent connections).
-    """
-    if isinstance(provider, ModalProviderInstance):
-        return provider.get_ssh_public_key()
-    elif isinstance(provider, LocalProviderInstance):
-        return None
-    else:
-        raise TypeError(f"Unsupported provider type: {type(provider).__name__}")
 
 
 # =============================================================================
@@ -281,8 +256,7 @@ def schedule_add(ctx: click.Context, **kwargs: Any) -> None:
     # Apply auto-fix and safety checks for create commands
     if command == ScheduledMngCommand.CREATE:
         if opts.auto_fix_args:
-            ssh_public_key = _get_provider_ssh_public_key(provider)
-            final_args = auto_fix_create_args(raw_args, trigger_name, ssh_public_key)
+            final_args = auto_fix_create_args(raw_args, trigger_name)
             logger.info("Auto-fixed args for create command: {}", final_args)
 
         safety_issue = check_safe_create_command(final_args)

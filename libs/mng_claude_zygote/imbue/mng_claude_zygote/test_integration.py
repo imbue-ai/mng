@@ -29,6 +29,7 @@ from imbue.mng.cli.create import create
 from imbue.mng.cli.list import list_command
 from imbue.mng.utils.testing import tmux_session_cleanup
 from imbue.mng.utils.testing import tmux_session_exists
+from imbue.mng.utils.testing import wait_for_agent_session
 from imbue.mng_claude_zygote.conftest import ChatScriptEnv
 from imbue.mng_claude_zygote.conftest import LocalShellHost
 from imbue.mng_claude_zygote.conftest import StubCommandResult
@@ -89,8 +90,6 @@ def _create_agent_in_session(
                 "--source",
                 str(source_dir),
                 "--no-connect",
-                "--await-ready",
-                "--no-copy-work-dir",
                 "--no-ensure-clean",
                 "--disable-plugin",
                 "modal",
@@ -100,6 +99,9 @@ def _create_agent_in_session(
             catch_exceptions=False,
         )
         assert result.exit_code == 0, f"CLI failed with: {result.output}"
+
+        # --no-connect creates in background, wait for the session to appear
+        wait_for_agent_session(session_name)
         yield session_name
 
 
