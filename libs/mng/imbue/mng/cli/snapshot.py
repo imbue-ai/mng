@@ -395,11 +395,13 @@ def _emit_destroy_result(
 class _SnapshotGroup(DefaultCommandGroup):
     """Snapshot group that defaults to 'create' when no subcommand is given.
 
-    This is safe because the next argument must be a valid agent name,
-    so typos like ``mng snapshot destory`` will fail with
+    Unlike the top-level mng group, snapshot keeps 'create' as the
+    compile-time default because the next argument must be a valid agent
+    name, so typos like ``mng snapshot destory`` will fail with
     "Agent or host not found" rather than silently doing something wrong.
     """
 
+    _default_command = "create"
     _config_key = "snapshot"
 
 
