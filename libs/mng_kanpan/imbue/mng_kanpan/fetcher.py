@@ -173,7 +173,7 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     elapsed = time.monotonic() - start_time
     return BoardSnapshot(
         entries=tuple(entries),
-        errors=(*tuple(errors), *remote.errors),
+        errors=(*errors, *remote.errors),
         prs_loaded=remote.prs_loaded,
         fetch_time_seconds=elapsed,
     )
