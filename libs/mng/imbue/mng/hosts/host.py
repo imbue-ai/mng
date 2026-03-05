@@ -12,7 +12,6 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any
-from typing import Final
 from typing import IO
 from typing import Iterator
 from typing import Mapping
@@ -37,6 +36,7 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
+from imbue.mng.agents.base_agent import LONG_MESSAGE_THRESHOLD
 from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
@@ -2185,11 +2185,6 @@ To reconnect later, run:
 
 This popup won't show again in future sessions."""
 
-# Messages at or above this length use load-buffer/paste-buffer instead of send-keys
-# to avoid tmux "command too long" errors.
-_LONG_MESSAGE_THRESHOLD: Final[int] = 1024
-
-
 def _build_tmux_send_literal_steps(
     tmux_target: str,
     text: str,
@@ -2197,16 +2192,21 @@ def _build_tmux_send_literal_steps(
 ) -> list[str]:
     """Build shell command steps to send literal text to a tmux pane.
 
-    For short text (< 1024 chars), uses ``tmux send-keys -l``.
-    For long text (>= 1024 chars), writes to a temp file via printf and uses
-    ``tmux load-buffer`` + ``tmux paste-buffer`` to avoid the tmux
-    "command too long" error.
+    For short text (< LONG_MESSAGE_THRESHOLD chars), uses ``tmux send-keys -l``.
+    For long text (>= LONG_MESSAGE_THRESHOLD chars), writes to a temp file via
+    printf and uses ``tmux load-buffer`` + ``tmux paste-buffer`` to avoid the
+    tmux "command too long" error.
+
+    The temp file path includes the tmux target to avoid races when multiple
+    agents start concurrently on the same host.
     """
     quoted_target = shlex.quote(tmux_target)
-    if len(text) < _LONG_MESSAGE_THRESHOLD:
+    if len(text) < LONG_MESSAGE_THRESHOLD:
         return [f"tmux send-keys -t {quoted_target} -l {shlex.quote(text)}"]
     else:
-        tmp_path = host_dir / "tmp" / "tmux-buffer.txt"
+        # Include tmux_target in the filename to avoid concurrent overwrites
+        safe_target = tmux_target.replace("/", "_").replace(":", "_")
+        tmp_path = host_dir / "tmp" / f"tmux-buffer-{safe_target}.txt"
         quoted_path = shlex.quote(str(tmp_path))
         return [
             f"mkdir -p {shlex.quote(str(tmp_path.parent))}",

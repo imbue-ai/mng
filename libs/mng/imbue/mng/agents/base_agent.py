@@ -40,7 +40,7 @@ _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
 
 # Messages at or above this length use load-buffer/paste-buffer instead of send-keys
 # to avoid tmux "command too long" errors.
-_LONG_MESSAGE_THRESHOLD: Final[int] = 1024
+LONG_MESSAGE_THRESHOLD: Final[int] = 1024
 
 # Default timeout for signal-based synchronization
 # Note that this does need to be fairly long, since it can take a little while for the machine to respond if you're unlucky
@@ -365,13 +365,13 @@ class BaseAgent(AgentInterface):
         the host and uses ``tmux load-buffer`` + ``tmux paste-buffer`` to avoid
         the tmux "command too long" error.
         """
-        if len(message) < _LONG_MESSAGE_THRESHOLD:
+        if len(message) < LONG_MESSAGE_THRESHOLD:
             send_msg_cmd = f"tmux send-keys -t '{tmux_target}' -l {shlex.quote(message)}"
             result = self.host.execute_command(send_msg_cmd)
             if not result.success:
                 raise SendMessageError(str(self.name), f"tmux send-keys failed: {result.stderr or result.stdout}")
         else:
-            tmp_path = Path("/tmp/mng-msg-buffer.txt")
+            tmp_path = Path(f"/tmp/mng-msg-buffer-{self.session_name}.txt")
             self.host.write_text_file(tmp_path, message)
             load_cmd = f"tmux load-buffer {shlex.quote(str(tmp_path))}"
             result = self.host.execute_command(load_cmd)
