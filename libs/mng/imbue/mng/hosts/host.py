@@ -2185,6 +2185,7 @@ To reconnect later, run:
 
 This popup won't show again in future sessions."""
 
+@pure
 def _build_tmux_send_literal_steps(
     tmux_target: str,
     text: str,
