@@ -2,11 +2,15 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Generator
 from typing import cast
 from uuid import uuid4
 
+import docker
+import docker.errors
 import pluggy
 import psutil
 import pytest
@@ -26,6 +30,10 @@ from imbue.mng.plugins import hookspecs
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import UserId
+from imbue.mng.providers.docker.testing import remove_docker_container_and_volume
+from imbue.mng.providers.docker.volume import LABEL_PROVIDER
+from imbue.mng.providers.docker.volume import STATE_CONTAINER_TYPE_LABEL
+from imbue.mng.providers.docker.volume import STATE_CONTAINER_TYPE_VALUE
 from imbue.mng.providers.local.instance import LocalProviderInstance
 from imbue.mng.providers.modal.backend import ModalProviderBackend
 from imbue.mng.providers.registry import load_local_backend_only
@@ -182,10 +190,10 @@ def temp_git_repo(tmp_path: Path, setup_git_config: None) -> Path:
 
 
 @pytest.fixture
-def disable_modal_for_subprocesses(
+def disable_remote_providers_for_subprocesses(
     project_config_dir: Path, monkeypatch: pytest.MonkeyPatch, temp_git_repo: Path
 ) -> Path:
-    """Disable the Modal provider for subprocesses spawned during a test.
+    """Disable the Modal and Docker providers for subprocesses spawned during a test.
 
     Writes a settings.local.toml inside a temporary git repo's config directory
     and chdir's into that repo. Spawned subprocesses inherit the CWD, so the
@@ -193,10 +201,10 @@ def disable_modal_for_subprocesses(
 
     Use this when a test spawns a child process that runs ``mng`` commands
     and would otherwise fail because Modal credentials are not available in
-    the test environment.
+    the test environment, or would create Docker state containers that leak.
     """
     settings_path = project_config_dir / "settings.local.toml"
-    settings_path.write_text("[providers.modal]\nis_enabled = false\n")
+    settings_path.write_text("[providers.modal]\nis_enabled = false\n\n[providers.docker]\nis_enabled = false\n")
     monkeypatch.chdir(temp_git_repo)
     return settings_path
 
@@ -493,8 +501,11 @@ _WORKSPACE_PACKAGES = (
 def isolated_mng_venv(tmp_path: Path) -> Path:
     """Create a temporary venv with mng installed for subprocess-based tests.
 
-    Returns the venv directory. Use `venv / "bin" / "mng"` to run mng
-    commands, or `venv / "bin" / "python"` for the interpreter.
+    Returns the venv directory. Use ``venv / "bin" / "mng"`` to run mng
+    commands, or ``venv / "bin" / "python"`` for the interpreter.
+
+    Writes a ``uv-receipt.toml`` so that ``require_uv_tool_receipt()``
+    recognises this venv as a uv-tool-managed installation.
 
     This fixture is useful for tests that install/uninstall packages and
     need full isolation from the main workspace venv.
@@ -535,6 +546,16 @@ def isolated_mng_venv(tmp_path: Path) -> Path:
         cg.run_process_to_completion(
             ("uv", "pip", "install", "--python", python_path, "--no-deps", *workspace_install_args)
         )
+
+    # Write a uv-receipt.toml so plugin add/remove recognise this as a
+    # uv-tool-managed venv (the receipt lives at sys.prefix root).
+    receipt_content = (
+        '[tool]\nrequirements = [{ name = "mng" }]\n'
+        "entrypoints = [\n"
+        f'    {{ name = "mng", install-path = "{venv_dir / "bin" / "mng"}", from = "mng" }},\n'
+        "]\n"
+    )
+    (venv_dir / "uv-receipt.toml").write_text(receipt_content)
 
     return venv_dir
 
@@ -611,10 +632,10 @@ def _kill_tmux_sessions(sessions: list[str]) -> None:
         cleanup_tmux_session(session)
 
 
-def _is_xdist_worker_process(proc: psutil.Process) -> bool:
+def _is_xdist_worker_process(process: psutil.Process) -> bool:
     """Check if a process is a pytest-xdist worker process."""
     try:
-        cmdline = proc.cmdline()
+        cmdline = process.cmdline()
         cmdline_str = " ".join(cmdline)
         # xdist workers are python processes running pytest with gw* identifiers
         return "pytest" in cmdline_str.lower() and "gw" in cmdline_str
@@ -622,19 +643,19 @@ def _is_xdist_worker_process(proc: psutil.Process) -> bool:
         return False
 
 
-def _format_process_info(proc: psutil.Process) -> str:
+def _format_process_info(process: psutil.Process) -> str:
     """Format process information for error messages."""
     try:
-        cmdline = proc.cmdline()[:5]
-        return f"  PID {proc.pid}: {proc.name()} - {' '.join(cmdline)}"
+        cmdline = process.cmdline()[:5]
+        return f"  PID {process.pid}: {process.name()} - {' '.join(cmdline)}"
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-        return f"  PID {proc.pid}: <process info unavailable>"
+        return f"  PID {process.pid}: <process info unavailable>"
 
 
-def _is_alive_non_zombie(proc: psutil.Process) -> bool:
+def _is_alive_non_zombie(process: psutil.Process) -> bool:
     """Check if a process is alive and not a zombie."""
     try:
-        return proc.is_running() and proc.status() != psutil.STATUS_ZOMBIE
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return False
 
@@ -818,6 +839,122 @@ def _delete_modal_environments(environment_names: list[str]) -> None:
             pass
 
 
+def _get_stale_docker_state_containers(max_age_seconds: int = 3600) -> list[tuple[str, str]]:
+    """Get Docker state containers from tests that are older than max_age_seconds.
+
+    Returns a list of (container_id, container_name) tuples for state containers
+    that appear to originate from tests and are older than the threshold.
+    This catches containers leaked by crashed or interrupted test runs.
+
+    A state container is considered test-originated if any of:
+    - Its provider label starts with "docker-test-" (from make_docker_provider_with_cleanup), or
+    - Its name starts with "mng_test-" (from generate_test_environment_name), or
+    - Its name contains a test prefix pattern (mng_ followed by a hex UUID, as
+      generated by the autouse mng_test_prefix fixture).
+    """
+    try:
+        client = docker.from_env()
+    except docker.errors.DockerException:
+        return []
+
+    try:
+        containers = client.containers.list(
+            all=True,
+            filters={
+                "label": [
+                    f"{STATE_CONTAINER_TYPE_LABEL}={STATE_CONTAINER_TYPE_VALUE}",
+                ]
+            },
+        )
+    except docker.errors.DockerException:
+        client.close()
+        return []
+
+    now = datetime.now(timezone.utc)
+    stale: list[tuple[str, str]] = []
+
+    for container in containers:
+        labels = container.labels or {}
+        provider_name = labels.get(LABEL_PROVIDER, "")
+        container_name = container.name or ""
+
+        # Identify test-originated state containers by either:
+        # 1. Provider label starting with "docker-test-" (SDK-based tests)
+        # 2. Container name starting with "mng_" followed by a hex UUID
+        #    (subprocess tests that use the autouse mng_test_prefix fixture)
+        # 3. Container name starting with "mng_test-" (subprocess tests that
+        #    use generate_test_environment_name)
+        is_test_container = (
+            provider_name.startswith("docker-test-")
+            or container_name.startswith("mng_test-")
+            or _looks_like_test_prefix(container_name)
+        )
+        if not is_test_container:
+            continue
+
+        # Check age via container creation time
+        try:
+            container.reload()
+            created_str = container.attrs.get("Created", "")
+            if not created_str:
+                continue
+            # Docker returns ISO format with nanosecond precision
+            created_str = created_str.split(".")[0] + "+00:00"
+            created = datetime.fromisoformat(created_str)
+            age_seconds = (now - created).total_seconds()
+            if age_seconds > max_age_seconds:
+                stale.append((container.id, container.name or ""))
+        except (ValueError, KeyError, docker.errors.DockerException):
+            continue
+
+    client.close()
+    return stale
+
+
+def _looks_like_test_prefix(container_name: str) -> bool:
+    """Check if a container name starts with a test prefix pattern.
+
+    Test prefixes follow the format 'mng_{hex32}-' where {hex32} is a
+    32-character hex string (uuid4().hex). For example:
+    'mng_22921e597952421296c8973d922f2eb3-docker-state-...'
+    """
+    if not container_name.startswith("mng_"):
+        return False
+    # Extract the part after 'mng_' up to the first '-'
+    rest = container_name[4:]
+    dash_idx = rest.find("-")
+    if dash_idx != 32:
+        return False
+    hex_part = rest[:32]
+    return all(c in "0123456789abcdef" for c in hex_part)
+
+
+def _remove_docker_containers(containers: list[tuple[str, str]]) -> None:
+    """Force-remove the specified Docker containers and their backing volumes.
+
+    Takes a list of (container_id, container_name) tuples. Uses the shared
+    remove_docker_container_and_volume helper which removes the container
+    first, then removes the backing Docker volume (same name as the container).
+    """
+    if not containers:
+        return
+
+    try:
+        client = docker.from_env()
+    except docker.errors.DockerException:
+        return
+
+    try:
+        for container_id, _name in containers:
+            try:
+                container = client.containers.get(container_id)
+                remove_docker_container_and_volume(client, container)
+            except (docker.errors.DockerException, docker.errors.NotFound):
+                pass
+    finally:
+        client.close()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def session_cleanup() -> Generator[None, None, None]:
     """Session-scoped fixture to detect and clean up leaked test resources.
@@ -829,9 +966,12 @@ def session_cleanup() -> Generator[None, None, None]:
     3. Leftover Modal apps created by this worker's tests
     4. Leftover Modal volumes created by this worker's tests
     5. Leftover Modal environments created by this worker's tests
+    6. Stale Docker state containers from tests (older than 1 hour)
 
     If any leaked resources are found:
-    - An error is raised to fail the test suite
+    - An error is raised to fail the test suite (except for stale Docker
+      containers, which are silently cleaned up since they may be from
+      other sessions)
     - The resources are killed as a last-ditch cleanup measure
 
     Tests should always clean up after themselves! This is just a safety net.
@@ -914,10 +1054,16 @@ def session_cleanup() -> Generator[None, None, None]:
             "Tests should delete their Modal environments before completing.\n" + "\n".join(env_info)
         )
 
-    # 6. Clean up leaked resources (last-ditch safety measure)
-    for proc in leftover_processes:
+    # 6. Check for stale Docker state containers from tests (older than 1 hour).
+    # These are containers that were leaked by crashed or interrupted test runs.
+    # We don't fail the test suite for these (they may be from other sessions),
+    # but we do clean them up.
+    stale_docker_containers = _get_stale_docker_state_containers(max_age_seconds=3600)
+
+    # 7. Clean up leaked resources (last-ditch safety measure)
+    for process in leftover_processes:
         try:
-            proc.kill()
+            process.kill()
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
 
@@ -925,8 +1071,9 @@ def session_cleanup() -> Generator[None, None, None]:
     _stop_modal_apps(leftover_apps)
     _delete_modal_volumes(leftover_volumes)
     _delete_modal_environments(leftover_environments)
+    _remove_docker_containers(stale_docker_containers)
 
-    # 7. Fail the test suite if any issues were found
+    # 8. Fail the test suite if any issues were found
     if errors:
         raise AssertionError(
             "=" * 70 + "\n"

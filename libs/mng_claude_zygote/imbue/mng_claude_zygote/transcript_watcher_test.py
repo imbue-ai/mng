@@ -116,7 +116,7 @@ def _make_assistant_event(
     timestamp: str,
     text: str = "",
     tool_calls: list[dict[str, Any]] | None = None,
-    model: str = "claude-opus-4-6",
+    model: str = "claude-opus-4.6",
     stop_reason: str = "end_turn",
     usage: dict[str, int] | None = None,
 ) -> str:
@@ -201,7 +201,7 @@ def test_convert_new_events_converts_assistant_message(tmp_path: Path) -> None:
     events = [json.loads(line) for line in output_file.read_text().strip().split("\n")]
     assert events[0]["type"] == "assistant_message"
     assert events[0]["text"] == "Hi there!"
-    assert events[0]["model"] == "claude-opus-4-6"
+    assert events[0]["model"] == "claude-opus-4.6"
     assert events[0]["event_id"] == "uuid-2-assistant"
     assert events[0]["stop_reason"] == "end_turn"
     assert events[0]["usage"]["input_tokens"] == 100
@@ -350,7 +350,7 @@ def test_convert_new_events_user_with_text_and_tool_results(tmp_path: Path) -> N
     )
     input_file.write_text(assistant + "\n" + user + "\n")
 
-    count = _convert_new_events(input_file, output_file)
+    _convert_new_events(input_file, output_file)
 
     events = [json.loads(line) for line in output_file.read_text().strip().split("\n")]
     types_found = [e["type"] for e in events]
@@ -398,7 +398,7 @@ def test_convert_new_events_truncates_long_tool_output(tmp_path: Path) -> None:
     )
     input_file.write_text(assistant + "\n" + user + "\n")
 
-    count = _convert_new_events(input_file, output_file)
+    _convert_new_events(input_file, output_file)
     events = [json.loads(line) for line in output_file.read_text().strip().split("\n")]
     tool_results = [e for e in events if e["type"] == "tool_result"]
     assert len(tool_results[0]["output"]) <= 2003  # 2000 + "..."
@@ -435,7 +435,7 @@ def test_convert_new_events_tool_result_with_list_content(tmp_path: Path) -> Non
     )
     input_file.write_text(assistant + "\n" + user + "\n")
 
-    count = _convert_new_events(input_file, output_file)
+    _convert_new_events(input_file, output_file)
     events = [json.loads(line) for line in output_file.read_text().strip().split("\n")]
     tool_results = [e for e in events if e["type"] == "tool_result"]
     assert tool_results[0]["output"] == "part 1\npart 2"
@@ -501,7 +501,7 @@ def test_convert_new_events_unknown_tool_name_defaults(tmp_path: Path) -> None:
     )
     input_file.write_text(user + "\n")
 
-    count = _convert_new_events(input_file, output_file)
+    _convert_new_events(input_file, output_file)
     events = [json.loads(line) for line in output_file.read_text().strip().split("\n")]
     tool_results = [e for e in events if e["type"] == "tool_result"]
     assert tool_results[0]["tool_name"] == "unknown"

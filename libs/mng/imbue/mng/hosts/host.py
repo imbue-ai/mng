@@ -72,6 +72,7 @@ from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import WorkDirCopyMode
 from imbue.mng.primitives import default_branch_name
+from imbue.mng.utils.env_utils import build_source_env_shell_commands
 from imbue.mng.utils.env_utils import parse_env_file
 from imbue.mng.utils.git_utils import get_current_git_branch
 from imbue.mng.utils.git_utils import get_git_author_info
@@ -503,7 +504,7 @@ class Host(BaseHost, OnlineHostInterface):
         joined_dirs = " ".join(f"'{str(p)}'" for p in paths)
         self.execute_command(f"mkdir -p {joined_dirs}")
 
-    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+    def get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
 
         Returns (user, hostname, port, private_key_path) if remote, None if local.
@@ -1134,13 +1135,13 @@ class Host(BaseHost, OnlineHostInterface):
     ) -> None:
         """Push git repo from source to target using git push --mirror."""
         self._warn_if_submodules_detected(source_host, source_path)
-        target_ssh_info = self._get_ssh_connection_info()
+        target_ssh_info = self.get_ssh_connection_info()
 
         if target_ssh_info is None:
             if source_host.is_local:
                 git_url = str(target_path / ".git")
             else:
-                source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+                source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
                 if source_ssh_info is None:
                     raise MngError("Cannot determine SSH connection info for remote source host")
                 user, hostname, port, key_path = source_ssh_info
@@ -1324,7 +1325,7 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = "rsync: local to local"
         elif source_host.is_local and not self.is_local:
             # Local to remote
-            target_ssh_info = self._get_ssh_connection_info()
+            target_ssh_info = self.get_ssh_connection_info()
             assert target_ssh_info is not None
             user, hostname, port, key_path = target_ssh_info
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
@@ -1332,7 +1333,7 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = f"rsync: local to remote {user}@{hostname}:{port}"
         elif not source_host.is_local and self.is_local:
             # Remote to local
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
             assert source_ssh_info is not None
             user, hostname, port, key_path = source_ssh_info
             rsync_args.extend(["-e", f"ssh -i {shlex.quote(str(key_path))} -p {port} -o StrictHostKeyChecking=no"])
@@ -1340,9 +1341,9 @@ class Host(BaseHost, OnlineHostInterface):
             rsync_description = f"rsync: remote to local {user}@{hostname}:{port}"
         else:
             # Remote to remote: sync via local temp directory as intermediary
-            source_ssh_info = source_host._get_ssh_connection_info() if isinstance(source_host, Host) else None
+            source_ssh_info = source_host.get_ssh_connection_info() if isinstance(source_host, Host) else None
             assert source_ssh_info is not None
-            target_ssh_info = self._get_ssh_connection_info()
+            target_ssh_info = self.get_ssh_connection_info()
             assert target_ssh_info is not None
 
             src_user, src_hostname, src_port, src_key_path = source_ssh_info
@@ -1557,6 +1558,7 @@ class Host(BaseHost, OnlineHostInterface):
         env_vars["MNG_AGENT_NAME"] = str(agent.name)
         env_vars["MNG_AGENT_STATE_DIR"] = str(agent_state_dir)
         env_vars["MNG_AGENT_WORK_DIR"] = str(agent.work_dir)
+        env_vars["LLM_USER_PATH"] = str(agent_state_dir / "llm_data")
 
         # 2. Add programmatic defaults
         env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""
@@ -1584,25 +1586,10 @@ class Host(BaseHost, OnlineHostInterface):
         logger.debug("Wrote env vars", count=len(env_vars), path=str(env_path))
 
     def _build_source_env_commands(self, agent: AgentInterface) -> list[str]:
-        """Build shell commands that source host and agent env files.
-
-        Returns a list of shell commands that:
-        1. Set 'set -a' to auto-export all sourced variables
-        2. Source host env if it exists (host env first)
-        3. Source agent env if it exists (agent can override host)
-        4. Restore with 'set +a'
-
-        The caller is responsible for joining these appropriately.
-        """
+        """Build shell commands that source host and agent env files."""
         host_env_path = self.host_dir / "env"
         agent_env_path = self.get_agent_env_path(agent)
-
-        return [
-            "set -a",
-            f"[ -f {shlex.quote(str(host_env_path))} ] && . {shlex.quote(str(host_env_path))} || true",
-            f"[ -f {shlex.quote(str(agent_env_path))} ] && . {shlex.quote(str(agent_env_path))} || true",
-            "set +a",
-        ]
+        return build_source_env_shell_commands(host_env_path, agent_env_path)
 
     def _build_source_env_prefix(self, agent: AgentInterface) -> str:
         """Build a shell prefix that sources host and agent env files if they exist."""
