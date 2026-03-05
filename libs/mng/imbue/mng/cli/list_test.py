@@ -32,6 +32,7 @@ from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import OutputFormat
+from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng.primitives import SnapshotId
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.utils.cel_utils import compile_cel_sort_keys
@@ -546,8 +547,8 @@ def test_sort_agents_by_cel_no_keys() -> None:
 def test_sort_agents_by_cel_nested_field() -> None:
     """_sort_agents_by_cel should sort by nested host fields via CEL."""
     agents = [
-        make_test_agent_details(name="agent-b", host_provider="docker"),
-        make_test_agent_details(name="agent-a", host_provider="aws"),
+        make_test_agent_details(name="agent-b", provider_name=ProviderInstanceName("docker")),
+        make_test_agent_details(name="agent-a", provider_name=ProviderInstanceName("aws")),
     ]
     compiled = compile_cel_sort_keys("host.provider")
     result = _sort_agents_by_cel(agents, compiled)
