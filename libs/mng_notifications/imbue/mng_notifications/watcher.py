@@ -1,4 +1,5 @@
 import threading
+import time
 from collections.abc import Mapping
 from collections.abc import Sequence
 
@@ -62,12 +63,7 @@ def watch_for_waiting_agents(
         logger.info("Tracking {} agent(s)", len(previous_states))
 
     while not stop_event.is_set():
-        # Wait in short increments so KeyboardInterrupt is delivered promptly.
-        # Event.wait() blocks signal delivery on Python 3.11.
-        elapsed = 0.0
-        while elapsed < interval_seconds and not stop_event.is_set():
-            stop_event.wait(timeout=min(1.0, interval_seconds - elapsed))
-            elapsed += 1.0
+        time.sleep(interval_seconds)
         if stop_event.is_set():
             break
 
