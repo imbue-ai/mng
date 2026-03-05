@@ -13,6 +13,7 @@ from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
 from imbue.mng.utils.env_utils import parse_env_file
+from imbue.mng.utils.testing import write_core_agent_env_file
 
 # =============================================================================
 # _read_existing_env_content Tests
@@ -207,6 +208,9 @@ def test_provision_agent_restarts_running_agent(
             command=CommandString("sleep 847325"),
         ),
     )
+
+    # Write core env so $MNG_AGENT_STATE_DIR resolves before provisioning
+    write_core_agent_env_file(local_host.host_dir, agent.id, agent.name, agent.work_dir)
 
     # Start the agent
     local_host.start_agents([agent.id])
