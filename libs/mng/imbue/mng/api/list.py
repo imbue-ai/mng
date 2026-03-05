@@ -9,10 +9,6 @@ from typing import Any
 
 from loguru import logger
 from pydantic import Field
-from tenacity import retry
-from tenacity import retry_if_exception_type
-from tenacity import stop_after_attempt
-from tenacity import wait_exponential
 
 from imbue.concurrency_group.concurrency_group import ConcurrencyGroup
 from imbue.concurrency_group.executor import ConcurrencyGroupExecutor
@@ -23,9 +19,13 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.discover import warn_on_duplicate_host_names
+from imbue.mng.api.discovery_events import emit_host_ssh_info
+from imbue.mng.api.discovery_events import extract_agents_and_hosts_from_full_listing
+from imbue.mng.api.discovery_events import write_full_discovery_snapshot
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
+from imbue.mng.errors import BaseMngError
 from imbue.mng.errors import HostAuthenticationError
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import MngError
@@ -201,7 +201,37 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _maybe_write_full_discovery_snapshot(mng_ctx, result, provider_names, include_filters, exclude_filters)
     return result
+
+
+def _maybe_write_full_discovery_snapshot(
+    mng_ctx: MngContext,
+    result: ListResult,
+    provider_names: tuple[str, ...] | None,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+) -> None:
+    """Write a full discovery snapshot when this listing represents all known agents.
+
+    A snapshot is written only when the listing is complete and error-free:
+    - All providers were queried (no provider_names filter)
+    - No CEL filters were applied (the result contains every agent)
+    - No errors occurred during listing (otherwise we may be missing agents)
+    """
+    is_full_listing = provider_names is None and not include_filters and not exclude_filters
+    if not is_full_listing:
+        return
+    if result.errors:
+        logger.trace("Skipping full discovery snapshot: {} error(s) during listing", len(result.errors))
+        return
+    try:
+        discovered_agents, discovered_hosts, host_ssh_infos = extract_agents_and_hosts_from_full_listing(result.agents)
+        write_full_discovery_snapshot(mng_ctx.config, discovered_agents, discovered_hosts)
+        for host_id, ssh_info in host_ssh_infos:
+            emit_host_ssh_info(mng_ctx.config, host_id, ssh_info)
+    except (MngError, OSError) as e:
+        logger.warning("Failed to write full discovery snapshot: {}", e)
 
 
 def _list_agents_batch(
@@ -488,13 +518,6 @@ def _build_agent_details_from_offline_ref(
     )
 
 
-# retry exactly once if there is a HostConnectionError (hopefully we then simply load the offline version of the host)
-@retry(
-    retry=retry_if_exception_type(HostConnectionError),
-    stop=stop_after_attempt(2),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    reraise=True,
-)
 def _collect_and_emit_details_for_host(
     host_ref: DiscoveredHost,
     agent_refs: list[DiscoveredAgent],
@@ -524,9 +547,10 @@ def _collect_and_emit_details_for_host(
 
         # Fall back to per-field collection
         host = provider.get_host(host_ref.host_id)
-    except HostAuthenticationError:
+    except HostConnectionError as e:
+        logger.debug("Host {} unreachable, falling back to offline data: {}", host_ref.host_id, e)
         host = provider.to_offline_host(host_ref.host_id)
-        is_authentication_failure = True
+        is_authentication_failure = isinstance(e, HostAuthenticationError)
 
     # Build host details
     host_details, ssh_activity = _build_host_details_from_host(host, host_ref, is_authentication_failure)
@@ -606,7 +630,7 @@ def _process_host_with_error_handling(
             results_lock,
         )
 
-    except MngError as e:
+    except (MngError, BaseMngError) as e:
         if params.error_behavior == ErrorBehavior.ABORT:
             raise
         error_info = HostErrorInfo.build_for_host(e, host_ref.host_id)

@@ -1,10 +1,13 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from imbue.changelings.forwarding_server.backend_resolver import BackendResolverInterface
 from imbue.changelings.forwarding_server.backend_resolver import MngCliBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import MngStreamManager
 from imbue.changelings.forwarding_server.backend_resolver import ParsedAgentsResult
+from imbue.changelings.forwarding_server.backend_resolver import ServerLogParseError
 from imbue.changelings.forwarding_server.backend_resolver import StaticBackendResolver
 from imbue.changelings.forwarding_server.backend_resolver import parse_agent_ids_from_json
 from imbue.changelings.forwarding_server.backend_resolver import parse_agents_from_json
@@ -98,11 +101,36 @@ def test_parse_server_log_records_returns_empty_for_empty_input() -> None:
     assert parse_server_log_records("\n") == []
 
 
-def test_parse_server_log_records_skips_invalid_lines() -> None:
+def test_parse_server_log_records_raises_on_invalid_json() -> None:
     text = 'bad line\n{"server": "web", "url": "http://127.0.0.1:9100"}\n'
+    with pytest.raises(json.JSONDecodeError):
+        parse_server_log_records(text)
+
+
+def test_parse_server_log_records_raises_on_missing_fields() -> None:
+    text = '{"server": "web"}\n'
+    with pytest.raises(ServerLogParseError, match="missing required fields"):
+        parse_server_log_records(text)
+
+
+def test_parse_server_log_records_ignores_envelope_fields() -> None:
+    text = (
+        json.dumps(
+            {
+                "timestamp": "2026-01-01T00:00:00.000000000Z",
+                "type": "server_registered",
+                "event_id": "evt-abc123",
+                "source": "servers",
+                "server": "web",
+                "url": "http://127.0.0.1:9100",
+            }
+        )
+        + "\n"
+    )
     records = parse_server_log_records(text)
 
     assert len(records) == 1
+    assert records[0].server == ServerName("web")
     assert records[0].url == "http://127.0.0.1:9100"
 
 
@@ -393,14 +421,14 @@ def _make_stream_manager() -> MngStreamManager:
 
 def test_stream_manager_on_list_stream_output_ignores_stderr() -> None:
     manager = _make_stream_manager()
-    manager._on_list_stream_output("some stderr line", is_stderr=True)
+    manager._on_list_stream_output("some stderr line", is_stdout=False)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
 def test_stream_manager_on_list_stream_output_ignores_empty_lines() -> None:
     manager = _make_stream_manager()
-    manager._on_list_stream_output("", is_stderr=False)
-    manager._on_list_stream_output("  \n", is_stderr=False)
+    manager._on_list_stream_output("", is_stdout=True)
+    manager._on_list_stream_output("  \n", is_stdout=True)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
@@ -408,13 +436,15 @@ def test_stream_manager_on_list_stream_output_ignores_non_full_events() -> None:
     """Non-DISCOVERY_FULL events are ignored and do not update the resolver."""
     manager = _make_stream_manager()
     # Use an unrecognized event type so parse_discovery_event_line returns None
-    line = json.dumps({
-        "type": "SOME_OTHER_EVENT",
-        "timestamp": "2026-01-01T00:00:00Z",
-        "event_id": "evt-test-001",
-        "source": "mng/discovery",
-    })
-    manager._on_list_stream_output(line, is_stderr=False)
+    line = json.dumps(
+        {
+            "type": "SOME_OTHER_EVENT",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "event_id": "evt-test-001",
+            "source": "mng/discovery",
+        }
+    )
+    manager._on_list_stream_output(line, is_stdout=True)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
@@ -429,7 +459,7 @@ def test_stream_manager_on_events_stream_output_updates_servers() -> None:
     manager._events_servers[str(_AGENT_A)] = {}
 
     server_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
-    manager._on_events_stream_output(server_line, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(server_line, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
 
@@ -438,7 +468,7 @@ def test_stream_manager_on_events_stream_output_ignores_stderr() -> None:
     manager = _make_stream_manager()
     manager._events_servers[str(_AGENT_A)] = {}
 
-    manager._on_events_stream_output("stderr noise", is_stderr=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output("stderr noise", is_stdout=False, agent_id=_AGENT_A)
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
 
 
@@ -446,7 +476,7 @@ def test_stream_manager_on_events_stream_output_ignores_invalid_json() -> None:
     manager = _make_stream_manager()
     manager._events_servers[str(_AGENT_A)] = {}
 
-    manager._on_events_stream_output("not json", is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output("not json", is_stdout=True, agent_id=_AGENT_A)
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
 
 
@@ -458,8 +488,8 @@ def test_stream_manager_on_events_stream_output_accumulates_servers() -> None:
     web_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
     api_line = json.dumps({"server": "api", "url": "http://127.0.0.1:9200"})
 
-    manager._on_events_stream_output(web_line, is_stderr=False, agent_id=_AGENT_A)
-    manager._on_events_stream_output(api_line, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(web_line, is_stdout=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output(api_line, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_API) == "http://127.0.0.1:9200"
@@ -473,8 +503,8 @@ def test_stream_manager_on_events_stream_output_later_entry_overrides_earlier() 
     line1 = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
     line2 = json.dumps({"server": "web", "url": "http://127.0.0.1:9200"})
 
-    manager._on_events_stream_output(line1, is_stderr=False, agent_id=_AGENT_A)
-    manager._on_events_stream_output(line2, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(line1, is_stdout=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output(line2, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9200"
 
@@ -488,42 +518,46 @@ def _make_discovery_full_line(
     agents: list of (agent_id, host_id) tuples.
     hosts: list of host_id strings.
     """
-    return json.dumps({
-        "type": "DISCOVERY_FULL",
-        "timestamp": "2026-01-01T00:00:00Z",
-        "event_id": "evt-test-full-001",
-        "source": "mng/discovery",
-        "agents": [
-            {
-                "host_id": host_id,
-                "agent_id": agent_id,
-                "agent_name": f"agent-{agent_id[-4:]}",
-                "provider_name": "modal",
-                "certified_data": {},
-            }
-            for agent_id, host_id in agents
-        ],
-        "hosts": [
-            {
-                "host_id": host_id,
-                "host_name": f"host-{host_id[-4:]}",
-                "provider_name": "modal",
-            }
-            for host_id in hosts
-        ],
-    })
+    return json.dumps(
+        {
+            "type": "DISCOVERY_FULL",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "event_id": "evt-test-full-001",
+            "source": "mng/discovery",
+            "agents": [
+                {
+                    "host_id": host_id,
+                    "agent_id": agent_id,
+                    "agent_name": f"agent-{agent_id[-4:]}",
+                    "provider_name": "modal",
+                    "certified_data": {},
+                }
+                for agent_id, host_id in agents
+            ],
+            "hosts": [
+                {
+                    "host_id": host_id,
+                    "host_name": f"host-{host_id[-4:]}",
+                    "provider_name": "modal",
+                }
+                for host_id in hosts
+            ],
+        }
+    )
 
 
 def _make_host_ssh_info_line(host_id: str, ssh_data: dict[str, object]) -> str:
     """Build a HOST_SSH_INFO event JSON line."""
-    return json.dumps({
-        "type": "HOST_SSH_INFO",
-        "timestamp": "2026-01-01T00:00:01Z",
-        "event_id": "evt-test-ssh-001",
-        "source": "mng/discovery",
-        "host_id": host_id,
-        "ssh": ssh_data,
-    })
+    return json.dumps(
+        {
+            "type": "HOST_SSH_INFO",
+            "timestamp": "2026-01-01T00:00:01Z",
+            "event_id": "evt-test-ssh-001",
+            "source": "mng/discovery",
+            "host_id": host_id,
+            "ssh": ssh_data,
+        }
+    )
 
 
 def test_stream_manager_full_snapshot_updates_agent_ids() -> None:

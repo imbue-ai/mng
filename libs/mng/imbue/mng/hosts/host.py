@@ -1558,6 +1558,7 @@ class Host(BaseHost, OnlineHostInterface):
         env_vars["MNG_AGENT_NAME"] = str(agent.name)
         env_vars["MNG_AGENT_STATE_DIR"] = str(agent_state_dir)
         env_vars["MNG_AGENT_WORK_DIR"] = str(agent.work_dir)
+        env_vars["LLM_USER_PATH"] = str(agent_state_dir / "llm_data")
 
         # 2. Add programmatic defaults
         env_vars["GIT_BASE_BRANCH"] = (options.git.base_branch if options.git else None) or ""

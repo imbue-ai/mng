@@ -22,13 +22,17 @@ from imbue.mng.api.discovery_events import HostSSHInfoEvent
 from imbue.mng.api.discovery_events import parse_discovery_event_line
 from imbue.mng.primitives import AgentId
 
-SERVERS_LOG_FILENAME: Final[str] = "servers.jsonl"
+SERVERS_LOG_FILENAME: Final[str] = "servers/events.jsonl"
+
+
+class ServerLogParseError(ValueError):
+    """Raised when a server log record cannot be parsed."""
 
 
 class ServerLogRecord(FrozenModel):
-    """A record of a server started by an agent, as written to servers.jsonl.
+    """A record of a server started by an agent, as written to servers/events.jsonl.
 
-    Each line of servers.jsonl is a JSON object with these fields.
+    Each line of servers/events.jsonl is a JSON object with these fields.
     Agents write these records on startup so the forwarding server can discover them.
     """
 
@@ -157,18 +161,34 @@ def parse_agent_ids_from_json(json_output: str | None) -> tuple[AgentId, ...]:
     return parse_agents_from_json(json_output).agent_ids
 
 
+def parse_server_log_record(raw: dict[str, object]) -> ServerLogRecord:
+    """Parse a single JSON dict into a ServerLogRecord.
+
+    Extracts only the 'server' and 'url' fields, ignoring any extra
+    envelope fields (timestamp, event_id, source, type) that may be present.
+    Raises ValueError if required fields are missing.
+    """
+    server = raw.get("server")
+    url = raw.get("url")
+    if not server or not url:
+        raise ServerLogParseError(f"Server log record missing required fields (server={server!r}, url={url!r})")
+    return ServerLogRecord(server=ServerName(str(server)), url=str(url))
+
+
 def parse_server_log_records(text: str) -> list[ServerLogRecord]:
-    """Parse JSONL text into server log records, skipping invalid lines."""
+    """Parse JSONL text into server log records.
+
+    Extracts only the 'server' and 'url' fields, ignoring any extra
+    envelope fields (timestamp, event_id, source, type) that may be present.
+    Raises on malformed lines rather than silently skipping them.
+    """
     records: list[ServerLogRecord] = []
     for line in text.strip().splitlines():
         line = line.strip()
         if not line:
             continue
-        try:
-            raw = json.loads(line)
-            records.append(ServerLogRecord.model_validate(raw))
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning("Skipping invalid server log record: {}", e)
+        raw = json.loads(line)
+        records.append(parse_server_log_record(raw))
     return records
 
 
@@ -229,7 +249,7 @@ class MngStreamManager(MutableModel):
     1. `mng list --stream --quiet` to discover agents and hosts.
        Parses DISCOVERY_FULL events for the agent list and agent-to-host mapping,
        and HOST_SSH_INFO events for SSH connection details per host.
-    2. `mng events <agent-id> servers.jsonl --follow --quiet` (one per agent)
+    2. `mng events <agent-id> servers/events.jsonl --follow --quiet` (one per agent)
        to discover each agent's servers.
     """
 
@@ -256,9 +276,9 @@ class MngStreamManager(MutableModel):
         """Stop all streaming subprocesses."""
         self._cg.__exit__(None, None, None)
 
-    def _on_list_stream_output(self, line: str, is_stderr: bool) -> None:
+    def _on_list_stream_output(self, line: str, is_stdout: bool) -> None:
         """Handle a line of output from mng list --stream."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -274,14 +294,20 @@ class MngStreamManager(MutableModel):
 
         Both event types trigger a resolver update with the current SSH mappings.
         """
-        event = parse_discovery_event_line(line)
+        try:
+            event = parse_discovery_event_line(line)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error("Failed to parse discovery event line: {} (line: {})", e, line[:200])
+            return
 
         if isinstance(event, FullDiscoverySnapshotEvent):
             self._handle_full_snapshot(event)
         elif isinstance(event, HostSSHInfoEvent):
             self._handle_host_ssh_info(event)
+        elif event is None:
+            logger.warning("Unrecognized discovery event line: {}", line[:200])
         else:
-            return
+            logger.trace("Ignoring non-snapshot discovery event: {}", type(event).__name__)
 
     def _handle_full_snapshot(self, event: FullDiscoverySnapshotEvent) -> None:
         """Update agent list and agent-to-host mapping from a full snapshot."""
@@ -346,9 +372,9 @@ class MngStreamManager(MutableModel):
             for aid_str in new_agent_ids - previously_known:
                 self._start_events_stream(AgentId(aid_str))
 
-    def _on_events_stream_output(self, line: str, is_stderr: bool, agent_id: AgentId) -> None:
+    def _on_events_stream_output(self, line: str, is_stdout: bool, agent_id: AgentId) -> None:
         """Handle a line of output from mng events --follow for a specific agent."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -356,22 +382,22 @@ class MngStreamManager(MutableModel):
         aid_str = str(agent_id)
         try:
             raw = json.loads(stripped)
-            record = ServerLogRecord.model_validate(raw)
+            record = parse_server_log_record(raw)
             servers = self._events_servers.get(aid_str)
             if servers is None:
                 return
             servers[str(record.server)] = record.url
             self.resolver.update_servers(agent_id, dict(servers))
         except (json.JSONDecodeError, ValueError) as e:
-            logger.debug("Skipping invalid server log line for {}: {}", agent_id, e)
+            logger.error("Failed to parse server log line for {}: {} (line: {})", agent_id, e, stripped[:200])
 
     def _start_events_stream(self, agent_id: AgentId) -> None:
-        """Start mng events <agent-id> servers.jsonl --follow for a single agent."""
+        """Start mng events <agent-id> servers/events.jsonl --follow for a single agent."""
         aid_str = str(agent_id)
         self._events_servers[aid_str] = {}
 
         process = self._cg.run_process_in_background(
             command=[self.mng_binary, "events", aid_str, SERVERS_LOG_FILENAME, "--follow", "--quiet"],
-            on_output=lambda line, is_stderr: self._on_events_stream_output(line, is_stderr, agent_id),
+            on_output=lambda line, is_stdout: self._on_events_stream_output(line, is_stdout, agent_id),
         )
         self._events_processes[aid_str] = process
