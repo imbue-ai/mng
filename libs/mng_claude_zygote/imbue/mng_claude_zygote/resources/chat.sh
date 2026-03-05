@@ -82,18 +82,25 @@ generate_cid() {
 
 # Append a conversation_created event to events/conversations/events.jsonl
 # Uses the standard envelope: timestamp, type, event_id, source + conversation fields
+# Optional 4th argument is a JSON object of tags (e.g. '{"daily":"2026-03-04"}')
 append_conversation_event() {
     local cid="$1"
     local model="$2"
     local event_type="${3:-conversation_created}"
+    local tags="${4:-}"
     local timestamp
     timestamp=$(iso_timestamp_ns)
     local event_id
     event_id=$(generate_event_id)
     mkdir -p "$(dirname "$CONVERSATIONS_EVENTS")"
-    printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s"}\n' \
-        "$timestamp" "$event_type" "$event_id" "$cid" "$model" >> "$CONVERSATIONS_EVENTS"
-    log "Appended event: type=$event_type cid=$cid model=$model event_id=$event_id"
+    if [ -n "$tags" ]; then
+        printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s","tags":%s}\n' \
+            "$timestamp" "$event_type" "$event_id" "$cid" "$model" "$tags" >> "$CONVERSATIONS_EVENTS"
+    else
+        printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s"}\n' \
+            "$timestamp" "$event_type" "$event_id" "$cid" "$model" >> "$CONVERSATIONS_EVENTS"
+    fi
+    log "Appended event: type=$event_type cid=$cid model=$model event_id=$event_id tags=$tags"
 }
 
 build_tool_args() {
@@ -292,7 +299,9 @@ for cid, event in convs.items():
 sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
 
 for event in sorted_convs:
-    print(f\"  {event.get('conversation_id','?')}  model={event.get('model', '?')}  created_at={event.get('timestamp', '?')}  updated_at={event.get('updated_at', '?')}\")
+    tags = event.get('tags', {})
+    tags_str = '  tags=' + json.dumps(tags) if tags else ''
+    print(f\"  {event.get('conversation_id','?')}  model={event.get('model', '?')}  created_at={event.get('timestamp', '?')}  updated_at={event.get('updated_at', '?')}{tags_str}\")
 "
 
     log "Listed conversations"

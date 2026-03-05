@@ -570,6 +570,74 @@ def configure_llm_user_path(
     logger.info("Set LLM_USER_PATH={}", llm_data_dir)
 
 
+def _record_conversation_event(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+    *,
+    cid: str,
+    model: str,
+    tags: dict[str, str] | None = None,
+) -> None:
+    """Append a conversation_created event to events/conversations/events.jsonl."""
+    now = datetime.now(timezone.utc)
+    event: dict[str, object] = {
+        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z",
+        "type": "conversation_created",
+        "event_id": f"evt-{uuid4().hex}",
+        "source": "conversations",
+        "conversation_id": cid,
+        "model": model,
+    }
+    if tags:
+        event["tags"] = tags
+
+    conversations_dir = agent_state_dir / "events" / "conversations"
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(conversations_dir))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="mkdir conversations",
+    )
+    events_file = conversations_dir / "events.jsonl"
+    event_line = json.dumps(event, separators=(",", ":"))
+    with log_span("Recording conversation event for {}", cid):
+        host.execute_command(
+            f"echo {shlex.quote(event_line)} >> {shlex.quote(str(events_file))}",
+            timeout_seconds=settings.fs_hard_timeout_seconds,
+        )
+
+
+def _inject_conversation(
+    host: OnlineHostInterface,
+    settings: ProvisioningSettings,
+    *,
+    cid: str,
+    model: str,
+    prompt: str,
+    response: str,
+    label: str,
+) -> bool:
+    """Run ``llm inject`` to seed a conversation. Returns True on success."""
+    inject_cmd = (
+        f"llm inject --cid {shlex.quote(cid)} -m {shlex.quote(model)} "
+        f"--prompt {shlex.quote(prompt)} "
+        f"{shlex.quote(response)}"
+    )
+    result = _execute_with_timing(
+        host,
+        inject_cmd,
+        hard_timeout=settings.install_hard_timeout_seconds,
+        warn_threshold=settings.install_warn_threshold_seconds,
+        label=label,
+    )
+    if not result.success:
+        logger.warning("Failed to create {} conversation via llm inject: {}", label, result.stderr)
+        return False
+    return True
+
+
 def create_system_notifications_conversation(
     host: OnlineHostInterface,
     agent_state_dir: Path,
@@ -586,53 +654,56 @@ def create_system_notifications_conversation(
     cid = f"system-notifications-{uuid4().hex}"
     model = "echo"
 
-    # Use llm inject to seed the conversation
-    inject_cmd = (
-        f"llm inject --cid {shlex.quote(cid)} -m {shlex.quote(model)} "
-        f"--prompt {shlex.quote('This channel is for system notifications, warnings, and errors.')} "
-        f"{shlex.quote('Confirmed.')}"
-    )
-    result = _execute_with_timing(
+    if not _inject_conversation(
         host,
-        inject_cmd,
-        hard_timeout=settings.install_hard_timeout_seconds,
-        warn_threshold=settings.install_warn_threshold_seconds,
-        label="create system_notifications conversation",
-    )
-    if not result.success:
-        logger.warning(
-            "Failed to create system_notifications conversation via llm inject: {}",
-            result.stderr,
-        )
+        settings,
+        cid=cid,
+        model=model,
+        prompt="This channel is for system notifications, warnings, and errors.",
+        response="Confirmed.",
+        label="system_notifications",
+    ):
         return
 
-    # Record the conversation in events/conversations/events.jsonl
-    now = datetime.now(timezone.utc)
-    event = {
-        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z",
-        "type": "conversation_created",
-        "event_id": f"evt-{uuid4().hex}",
-        "source": "conversations",
-        "conversation_id": cid,
-        "model": model,
-    }
-    conversations_dir = agent_state_dir / "events" / "conversations"
-    _execute_with_timing(
-        host,
-        f"mkdir -p {shlex.quote(str(conversations_dir))}",
-        hard_timeout=settings.fs_hard_timeout_seconds,
-        warn_threshold=settings.fs_warn_threshold_seconds,
-        label="mkdir conversations",
-    )
-    events_file = conversations_dir / "events.jsonl"
-    event_line = json.dumps(event, separators=(",", ":")) + "\n"
-    with log_span("Recording system_notifications conversation event"):
-        host.execute_command(
-            f"echo {shlex.quote(event_line.rstrip())} >> {shlex.quote(str(events_file))}",
-            timeout_seconds=settings.fs_hard_timeout_seconds,
-        )
-
+    _record_conversation_event(host, agent_state_dir, settings, cid=cid, model=model)
     logger.info("Created system_notifications conversation: cid={}", cid)
+
+
+def create_daily_conversation(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+    chat_model: str,
+) -> None:
+    """Create a daily conversation tagged with today's date.
+
+    Uses ``llm inject`` to seed the conversation with an empty user prompt
+    and a greeting from the assistant, then records a ``conversation_created``
+    event with ``tags={"daily": "<today>"}`` in the conversations event log.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cid = f"daily-{today}-{uuid4().hex}"
+
+    if not _inject_conversation(
+        host,
+        settings,
+        cid=cid,
+        model=chat_model,
+        prompt="",
+        response="Hi, I'm Elena! How can I help?",
+        label="daily",
+    ):
+        return
+
+    _record_conversation_event(
+        host,
+        agent_state_dir,
+        settings,
+        cid=cid,
+        model=chat_model,
+        tags={"daily": today},
+    )
+    logger.info("Created daily conversation: cid={} date={}", cid, today)
 
 
 def compute_claude_project_dir_name(work_dir_abs: str) -> str:

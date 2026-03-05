@@ -45,10 +45,15 @@ class ConversationEvent(EventEnvelope):
     """An event in events/conversations/events.jsonl tracking conversation lifecycle.
 
     Emitted when a conversation is created or its model is changed.
+    Tags are optional key/value metadata (e.g. ``{"daily": "2026-03-04"}``).
     """
 
     conversation_id: ConversationId
     model: ChatModel
+    tags: dict[str, str] = Field(
+        default_factory=dict,
+        description="Optional key/value tags for categorizing conversations.",
+    )
 
 
 class MessageEvent(EventEnvelope):

@@ -24,6 +24,7 @@ from imbue.mng_claude_zygote.provisioning import _is_recursive_plugin_registered
 from imbue.mng_claude_zygote.provisioning import compute_claude_project_dir_name
 from imbue.mng_claude_zygote.provisioning import configure_llm_user_path
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
+from imbue.mng_claude_zygote.provisioning import create_daily_conversation
 from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import create_system_notifications_conversation
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
@@ -631,6 +632,40 @@ def test_create_system_notifications_conversation_skips_event_on_inject_failure(
     assert len(inject_commands) == 1
 
     # Should NOT have written a conversation event (early return on failure)
+    event_commands = [c for c in host.executed_commands if "events.jsonl" in c and "echo" in c]
+    assert len(event_commands) == 0
+
+
+# -- create_daily_conversation tests --
+
+
+def test_create_daily_conversation_runs_inject_and_records_tagged_event() -> None:
+    host = StubHost()
+    agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
+    create_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4-6")
+
+    # Should run llm inject with the greeting
+    inject_commands = [c for c in host.executed_commands if "llm inject" in c]
+    assert len(inject_commands) == 1
+    assert "Elena" in inject_commands[0]
+    assert "claude-opus-4-6" in inject_commands[0]
+
+    # Should append a conversation_created event with daily tag
+    event_commands = [
+        c for c in host.executed_commands if "conversations" in c and "events.jsonl" in c and "echo" in c
+    ]
+    assert len(event_commands) == 1
+    assert '"daily"' in event_commands[0]
+
+
+def test_create_daily_conversation_skips_event_on_inject_failure() -> None:
+    host = StubHost(
+        command_results={"llm inject": StubCommandResult(success=False, stderr="llm not found")},
+    )
+    agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
+    create_daily_conversation(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING, "claude-opus-4-6")
+
+    # Should NOT have written a conversation event
     event_commands = [c for c in host.executed_commands if "events.jsonl" in c and "echo" in c]
     assert len(event_commands) == 0
 
