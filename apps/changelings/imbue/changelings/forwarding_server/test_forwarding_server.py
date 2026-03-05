@@ -228,6 +228,43 @@ def test_landing_page_shows_agent_after_authentication(tmp_path: Path) -> None:
     assert str(agent_id) in response.text
 
 
+# -- Agent default redirect tests --
+
+
+def test_agent_default_page_redirects_to_web_server(tmp_path: Path) -> None:
+    agent_id = AgentId()
+    backend_resolver = StaticBackendResolver(
+        url_by_agent_and_server={
+            str(agent_id): {"web": "http://test-backend:9100"},
+        },
+    )
+    client, auth_store = _create_test_forwarding_server(
+        tmp_path=tmp_path,
+        backend_resolver=backend_resolver,
+        http_client=None,
+    )
+    _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
+
+    response = client.get(f"/agents/{agent_id}/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == f"/agents/{agent_id}/web/"
+
+
+def test_agent_default_page_rejects_unauthenticated_requests(tmp_path: Path) -> None:
+    agent_id = AgentId()
+    backend_resolver = StaticBackendResolver(
+        url_by_agent_and_server={str(agent_id): {"web": "http://test-backend"}},
+    )
+    client, _ = _create_test_forwarding_server(
+        tmp_path=tmp_path,
+        backend_resolver=backend_resolver,
+        http_client=None,
+    )
+
+    response = client.get(f"/agents/{agent_id}/", follow_redirects=False)
+    assert response.status_code == 403
+
+
 # -- Agent servers page tests --
 
 
@@ -245,7 +282,7 @@ def test_agent_servers_page_lists_available_servers(tmp_path: Path) -> None:
     )
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
-    response = client.get(f"/agents/{agent_id}/")
+    response = client.get(f"/agents/{agent_id}/servers/")
     assert response.status_code == 200
     assert "web" in response.text
     assert "api" in response.text
@@ -263,7 +300,7 @@ def test_agent_servers_page_shows_empty_state_when_no_servers(tmp_path: Path) ->
     )
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
-    response = client.get(f"/agents/{agent_id}/")
+    response = client.get(f"/agents/{agent_id}/servers/")
     assert response.status_code == 200
     assert "No servers are currently running" in response.text
 
@@ -279,7 +316,7 @@ def test_agent_servers_page_rejects_unauthenticated_requests(tmp_path: Path) -> 
         http_client=None,
     )
 
-    response = client.get(f"/agents/{agent_id}/")
+    response = client.get(f"/agents/{agent_id}/servers/")
     assert response.status_code == 403
 
 
@@ -663,7 +700,7 @@ def test_mng_cli_resolver_agent_servers_page_via_mng_cli(tmp_path: Path) -> None
 
     _authenticate_client(client=client, auth_store=auth_store, agent_id=agent_id)
 
-    response = client.get(f"/agents/{agent_id}/")
+    response = client.get(f"/agents/{agent_id}/servers/")
     assert response.status_code == 200
     assert "web" in response.text
     assert "api" in response.text

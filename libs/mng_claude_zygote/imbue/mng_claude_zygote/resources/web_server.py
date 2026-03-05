@@ -2,13 +2,13 @@
 """Web server for the ClaudeZygoteAgent web interface.
 
 Serves a simple link-based web interface with:
-- Main page: links to existing conversations + link to start a new one
-- All Agents page: links to agents on this host
+- Main page: redirects to the most recent conversation (or shows conversation list if none)
+- Conversations page: links to existing conversations + link to start a new one
+- All Agents page: lists agents on this host with their states
 
 The actual terminal sessions are handled by companion ttyd processes
 (started as separate tmux windows with --url-arg):
 - Chat ttyd: ?arg=<conversation_id> to resume, ?arg=NEW to create
-- Agent-tmux ttyd: ?arg=<agent_name> to attach to an agent's tmux
 
 Environment:
     MNG_AGENT_STATE_DIR  - Agent state directory (contains events/)
@@ -225,8 +225,21 @@ _CSS: Final[str] = """
 """
 
 
-def _render_main_page() -> str:
-    """Render the main page with conversation links (server-side)."""
+def _render_header(agent_name: str) -> str:
+    """Render the common header bar with navigation links."""
+    return (
+        '<div class="header">'
+        f"<h1>{agent_name}</h1>"
+        '<div class="header-spacer"></div>'
+        '<a href="conversations">Conversations</a>'
+        '<a href="../agent/">Terminal</a>'
+        '<a href="agents-page">Agents</a>'
+        "</div>"
+    )
+
+
+def _render_conversations_page() -> str:
+    """Render the conversations page with conversation links (server-side)."""
     agent_name = _html_escape(AGENT_NAME or "Agent")
     conversations = _read_conversations()
 
@@ -256,11 +269,7 @@ def _render_main_page() -> str:
 <html>
 <head><title>{agent_name}</title><style>{_CSS}</style></head>
 <body>
-  <div class="header">
-    <h1>{agent_name}</h1>
-    <div class="header-spacer"></div>
-    <a href="agents-page">All Agents</a>
-  </div>
+  {_render_header(agent_name)}
   <div class="content">
     <a class="link-btn new" href="../chat/?arg=NEW">+ New Conversation</a>
     {empty_section}
@@ -271,7 +280,7 @@ def _render_main_page() -> str:
 
 
 def _render_agents_page() -> str:
-    """Render the agents page with agent links (server-side)."""
+    """Render the agents page listing agents on this host (server-side)."""
     agent_name = _html_escape(AGENT_NAME or "Agent")
 
     with _agent_list_lock:
@@ -282,11 +291,6 @@ def _render_agents_page() -> str:
         name = _html_escape(str(agent.get("name", "unnamed")))
         state = str(agent.get("state", "unknown")).lower()
         state_escaped = _html_escape(state.upper())
-        is_connectable = state in ("running", "waiting")
-
-        link_class = "link-btn" if is_connectable else "link-btn disabled"
-        link_href = f"../agent-tmux/?arg={_html_escape(str(agent.get('name', '')))}"
-        link_title = "" if is_connectable else ' title="Agent is not running"'
 
         agent_items += (
             f'<li class="item">'
@@ -294,7 +298,6 @@ def _render_agents_page() -> str:
             f'<span class="item-name">{name}</span>'
             f'<span class="badge {_html_escape(state)}">{state_escaped}</span>'
             f"</div>"
-            f'<a class="{link_class}" href="{link_href}"{link_title}>Connect</a>'
             f"</li>\n"
         )
 
@@ -306,17 +309,21 @@ def _render_agents_page() -> str:
 <html>
 <head><title>All Agents - {agent_name}</title><style>{_CSS}</style></head>
 <body>
-  <div class="header">
-    <h1>All Agents</h1>
-    <div class="header-spacer"></div>
-    <a href="./">Back to Conversations</a>
-  </div>
+  {_render_header(agent_name)}
   <div class="content">
     {empty_section}
     <ul class="item-list">{agent_items}</ul>
   </div>
 </body>
 </html>"""
+
+
+def _get_most_recent_conversation_redirect() -> str | None:
+    """Return the redirect URL for the most recent conversation, or None if no conversations exist."""
+    conversations = _read_conversations()
+    if not conversations:
+        return None
+    return f"../chat/?arg={conversations[0]['conversation_id']}"
 
 
 # -- HTTP Handler --
@@ -333,7 +340,13 @@ class _WebServerHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
 
         if path == "/" or path == "/index.html":
-            self._send_html(_render_main_page())
+            redirect_url = _get_most_recent_conversation_redirect()
+            if redirect_url is not None:
+                self._send_redirect(redirect_url)
+            else:
+                self._send_html(_render_conversations_page())
+        elif path == "/conversations":
+            self._send_html(_render_conversations_page())
         elif path == "/agents-page":
             self._send_html(_render_agents_page())
         else:
@@ -346,6 +359,11 @@ class _WebServerHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
+
+    def _send_redirect(self, location: str) -> None:
+        self.send_response(302)
+        self.send_header("Location", location)
+        self.end_headers()
 
 
 # -- Main --

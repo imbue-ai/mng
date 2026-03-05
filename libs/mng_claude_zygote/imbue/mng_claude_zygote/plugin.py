@@ -72,17 +72,6 @@ _CHAT_TTYD_INVOCATION: Final[str] = (
 )
 CHAT_TTYD_COMMAND: Final[str] = build_ttyd_server_command(_CHAT_TTYD_INVOCATION, CHAT_TTYD_SERVER_NAME)
 
-# Agent-tmux ttyd: a ttyd with --url-arg that attaches to any agent's tmux session.
-# Accessed with ?arg=<agent_name> to connect to that agent.
-AGENT_TMUX_TTYD_WINDOW_NAME: Final[str] = "agent_tmux"
-AGENT_TMUX_TTYD_SERVER_NAME: Final[str] = "agent-tmux"
-_AGENT_TMUX_TTYD_INVOCATION: Final[str] = (
-    'ttyd -p 0 -a -t disableLeaveAlert=true -W bash "$MNG_HOST_DIR/commands/agent_tmux_handler.sh"'
-)
-AGENT_TMUX_TTYD_COMMAND: Final[str] = build_ttyd_server_command(
-    _AGENT_TMUX_TTYD_INVOCATION, AGENT_TMUX_TTYD_SERVER_NAME
-)
-
 
 class ClaudeZygoteConfig(ClaudeAgentConfig):
     """Config for the claude-zygote agent type.
@@ -125,7 +114,6 @@ class ClaudeZygoteAgent(ClaudeAgent):
     - Event watcher (sends new events to primary agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
     - Chat ttyd (--url-arg ttyd for conversation terminal access)
-    - Agent-tmux ttyd (--url-arg ttyd for connecting to other agents)
     """
 
     def _get_zygote_config(self) -> ClaudeZygoteConfig:
@@ -204,7 +192,6 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
     - Event watcher (sends new events to primary agent via mng message)
     - Web server (main web interface with conversation selector and agent list)
     - Chat ttyd (--url-arg ttyd for conversation access)
-    - Agent-tmux ttyd (--url-arg ttyd for connecting to other agents' tmux sessions)
     - Transcript watcher (converts claude_transcript to common_transcript)
     """
     existing = params.get("add_command", ())
@@ -216,7 +203,6 @@ def inject_changeling_windows(params: dict[str, Any]) -> None:
         f'{WEB_SERVER_WINDOW_NAME}="{WEB_SERVER_COMMAND}"',
         f'{TRANSCRIPT_WATCHER_WINDOW_NAME}="{TRANSCRIPT_WATCHER_COMMAND}"',
         f'{CHAT_TTYD_WINDOW_NAME}="{CHAT_TTYD_COMMAND}"',
-        f'{AGENT_TMUX_TTYD_WINDOW_NAME}="{AGENT_TMUX_TTYD_COMMAND}"',
     )
 
 
@@ -250,7 +236,7 @@ def override_command_options(
     """Add changeling tmux windows when creating claude-zygote agents (or subtypes).
 
     Injects: agent ttyd, conversation watcher, event watcher, web server,
-    chat ttyd, and agent-tmux ttyd.
+    and chat ttyd.
 
     Matches any agent type whose registered class is ClaudeZygoteAgent or
     a subclass of it (e.g. elena-code, custom changeling types).
