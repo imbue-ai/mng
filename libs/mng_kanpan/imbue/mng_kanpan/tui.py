@@ -726,24 +726,25 @@ def _get_link_cell_text(entry: AgentBoardEntry) -> str:
     return ""
 
 
+_BOARD_CELL_TEXT_FNS: dict[str, Callable[[AgentBoardEntry], str]] = {
+    "name": _get_name_cell_text,
+    "state": _get_state_cell_text,
+    "git": _get_push_cell_text,
+    "pr": _get_pr_cell_text,
+    "ci": _get_check_cell_text,
+}
+
+
 def _compute_board_column_widths(entries: tuple[AgentBoardEntry, ...]) -> dict[str, int]:
     """Compute column widths based on content, like tabulate auto-sizing.
 
     Each column is sized to fit the widest value (or header), with the
     last column (link) left flexible to fill remaining terminal space.
     """
-    cell_text_fns: dict[str, Callable[[AgentBoardEntry], str]] = {
-        "name": _get_name_cell_text,
-        "state": _get_state_cell_text,
-        "git": _get_push_cell_text,
-        "pr": _get_pr_cell_text,
-        "ci": _get_check_cell_text,
-    }
+    # For each fixed-width column, take the wider of the header and the widest cell value
     return {
         col: max(len(_BOARD_HEADER_LABELS[col]), *(len(fn(e)) for e in entries))
-        if entries
-        else len(_BOARD_HEADER_LABELS[col])
-        for col, fn in cell_text_fns.items()
+        for col, fn in _BOARD_CELL_TEXT_FNS.items()
     }
 
 
