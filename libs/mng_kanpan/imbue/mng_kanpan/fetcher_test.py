@@ -207,6 +207,7 @@ def test_fetch_board_snapshot_integrates_agents_and_prs() -> None:
     assert snapshot.entries[1].name == AgentName("agent-2")
     assert snapshot.entries[1].pr is None
     assert snapshot.errors == ()
+    assert snapshot.prs_loaded is True
     assert snapshot.fetch_time_seconds > 0
 
 
@@ -253,3 +254,27 @@ def test_fetch_board_snapshot_surfaces_gh_errors() -> None:
 
     assert len(snapshot.errors) == 1
     assert "gh pr list failed" in snapshot.errors[0]
+    assert snapshot.prs_loaded is False
+
+
+def test_fetch_board_snapshot_suppresses_create_pr_url_when_prs_not_loaded() -> None:
+    agent = _make_agent_details(name="agent-1", state=AgentLifecycleState.RUNNING, provider_name="modal")
+
+    pr_result = FetchPrsResult(prs=(), error="gh auth failed")
+
+    mock_list_result = MagicMock()
+    mock_list_result.agents = [agent]
+    mock_list_result.errors = []
+
+    mng_ctx = MagicMock()
+    mng_ctx.concurrency_group = MagicMock()
+
+    with (
+        patch("imbue.mng_kanpan.fetcher.list_agents", return_value=mock_list_result),
+        patch("imbue.mng_kanpan.fetcher.fetch_all_prs", return_value=pr_result),
+        patch("imbue.mng_kanpan.fetcher._get_github_repo_path", return_value="org/repo"),
+    ):
+        snapshot = fetch_board_snapshot(mng_ctx)
+
+    assert snapshot.prs_loaded is False
+    assert snapshot.entries[0].create_pr_url is None

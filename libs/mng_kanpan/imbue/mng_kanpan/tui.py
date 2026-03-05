@@ -421,6 +421,7 @@ def _update_snapshot_mute(state: _KanpanState, agent_name: AgentName, is_muted: 
     state.snapshot = BoardSnapshot(
         entries=new_entries,
         errors=state.snapshot.errors,
+        prs_loaded=state.snapshot.prs_loaded,
         fetch_time_seconds=state.snapshot.fetch_time_seconds,
     )
 
@@ -606,6 +607,7 @@ def _finish_refresh(loop: MainLoop, state: _KanpanState) -> None:
             state.snapshot = BoardSnapshot(
                 entries=state.snapshot.entries,
                 errors=(*state.snapshot.errors, f"Refresh failed: {e}"),
+                prs_loaded=state.snapshot.prs_loaded,
                 fetch_time_seconds=state.snapshot.fetch_time_seconds,
             )
     finally:
@@ -757,7 +759,15 @@ def _build_board_widgets(state: _KanpanState) -> SimpleFocusListWalker[AttrMap |
         if has_content:
             walker.append(Divider())
 
-        walker.append(Text(_format_section_heading(section, len(entries))))
+        if section == BoardSection.STILL_COOKING and not snapshot.prs_loaded:
+            attr = _SECTION_ATTR[section]
+            heading: list[str | tuple[Hashable, str]] = [
+                (attr, "In progress"),
+                f" - PRs not loaded ({len(entries)})",
+            ]
+        else:
+            heading = _format_section_heading(section, len(entries))
+        walker.append(Text(heading))
         has_content = True
 
         for entry in entries:
