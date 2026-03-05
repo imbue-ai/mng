@@ -336,7 +336,7 @@ def _write_notification_event(events_dir: Path, message: str, level: str = "WARN
 _CHAT_NOTIFICATION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 
-def _get_system_notifications_cid(events_dir: Path) -> str | None:
+def _get_system_notifications_conversation_id(events_dir: Path) -> str | None:
     """Read the first conversation_id from events/conversations/events.jsonl.
 
     The system_notifications conversation is always created first during
@@ -376,7 +376,7 @@ def _send_chat_notification(events_dir: Path, message: str) -> bool:
     Returns True on success, False if ``llm`` is not available or fails.
     This is best-effort: the caller should not depend on success.
     """
-    conversation_id = _get_system_notifications_cid(events_dir)
+    conversation_id = _get_system_notifications_conversation_id(events_dir)
     if conversation_id is None:
         logger.warning("No system_notifications conversation found, skipping chat notification")
         return False

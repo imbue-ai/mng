@@ -30,7 +30,7 @@ from imbue.mng_claude_zygote.resources.event_watcher import _deliver_batch
 from imbue.mng_claude_zygote.resources.event_watcher import _filter_catchup_events
 from imbue.mng_claude_zygote.resources.event_watcher import _format_delivery_message
 from imbue.mng_claude_zygote.resources.event_watcher import _format_time_since_last
-from imbue.mng_claude_zygote.resources.event_watcher import _get_system_notifications_cid
+from imbue.mng_claude_zygote.resources.event_watcher import _get_system_notifications_conversation_id
 from imbue.mng_claude_zygote.resources.event_watcher import _load_delivery_state
 from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
 from imbue.mng_claude_zygote.resources.event_watcher import _save_delivery_state
@@ -515,10 +515,10 @@ def test_write_notification_event_creates_file(tmp_path: Path) -> None:
     assert "timestamp" in event
 
 
-# -- _get_system_notifications_cid tests --
+# -- _get_system_notifications_conversation_id tests --
 
 
-def test_get_system_notifications_cid_returns_first_cid(tmp_path: Path) -> None:
+def test_get_system_notifications_conversation_id_returns_first_cid(tmp_path: Path) -> None:
     events_dir = tmp_path / "events"
     conv_dir = events_dir / "conversations"
     conv_dir.mkdir(parents=True)
@@ -529,20 +529,20 @@ def test_get_system_notifications_cid_returns_first_cid(tmp_path: Path) -> None:
         + json.dumps({"conversation_id": "other-conv", "type": "conversation_created"})
         + "\n"
     )
-    assert _get_system_notifications_cid(events_dir) == "sys-notif-123"
+    assert _get_system_notifications_conversation_id(events_dir) == "sys-notif-123"
 
 
-def test_get_system_notifications_cid_returns_none_when_no_file(tmp_path: Path) -> None:
+def test_get_system_notifications_conversation_id_returns_none_when_no_file(tmp_path: Path) -> None:
     events_dir = tmp_path / "events"
-    assert _get_system_notifications_cid(events_dir) is None
+    assert _get_system_notifications_conversation_id(events_dir) is None
 
 
-def test_get_system_notifications_cid_returns_none_when_empty_file(tmp_path: Path) -> None:
+def test_get_system_notifications_conversation_id_returns_none_when_empty_file(tmp_path: Path) -> None:
     events_dir = tmp_path / "events"
     conv_dir = events_dir / "conversations"
     conv_dir.mkdir(parents=True)
     (conv_dir / "events.jsonl").write_text("\n")
-    assert _get_system_notifications_cid(events_dir) is None
+    assert _get_system_notifications_conversation_id(events_dir) is None
 
 
 # -- _send_chat_notification tests --
