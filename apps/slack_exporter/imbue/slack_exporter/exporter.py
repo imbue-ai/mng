@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from typing import TypeVar
 
 from imbue.imbue_common.event_envelope import EventSource
 from imbue.imbue_common.event_envelope import EventType
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 _MESSAGE_SOURCE = EventSource("messages")
 _REPLY_SOURCE = EventSource("replies")
 
-_T = Any
+_T = TypeVar("_T")
 
 
 def _diff_and_save(
