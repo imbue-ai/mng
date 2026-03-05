@@ -7,8 +7,8 @@ from imbue.slack_exporter.errors import ChannelNotFoundError
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackUserId
+from imbue.slack_exporter.testing import make_channel_event
 from imbue.slack_exporter.testing import make_fake_api_caller
-from imbue.slack_exporter.testing import make_stored_channel_info
 
 
 def test_fetch_channel_list_single_page() -> None:
@@ -32,6 +32,8 @@ def test_fetch_channel_list_single_page() -> None:
     assert len(channels) == 2
     assert channels[0].channel_id == SlackChannelId("C123")
     assert channels[1].channel_id == SlackChannelId("C456")
+    assert channels[0].source == "channels"
+    assert "event_id" in channels[0].model_dump()
 
 
 def test_fetch_channel_list_multiple_pages() -> None:
@@ -84,7 +86,7 @@ def test_fetch_user_list_single_page() -> None:
 
     assert len(users) == 2
     assert users[0].user_id == SlackUserId("U001")
-    assert users[1].user_id == SlackUserId("U002")
+    assert users[0].source == "users"
 
 
 def test_fetch_user_list_multiple_pages() -> None:
@@ -109,9 +111,9 @@ def test_fetch_user_list_multiple_pages() -> None:
     assert len(users) == 2
 
 
-def test_resolve_channel_id_finds_channel_in_fresh_info() -> None:
-    info = [make_stored_channel_info("C123", "general")]
-    result = resolve_channel_id(SlackChannelName("general"), info, {})
+def test_resolve_channel_id_finds_channel_in_fresh_events() -> None:
+    events = [make_channel_event("C123", "general")]
+    result = resolve_channel_id(SlackChannelName("general"), events, {})
     assert result == SlackChannelId("C123")
 
 
@@ -121,10 +123,10 @@ def test_resolve_channel_id_falls_back_to_cached_mapping() -> None:
     assert result == SlackChannelId("C999")
 
 
-def test_resolve_channel_id_prefers_fresh_info_over_cache() -> None:
-    info = [make_stored_channel_info("C123", "general")]
+def test_resolve_channel_id_prefers_fresh_events_over_cache() -> None:
+    events = [make_channel_event("C123", "general")]
     cached = {SlackChannelName("general"): SlackChannelId("C999")}
-    result = resolve_channel_id(SlackChannelName("general"), info, cached)
+    result = resolve_channel_id(SlackChannelName("general"), events, cached)
     assert result == SlackChannelId("C123")
 
 

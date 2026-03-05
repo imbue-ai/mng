@@ -1,52 +1,72 @@
-from datetime import datetime
-from datetime import timezone
 from typing import Any
 
+from imbue.imbue_common.event_envelope import EventId
+from imbue.imbue_common.event_envelope import EventSource
+from imbue.imbue_common.event_envelope import EventType
+from imbue.imbue_common.event_envelope import IsoTimestamp
+from imbue.slack_exporter.data_types import ChannelEvent
+from imbue.slack_exporter.data_types import MessageEvent
 from imbue.slack_exporter.data_types import SlackApiCaller
-from imbue.slack_exporter.data_types import StoredChannelInfo
-from imbue.slack_exporter.data_types import StoredMessage
-from imbue.slack_exporter.data_types import StoredUser
+from imbue.slack_exporter.data_types import UserEvent
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
 from imbue.slack_exporter.primitives import SlackUserId
 
-FIXED_FETCH_TIME = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+FIXED_TIMESTAMP = IsoTimestamp("2025-01-15T12:00:00.000000000Z")
+FIXED_EVENT_ID = EventId("evt-test00000000000000000000000000")
 
 
-def make_stored_message(
+def make_channel_event(
+    channel_id: str = "C123",
+    channel_name: str = "general",
+    raw: dict[str, Any] | None = None,
+) -> ChannelEvent:
+    return ChannelEvent(
+        timestamp=FIXED_TIMESTAMP,
+        type=EventType("channel_fetched"),
+        event_id=FIXED_EVENT_ID,
+        source=EventSource("channels"),
+        channel_id=SlackChannelId(channel_id),
+        channel_name=SlackChannelName(channel_name),
+        raw=raw if raw is not None else {"id": channel_id, "name": channel_name},
+    )
+
+
+def make_message_event(
     channel_id: str = "C123",
     channel_name: str = "general",
     ts: str = "1700000000.000001",
-) -> StoredMessage:
-    return StoredMessage(
+) -> MessageEvent:
+    return MessageEvent(
+        timestamp=FIXED_TIMESTAMP,
+        type=EventType("message_fetched"),
+        event_id=FIXED_EVENT_ID,
+        source=EventSource("messages"),
         channel_id=SlackChannelId(channel_id),
         channel_name=SlackChannelName(channel_name),
-        timestamp=SlackMessageTimestamp(ts),
-        fetched_at=FIXED_FETCH_TIME,
+        message_ts=SlackMessageTimestamp(ts),
         raw={"ts": ts, "text": "hello"},
     )
 
 
-def make_stored_channel_info(
-    channel_id: str = "C123",
-    channel_name: str = "general",
-) -> StoredChannelInfo:
-    return StoredChannelInfo(
-        channel_id=SlackChannelId(channel_id),
-        channel_name=SlackChannelName(channel_name),
-        fetched_at=FIXED_FETCH_TIME,
-        raw={"id": channel_id, "name": channel_name},
+def make_user_event(
+    user_id: str = "U123",
+) -> UserEvent:
+    return UserEvent(
+        timestamp=FIXED_TIMESTAMP,
+        type=EventType("user_fetched"),
+        event_id=FIXED_EVENT_ID,
+        source=EventSource("users"),
+        user_id=SlackUserId(user_id),
+        raw={"id": user_id, "name": "testuser"},
     )
 
 
 def make_fake_api_caller(
     response_by_method: dict[str, list[dict[str, Any]]],
 ) -> SlackApiCaller:
-    """Create a fake SlackApiCaller that returns pre-configured responses per method.
-
-    Each method maps to a list of responses returned in order (for pagination).
-    """
+    """Create a fake SlackApiCaller that returns pre-configured responses per method."""
     call_index_by_method: dict[str, int] = {}
 
     def fake_api_caller(method: str, query_params: dict[str, str] | None = None) -> dict[str, Any]:
@@ -56,13 +76,3 @@ def make_fake_api_caller(
         return responses[idx]
 
     return fake_api_caller
-
-
-def make_stored_user(
-    user_id: str = "U123",
-) -> StoredUser:
-    return StoredUser(
-        user_id=SlackUserId(user_id),
-        fetched_at=FIXED_FETCH_TIME,
-        raw={"id": user_id, "name": "testuser"},
-    )

@@ -41,15 +41,18 @@ slack-exporter -v
 
 ## Output structure
 
-Data is stored in a directory with three subdirectories:
+Data is stored in a directory with created/updated streams per type:
 
 ```
 slack_export/
-  channels/events.jsonl   -- channel metadata (only written when changed)
-  messages/events.jsonl   -- individual messages (only new ones appended)
-  users/events.jsonl      -- user info (only new users appended)
+  channels/created/events.jsonl   -- new channels (first seen)
+  channels/updated/events.jsonl   -- channels whose data changed
+  messages/created/events.jsonl   -- new messages
+  messages/updated/events.jsonl   -- (reserved for future message edits)
+  users/created/events.jsonl      -- new users (first seen)
+  users/updated/events.jsonl      -- (reserved for future user updates)
 ```
 
-Each line is a JSON object containing the raw Slack API response plus metadata (timestamps, IDs).
+Each line is a self-describing JSON event using the standard EventEnvelope format (with `timestamp`, `type`, `event_id`, `source` fields), plus domain-specific fields and the raw Slack API response.
 
-Running the exporter multiple times is safe -- it only appends new or changed data.
+Running the exporter multiple times is safe -- it only appends new or changed data to the appropriate stream.

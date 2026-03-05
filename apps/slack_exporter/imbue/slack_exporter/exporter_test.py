@@ -6,18 +6,15 @@ from typing import Any
 
 from imbue.slack_exporter.data_types import ChannelConfig
 from imbue.slack_exporter.data_types import ExporterSettings
-from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.exporter import _datetime_to_slack_timestamp
 from imbue.slack_exporter.exporter import _fetch_all_messages_for_channel
-from imbue.slack_exporter.exporter import _filter_changed_channels
 from imbue.slack_exporter.exporter import run_export
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
-from imbue.slack_exporter.store import save_messages
+from imbue.slack_exporter.store import save_message_events
 from imbue.slack_exporter.testing import make_fake_api_caller
-from imbue.slack_exporter.testing import make_stored_channel_info
-from imbue.slack_exporter.testing import make_stored_message
+from imbue.slack_exporter.testing import make_message_event
 
 
 def _history_response(
@@ -57,33 +54,7 @@ def test_datetime_to_slack_timestamp_converts_correctly() -> None:
     assert result == SlackMessageTimestamp("1704067200.000000")
 
 
-def test_filter_changed_channels_returns_new_channels() -> None:
-    fresh = [make_stored_channel_info("C123", "general")]
-    result = _filter_changed_channels(fresh, {})
-    assert len(result) == 1
-
-
-def test_filter_changed_channels_skips_unchanged() -> None:
-    existing_info = make_stored_channel_info("C123", "general")
-    fresh = [make_stored_channel_info("C123", "general")]
-    result = _filter_changed_channels(fresh, {SlackChannelId("C123"): existing_info})
-    assert len(result) == 0
-
-
-def test_filter_changed_channels_includes_changed() -> None:
-    existing_info = make_stored_channel_info("C123", "general")
-    # Create a fresh channel with different raw data to simulate a change
-    changed_fresh = StoredChannelInfo(
-        channel_id=SlackChannelId("C123"),
-        channel_name=SlackChannelName("general"),
-        fetched_at=existing_info.fetched_at,
-        raw={"id": "C123", "name": "general", "topic": "new"},
-    )
-    result = _filter_changed_channels([changed_fresh], {SlackChannelId("C123"): existing_info})
-    assert len(result) == 1
-
-
-def test_fetch_all_messages_fetches_single_page() -> None:
+def test_fetch_all_messages_returns_event_envelope() -> None:
     api_caller = make_fake_api_caller(
         {
             "conversations.history": [
@@ -101,7 +72,10 @@ def test_fetch_all_messages_fetches_single_page() -> None:
     )
 
     assert len(messages) == 1
-    assert messages[0].timestamp == SlackMessageTimestamp("1700000000.000001")
+    assert messages[0].message_ts == SlackMessageTimestamp("1700000000.000001")
+    assert messages[0].channel_id == SlackChannelId("C123")
+    assert messages[0].source == "messages"
+    assert messages[0].event_id.startswith("evt-")
 
 
 def test_fetch_all_messages_handles_pagination() -> None:
@@ -129,7 +103,7 @@ def test_fetch_all_messages_handles_pagination() -> None:
     assert len(messages) == 2
 
 
-def test_run_export_writes_to_directory_structure(temp_output_dir: Path) -> None:
+def test_run_export_writes_to_created_streams(temp_output_dir: Path) -> None:
     api_caller = make_fake_api_caller(
         {
             "conversations.list": [
@@ -152,43 +126,28 @@ def test_run_export_writes_to_directory_structure(temp_output_dir: Path) -> None
 
     run_export(settings, api_caller=api_caller)
 
-    # Verify directory structure
-    assert (temp_output_dir / "channels" / "events.jsonl").exists()
-    assert (temp_output_dir / "messages" / "events.jsonl").exists()
-    assert (temp_output_dir / "users" / "events.jsonl").exists()
+    # Verify created streams
+    assert (temp_output_dir / "channels" / "created" / "events.jsonl").exists()
+    assert (temp_output_dir / "messages" / "created" / "events.jsonl").exists()
+    assert (temp_output_dir / "users" / "created" / "events.jsonl").exists()
 
-    # Verify message content
-    message_lines = (temp_output_dir / "messages" / "events.jsonl").read_text().strip().splitlines()
-    assert len(message_lines) == 1
-    assert json.loads(message_lines[0])["channel_id"] == "C123"
-
-    # Verify user content
-    user_lines = (temp_output_dir / "users" / "events.jsonl").read_text().strip().splitlines()
-    assert len(user_lines) == 1
-    assert json.loads(user_lines[0])["user_id"] == "U001"
+    msg_lines = (temp_output_dir / "messages" / "created" / "events.jsonl").read_text().strip().splitlines()
+    assert len(msg_lines) == 1
+    msg = json.loads(msg_lines[0])
+    assert msg["channel_id"] == "C123"
+    assert msg["source"] == "messages"
+    assert "event_id" in msg
 
 
-def test_run_export_skips_unchanged_channels(temp_output_dir: Path) -> None:
-    """When a channel hasn't changed, it should not be re-appended."""
+def test_run_export_unchanged_channels_not_written(temp_output_dir: Path) -> None:
+    """Unchanged channels should not appear in either created or updated."""
     settings = ExporterSettings(
         channels=(ChannelConfig(name=SlackChannelName("general")),),
         default_oldest=datetime(2024, 1, 1, tzinfo=timezone.utc),
         output_dir=temp_output_dir,
     )
 
-    # Run twice with same data
-    run_export(
-        settings,
-        api_caller=make_fake_api_caller(
-            {
-                "conversations.list": [
-                    _channel_list_response(channels=[{"id": "C123", "name": "general"}]),
-                ],
-                "users.list": [_user_list_response(members=[])],
-                "conversations.history": [_history_response(messages=[])],
-            }
-        ),
-    )
+    # First run creates the channel
     run_export(
         settings,
         api_caller=make_fake_api_caller(
@@ -202,14 +161,76 @@ def test_run_export_skips_unchanged_channels(temp_output_dir: Path) -> None:
         ),
     )
 
-    channel_lines = (temp_output_dir / "channels" / "events.jsonl").read_text().strip().splitlines()
-    # Only written once since the data didn't change
-    assert len(channel_lines) == 1
+    # Second run with same data
+    run_export(
+        settings,
+        api_caller=make_fake_api_caller(
+            {
+                "conversations.list": [
+                    _channel_list_response(channels=[{"id": "C123", "name": "general"}]),
+                ],
+                "users.list": [_user_list_response(members=[])],
+                "conversations.history": [_history_response(messages=[])],
+            }
+        ),
+    )
+
+    created_lines = (temp_output_dir / "channels" / "created" / "events.jsonl").read_text().strip().splitlines()
+    assert len(created_lines) == 1
+
+    # Updated stream should not exist (no changes)
+    updated_path = temp_output_dir / "channels" / "updated" / "events.jsonl"
+    assert not updated_path.exists()
+
+
+def test_run_export_changed_channels_go_to_updated_stream(temp_output_dir: Path) -> None:
+    settings = ExporterSettings(
+        channels=(ChannelConfig(name=SlackChannelName("general")),),
+        default_oldest=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        output_dir=temp_output_dir,
+    )
+
+    # First run
+    run_export(
+        settings,
+        api_caller=make_fake_api_caller(
+            {
+                "conversations.list": [
+                    _channel_list_response(channels=[{"id": "C123", "name": "general"}]),
+                ],
+                "users.list": [_user_list_response(members=[])],
+                "conversations.history": [_history_response(messages=[])],
+            }
+        ),
+    )
+
+    # Second run with changed channel data (added topic)
+    run_export(
+        settings,
+        api_caller=make_fake_api_caller(
+            {
+                "conversations.list": [
+                    {
+                        "ok": True,
+                        "channels": [{"id": "C123", "name": "general", "topic": "new topic"}],
+                        "response_metadata": {"next_cursor": ""},
+                    },
+                ],
+                "users.list": [_user_list_response(members=[])],
+                "conversations.history": [_history_response(messages=[])],
+            }
+        ),
+    )
+
+    updated_path = temp_output_dir / "channels" / "updated" / "events.jsonl"
+    assert updated_path.exists()
+    updated_lines = updated_path.read_text().strip().splitlines()
+    assert len(updated_lines) == 1
 
 
 def test_run_export_incremental_resumes_from_latest(temp_output_dir: Path) -> None:
-    existing_msg = make_stored_message(ts="1700000000.000001")
-    save_messages(temp_output_dir, [existing_msg])
+    existing_msg = make_message_event(ts="1700000000.000001")
+    save_message_events(temp_output_dir, "created", [existing_msg])
 
     captured_params: list[dict[str, str] | None] = []
 
