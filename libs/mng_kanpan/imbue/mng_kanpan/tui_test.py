@@ -1,7 +1,11 @@
 import time
+from collections.abc import Callable
 from concurrent.futures import Future
 from types import SimpleNamespace
 from typing import Any
+
+from urwid.event_loop.main_loop import MainLoop
+from urwid.widget.text import Text
 
 from imbue.mng_kanpan.data_types import BoardSnapshot
 from imbue.mng_kanpan.tui import REFRESH_INTERVAL_SECONDS
@@ -18,28 +22,24 @@ class _AlarmRecord(SimpleNamespace):
     user_data: object
 
 
-class _FakeLoop:
-    """Lightweight stand-in for urwid MainLoop that records alarm operations."""
+class _TestableLoop(MainLoop):
+    """MainLoop subclass that records alarm operations instead of registering with the event loop."""
 
     def __init__(self) -> None:
+        super().__init__(Text(""))
         self.alarms: list[_AlarmRecord] = []
         self.removed_alarms: list[object] = []
         self._next_handle = 0
 
-    def set_alarm_in(self, delay: float, callback: object, user_data: object = None) -> int:
+    def set_alarm_in(self, sec: float, callback: Callable[..., Any], user_data: Any = None) -> int:
         handle = self._next_handle
         self._next_handle += 1
-        self.alarms.append(_AlarmRecord(delay=delay, callback=callback, user_data=user_data))
+        self.alarms.append(_AlarmRecord(delay=sec, callback=callback, user_data=user_data))
         return handle
 
     def remove_alarm(self, handle: object) -> bool:
         self.removed_alarms.append(handle)
         return True
-
-
-def _make_loop() -> Any:
-    """Create a _FakeLoop typed as Any to satisfy MainLoop parameter types."""
-    return _FakeLoop()
 
 
 class _FakeExecutor:
@@ -66,7 +66,7 @@ def _make_state(**overrides: Any) -> _KanpanState:
 
 
 def test_request_refresh_starts_immediately_when_cooldown_expired() -> None:
-    loop = _make_loop()
+    loop = _TestableLoop()
     pre_built_future: Future[BoardSnapshot] = Future()
     pre_built_future.set_result(BoardSnapshot(entries=(), fetch_time_seconds=0.1))
     executor = _FakeExecutor(pre_built_future)
@@ -82,7 +82,7 @@ def test_request_refresh_starts_immediately_when_cooldown_expired() -> None:
 
 
 def test_request_refresh_defers_when_within_cooldown() -> None:
-    loop = _make_loop()
+    loop = _TestableLoop()
     state = _make_state(last_refresh_time=time.monotonic())
 
     _request_refresh(loop, state, cooldown_seconds=60.0)
@@ -99,7 +99,7 @@ def test_request_refresh_defers_when_within_cooldown() -> None:
 
 def test_request_refresh_replaces_deferred_with_sooner_alarm() -> None:
     """A manual refresh (short cooldown) should replace a pending auto refresh (long cooldown)."""
-    loop = _make_loop()
+    loop = _TestableLoop()
     now = time.monotonic()
     state = _make_state(
         last_refresh_time=now - 2,
@@ -120,7 +120,7 @@ def test_request_refresh_replaces_deferred_with_sooner_alarm() -> None:
 
 def test_request_refresh_keeps_existing_if_sooner() -> None:
     """An auto refresh request should not replace a sooner pending manual refresh."""
-    loop = _make_loop()
+    loop = _TestableLoop()
     now = time.monotonic()
     state = _make_state(
         last_refresh_time=now - 2,
@@ -137,7 +137,7 @@ def test_request_refresh_keeps_existing_if_sooner() -> None:
 
 
 def test_request_refresh_noop_when_already_refreshing() -> None:
-    loop = _make_loop()
+    loop = _TestableLoop()
     existing_future: Future[BoardSnapshot] = Future()
     state = _make_state(refresh_future=existing_future)
 
@@ -149,7 +149,7 @@ def test_request_refresh_noop_when_already_refreshing() -> None:
 
 
 def test_finish_refresh_schedules_normal_interval_on_success() -> None:
-    loop = _make_loop()
+    loop = _TestableLoop()
     snapshot = BoardSnapshot(entries=(), fetch_time_seconds=1.0)
     future: Future[BoardSnapshot] = Future()
     future.set_result(snapshot)
@@ -166,7 +166,7 @@ def test_finish_refresh_schedules_normal_interval_on_success() -> None:
 
 def test_finish_refresh_uses_auto_cooldown_on_failure() -> None:
     """After a failed refresh, the next refresh should be deferred by auto_refresh_cooldown_seconds."""
-    loop = _make_loop()
+    loop = _TestableLoop()
     future: Future[BoardSnapshot] = Future()
     future.set_exception(RuntimeError("GitHub API error"))
     state = _make_state(
