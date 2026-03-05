@@ -1,0 +1,76 @@
+import json
+import logging
+import subprocess
+import time
+from typing import Any
+from urllib.parse import urlencode
+
+from imbue.slack_exporter.errors import LatchkeyInvocationError
+from imbue.slack_exporter.errors import SlackApiError
+
+logger = logging.getLogger(__name__)
+
+_LATCHKEY_COMMAND_TIMEOUT_SECONDS = 60
+_LATCHKEY_COMMAND_WARNING_THRESHOLD_SECONDS = 15
+
+
+def call_slack_api(
+    method: str,
+    query_params: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Call a Slack API method via latchkey curl and return the parsed JSON response.
+
+    Raises LatchkeyInvocationError if the subprocess fails, or SlackApiError if
+    the Slack API returns ok=false.
+    """
+    url = f"https://slack.com/api/{method}"
+    if query_params:
+        url = f"{url}?{urlencode(query_params)}"
+
+    command = ["latchkey", "curl", url]
+    logger.debug("Running: %s", " ".join(command))
+
+    start_time = time.monotonic()
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=_LATCHKEY_COMMAND_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise LatchkeyInvocationError(
+            command=" ".join(command),
+            return_code=-1,
+            stderr=f"Command timed out after {_LATCHKEY_COMMAND_TIMEOUT_SECONDS}s",
+        ) from e
+    elapsed = time.monotonic() - start_time
+
+    if elapsed > _LATCHKEY_COMMAND_WARNING_THRESHOLD_SECONDS:
+        logger.warning(
+            "latchkey call to %s took %.1fs (threshold: %ds)",
+            method,
+            elapsed,
+            _LATCHKEY_COMMAND_WARNING_THRESHOLD_SECONDS,
+        )
+
+    if result.returncode != 0:
+        raise LatchkeyInvocationError(
+            command=" ".join(command),
+            return_code=result.returncode,
+            stderr=result.stderr,
+        )
+
+    try:
+        data: dict[str, Any] = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise LatchkeyInvocationError(
+            command=" ".join(command),
+            return_code=0,
+            stderr=f"Invalid JSON response: {result.stdout[:200]}",
+        ) from e
+
+    if not data.get("ok"):
+        raise SlackApiError(method=method, error=data.get("error", "unknown"))
+
+    return data

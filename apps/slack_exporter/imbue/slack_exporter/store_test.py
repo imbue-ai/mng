@@ -1,0 +1,122 @@
+import json
+from datetime import datetime
+from datetime import timezone
+from pathlib import Path
+
+from imbue.slack_exporter.data_types import EventKind
+from imbue.slack_exporter.data_types import StoredChannelInfo
+from imbue.slack_exporter.data_types import StoredMessage
+from imbue.slack_exporter.primitives import SlackChannelId
+from imbue.slack_exporter.primitives import SlackChannelName
+from imbue.slack_exporter.primitives import SlackMessageTimestamp
+from imbue.slack_exporter.store import append_records
+from imbue.slack_exporter.store import load_existing_state
+
+_NOW = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def _make_stored_message(
+    channel_id: str = "C123",
+    channel_name: str = "general",
+    ts: str = "1700000000.000001",
+) -> StoredMessage:
+    return StoredMessage(
+        channel_id=SlackChannelId(channel_id),
+        channel_name=SlackChannelName(channel_name),
+        timestamp=SlackMessageTimestamp(ts),
+        fetched_at=_NOW,
+        raw={"ts": ts, "text": "hello"},
+    )
+
+
+def _make_stored_channel_info(
+    channel_id: str = "C123",
+    channel_name: str = "general",
+) -> StoredChannelInfo:
+    return StoredChannelInfo(
+        channel_id=SlackChannelId(channel_id),
+        channel_name=SlackChannelName(channel_name),
+        fetched_at=_NOW,
+        raw={"id": channel_id, "name": channel_name},
+    )
+
+
+class TestLoadExistingState:
+    def test_returns_empty_when_file_does_not_exist(self, temp_output_path: Path) -> None:
+        state_by_id, id_by_name = load_existing_state(temp_output_path)
+        assert state_by_id == {}
+        assert id_by_name == {}
+
+    def test_loads_messages_and_tracks_latest_timestamp(self, temp_output_path: Path) -> None:
+        msg1 = _make_stored_message(ts="1700000000.000001")
+        msg2 = _make_stored_message(ts="1700000000.000009")
+        temp_output_path.write_text(msg1.model_dump_json() + "\n" + msg2.model_dump_json() + "\n")
+
+        state_by_id, id_by_name = load_existing_state(temp_output_path)
+
+        assert SlackChannelId("C123") in state_by_id
+        state = state_by_id[SlackChannelId("C123")]
+        assert state.latest_message_timestamp == SlackMessageTimestamp("1700000000.000009")
+        assert id_by_name[SlackChannelName("general")] == SlackChannelId("C123")
+
+    def test_loads_channel_info_records(self, temp_output_path: Path) -> None:
+        info = _make_stored_channel_info()
+        temp_output_path.write_text(info.model_dump_json() + "\n")
+
+        state_by_id, id_by_name = load_existing_state(temp_output_path)
+
+        assert state_by_id == {}
+        assert id_by_name[SlackChannelName("general")] == SlackChannelId("C123")
+
+    def test_skips_malformed_lines(self, temp_output_path: Path) -> None:
+        msg = _make_stored_message()
+        temp_output_path.write_text("not valid json\n" + msg.model_dump_json() + "\n")
+
+        state_by_id, _id_by_name = load_existing_state(temp_output_path)
+        assert SlackChannelId("C123") in state_by_id
+
+    def test_handles_multiple_channels(self, temp_output_path: Path) -> None:
+        msg1 = _make_stored_message(channel_id="C123", channel_name="general", ts="1700000000.000001")
+        msg2 = _make_stored_message(channel_id="C456", channel_name="random", ts="1700000000.000002")
+        temp_output_path.write_text(msg1.model_dump_json() + "\n" + msg2.model_dump_json() + "\n")
+
+        state_by_id, id_by_name = load_existing_state(temp_output_path)
+
+        assert len(state_by_id) == 2
+        assert id_by_name[SlackChannelName("general")] == SlackChannelId("C123")
+        assert id_by_name[SlackChannelName("random")] == SlackChannelId("C456")
+
+
+class TestAppendRecords:
+    def test_creates_file_and_appends(self, temp_output_path: Path) -> None:
+        msg = _make_stored_message()
+        append_records(temp_output_path, [msg])
+
+        lines = temp_output_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        parsed = json.loads(lines[0])
+        assert parsed["kind"] == EventKind.MESSAGE
+        assert parsed["channel_id"] == "C123"
+
+    def test_appends_to_existing_file(self, temp_output_path: Path) -> None:
+        msg1 = _make_stored_message(ts="1700000000.000001")
+        append_records(temp_output_path, [msg1])
+
+        msg2 = _make_stored_message(ts="1700000000.000002")
+        append_records(temp_output_path, [msg2])
+
+        lines = temp_output_path.read_text().strip().splitlines()
+        assert len(lines) == 2
+
+    def test_does_nothing_for_empty_list(self, temp_output_path: Path) -> None:
+        append_records(temp_output_path, [])
+        assert not temp_output_path.exists()
+
+    def test_appends_channel_info(self, temp_output_path: Path) -> None:
+        info = _make_stored_channel_info()
+        append_records(temp_output_path, [info])
+
+        lines = temp_output_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        parsed = json.loads(lines[0])
+        assert parsed["kind"] == EventKind.CHANNEL_INFO
