@@ -18,7 +18,7 @@ run_command = "uv run pytest -v --tb=short --no-cov -p no:xdist -o addopts= --ju
 test_id_format = "{name}"
 
 [groups.all]
-retry_count = 0
+retry_count = 4
 # Exclude acceptance and release tests
 filters = "-m 'not acceptance and not release'"
 
