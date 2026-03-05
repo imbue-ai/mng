@@ -25,7 +25,7 @@ def build_ttyd_server_command(ttyd_invocation: str, server_name: str) -> str:
         'if [ -n "$MNG_AGENT_STATE_DIR" ] && [ -n "$_PORT" ]; then '
         'mkdir -p "$MNG_AGENT_STATE_DIR/events/servers" && '
         '_TS=$(date -u +"%Y-%m-%dT%H:%M:%S.000000000Z") && '
-        '_EID="evt-$(echo "' + server_name + ':$_PORT" | sha256sum | cut -c1-32)" && '
+        '_EID="evt-$(echo "' + server_name + ':http://127.0.0.1:$_PORT" | sha256sum | cut -c1-32)" && '
         'printf \'{"timestamp":"%s","type":"server_registered","event_id":"%s","source":"servers",'
         '"server":"' + server_name + '","url":"http://127.0.0.1:%s"}\\n\' '
         '"$_TS" "$_EID" "$_PORT" >> "$MNG_AGENT_STATE_DIR/events/servers/events.jsonl"; '
