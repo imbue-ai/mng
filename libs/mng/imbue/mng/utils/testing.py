@@ -362,6 +362,19 @@ def capture_tmux_pane_contents(session_name: str) -> str:
     return result.stdout
 
 
+def wait_for_agent_session(session_name: str, timeout: float = 15.0) -> None:
+    """Wait for an agent's tmux session to appear.
+
+    Use this after creating an agent with --no-connect, which creates agents
+    in a background process that may not have finished yet.
+    """
+    wait_for(
+        lambda: tmux_session_exists(session_name),
+        timeout=timeout,
+        error_message=f"Expected tmux session {session_name} to exist",
+    )
+
+
 def tmux_session_exists(session_name: str) -> bool:
     """Check if a tmux session exists."""
     result = subprocess.run(
@@ -399,15 +412,19 @@ def create_test_agent_via_cli(
             "--source",
             str(temp_work_dir),
             "--no-connect",
-            "--await-ready",
-            "--no-copy-work-dir",
             "--no-ensure-clean",
         ],
         obj=plugin_manager,
         catch_exceptions=False,
     )
     assert create_result.exit_code == 0, f"Create source failed with: {create_result.output}"
-    assert tmux_session_exists(session_name), f"Expected source session {session_name} to exist"
+
+    # --no-connect creates agents in the background, so wait for the session to appear
+    wait_for(
+        lambda: tmux_session_exists(session_name),
+        timeout=15.0,
+        error_message=f"Expected source session {session_name} to exist",
+    )
 
     return session_name
 

@@ -12,7 +12,7 @@ mng [create|c] [<AGENT_NAME>] [<AGENT_TYPE>] [-t <TEMPLATE>] [--in <PROVIDER>] [
     [--snapshot <ID>] [-b <BUILD_ARG>] [-s <START_ARG>]
     [--env <KEY=VALUE>] [--env-file <FILE>] [--grant <PERMISSION>] [--user-command <COMMAND>] [--upload-file <LOCAL:REMOTE>]
     [--idle-timeout <SECONDS>] [--idle-mode <MODE>] [--start-on-boot|--no-start-on-boot] [--reuse|--no-reuse]
-    [--[no-]auto-start] [--] [<AGENT_ARGS>...]
+    [--[no-]connect] [--[no-]auto-start] [--] [<AGENT_ARGS>...]
 ```
 
 Create and run an agent.
@@ -59,7 +59,6 @@ mng create [OPTIONS] [POSITIONAL_NAME] [POSITIONAL_AGENT_TYPE] [AGENT_ARGS]...
 | `--agent-type` | text | Which type of agent to run [default: claude] | None |
 | `--agent-cmd`, `--agent-command` | text | Run a literal command using the generic agent type (mutually exclusive with --agent-type) | None |
 | `-c`, `--add-cmd`, `--add-command` | text | Run extra command in additional window. Use name="command" to set window name. Note: ALL_UPPERCASE names (e.g., FOO="bar") are treated as env var assignments, not window names | None |
-| `--user` | text | Override which user to run the agent as [default: current user for local, provider-defined or root for remote] | None |
 
 ## Host Options
 
@@ -81,11 +80,7 @@ By default, `mng create` uses the "local" host. Use these options to change that
 | ---- | ---- | ----------- | ------- |
 | `--reuse`, `--no-reuse` | boolean | Reuse existing agent with the same name if it exists (idempotent create) | `False` |
 | `--connect`, `--no-connect` | boolean | Connect to the agent after creation [default: connect] | `True` |
-| `--await-ready`, `--no-await-ready` | boolean | Wait until agent is ready before returning [default: no-await-ready if --no-connect] | None |
-| `--await-agent-stopped`, `--no-await-agent-stopped` | boolean | Wait until agent has completely finished running before exiting. Useful for testing and scripting. First waits for agent to become ready, then waits for it to stop. [default: no-await-agent-stopped] | None |
 | `--ensure-clean`, `--no-ensure-clean` | boolean | Abort if working tree is dirty | `True` |
-| `--snapshot-source`, `--no-snapshot-source` | boolean | Snapshot source agent first [default: yes if --source-agent and not local] | None |
-| `--copy-work-dir`, `--no-copy-work-dir` | boolean | Copy source work_dir immediately. Useful when launching background agents so you can continue editing locally without changes being copied to the new agent [default: copy if --no-connect, no-copy if --connect] | None |
 | `--auto-start`, `--no-auto-start` | boolean | Automatically start offline hosts (source and target) before proceeding | `True` |
 
 ## Agent Source Data (what to include in the new agent)
@@ -144,7 +139,6 @@ See [Provision Options](../secondary/provision.md) for full details.
 | `--upload-file` | text | Upload LOCAL:REMOTE file pair [repeatable] | None |
 | `--append-to-file` | text | Append REMOTE:TEXT to file [repeatable] | None |
 | `--prepend-to-file` | text | Prepend REMOTE:TEXT to file [repeatable] | None |
-| `--create-directory` | text | Create directory on remote [repeatable] | None |
 
 ## New Host Environment Variables
 
@@ -153,8 +147,6 @@ See [Provision Options](../secondary/provision.md) for full details.
 | `--host-env` | text | Set environment variable KEY=VALUE for host [repeatable] | None |
 | `--host-env-file` | path | Load env file for host [repeatable] | None |
 | `--pass-host-env` | text | Forward variable from shell for host [repeatable] | None |
-| `--known-host` | text | SSH known_hosts entry to add to the host (for outbound SSH) [repeatable] | None |
-| `--authorized-key` | text | SSH authorized_keys entry to add to the host (for inbound SSH) [repeatable] | None |
 
 ## New Host Build
 
@@ -186,9 +178,6 @@ See [connect options](./connect.md) for full details (only applies if `--connect
 | `--message` | text | Initial message to send after the agent starts | None |
 | `--message-file` | path | File containing initial message to send | None |
 | `--edit-message` | boolean | Open an editor to compose the initial message (uses $EDITOR). Editor runs in parallel with agent creation. If --message or --message-file is provided, their content is used as initial editor content. | `False` |
-| `--resume-message` | text | Message to send when the agent is started (resumed) after being stopped | None |
-| `--resume-message-file` | path | File containing resume message to send on start | None |
-| `--ready-timeout` | float | Timeout in seconds to wait for agent readiness before sending initial message | `10.0` |
 | `--retry` | integer | Number of connection retries | `3` |
 | `--retry-delay` | text | Delay between retries (e.g., 5s, 1m) | `5s` |
 | `--attach-command` | text | Command to run instead of attaching to main session | None |

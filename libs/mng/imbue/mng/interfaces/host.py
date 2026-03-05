@@ -728,10 +728,6 @@ class CreateAgentOptions(FrozenModel):
         default=None,
         description="Target path for the agent work_dir",
     )
-    is_copy_immediate: bool = Field(
-        default=False,
-        description="Whether to copy the source data immediately (before building the host) or after",
-    )
     initial_message: str | None = Field(
         default=None,
         description="Initial message to pipe to the agent on startup",
@@ -785,10 +781,6 @@ class NewHostBuildOptions(FrozenModel):
     snapshot: SnapshotName | None = Field(
         default=None,
         description="Use existing snapshot instead of building",
-    )
-    context_path: Path | None = Field(
-        default=None,
-        description="Build context directory [default: local .git root]",
     )
     build_args: tuple[str, ...] = Field(
         default=(),
