@@ -613,14 +613,16 @@ def _inject_conversation(
     host: OnlineHostInterface,
     settings: ProvisioningSettings,
     *,
-    cid: str,
     model: str,
     prompt: str,
     response: str,
     label: str,
     llm_user_path: Path | None = None,
-) -> bool:
-    """Run ``llm inject`` to seed a conversation. Returns True on success.
+) -> str | None:
+    """Run ``llm inject`` to create a new conversation. Returns the conversation ID on success.
+
+    Omits ``--cid`` so that ``llm inject`` creates a new conversation and
+    prints the assigned ID to stdout (e.g. "Injected message into conversation <id>").
 
     When ``llm_user_path`` is provided, the command is prefixed with
     ``LLM_USER_PATH=<path>`` so the conversation is created in the
@@ -628,9 +630,7 @@ def _inject_conversation(
     """
     env_prefix = f"LLM_USER_PATH={shlex.quote(str(llm_user_path))} " if llm_user_path else ""
     inject_cmd = (
-        f"{env_prefix}llm inject --cid {shlex.quote(cid)} -m {shlex.quote(model)} "
-        f"--prompt {shlex.quote(prompt)} "
-        f"{shlex.quote(response)}"
+        f"{env_prefix}llm inject -m {shlex.quote(model)} --prompt {shlex.quote(prompt)} {shlex.quote(response)}"
     )
     result = _execute_with_timing(
         host,
@@ -641,8 +641,16 @@ def _inject_conversation(
     )
     if not result.success:
         logger.warning("Failed to create {} conversation via llm inject: {}", label, result.stderr)
-        return False
-    return True
+        return None
+
+    # Parse conversation ID from output like "Injected message into conversation <id>"
+    stdout = result.stdout.strip()
+    parts = stdout.rsplit(" ", 1)
+    if len(parts) == 2:
+        return parts[1]
+
+    logger.warning("Could not parse conversation ID from llm inject output: {}", stdout)
+    return None
 
 
 def create_system_notifications_conversation(
@@ -652,26 +660,24 @@ def create_system_notifications_conversation(
 ) -> None:
     """Create the system_notifications conversation for delivery failure alerts.
 
-    Uses ``llm inject`` to create a conversation with a known ID, then
-    records a ``conversation_created`` event in
-    ``events/conversations/events.jsonl``. Because this is the first
-    conversation created, ``_send_chat_notification`` can find it by
-    reading the first entry in the conversations event log.
+    Uses ``llm inject`` to create a new conversation, then records a
+    ``conversation_created`` event in ``events/conversations/events.jsonl``.
+    Because this is the first conversation created, ``_send_chat_notification``
+    can find it by reading the first entry in the conversations event log.
     """
-    cid = f"system-notifications-{uuid4().hex}"
     model = "echo"
 
     llm_data_dir = agent_state_dir / "llm_data"
-    if not _inject_conversation(
+    cid = _inject_conversation(
         host,
         settings,
-        cid=cid,
         model=model,
         prompt="This channel is for system notifications, warnings, and errors.",
         response="Confirmed.",
         label="system_notifications",
         llm_user_path=llm_data_dir,
-    ):
+    )
+    if cid is None:
         return
 
     _record_conversation_event(host, agent_state_dir, settings, cid=cid, model=model)
@@ -691,19 +697,18 @@ def create_daily_conversation(
     event with ``tags={"daily": "<today>"}`` in the conversations event log.
     """
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    cid = f"daily-{today}-{uuid4().hex}"
 
     llm_data_dir = agent_state_dir / "llm_data"
-    if not _inject_conversation(
+    cid = _inject_conversation(
         host,
         settings,
-        cid=cid,
         model=chat_model,
         prompt="",
         response="Hi, I'm Elena! How can I help?",
         label="daily",
         llm_user_path=llm_data_dir,
-    ):
+    )
+    if cid is None:
         return
 
     _record_conversation_event(
