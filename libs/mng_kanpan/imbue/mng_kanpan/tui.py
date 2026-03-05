@@ -672,7 +672,7 @@ def _get_state_attr(entry: AgentBoardEntry) -> str:
 
     RUNNING gets green, WAITING gets magenta (needs user response).
     Everything else is default (no color). Muted override is handled
-    separately in _format_agent_line.
+    separately in _build_agent_row.
     """
     if entry.state == AgentLifecycleState.RUNNING:
         return "state_running"
