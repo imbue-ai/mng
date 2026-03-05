@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from datetime import timezone
 from typing import Any
+from typing import NamedTuple
 
 from loguru import logger
 from pydantic import ConfigDict
@@ -128,15 +129,6 @@ _AGENT_LINE_ATTRS = ("state_running", "state_attention", "check_failing", "check
 
 # Column layout configuration
 _COL_DIVIDER_CHARS = 2
-_BOARD_COLUMNS = ("name", "state", "git", "pr", "ci", "link")
-_BOARD_HEADER_LABELS: dict[str, str] = {
-    "name": "  NAME",
-    "state": "STATE",
-    "git": "GIT",
-    "pr": "PR",
-    "ci": "CI",
-    "link": "LINK",
-}
 
 
 class _SelectableRow(Columns):
@@ -736,21 +728,21 @@ def _get_link_cell_text(entry: AgentBoardEntry) -> str:
     return ""
 
 
-_BOARD_CELL_TEXT_FNS: dict[str, Callable[[AgentBoardEntry], str]] = {
-    "name": _get_name_cell_text,
-    "state": _get_state_cell_text,
-    "git": _get_push_cell_text,
-    "pr": _get_pr_cell_text,
-    "ci": _get_check_cell_text,
-}
+class _ColumnDef(NamedTuple):
+    header: str
+    text_fn: Callable[[AgentBoardEntry], str]
+    markup_fn: Callable[[AgentBoardEntry], str | tuple[Hashable, str]]
+    flexible: bool = False
 
-_BOARD_CELL_MARKUP_FNS: dict[str, Callable[[AgentBoardEntry], str | tuple[Hashable, str]]] = {
-    "name": _get_name_cell_text,
-    "state": _get_state_cell_markup,
-    "git": _get_push_cell_text,
-    "pr": _get_pr_cell_text,
-    "ci": _get_check_cell_markup,
-    "link": _get_link_cell_text,
+
+# Single source of truth for all board column definitions (order matters)
+_BOARD_COLUMN_DEFS: dict[str, _ColumnDef] = {
+    "name": _ColumnDef("  NAME", _get_name_cell_text, _get_name_cell_text),
+    "state": _ColumnDef("STATE", _get_state_cell_text, _get_state_cell_markup),
+    "git": _ColumnDef("GIT", _get_push_cell_text, _get_push_cell_text),
+    "pr": _ColumnDef("PR", _get_pr_cell_text, _get_pr_cell_text),
+    "ci": _ColumnDef("CI", _get_check_cell_text, _get_check_cell_markup),
+    "link": _ColumnDef("LINK", _get_link_cell_text, _get_link_cell_text, flexible=True),
 }
 
 
@@ -762,20 +754,20 @@ def _compute_board_column_widths(entries: tuple[AgentBoardEntry, ...]) -> dict[s
     """
     # For each fixed-width column, take the wider of the header and the widest cell value
     return {
-        col: max(len(_BOARD_HEADER_LABELS[col]), *(len(fn(e)) for e in entries))
-        for col, fn in _BOARD_CELL_TEXT_FNS.items()
+        col: max(len(defn.header), *(len(defn.text_fn(e)) for e in entries))
+        for col, defn in _BOARD_COLUMN_DEFS.items()
+        if not defn.flexible
     }
 
 
 def _build_column_header(widths: dict[str, int]) -> Columns:
     """Build the column header row for the board."""
     cols: list[tuple[int, Text] | Text] = []
-    for col in _BOARD_COLUMNS:
-        label = _BOARD_HEADER_LABELS[col]
-        if col == "link":
-            cols.append(Text(label))
+    for col, defn in _BOARD_COLUMN_DEFS.items():
+        if defn.flexible:
+            cols.append(Text(defn.header))
         else:
-            cols.append((widths[col], Text(label)))
+            cols.append((widths[col], Text(defn.header)))
     return Columns(cols, dividechars=_COL_DIVIDER_CHARS)
 
 
@@ -784,7 +776,7 @@ def _build_agent_row(entry: AgentBoardEntry, section: BoardSection, widths: dict
 
     Muted agents are rendered entirely in gray.
     """
-    raw_markup = {col: fn(entry) for col, fn in _BOARD_CELL_MARKUP_FNS.items()}
+    raw_markup = {col: defn.markup_fn(entry) for col, defn in _BOARD_COLUMN_DEFS.items()}
 
     # Muted agents: flatten all markup to gray
     if section == BoardSection.MUTED:
@@ -793,9 +785,9 @@ def _build_agent_row(entry: AgentBoardEntry, section: BoardSection, widths: dict
         cell_markup = raw_markup
 
     cols: list[tuple[int, Text] | Text] = []
-    for col in _BOARD_COLUMNS:
+    for col, defn in _BOARD_COLUMN_DEFS.items():
         widget = Text(cell_markup[col])
-        if col == "link":
+        if defn.flexible:
             cols.append(widget)
         else:
             cols.append((widths[col], widget))
