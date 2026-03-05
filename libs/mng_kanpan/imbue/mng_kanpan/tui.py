@@ -152,9 +152,14 @@ class _SelectableText(Text):
 
 
 class _SelectableColumns(Columns):
-    """A Columns widget that is selectable, allowing it to receive focus."""
+    """A Columns widget that is selectable, allowing it to receive focus.
 
-    _selectable = True
+    Columns.selectable() checks children rather than _selectable, so we
+    must override it explicitly to make the widget focusable in a ListBox.
+    """
+
+    def selectable(self) -> bool:
+        return True
 
     def keypress(self, size: tuple[()] | tuple[int] | tuple[int, int], key: str) -> str | None:
         """Pass all keys through (no keys are handled by this widget)."""
