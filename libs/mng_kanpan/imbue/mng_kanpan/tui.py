@@ -679,6 +679,16 @@ def _get_state_cell_text(entry: AgentBoardEntry) -> str:
     return str(entry.state)
 
 
+def _get_state_cell_markup(entry: AgentBoardEntry) -> str | tuple[Hashable, str]:
+    """Build urwid text markup for the state column cell.
+
+    RUNNING gets green, WAITING gets magenta. Everything else uses default color.
+    """
+    text = _get_state_cell_text(entry)
+    attr = _get_state_attr(entry)
+    return (attr, text) if attr else text
+
+
 def _get_check_cell_text(entry: AgentBoardEntry) -> str:
     """Get plain text for the CI check status column cell."""
     if entry.pr is None or entry.pr.check_status == CheckStatus.UNKNOWN:
@@ -765,11 +775,9 @@ def _build_agent_row(entry: AgentBoardEntry, section: BoardSection, widths: dict
 
     Muted agents are rendered entirely in gray.
     """
-    state_attr = _get_state_attr(entry)
-    state_text = _get_state_cell_text(entry)
     raw_markup: dict[str, str | tuple[Hashable, str]] = {
         "name": _get_name_cell_text(entry),
-        "state": (state_attr, state_text) if state_attr else state_text,
+        "state": _get_state_cell_markup(entry),
         "git": _get_push_cell_text(entry),
         "pr": _get_pr_cell_text(entry),
         "ci": _get_check_cell_markup(entry),
