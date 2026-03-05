@@ -421,14 +421,14 @@ def _make_stream_manager() -> MngStreamManager:
 
 def test_stream_manager_on_list_stream_output_ignores_stderr() -> None:
     manager = _make_stream_manager()
-    manager._on_list_stream_output("some stderr line", is_stderr=True)
+    manager._on_list_stream_output("some stderr line", is_stdout=False)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
 def test_stream_manager_on_list_stream_output_ignores_empty_lines() -> None:
     manager = _make_stream_manager()
-    manager._on_list_stream_output("", is_stderr=False)
-    manager._on_list_stream_output("  \n", is_stderr=False)
+    manager._on_list_stream_output("", is_stdout=True)
+    manager._on_list_stream_output("  \n", is_stdout=True)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
@@ -444,7 +444,7 @@ def test_stream_manager_on_list_stream_output_ignores_non_full_events() -> None:
             "source": "mng/discovery",
         }
     )
-    manager._on_list_stream_output(line, is_stderr=False)
+    manager._on_list_stream_output(line, is_stdout=True)
     assert manager.resolver.list_known_agent_ids() == ()
 
 
@@ -459,7 +459,7 @@ def test_stream_manager_on_events_stream_output_updates_servers() -> None:
     manager._events_servers[str(_AGENT_A)] = {}
 
     server_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
-    manager._on_events_stream_output(server_line, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(server_line, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
 
@@ -468,7 +468,7 @@ def test_stream_manager_on_events_stream_output_ignores_stderr() -> None:
     manager = _make_stream_manager()
     manager._events_servers[str(_AGENT_A)] = {}
 
-    manager._on_events_stream_output("stderr noise", is_stderr=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output("stderr noise", is_stdout=False, agent_id=_AGENT_A)
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
 
 
@@ -476,7 +476,7 @@ def test_stream_manager_on_events_stream_output_ignores_invalid_json() -> None:
     manager = _make_stream_manager()
     manager._events_servers[str(_AGENT_A)] = {}
 
-    manager._on_events_stream_output("not json", is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output("not json", is_stdout=True, agent_id=_AGENT_A)
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) is None
 
 
@@ -488,8 +488,8 @@ def test_stream_manager_on_events_stream_output_accumulates_servers() -> None:
     web_line = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
     api_line = json.dumps({"server": "api", "url": "http://127.0.0.1:9200"})
 
-    manager._on_events_stream_output(web_line, is_stderr=False, agent_id=_AGENT_A)
-    manager._on_events_stream_output(api_line, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(web_line, is_stdout=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output(api_line, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9100"
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_API) == "http://127.0.0.1:9200"
@@ -503,8 +503,8 @@ def test_stream_manager_on_events_stream_output_later_entry_overrides_earlier() 
     line1 = json.dumps({"server": "web", "url": "http://127.0.0.1:9100"})
     line2 = json.dumps({"server": "web", "url": "http://127.0.0.1:9200"})
 
-    manager._on_events_stream_output(line1, is_stderr=False, agent_id=_AGENT_A)
-    manager._on_events_stream_output(line2, is_stderr=False, agent_id=_AGENT_A)
+    manager._on_events_stream_output(line1, is_stdout=True, agent_id=_AGENT_A)
+    manager._on_events_stream_output(line2, is_stdout=True, agent_id=_AGENT_A)
 
     assert manager.resolver.get_backend_url(_AGENT_A, _SERVER_WEB) == "http://127.0.0.1:9200"
 

@@ -276,9 +276,9 @@ class MngStreamManager(MutableModel):
         """Stop all streaming subprocesses."""
         self._cg.__exit__(None, None, None)
 
-    def _on_list_stream_output(self, line: str, is_stderr: bool) -> None:
+    def _on_list_stream_output(self, line: str, is_stdout: bool) -> None:
         """Handle a line of output from mng list --stream."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -306,6 +306,8 @@ class MngStreamManager(MutableModel):
             self._handle_host_ssh_info(event)
         elif event is None:
             logger.warning("Unrecognized discovery event line: {}", line[:200])
+        else:
+            logger.trace("Ignoring non-snapshot discovery event: {}", type(event).__name__)
 
     def _handle_full_snapshot(self, event: FullDiscoverySnapshotEvent) -> None:
         """Update agent list and agent-to-host mapping from a full snapshot."""
@@ -370,9 +372,9 @@ class MngStreamManager(MutableModel):
             for aid_str in new_agent_ids - previously_known:
                 self._start_events_stream(AgentId(aid_str))
 
-    def _on_events_stream_output(self, line: str, is_stderr: bool, agent_id: AgentId) -> None:
+    def _on_events_stream_output(self, line: str, is_stdout: bool, agent_id: AgentId) -> None:
         """Handle a line of output from mng events --follow for a specific agent."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -396,6 +398,6 @@ class MngStreamManager(MutableModel):
 
         process = self._cg.run_process_in_background(
             command=[self.mng_binary, "events", aid_str, SERVERS_LOG_FILENAME, "--follow", "--quiet"],
-            on_output=lambda line, is_stderr: self._on_events_stream_output(line, is_stderr, agent_id),
+            on_output=lambda line, is_stdout: self._on_events_stream_output(line, is_stdout, agent_id),
         )
         self._events_processes[aid_str] = process
