@@ -56,6 +56,7 @@ from imbue.mng.utils.polling import wait_for
 from imbue.mng.utils.testing import capture_tmux_pane_contents
 from imbue.mng.utils.testing import generate_ssh_keypair
 from imbue.mng.utils.testing import local_sshd
+from imbue.mng.utils.testing import write_core_agent_env_file
 
 
 @pytest.fixture
@@ -672,6 +673,7 @@ def test_unset_vars_applied_during_agent_start(
             command=CommandString("sleep 736249 &"),
         ),
     )
+    write_core_agent_env_file(per_host_dir, agent.id, agent.name, agent.work_dir)
 
     host.start_agents([agent.id])
 

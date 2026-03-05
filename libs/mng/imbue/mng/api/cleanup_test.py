@@ -17,6 +17,7 @@ from imbue.mng.primitives import CleanupAction
 from imbue.mng.primitives import CommandString
 from imbue.mng.primitives import ErrorBehavior
 from imbue.mng.utils.testing import make_test_agent_details
+from imbue.mng.utils.testing import write_core_agent_env_file
 
 
 def test_execute_cleanup_dry_run_destroy_populates_destroyed_agents(
@@ -214,6 +215,7 @@ def test_execute_cleanup_stop_on_online_host(
             command=CommandString("sleep 99003"),
         ),
     )
+    write_core_agent_env_file(local_host.host_dir, agent.id, agent.name, agent.work_dir)
     local_host.start_agents([agent.id])
 
     # Verify agent is alive before stop (sleep commands enter WAITING state)
