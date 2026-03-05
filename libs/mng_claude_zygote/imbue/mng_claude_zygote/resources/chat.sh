@@ -293,10 +293,13 @@ if Path(messages_file).exists():
             print(f'WARNING: malformed message event line: {e}', file=sys.stderr)
             continue
 
-for cid, event in convs.items():
+# Filter out internal conversations (tagged with 'internal')
+visible_convs = {cid: e for cid, e in convs.items() if 'internal' not in e.get('tags', {})}
+
+for cid, event in visible_convs.items():
     event['updated_at'] = updated_at.get(cid, event.get('timestamp', '?'))
 
-sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
+sorted_convs = sorted(visible_convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
 
 for event in sorted_convs:
     tags = event.get('tags', {})
