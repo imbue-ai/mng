@@ -226,8 +226,10 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
                         pass
         for tracked_thread in self._threads:
             remaining_timeout = self._get_remaining_timeout(start_time, timeout_seconds)
+            # Thread.join(timeout=float("inf")) raises OverflowError, so convert to None (wait forever)
+            join_timeout = None if remaining_timeout == float("inf") else remaining_timeout
             try:
-                tracked_thread.thread.join(timeout=remaining_timeout)
+                tracked_thread.thread.join(timeout=join_timeout)
             except Exception:
                 pass
             if tracked_thread.thread.is_alive():
@@ -254,13 +256,13 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         elapsed_seconds = time.monotonic() - start_time_seconds
         return max(0, total_timeout_seconds - elapsed_seconds)
 
-    def _raise_if_not_active(self):
+    def _raise_if_not_active(self) -> None:
         if self._state != ConcurrencyGroupState.ACTIVE:
             raise InvalidConcurrencyGroupStateError(
                 f"Concurrency group `{self.name}` not active: the state is {self._state}."
             )
 
-    def _raise_if_any_strands_or_ancestors_failed(self):
+    def _raise_if_any_strands_or_ancestors_failed(self) -> None:
         exceptions = []
         with self._lock:
             threads = self._threads[:]
@@ -294,7 +296,7 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
                 exceptions,
             )
 
-    def raise_if_any_strands_or_ancestors_failed_or_is_shutting_down(self):
+    def raise_if_any_strands_or_ancestors_failed_or_is_shutting_down(self) -> None:
         """
         Check all the registered strands and raise an exception if any of them failed.
 
@@ -414,16 +416,19 @@ class ConcurrencyGroup(MutableModel, AbstractContextManager):
         When `is_checked_by_group` is True, the process will be checked for failure when the concurrency group exits
         or whenever its methods are called.
         """
-        process_factory = lambda: run_background(
-            command,
-            cwd=Path(cwd) if cwd is not None else None,
-            env=env,
-            is_checked=is_checked_by_group,
-            timeout=timeout,
-            shutdown_event=self._maybe_wrap_external_shutdown_event(shutdown_event),
-            process_class=RunningProcessWithOnLineCallback,
-            process_class_kwargs={"on_line_callback": on_output},
-        )
+
+        def process_factory():
+            return run_background(
+                command,
+                cwd=Path(cwd) if cwd is not None else None,
+                env=env,
+                is_checked=is_checked_by_group,
+                timeout=timeout,
+                shutdown_event=self._maybe_wrap_external_shutdown_event(shutdown_event),
+                process_class=RunningProcessWithOnLineCallback,
+                process_class_kwargs={"on_line_callback": on_output},
+            )
+
         return self.start_background_process_from_factory(process_factory)
 
     def run_process_to_completion(

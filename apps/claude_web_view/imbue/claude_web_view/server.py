@@ -1,5 +1,3 @@
-"""FastAPI server serving frontend + SSE endpoint."""
-
 import asyncio
 import json
 import mimetypes
