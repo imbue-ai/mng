@@ -30,13 +30,11 @@ def _reset_loguru() -> Generator[None, None, None]:
 
 
 def write_changelings_settings_toml(base_dir: Path, content: str) -> Path:
-    """Write a settings.toml file under .changelings/ for watcher tests.
+    """Write changelings.toml in the given directory for watcher tests.
 
     Returns the path to the written file.
     """
-    changelings_dir = base_dir / ".changelings"
-    changelings_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = changelings_dir / "settings.toml"
+    settings_path = base_dir / "changelings.toml"
     settings_path.write_text(content)
     return settings_path
 
@@ -151,8 +149,6 @@ class ChatScriptEnv:
 
         self.work_dir = temp_host_dir / "work"
         self.work_dir.mkdir(parents=True)
-        self.changelings_dir = self.work_dir / ".changelings"
-        self.changelings_dir.mkdir(parents=True)
 
         self.env = os.environ.copy()
         self.env["MNG_AGENT_STATE_DIR"] = str(self.agent_state_dir)
@@ -160,8 +156,8 @@ class ChatScriptEnv:
         self.env["MNG_AGENT_WORK_DIR"] = str(self.work_dir)
 
     def set_default_model(self, model: str) -> None:
-        """Write the chat model to .changelings/settings.toml in the work dir."""
-        (self.changelings_dir / "settings.toml").write_text(f'[chat]\nmodel = "{model}"\n')
+        """Write the chat model to changelings.toml in the work dir."""
+        (self.work_dir / "changelings.toml").write_text(f'[chat]\nmodel = "{model}"\n')
 
     def run(self, *args: str, timeout: int = 10) -> subprocess.CompletedProcess[str]:
         """Run chat.sh with the given arguments."""

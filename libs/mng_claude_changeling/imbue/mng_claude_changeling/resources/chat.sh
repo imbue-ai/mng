@@ -57,7 +57,7 @@ get_default_model() {
     local _model
     _model=$(python3 -c "
 import tomllib, pathlib, sys
-p = pathlib.Path('${MNG_AGENT_WORK_DIR:-}/.changelings/settings.toml')
+p = pathlib.Path('${MNG_AGENT_WORK_DIR:-}/changelings.toml')
 if p.exists():
     try:
         s = tomllib.loads(p.read_text())

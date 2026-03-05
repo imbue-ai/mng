@@ -99,10 +99,6 @@ class ClaudeChangelingConfig(ClaudeAgentConfig):
         default=True,
         description="Whether to install llm and its plugins (llm-anthropic, llm-live-chat) during provisioning.",
     )
-    changelings_dir_name: str = Field(
-        default=".changelings",
-        description="Name of the changelings configuration directory in the agent repo.",
-    )
     active_role: str = Field(
         default="thinking",
         description="The active role for this agent. Determines which role directory "
@@ -189,7 +185,7 @@ class ClaudeChangelingAgent(ClaudeAgent):
         """Provision the changeling agent with llm toolchain and watcher infrastructure.
 
         Extends ClaudeAgent provisioning with:
-        1. Settings loading from .changelings/settings.toml
+        1. Settings loading from changelings.toml
         2. Talking role constraint validation (no skills or settings allowed)
         3. llm + plugin installation
         4. Default content (GLOBAL.md, role prompts, role .claude/ config)
@@ -205,8 +201,8 @@ class ClaudeChangelingAgent(ClaudeAgent):
         config = self._get_changeling_config()
         active_role = config.active_role
 
-        # Load settings from .changelings/settings.toml (falls back to defaults)
-        settings = load_settings_from_host(host, self.work_dir, config.changelings_dir_name)
+        # Load settings from changelings.toml (falls back to defaults)
+        settings = load_settings_from_host(host, self.work_dir)
         provisioning = settings.provisioning
 
         warn_if_mng_unavailable(host, mng_ctx.pm, provisioning)

@@ -6,17 +6,17 @@ Run your own persistent, specialized AI agents
 
 changelings is an application that makes it easy to create and deploy persistent, specialized AI agents that are *fully* yours.
 
-Each changeling is a specific sub-type of `mng` agent. While `mng` agents can be any process running in a tmux session, changelings additionally *must*:
+Each changeling is a collection of persistent `mng` agents that, together, form a single higher-level "agent" from the perspective of the end-user. A changeling *must*:
 
 1. Serve a web interface (so that it is easy for users to interact with them)
-2. Be conversational (able to receive messages from the user and generate responses)
+2. Support chat input/output (able to receive messages from the user and generate responses)
 
 Other than that, the design of each changeling is completely open -- you can customize the agent's behavior, the data it has access to, and the way it responds to messages in any way you want.
 
 ## Terminology
 
-- **changeling**: a persistent `mng` agent that serves a web interface and is conversational. Each changeling is identified by its `AgentId` and is labeled with `changeling=true` for discovery via `mng list`. For local deployments, the changeling has a repo directory at `~/.changelings/<agent-id>/` containing a `.mng/settings.toml` with an "entrypoint" create template, and the agent runs directly in this directory via `mng create --in-place`. For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider>`.
-- **forwarding server**: a local process (started via `changeling forward`) that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Users access all their changelings through such gateways.
+- **changeling**: a collection of persistent `mng` agents that serve a web interface and support chat input/output. Each changeling is identified by its `AgentId` and is labeled with `changeling=true` for discovery via `mng list`. The individual agents within a changeling each fulfill specific roles (e.g., thinking, working, verifying) and are coordinated through shared event streams. For local deployments, the changeling has a repo directory at `~/.changelings/<agent-id>/` containing a `.mng/settings.toml` with an "entrypoint" create template. For remote deployments (Modal, Docker), a temporary repo is prepared and the code is copied to the remote host via `mng create --in <provider>`.
+- **forwarding server**: a local process (started via `changeling forward`) that handles authentication and proxies web traffic from the user's browser to the appropriate changeling's web server. Since a user may have *multiple changelings* running simultaneously, the forwarding server multiplexes access to all of them through a single local endpoint, handling discovery, routing, and authentication centrally.
 
 ## Architecture
 

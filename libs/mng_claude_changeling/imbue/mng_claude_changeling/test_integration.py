@@ -604,10 +604,9 @@ def test_event_watcher_reads_settings_for_watched_sources(
     """Verify that the event watcher script reads settings from settings.toml."""
 
     work_dir = local_shell_host.host_dir / "work"
-    changelings_dir = work_dir / ".changelings"
-    changelings_dir.mkdir(parents=True)
+    work_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write a settings.toml with custom watcher settings (both legacy and new fields)
+    # Write changelings.toml with custom watcher settings (both legacy and new fields)
     settings_content = (
         "[watchers]\n"
         'watched_event_sources = ["messages", "stop"]\n'
@@ -617,13 +616,14 @@ def test_event_watcher_reads_settings_for_watched_sources(
         "max_event_messages_per_minute = 20\n"
         "high_rate_warning_threshold_per_minute = 15\n"
     )
-    (changelings_dir / "settings.toml").write_text(settings_content)
+    settings_path = work_dir / "changelings.toml"
+    settings_path.write_text(settings_content)
 
     # The event watcher reads settings via a Python snippet at startup.
     # Test that the Python settings-reading logic produces the expected output.
     settings_reader = f"""
 import tomllib, pathlib, json
-p = pathlib.Path('{changelings_dir}/settings.toml')
+p = pathlib.Path('{settings_path}')
 s = tomllib.loads(p.read_text()) if p.exists() else {{}}
 w = s.get('watchers', {{}})
 print(json.dumps({{

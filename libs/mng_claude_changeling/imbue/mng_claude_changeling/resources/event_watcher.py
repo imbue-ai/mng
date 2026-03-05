@@ -16,7 +16,7 @@ Usage: python3 event_watcher.py
 
 Environment:
   MNG_AGENT_STATE_DIR  - agent state directory (contains events/)
-  MNG_AGENT_WORK_DIR   - agent working directory (contains .changelings/)
+  MNG_AGENT_WORK_DIR   - agent working directory (contains changelings.toml)
   MNG_AGENT_NAME       - name of the primary agent to send messages to
   MNG_HOST_DIR         - host data directory (for log output)
 """

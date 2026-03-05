@@ -156,11 +156,11 @@ def read_event_ids_from_jsonl(file_path: Path) -> set[str]:
 
 
 def load_watchers_section(agent_work_dir: Path) -> dict[str, Any]:
-    """Load the [watchers] section from .changelings/settings.toml.
+    """Load the [watchers] section from changelings.toml.
 
     Returns an empty dict on any error (missing file, corrupt TOML, etc.).
     """
-    settings_path = agent_work_dir / ".changelings" / "settings.toml"
+    settings_path = agent_work_dir / "changelings.toml"
     try:
         if not settings_path.exists():
             return {}
