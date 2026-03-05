@@ -171,7 +171,7 @@ def test_authenticate_with_valid_code_sets_cookie_and_redirects(tmp_path: Path) 
     assert cookie_name in response.cookies
 
 
-def test_authenticate_redirects_to_agent_servers_page(tmp_path: Path) -> None:
+def test_authenticate_redirects_to_agent_default_page(tmp_path: Path) -> None:
     client, auth_store, agent_id = _setup_test_server(tmp_path)
     code = OneTimeCode(f"auth-code-{AgentId()}")
     auth_store.add_one_time_code(agent_id=agent_id, code=code)
