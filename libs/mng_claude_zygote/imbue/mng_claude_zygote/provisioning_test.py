@@ -585,18 +585,13 @@ def test_create_event_log_directories_creates_all_source_dirs() -> None:
 # -- configure_llm_user_path tests --
 
 
-def test_configure_llm_user_path_creates_dir_and_writes_env() -> None:
+def test_configure_llm_user_path_creates_dir() -> None:
     host = StubHost()
     agent_state_dir = Path("/tmp/mng-test/agents/agent-123")
     configure_llm_user_path(cast(Any, host), agent_state_dir, _DEFAULT_PROVISIONING)
 
     # Should create llm_data directory
     assert any("llm_data" in c and "mkdir" in c for c in host.executed_commands)
-
-    # Should append LLM_USER_PATH to the agent env file
-    env_commands = [c for c in host.executed_commands if "LLM_USER_PATH" in c and "/env" in c]
-    assert len(env_commands) == 1
-    assert str(agent_state_dir / "llm_data") in env_commands[0]
 
 
 # -- create_system_notifications_conversation tests --
@@ -629,6 +624,9 @@ def test_create_system_notifications_conversation_runs_inject_and_records_event(
     assert len(event_commands) == 1
     assert "conversation_created" in event_commands[0]
     assert "fake-conv-id-123" in event_commands[0]
+    # Should be tagged as internal
+    assert '"internal"' in event_commands[0]
+    assert '"system_notifications"' in event_commands[0]
 
 
 def test_create_system_notifications_conversation_skips_event_on_inject_failure() -> None:
