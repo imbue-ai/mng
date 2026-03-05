@@ -152,6 +152,9 @@ if msg_file.exists():
 
 result = []
 for cid, event in convs.items():
+    # Skip internal conversations (e.g. system_notifications)
+    if 'internal' in event.get('tags', {}):
+        continue
     result.append({
         'conversation_id': cid,
         'model': event.get('model', '?'),

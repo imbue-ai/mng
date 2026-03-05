@@ -73,7 +73,7 @@ print('claude-opus-4.6')
         log_error "Failed to load settings: $(cat "$_stderr_file")"
     fi
     rm -f "$_stderr_file"
-    echo "${_model:-claude-opus-4-6}"
+    echo "${_model:-claude-opus-4.6}"
 }
 
 generate_cid() {
@@ -82,18 +82,25 @@ generate_cid() {
 
 # Append a conversation_created event to events/conversations/events.jsonl
 # Uses the standard envelope: timestamp, type, event_id, source + conversation fields
+# Optional 4th argument is a JSON object of tags (e.g. '{"daily":"2026-03-04"}')
 append_conversation_event() {
     local cid="$1"
     local model="$2"
     local event_type="${3:-conversation_created}"
+    local tags="${4:-}"
     local timestamp
     timestamp=$(iso_timestamp_ns)
     local event_id
     event_id=$(generate_event_id)
     mkdir -p "$(dirname "$CONVERSATIONS_EVENTS")"
-    printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s"}\n' \
-        "$timestamp" "$event_type" "$event_id" "$cid" "$model" >> "$CONVERSATIONS_EVENTS"
-    log "Appended event: type=$event_type cid=$cid model=$model event_id=$event_id"
+    if [ -n "$tags" ]; then
+        printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s","tags":%s}\n' \
+            "$timestamp" "$event_type" "$event_id" "$cid" "$model" "$tags" >> "$CONVERSATIONS_EVENTS"
+    else
+        printf '{"timestamp":"%s","type":"%s","event_id":"%s","source":"conversations","conversation_id":"%s","model":"%s"}\n' \
+            "$timestamp" "$event_type" "$event_id" "$cid" "$model" >> "$CONVERSATIONS_EVENTS"
+    fi
+    log "Appended event: type=$event_type cid=$cid model=$model event_id=$event_id tags=$tags"
 }
 
 build_tool_args() {
@@ -171,21 +178,32 @@ new_conversation() {
         tool_args=$(build_tool_args)
         log "Starting live-chat session: model=$model tool_args='$tool_args'"
 
-        # llm live-chat prints "PID: <pid> | Conversation: <id>" to stdout
-        # before the interactive session. We use a trap + background watcher
-        # to capture this from the llm logs database once it starts, so the
-        # conversation appears in our event logs for the web UI.
+        # llm live-chat creates a conversation in the llm database. We need
+        # to register the correct conversation ID in our events file. Record
+        # the current max rowid so the background process can find the NEW
+        # conversation (rather than picking up a stale one from a prior session).
+        local _llm_db _max_rowid
+        _llm_db=$(llm logs path 2>/dev/null || echo "")
+        _max_rowid=0
+        if [ -n "$_llm_db" ] && [ -f "$_llm_db" ]; then
+            _max_rowid=$(sqlite3 "$_llm_db" "SELECT COALESCE(MAX(rowid), 0) FROM conversations" 2>/dev/null || echo "0")
+        fi
+
         (
-            # Wait for llm to create its conversation in the database
-            sleep 2
-            _LLM_DB=$(llm logs path 2>/dev/null || echo "")
-            if [ -n "$_LLM_DB" ] && [ -f "$_LLM_DB" ]; then
-                _LATEST_CID=$(sqlite3 "$_LLM_DB" "SELECT id FROM conversations ORDER BY rowid DESC LIMIT 1" 2>/dev/null || true)
-                if [ -n "$_LATEST_CID" ]; then
-                    append_conversation_event "$_LATEST_CID" "$model" "conversation_created"
-                    log "Recorded conversation event for llm-generated cid=$_LATEST_CID"
+            # Poll for a conversation created after we started (rowid > saved).
+            for _i in $(seq 1 60); do
+                sleep 1
+                if [ -n "$_llm_db" ] && [ -f "$_llm_db" ]; then
+                    _new_cid=$(sqlite3 "$_llm_db" \
+                        "SELECT id FROM conversations WHERE rowid > $_max_rowid ORDER BY rowid ASC LIMIT 1" \
+                        2>/dev/null || true)
+                    if [ -n "$_new_cid" ]; then
+                        append_conversation_event "$_new_cid" "$model" "conversation_created"
+                        log "Recorded conversation event for new cid=$_new_cid (rowid > $_max_rowid)"
+                        break
+                    fi
                 fi
-            fi
+            done
         ) &
 
         # shellcheck disable=SC2086
@@ -275,13 +293,18 @@ if Path(messages_file).exists():
             print(f'WARNING: malformed message event line: {e}', file=sys.stderr)
             continue
 
-for cid, event in convs.items():
+# Filter out internal conversations (tagged with 'internal')
+visible_convs = {cid: e for cid, e in convs.items() if 'internal' not in e.get('tags', {})}
+
+for cid, event in visible_convs.items():
     event['updated_at'] = updated_at.get(cid, event.get('timestamp', '?'))
 
-sorted_convs = sorted(convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
+sorted_convs = sorted(visible_convs.values(), key=lambda r: r.get('updated_at', ''), reverse=True)
 
 for event in sorted_convs:
-    print(f\"  {event.get('conversation_id','?')}  model={event.get('model', '?')}  created_at={event.get('timestamp', '?')}  updated_at={event.get('updated_at', '?')}\")
+    tags = event.get('tags', {})
+    tags_str = '  tags=' + json.dumps(tags) if tags else ''
+    print(f\"  {event.get('conversation_id','?')}  model={event.get('model', '?')}  created_at={event.get('timestamp', '?')}  updated_at={event.get('updated_at', '?')}{tags_str}\")
 "
 
     log "Listed conversations"
