@@ -692,8 +692,9 @@ def test_ensure_claude_dialogs_dismissed_sets_all(tmp_path: Path) -> None:
     updated = json.loads(config_file.read_text())
     assert updated["effortCalloutDismissed"] is True
     assert updated["hasCompletedOnboarding"] is True
-    assert updated["bypassPermissionsModeAccepted"] is True
     assert updated["projects"][str(source_path)]["hasTrustDialogAccepted"] is True
+    # bypassPermissionsModeAccepted is NOT set (Claude Code resets it;
+    # skipDangerousModePermissionPrompt in settings.json handles this instead)
 
 
 def test_functions_work_with_non_global_config_path(tmp_path: Path) -> None:

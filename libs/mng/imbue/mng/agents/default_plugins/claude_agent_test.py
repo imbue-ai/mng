@@ -1063,10 +1063,6 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
             "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_onboarding_completion",
             return_value=True,
         ) as mock_onboarding_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_bypass_permissions",
-            return_value=True,
-        ) as mock_bypass_prompt,
     ):
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
@@ -1074,7 +1070,6 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
     mock_trust_prompt.assert_called_once_with(source_path)
     mock_effort_prompt.assert_called_once()
     mock_onboarding_prompt.assert_called_once()
-    mock_bypass_prompt.assert_called_once()
 
     # Verify dialogs were resolved in the global config (user intent)
     config_path = Path.home() / ".claude.json"
@@ -1082,7 +1077,6 @@ def test_provision_prompts_for_all_dialogs_when_interactive(
     assert str(source_path.resolve()) in config["projects"]
     assert config["effortCalloutDismissed"] is True
     assert config["hasCompletedOnboarding"] is True
-    assert config["bypassPermissionsModeAccepted"] is True
 
     # Verify worktree trust was added to the per-agent config
     per_agent_config_path = agent.get_claude_config_dir() / ".claude.json"
@@ -1506,7 +1500,7 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
         interactive_mng_ctx,
     )
 
-    # Write trust but without effortCalloutDismissed, hasCompletedOnboarding, or bypassPermissionsModeAccepted
+    # Write trust but without effortCalloutDismissed or hasCompletedOnboarding
     _write_claude_trust_without_dialog_dismissed(source_path)
 
     with (
@@ -1518,24 +1512,18 @@ def test_provision_prompts_for_dialog_dismissal_when_interactive(
             "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_onboarding_completion",
             return_value=True,
         ) as mock_onboarding_prompt,
-        patch(
-            "imbue.mng.agents.default_plugins.claude_agent._prompt_user_for_bypass_permissions",
-            return_value=True,
-        ) as mock_bypass_prompt,
     ):
         agent.provision(host=host, options=_WORKTREE_OPTIONS, mng_ctx=interactive_mng_ctx)
 
     # Verify user was prompted for all undismissed dialogs
     mock_effort_prompt.assert_called_once()
     mock_onboarding_prompt.assert_called_once()
-    mock_bypass_prompt.assert_called_once()
 
     # Verify all dialogs were dismissed in the global config
     config_path = Path.home() / ".claude.json"
     config = json.loads(config_path.read_text())
     assert config["effortCalloutDismissed"] is True
     assert config["hasCompletedOnboarding"] is True
-    assert config["bypassPermissionsModeAccepted"] is True
 
 
 def test_provision_raises_when_user_declines_dialog_dismissal(

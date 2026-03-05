@@ -27,11 +27,9 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
 from imbue.mng.agents.base_agent import BaseAgent
-from imbue.mng.agents.default_plugins.claude_config import ClaudeBypassPermissionsNotAcceptedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeDirectoryNotTrustedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeEffortCalloutNotDismissedError
 from imbue.mng.agents.default_plugins.claude_config import ClaudeOnboardingNotCompletedError
-from imbue.mng.agents.default_plugins.claude_config import accept_bypass_permissions
 from imbue.mng.agents.default_plugins.claude_config import add_claude_trust_for_path
 from imbue.mng.agents.default_plugins.claude_config import build_readiness_hooks_config
 from imbue.mng.agents.default_plugins.claude_config import check_claude_dialogs_dismissed
@@ -40,7 +38,6 @@ from imbue.mng.agents.default_plugins.claude_config import dismiss_effort_callou
 from imbue.mng.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mng.agents.default_plugins.claude_config import find_project_config
 from imbue.mng.agents.default_plugins.claude_config import get_claude_config_path
-from imbue.mng.agents.default_plugins.claude_config import is_bypass_permissions_accepted
 from imbue.mng.agents.default_plugins.claude_config import is_effort_callout_dismissed
 from imbue.mng.agents.default_plugins.claude_config import is_onboarding_completed
 from imbue.mng.agents.default_plugins.claude_config import is_source_directory_trusted
@@ -357,17 +354,6 @@ def _prompt_user_for_onboarding_completion() -> bool:
     return click.confirm("Would you like to update ~/.claude.json to skip onboarding?", default=True)
 
 
-def _prompt_user_for_bypass_permissions() -> bool:
-    """Prompt the user to dismiss the Claude Code dangerous-mode safety warning."""
-    logger.info(
-        "\nClaude Code shows a one-time safety warning when running in dangerous mode\n"
-        "(permissions bypass). mng needs to dismiss this warning in ~/.claude.json\n"
-        "so that it doesn't interfere with automated input.\n"
-        "This does NOT change your permissions settings -- it only skips the warning.\n",
-    )
-    return click.confirm("Would you like to update ~/.claude.json to dismiss this warning?", default=True)
-
-
 def _claude_json_has_primary_api_key() -> bool:
     """Check if ~/.claude.json contains a non-empty primaryApiKey."""
     claude_json_path = Path.home() / ".claude.json"
@@ -461,13 +447,13 @@ def _provision_keychain_credentials(config_dir: Path, concurrency_group: Concurr
     if api_key is not None:
         target = f"Claude Code{suffix}"
         if _write_macos_keychain_credential(target, api_key, concurrency_group):
-            logger.info("Copied API key to per-agent keychain label {!r}", target)
+            logger.debug("Copied API key to per-agent keychain label {!r}", target)
 
     credentials = _read_macos_keychain_credential("Claude Code-credentials", concurrency_group)
     if credentials is not None:
         target = f"Claude Code-credentials{suffix}"
         if _write_macos_keychain_credential(target, credentials, concurrency_group):
-            logger.info("Copied OAuth credentials to per-agent keychain label {!r}", target)
+            logger.debug("Copied OAuth credentials to per-agent keychain label {!r}", target)
 
 
 def _provision_file_credentials(host: OnlineHostInterface, config_dir: Path) -> None:
@@ -994,10 +980,10 @@ class ClaudeAgent(BaseAgent):
                 raise ClaudeOnboardingNotCompletedError()
             complete_onboarding(global_config_path)
 
-        if not is_bypass_permissions_accepted(global_config_path):
-            if not mng_ctx.is_interactive or not _prompt_user_for_bypass_permissions():
-                raise ClaudeBypassPermissionsNotAcceptedError()
-            accept_bypass_permissions(global_config_path)
+        # Note: bypassPermissionsModeAccepted is NOT checked here because Claude Code
+        # periodically resets it to null in ~/.claude.json, causing repeated prompts.
+        # The bypass-permissions warning is reliably suppressed by
+        # skipDangerousModePermissionPrompt in settings.json instead.
 
     def _setup_per_agent_config_dir(
         self,
