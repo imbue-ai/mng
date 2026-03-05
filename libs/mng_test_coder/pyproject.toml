@@ -1,7 +1,7 @@
 [project]
 name = "mng-test-coder"
 version = "0.1.0"
-description = "Test agent type plugin for mng - a changeling agent that uses the echo model for testing without API keys"
+description = "Test agent type plugin for mng - a changeling agent that uses the matched-responses model for testing without API keys"
 requires-python = ">=3.11"
 dependencies = [
     "mng==0.1.4",

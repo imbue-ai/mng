@@ -216,6 +216,7 @@ def find_agent(agent_name: str) -> dict[str, object] | None:
         "local",
     )
     if result.returncode != 0:
+        logger.debug("mng list failed (rc={}): {}", result.returncode, result.stderr[:200])
         return None
     agents = parse_mng_list_json(result.stdout)
     if agents:

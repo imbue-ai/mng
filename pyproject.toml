@@ -71,6 +71,7 @@ addopts = [
   "--cov=imbue.mng_recursive",
   "--cov=imbue.mng_changeling_chat",
   "--cov=imbue.mng_test_coder",
+  "--cov=llm_matched_responses",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",
@@ -131,7 +132,7 @@ exclude = ["scripts/style_guide.py", "contrib/"]
 extra-paths = ["scripts"]
 
 [tool.coverage.run]
-source = ["imbue"]
+source = ["imbue", "llm_matched_responses"]
 parallel = true
 concurrency = ["multiprocessing", "thread"]
 omit = [
