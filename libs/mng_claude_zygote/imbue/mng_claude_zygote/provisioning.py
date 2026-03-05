@@ -553,16 +553,13 @@ def configure_llm_user_path(
     agent_state_dir: Path,
     settings: ProvisioningSettings,
 ) -> None:
-    """Set LLM_USER_PATH so each agent gets its own llm database.
+    """Create the per-agent llm data directory.
 
-    Creates ``<agent_state_dir>/llm_data/`` and appends
-    ``LLM_USER_PATH=<path>`` to the agent's environment file so that
-    all processes on this agent (chat.sh, conversation_watcher, llm commands)
-    use a unique llm data directory.
-
-    The env var is written to the agent environment file rather than the
-    host-level env, so multiple agents on the same host each get their
-    own llm database.
+    Creates ``<agent_state_dir>/llm_data/`` so that llm commands have a
+    unique database directory. The ``LLM_USER_PATH`` env var itself is
+    set by the host's ``_collect_agent_env_vars`` (in host.py), which
+    runs after ``agent.provision()`` and writes it to the agent env file
+    that gets sourced by all shell processes.
     """
     llm_data_dir = agent_state_dir / "llm_data"
     _execute_with_timing(
@@ -572,16 +569,7 @@ def configure_llm_user_path(
         warn_threshold=settings.fs_warn_threshold_seconds,
         label="mkdir llm_data",
     )
-    # Write to the agent's env file (sourced by shell processes via
-    # build_source_env_shell_commands; the file is <agent_state_dir>/env)
-    env_file = agent_state_dir / "env"
-    env_line = f"LLM_USER_PATH={llm_data_dir}\n"
-    with log_span("Setting LLM_USER_PATH={}", llm_data_dir):
-        host.execute_command(
-            f"echo {shlex.quote(env_line.rstrip())} >> {shlex.quote(str(env_file))}",
-            timeout_seconds=settings.fs_hard_timeout_seconds,
-        )
-    logger.info("Set LLM_USER_PATH={}", llm_data_dir)
+    logger.info("Created LLM data directory: {}", llm_data_dir)
 
 
 def _record_conversation_event(
@@ -694,7 +682,9 @@ def create_system_notifications_conversation(
     if cid is None:
         return
 
-    _record_conversation_event(host, agent_state_dir, settings, cid=cid, model=model)
+    _record_conversation_event(
+        host, agent_state_dir, settings, cid=cid, model=model, tags={"internal": "system_notifications"}
+    )
     logger.info("Created system_notifications conversation: cid={}", cid)
 
 
