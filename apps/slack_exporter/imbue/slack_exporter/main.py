@@ -15,13 +15,21 @@ from imbue.slack_exporter.latchkey import call_slack_api
 from imbue.slack_exporter.primitives import SlackChannelName
 
 
+def _parse_iso_datetime_as_utc(value: str) -> datetime:
+    """Parse an ISO datetime string, treating naive datetimes as UTC."""
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def _parse_channel_spec(spec: str) -> ChannelConfig:
     """Parse a channel spec like 'general' or 'general:2024-01-01'."""
     parts = spec.split(":", maxsplit=1)
     name = parts[0].lstrip("#")
     oldest: datetime | None = None
     if len(parts) == 2:
-        oldest = datetime.fromisoformat(parts[1]).replace(tzinfo=timezone.utc)
+        oldest = _parse_iso_datetime_as_utc(parts[1])
     return ChannelConfig(name=SlackChannelName(name), oldest=oldest)
 
 
@@ -72,7 +80,7 @@ Examples:
     )
 
     channel_configs = tuple(_parse_channel_spec(spec) for spec in args.channels)
-    default_oldest = datetime.fromisoformat(args.since).replace(tzinfo=timezone.utc)
+    default_oldest = _parse_iso_datetime_as_utc(args.since)
 
     settings = ExporterSettings(
         channels=channel_configs,
