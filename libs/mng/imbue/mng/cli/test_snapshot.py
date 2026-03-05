@@ -231,7 +231,7 @@ def _create_modal_agent(
                 "mng",
                 "create",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 3600",
                 "--in",
                 "modal",

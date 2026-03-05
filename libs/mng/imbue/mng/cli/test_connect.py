@@ -104,7 +104,7 @@ def test_connect_via_cli_group(
                 "create",
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 918273",
                 "--source",
                 str(temp_work_dir),
@@ -151,7 +151,7 @@ def test_connect_start_restarts_stopped_agent(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 736291",
                 "--source",
                 str(temp_work_dir),
@@ -205,7 +205,7 @@ def test_connect_no_start_raises_error_for_stopped_agent(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 847362",
                 "--source",
                 str(temp_work_dir),

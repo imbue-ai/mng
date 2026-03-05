@@ -89,7 +89,7 @@ def test_rename_running_agent_renames_tmux_session(
             [
                 "--name",
                 agent_name,
-                "--agent-cmd",
+                "--command",
                 "sleep 493817",
                 "--source",
                 str(temp_work_dir),
