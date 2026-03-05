@@ -25,6 +25,10 @@ from imbue.mng.primitives import AgentId
 SERVERS_LOG_FILENAME: Final[str] = "servers/events.jsonl"
 
 
+class ServerLogParseError(ValueError):
+    """Raised when a server log record cannot be parsed."""
+
+
 class ServerLogRecord(FrozenModel):
     """A record of a server started by an agent, as written to servers/events.jsonl.
 
@@ -167,7 +171,7 @@ def parse_server_log_record(raw: dict[str, object]) -> ServerLogRecord:
     server = raw.get("server")
     url = raw.get("url")
     if not server or not url:
-        raise ValueError(f"Server log record missing required fields (server={server!r}, url={url!r})")
+        raise ServerLogParseError(f"Server log record missing required fields (server={server!r}, url={url!r})")
     return ServerLogRecord(server=ServerName(str(server)), url=str(url))
 
 
@@ -272,9 +276,9 @@ class MngStreamManager(MutableModel):
         """Stop all streaming subprocesses."""
         self._cg.__exit__(None, None, None)
 
-    def _on_list_stream_output(self, line: str, is_stderr: bool) -> None:
+    def _on_list_stream_output(self, line: str, is_stdout: bool) -> None:
         """Handle a line of output from mng list --stream."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -290,14 +294,20 @@ class MngStreamManager(MutableModel):
 
         Both event types trigger a resolver update with the current SSH mappings.
         """
-        event = parse_discovery_event_line(line)
+        try:
+            event = parse_discovery_event_line(line)
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error("Failed to parse discovery event line: {} (line: {})", e, line[:200])
+            return
 
         if isinstance(event, FullDiscoverySnapshotEvent):
             self._handle_full_snapshot(event)
         elif isinstance(event, HostSSHInfoEvent):
             self._handle_host_ssh_info(event)
+        elif event is None:
+            logger.warning("Unrecognized discovery event line: {}", line[:200])
         else:
-            return
+            logger.trace("Ignoring non-snapshot discovery event: {}", type(event).__name__)
 
     def _handle_full_snapshot(self, event: FullDiscoverySnapshotEvent) -> None:
         """Update agent list and agent-to-host mapping from a full snapshot."""
@@ -362,9 +372,9 @@ class MngStreamManager(MutableModel):
             for aid_str in new_agent_ids - previously_known:
                 self._start_events_stream(AgentId(aid_str))
 
-    def _on_events_stream_output(self, line: str, is_stderr: bool, agent_id: AgentId) -> None:
+    def _on_events_stream_output(self, line: str, is_stdout: bool, agent_id: AgentId) -> None:
         """Handle a line of output from mng events --follow for a specific agent."""
-        if is_stderr:
+        if not is_stdout:
             return
         stripped = line.strip()
         if not stripped:
@@ -388,6 +398,6 @@ class MngStreamManager(MutableModel):
 
         process = self._cg.run_process_in_background(
             command=[self.mng_binary, "events", aid_str, SERVERS_LOG_FILENAME, "--follow", "--quiet"],
-            on_output=lambda line, is_stderr: self._on_events_stream_output(line, is_stderr, agent_id),
+            on_output=lambda line, is_stdout: self._on_events_stream_output(line, is_stdout, agent_id),
         )
         self._events_processes[aid_str] = process
