@@ -617,7 +617,7 @@ def _process_host_with_error_handling(
 
 
 @pure
-def _agent_details_to_cel_context(agent: AgentDetails) -> dict[str, Any]:
+def agent_details_to_cel_context(agent: AgentDetails) -> dict[str, Any]:
     """Convert an AgentDetails object to a CEL-friendly dict.
 
     Converts the agent into a flat dictionary suitable for CEL evaluation,
@@ -671,7 +671,7 @@ def _apply_cel_filters(
     Returns True if the agent should be included (matches all include filters
     and doesn't match any exclude filters).
     """
-    context = _agent_details_to_cel_context(agent)
+    context = agent_details_to_cel_context(agent)
     return apply_cel_filters_to_context(
         context=context,
         include_filters=include_filters,
