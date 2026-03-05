@@ -96,32 +96,22 @@ def _sid_export_for(uuid: UUID) -> str:
     )
 
 
-def _init_git_with_gitignore(work_dir: Path) -> None:
-    """Initialize a git repo in work_dir with .claude/settings.local.json gitignored."""
+def _init_git(work_dir: Path) -> None:
+    """Initialize a git repo in work_dir."""
     init_git_repo(work_dir, initial_commit=False)
-    (work_dir / ".gitignore").write_text(".claude/settings.local.json\n")
 
 
 def _setup_git_worktree(tmp_path: Path) -> tuple[Path, Path]:
     """Set up a git repo and worktree for trust extension testing.
 
-    Creates a source repo with .gitignore (for readiness hooks) and a worktree
-    branched from it. Requires setup_git_config fixture for git user config.
+    Creates a source repo and a worktree branched from it.
+    Requires setup_git_config fixture for git user config.
 
     Returns (source_path, worktree_path).
     """
     source = tmp_path / "source"
     source.mkdir()
     init_git_repo(source, initial_commit=True)
-
-    # Add .gitignore (needed by _configure_readiness_hooks in provision)
-    (source / ".gitignore").write_text(".claude/settings.local.json\n")
-    subprocess.run(["git", "-C", str(source), "add", ".gitignore"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(source), "commit", "-m", "add gitignore"],
-        check=True,
-        capture_output=True,
-    )
 
     # Create worktree from the source repo
     worktree = tmp_path / "worktree"
@@ -592,10 +582,10 @@ def test_uses_paste_detection_send_returns_true(
     assert agent.uses_paste_detection_send() is True
 
 
-def test_configure_readiness_hooks_raises_when_not_gitignored(
+def test_configure_readiness_hooks_adds_git_info_exclude_entry(
     local_provider: LocalProviderInstance, tmp_path: Path, temp_mng_ctx: MngContext
 ) -> None:
-    """_configure_readiness_hooks should raise when .claude/settings.local.json is not gitignored."""
+    """_configure_readiness_hooks should add .claude/settings.local.json to .git/info/exclude."""
     host = local_provider.create_host(HostName("localhost"))
     work_dir = tmp_path / "work"
     work_dir.mkdir()
@@ -615,8 +605,11 @@ def test_configure_readiness_hooks_raises_when_not_gitignored(
         host=host,
     )
 
-    with pytest.raises(PluginMngError, match="not gitignored"):
-        agent._configure_readiness_hooks(host)
+    agent._configure_readiness_hooks(host)
+
+    # Verify the entry was added to .git/info/exclude
+    exclude_content = (work_dir / ".git" / "info" / "exclude").read_text()
+    assert ".claude/settings.local.json" in exclude_content
 
 
 def test_configure_readiness_hooks_skips_gitignore_check_when_not_a_git_repo(
@@ -658,7 +651,7 @@ def test_configure_readiness_hooks_creates_settings_file(
     host = local_provider.create_host(HostName("localhost"))
     work_dir = tmp_path / "work"
     work_dir.mkdir()
-    _init_git_with_gitignore(work_dir)
+    _init_git(work_dir)
 
     agent = ClaudeAgent.model_construct(
         id=AgentId.generate(),
@@ -693,7 +686,7 @@ def test_configure_readiness_hooks_merges_with_existing_settings(
     host = local_provider.create_host(HostName("localhost"))
     work_dir = tmp_path / "work"
     work_dir.mkdir()
-    _init_git_with_gitignore(work_dir)
+    _init_git(work_dir)
 
     # Create existing settings file
     claude_dir = work_dir / ".claude"
@@ -740,7 +733,7 @@ def test_provision_configures_readiness_hooks(
         temp_mng_ctx,
         agent_config=ClaudeAgentConfig(check_installation=False),
     )
-    _init_git_with_gitignore(agent.work_dir)
+    _init_git(agent.work_dir)
 
     options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
     agent.provision(host=host, options=options, mng_ctx=temp_mng_ctx)
@@ -827,7 +820,7 @@ def test_provision_does_not_extend_trust_for_non_worktree(
 ) -> None:
     """provision should not extend trust when not using worktree mode."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-    _init_git_with_gitignore(agent.work_dir)
+    _init_git(agent.work_dir)
 
     options = CreateAgentOptions(
         agent_type=AgentTypeName("claude"),
@@ -846,7 +839,7 @@ def test_provision_does_not_extend_trust_when_no_git_options(
 ) -> None:
     """provision should not extend trust when git options are None."""
     agent, host = make_claude_agent(local_provider, tmp_path, temp_mng_ctx)
-    _init_git_with_gitignore(agent.work_dir)
+    _init_git(agent.work_dir)
 
     options = CreateAgentOptions(agent_type=AgentTypeName("claude"))
 
