@@ -20,6 +20,7 @@ members = [
     "mng-claude-zygote",
     "mng-elena-code",
     "mng-kanpan",
+    "mng-notifications",
     "mng-opencode",
     "mng-pair",
     "mng-recursive",
@@ -1921,6 +1922,21 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
+    { name = "click-option-group", specifier = ">=0.5.6" },
+    { name = "mng", editable = "libs/mng" },
+]
+
+[[package]]
+name = "mng-notifications"
+version = "0.1.0"
+source = { editable = "libs/mng_notifications" }
+dependencies = [
+    { name = "click-option-group" },
+    { name = "mng" },
+]
+
+[package.metadata]
+requires-dist = [
     { name = "click-option-group", specifier = ">=0.5.6" },
     { name = "mng", editable = "libs/mng" },
 ]
