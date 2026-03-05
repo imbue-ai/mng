@@ -6,6 +6,8 @@ This document provides a comprehensive overview of the `mng` monorepo -- its str
 
 `mng` is a CLI tool for creating and managing AI coding agents (Claude Code, Codex, OpenCode, etc.) that can run locally or remotely. It is built on standard open-source tools (SSH, git, tmux, Docker) and is extensible via a plugin system.
 
+The key mission: make it easy to create, deploy, and manage AI coding agents at scale, whether running locally or on remote platforms, with automatic cost optimization through idle detection and shutdown.
+
 ## Monorepo Structure
 
 ```
@@ -23,7 +25,7 @@ mng/
   apps/                          # Applications
     changelings/                 # Experimental autonomous agent scheduler
     claude_web_view/             # Web viewer for Claude Code transcripts (FastAPI + React)
-    sculptor_web/                # Web interface component
+    sculptor_web/                # Web interface for agent management (FastHTML)
   scripts/                       # Build and utility scripts
   style_guide.md                 # Coding standards
   CLAUDE.md                      # Instructions for Claude Code agents working on this repo
@@ -31,6 +33,32 @@ mng/
 ```
 
 All libraries and apps are part of a single **uv workspace** (`[tool.uv.workspace] members = ["libs/*", "apps/*"]`). The shared Python namespace is `imbue.*` (e.g., `imbue.mng`, `imbue.imbue_common`, `imbue.changelings`).
+
+### Package Dependency Graph
+
+```
+imbue-common (foundation: primitives, models, utilities)
+concurrency-group (foundation: structured thread/process management)
+    |
+    v
+mng (core framework)
+    depends on: imbue-common, concurrency-group
+    key deps: click, pydantic, pluggy, urwid, modal, docker, pyinfra
+    |
+    +-- mng-pair (plugin, depends on: mng)
+    +-- mng-opencode (plugin, depends on: mng)
+    +-- mng-schedule (plugin, depends on: mng, imbue-common, modal)
+    +-- mng-kanpan (plugin, depends on: mng)
+    +-- mng-tutor (plugin, depends on: mng)
+    |
+    +-- changelings (app, depends on: mng, imbue-common, concurrency-group, modal)
+    +-- sculptor_web (app, depends on: mng, python-fasthtml)
+
+flexmux (independent utility, depends on: flask, pydantic)
+claude_web_view (independent app, depends on: fastapi, watchfiles)
+```
+
+Dependencies flow cleanly from applications -> plugins -> core framework -> common libraries, with no circular dependencies. This is enforced by import-linter in CI.
 
 ## Core Concepts
 
@@ -51,6 +79,11 @@ The three fundamental abstractions are **agents**, **hosts**, and **providers**:
 3. **Configuration files** -- settings, enabled plugins, etc.
 
 This means no database, no state corruption risk, and multiple `mng` instances can manage the same agents simultaneously.
+
+Agent state lives on the host filesystem:
+- `$MNG_HOST_DIR/agents/$MNG_AGENT_ID/data.json` -- certified agent metadata (command, permissions, labels, start-on-boot)
+- `$MNG_HOST_DIR/activity/` -- activity files for idle detection (mtime-based timestamps per source)
+- Cooperative file locking via `fcntl.flock()` prevents race conditions
 
 ### Conventions
 
@@ -118,6 +151,40 @@ Each layer may only import from layers below it. This is checked in CI.
 **`ProviderBackendInterface`** (`interfaces/provider_backend.py`) -- stateless factory:
 - `get_name()`, `get_description()`, `get_config_class()`, `build_provider_instance()`
 
+**`Volume`** (`interfaces/volume.py`) -- persistent storage abstraction:
+- File operations: `listdir()`, `read_file()`, `write_files()`, `remove_file()`, `remove_directory()`
+- Scoping: `scoped(prefix)` returns a new Volume with path prefix prepended
+- Concrete implementations: ModalVolume, LocalVolume (inherit from `BaseVolume`)
+
+### Core Domain Types
+
+The codebase aggressively uses constrained primitive types to encode domain knowledge at the type level:
+
+**ID Types** (all inherit from `RandomId` in `imbue_common`):
+- `AgentId`, `HostId`, `VolumeId`, `SnapshotId`
+- UUID4-based hex strings with type prefixes, validated at construction time
+
+**Constrained String Types**:
+- `NonEmptyStr`: cannot be empty or whitespace-only
+- `AgentName`, `HostName`, `AgentTypeName`: semantic domain names
+- `CommandString`, `ProviderInstanceName`, `ProviderBackendName`, `PluginName`
+
+**Constrained Numeric Types**:
+- `NonNegativeInt`, `PositiveInt`, `NonNegativeFloat`, `PositiveFloat`
+- `Probability`: float constrained to [0.0, 1.0]
+- `SizeBytes`: non-negative integer for sizes
+
+**Enums** (all inherit from `UpperCaseStrEnum`):
+- `HostState`: BUILDING, STARTING, RUNNING, STOPPING, STOPPED, PAUSED, CRASHED, FAILED, DESTROYED, UNAUTHENTICATED
+- `AgentLifecycleState`: STOPPED, RUNNING, WAITING, REPLACED, DONE
+- `ActivitySource`: CREATE, BOOT, START, SSH, PROCESS, AGENT, USER
+- `WorkDirCopyMode`: COPY, CLONE, WORKTREE
+
+**Model Base Classes** (from `imbue_common`):
+- `FrozenModel`: immutable Pydantic models with `frozen=True`, provides `model_copy_update()` for type-safe updates. Used for data transfer objects, configuration, certified data.
+- `MutableModel`: mutable Pydantic models for interface implementations that need internal state. Critical fields like IDs are still `frozen=True`.
+- All models use `extra="forbid"` to catch typos and stale fields.
+
 ### Providers
 
 Four provider backends ship with `mng`:
@@ -129,6 +196,8 @@ Four provider backends ship with `mng`:
 | **modal** | Modal.com Sandboxes | VM-level | Yes | Cloud compute, auto-shutdown |
 | **ssh** | Any SSH-accessible host | Depends on host | No | Pre-existing infrastructure |
 
+Provider backends are registered via the plugin system and stored in a registry. Lazy loading is used for Modal to avoid adding ~0.1s import time to every command.
+
 ### Agent Types
 
 Default agent implementations live in `agents/default_plugins/`:
@@ -139,7 +208,7 @@ Default agent implementations live in `agents/default_plugins/`:
 - **CodeGuardianAgent** -- Code review agent
 - **FixmeFairyAgent** -- Automated FIXME resolver
 
-Additional agent types can be registered via plugins.
+Agent types support inheritance: a custom "my-claude" type can inherit from "claude" and merge parent defaults with custom overrides.
 
 ### Configuration
 
@@ -153,17 +222,37 @@ Configuration is loaded hierarchically (later sources override earlier):
 
 The `MngContext` dataclass holds the resolved configuration for a given invocation, including the mng data directory, user ID, enabled plugins, and provider instances.
 
+Key config types (`config/data_types.py`):
+- `MngConfig`: global settings (default_host_dir, prefix, destroyed_host_persisted_seconds)
+- `ProviderInstanceConfig`: per-provider settings (backend name, host_dir, build/start args)
+- `AgentTypeConfig`: agent type definitions (command, CLI args, permissions)
+- `ActivityConfig`: idle detection settings (idle_mode, idle_timeout_seconds)
+
 ### CLI Commands
 
-The CLI is built with [Click](https://click.palletsprojects.com/) and organized into:
+The CLI is built with [Click](https://click.palletsprojects.com/) and uses `click-option-group` for option organization. The main entry point is `imbue.mng.main:cli`, registered as the `mng` console script.
 
-**Primary** (agent management): `create` (default), `destroy`, `connect`, `list`, `stop`, `start`, `exec`, `rename`
+`AliasAwareGroup` is a custom Click group that supports command aliases and defaults to `create` when no subcommand is given.
 
-**Data transfer**: `pull`, `push`, `pair`, `message`
+**Primary** (agent management): `create` (alias: `c`), `destroy` (alias: `rm`), `connect` (alias: `conn`), `list` (alias: `ls`), `stop`, `start` (alias: `s`), `exec` (alias: `x`), `rename` (alias: `mv`)
 
-**Setup**: `provision`
+**Data transfer**: `pull`, `push`, `pair`, `message` (alias: `msg`)
 
-**Secondary**: `cleanup`, `logs`, `gc`, `snapshot`, `limit`, `clone`, `migrate`, `ask`, `config`, `plugin`
+**Setup**: `provision` (alias: `prov`), `clone`, `migrate`
+
+**Maintenance**: `cleanup` (alias: `clean`), `logs`, `gc`, `snapshot` (alias: `snap`), `limit` (alias: `lim`)
+
+**Meta**: `config` (alias: `cfg`), `plugin` (alias: `plug`), `ask`
+
+Commands follow a consistent pattern: CliOptions class -> @click.command -> setup_command_context() -> API layer delegation -> output formatting (human/JSON/JSONL/template).
+
+### TUI Components
+
+The codebase includes interactive text user interfaces built with **urwid**:
+
+- **mng_kanpan**: Kanban-style board tracking agent tasks with color-coded states, CI check status, custom keybindings (r=refresh, p=push, d=delete, m=mute), and 10-minute auto-refresh
+- **mng_tutor**: Interactive lesson selector with arrow key navigation and real-time progress tracking
+- **connect**: Interactive agent selector when multiple agents are available
 
 ## Plugin System
 
@@ -175,16 +264,25 @@ The CLI is built with [Click](https://click.palletsprojects.com/) and organized 
 my_plugin = "my_package.plugin"
 ```
 
+### Plugin Manager Lifecycle
+
+1. `create_plugin_manager()` creates `pluggy.PluginManager("mng")`
+2. Hookspecs registered from `plugins/hookspecs.py`
+3. Disabled plugins blocked via `pm.set_blocked()` (prevents hooks from firing without removing the plugin object, so `mng plugin list` still shows them)
+4. External plugins loaded via `pm.load_setuptools_entrypoints("mng")`
+5. All registries loaded via `load_all_registries(pm)` (agent types and provider backends)
+
 ### Hook Categories
 
 **Registration hooks** (called once at startup):
-- `register_agent_type` -- add new agent types
-- `register_provider_backend` -- add new provider backends
-- `register_cli_commands` -- add new CLI commands
-- `register_cli_options` -- add options to existing commands
+- `register_agent_type` -- add new agent types (returns name, class, config)
+- `register_provider_backend` -- add new provider backends (returns backend class, config class)
+- `register_cli_commands` -- add new CLI commands (returns list of Click commands)
+- `register_cli_options` -- add options to existing commands (returns option group mapping)
 
 **Program lifecycle hooks** (called during execution):
-- `on_load_config`, `on_startup`, `on_before_command`, `on_after_command`, `on_error`, `on_shutdown`
+- `on_startup`, `on_before_command`, `on_after_command`, `on_error`, `on_shutdown`
+- `on_load_config` -- modify config dict before validation
 - `override_command_options` -- transform parsed args before execution
 
 **Host lifecycle hooks**: `on_before_host_create`, `on_host_created`, `on_before_host_destroy`, `on_host_destroyed`
@@ -192,6 +290,26 @@ my_plugin = "my_package.plugin"
 **Agent lifecycle hooks**: `on_before_initial_file_copy`, `on_after_initial_file_copy`, `on_agent_state_dir_created`, `on_before_provisioning`, `on_after_provisioning`, `on_agent_created`, `on_before_agent_destroy`, `on_agent_destroyed`
 
 **Deployment hooks**: `get_files_for_deploy`, `modify_env_vars_for_deploy`
+
+**Create hooks**: `on_before_create` -- inspect/modify create arguments (chained: each hook receives output from previous)
+
+### Command Execution Flow
+
+1. Click parses arguments -> creates CliOptions object
+2. `setup_command_context()` loads config, creates MngContext, initializes ConcurrencyGroup
+3. Plugin hooks: `on_before_command()` (can abort)
+4. Command delegates to API layer
+5. Plugin hooks: `on_after_command()` on success, `on_error()` on exception
+6. Cleanup via `on_shutdown()`
+
+### Agent Create Flow
+
+1. `on_before_create()` -- plugins inspect/modify arguments
+2. `on_before_host_create()` -> provider creates host -> `on_host_created()`
+3. `on_before_initial_file_copy()` -> files copied -> `on_after_initial_file_copy()`
+4. `on_agent_state_dir_created()`
+5. `on_before_provisioning()` -> agent provisioning (class methods) -> `on_after_provisioning()`
+6. `on_agent_created()`
 
 ### Maintained Plugins
 
@@ -203,13 +321,42 @@ my_plugin = "my_package.plugin"
 | **kanpan** | `mng-kanpan` | TUI dashboard aggregating agent state, git, GitHub PRs, and CI |
 | **tutor** | `mng-tutor` | Interactive tutorials for learning mng |
 
+### Writing a Plugin
+
+**New agent type:**
+```python
+from imbue.mng import hookimpl
+from imbue.mng.config.data_types import AgentTypeConfig
+
+class MyAgentConfig(AgentTypeConfig):
+    pass
+
+@hookimpl
+def register_agent_type():
+    return ("my-agent", None, MyAgentConfig)  # None class = use BaseAgent
+```
+
+**New provider backend:**
+```python
+@hookimpl
+def register_provider_backend():
+    return (MyProviderBackend, MyProviderConfig)
+```
+
+**New CLI command:**
+```python
+@hookimpl
+def register_cli_commands() -> Sequence[click.Command]:
+    return [my_command]
+```
+
 ## Shared Libraries
 
 ### libs/imbue_common
 
 Core types and patterns shared across all projects:
 
-- **`primitives.py`** -- constrained types: `NonEmptyStr`, etc.
+- **`primitives.py`** -- constrained types: `NonEmptyStr`, `Probability`, `PositiveInt`, etc.
 - **`ids.py`** -- `RandomId` base class for UUID4-based identifiers with type prefixes
 - **`frozen_model.py`** -- `FrozenModel(BaseModel)`: immutable Pydantic models with `model_copy_update()`
 - **`mutable_model.py`** -- `MutableModel`: for cases where mutation is necessary (used sparingly)
@@ -219,6 +366,20 @@ Core types and patterns shared across all projects:
 ### libs/concurrency_group
 
 Structured management of threads and processes via the `ConcurrencyGroup` context manager. Ensures automatic cleanup, supports nesting, propagates shutdown events, and detects timeouts/failures. Used throughout the codebase for parallel operations (e.g., querying multiple providers simultaneously).
+
+## Applications
+
+### apps/changelings
+
+Experimental project for scheduling and running autonomous agents. Depends on mng, imbue-common, concurrency-group, and modal. Includes deployment modules for Modal (cron_runner, remote_runner, verification).
+
+### apps/claude_web_view
+
+Web viewer for Claude Code session transcripts. FastAPI backend with Server-Sent Events (SSE) for live updates. React + TypeScript frontend using Radix UI components.
+
+### apps/sculptor_web
+
+Web interface for managing AI agents programmatically. FastAPI-based with python-fasthtml for server-side rendering.
 
 ## Security Model
 
@@ -255,10 +416,41 @@ The codebase follows a **stateless, functional, immutable** style:
 
 Run all tests: `uv run pytest` from the repo root. Tests run in parallel via `pytest-xdist` with 4 workers.
 
-## Build and Packaging
+Key fixtures: `temp_host_dir`, `temp_mng_ctx`, `local_provider`, `plugin_manager`, `cg` (ConcurrencyGroup), `mng_test_id`.
+
+Coverage requirements: 80% minimum (hard), 81% warning threshold. Excluded: test files, TUI files, Modal/Docker providers.
+
+## Build and CI/CD
 
 - **Build backend**: Hatchling
 - **Dependency management**: uv (workspace-aware)
-- **Linting/formatting**: ruff
+- **Linting/formatting**: ruff (line length 119, double quotes)
 - **Import enforcement**: import-linter (layer contracts)
+- **Type checking**: pyright (strict mode)
 - **Pre-commit hooks**: ruff formatting on commit
+
+**GitHub Actions CI** (`.github/workflows/ci.yml`):
+- **test-integration**: 4 parallel groups with pytest-split, runs unit + integration tests
+- **test-acceptance**: 16 parallel groups, 90-second timeout, requires Modal credentials
+- **test-release**: 12 parallel groups on release branch only
+- **cleanup-modal-environments**: deletes stale Modal test environments (>1 hour old)
+
+**Local development** via justfile targets: `test-unit`, `test-integration`, `test-quick`, `test-acceptance`, `test-release`, `test <path>`.
+
+## Key Technologies
+
+| Category | Technologies |
+|----------|-------------|
+| Language | Python 3.11+ |
+| Package mgmt | uv (workspace-aware monorepo) |
+| CLI | Click, click-option-group |
+| Data models | Pydantic |
+| Plugins | pluggy |
+| TUI | urwid |
+| Cloud | Modal, Docker |
+| Remote access | SSH, pyinfra |
+| Sessions | tmux |
+| File sync | rsync, unison |
+| Web (apps) | FastAPI, FastHTML, React + TypeScript, Flask |
+| Testing | pytest, pytest-xdist, pytest-cov, inline-snapshot |
+| Quality | ruff, pyright, import-linter, pre-commit |
