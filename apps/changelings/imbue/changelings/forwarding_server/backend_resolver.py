@@ -296,7 +296,7 @@ class MngStreamManager(MutableModel):
         """
         try:
             event = parse_discovery_event_line(line)
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error("Failed to parse discovery event line: {} (line: {})", e, line[:200])
             return
 
