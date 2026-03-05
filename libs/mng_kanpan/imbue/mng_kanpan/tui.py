@@ -172,6 +172,8 @@ class _KanpanState(MutableModel):
     commands: dict[str, CustomCommand] = {}
     # Monotonic timestamp of the last completed refresh (for cooldown logic)
     last_refresh_time: float = 0.0
+    # Whether a deferred refresh alarm is already pending
+    deferred_refresh_pending: bool = False
     # Cooldown durations (loaded from plugin config)
     auto_refresh_cooldown_seconds: float = 60.0
     manual_refresh_cooldown_seconds: float = 5.0
@@ -572,7 +574,8 @@ def _request_refresh(loop: MainLoop, state: _KanpanState, cooldown_seconds: floa
     """Request a refresh, subject to a cooldown period.
 
     If enough time has passed since the last refresh, starts immediately.
-    Otherwise, schedules a deferred refresh for when the cooldown expires.
+    Otherwise, schedules a single deferred refresh for when the cooldown expires.
+    Multiple calls during the cooldown window will not queue additional refreshes.
     """
     if state.refresh_future is not None:
         return
@@ -580,12 +583,16 @@ def _request_refresh(loop: MainLoop, state: _KanpanState, cooldown_seconds: floa
     remaining = cooldown_seconds - elapsed
     if remaining <= 0:
         _start_refresh(loop, state)
-    else:
-        loop.set_alarm_in(remaining, _on_deferred_refresh, state)
+        return
+    if state.deferred_refresh_pending:
+        return
+    state.deferred_refresh_pending = True
+    loop.set_alarm_in(remaining, _on_deferred_refresh, state)
 
 
 def _on_deferred_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Alarm callback for a deferred (cooldown-delayed) refresh."""
+    state.deferred_refresh_pending = False
     if state.refresh_future is None:
         _start_refresh(loop, state)
 
