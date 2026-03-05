@@ -70,6 +70,7 @@ addopts = [
   "--cov=imbue.mng_kanpan",
   "--cov=imbue.mng_recursive",
   "--cov=imbue.mng_changeling_chat",
+  "--cov=imbue.mng_test_coder",
   "--cov=imbue.changelings",
   "--cov-report=term-missing",
   "--cov-report=html",

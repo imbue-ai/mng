@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from typing import Final
 
 from loguru import logger
 from pydantic import Field
 
+from imbue.imbue_common.logging import log_span
 from imbue.mng import hookimpl
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgent
 from imbue.mng.agents.default_plugins.claude_agent import ClaudeAgentConfig
+from imbue.mng.agents.default_plugins.claude_config import merge_hooks_config
 from imbue.mng.config.agent_class_registry import get_agent_class
 from imbue.mng.config.data_types import AgentTypeConfig
 from imbue.mng.config.data_types import MngContext
@@ -16,16 +19,18 @@ from imbue.mng.errors import MngError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng_claude_zygote.provisioning import build_memory_sync_hooks_config
 from imbue.mng_claude_zygote.provisioning import configure_llm_user_path
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
 from imbue.mng_claude_zygote.provisioning import create_daily_conversation
 from imbue.mng_claude_zygote.provisioning import create_event_log_directories
 from imbue.mng_claude_zygote.provisioning import create_system_notifications_conversation
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
-from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
 from imbue.mng_claude_zygote.provisioning import provision_default_content
 from imbue.mng_claude_zygote.provisioning import provision_llm_tools
+from imbue.mng_claude_zygote.provisioning import resolve_work_dir_abs
+from imbue.mng_claude_zygote.provisioning import setup_memory_directory
 from imbue.mng_claude_zygote.provisioning import validate_talking_role_constraints
 from imbue.mng_claude_zygote.provisioning import warn_if_mng_unavailable
 from imbue.mng_claude_zygote.settings import load_settings_from_host
@@ -97,6 +102,11 @@ class ClaudeZygoteConfig(ClaudeAgentConfig):
         default=".changelings",
         description="Name of the changelings configuration directory in the agent repo.",
     )
+    active_role: str = Field(
+        default="thinking",
+        description="The active role for this agent. Determines which role directory "
+        "is symlinked as .claude/ at the repo root (e.g. 'thinking', 'working', 'verifying').",
+    )
 
 
 class ClaudeZygoteAgent(ClaudeAgent):
@@ -107,10 +117,10 @@ class ClaudeZygoteAgent(ClaudeAgent):
 
     During provisioning:
     - Installs the llm toolchain (llm, llm-anthropic, llm-live-chat)
-    - Creates symlinks for Claude Code discovery (CLAUDE.md, settings, skills)
+    - Symlinks .claude/ to the active role's .claude/ directory
     - Provisions watcher scripts and chat utilities
     - Sets up event log directories (events/<source>/events.jsonl)
-    - Symlinks memory/ into Claude project memory
+    - Syncs per-role memory/ into Claude project memory via hooks
 
     Via tmux windows (injected by override_command_options):
     - Conversation watcher (syncs llm DB to events/messages/events.jsonl)
@@ -132,6 +142,31 @@ class ClaudeZygoteAgent(ClaudeAgent):
             )
         return self.agent_config
 
+    def _configure_memory_sync_hooks(self, host: OnlineHostInterface, work_dir_abs: str, active_role: str) -> None:
+        """Configure PreToolUse/PostToolUse hooks to sync per-role memory with Claude project memory.
+
+        Writes hooks to .claude/settings.local.json (which resolves through the
+        .claude symlink to <active_role>/.claude/settings.local.json) that rsync
+        the role's memory directory before and after each tool use.
+        """
+        settings_path = self.work_dir / ".claude" / "settings.local.json"
+        hooks_config = build_memory_sync_hooks_config(work_dir_abs, active_role)
+
+        existing_settings: dict[str, Any] = {}
+        try:
+            content = host.read_text_file(settings_path)
+            existing_settings = json.loads(content)
+        except FileNotFoundError:
+            pass
+
+        merged = merge_hooks_config(existing_settings, hooks_config)
+        if merged is None:
+            logger.debug("Memory sync hooks already configured in {}", settings_path)
+            return
+
+        with log_span("Configuring memory sync hooks in {}", settings_path):
+            host.write_text_file(settings_path, json.dumps(merged, indent=2) + "\n")
+
     def provision(
         self,
         host: OnlineHostInterface,
@@ -144,17 +179,18 @@ class ClaudeZygoteAgent(ClaudeAgent):
         1. Settings loading from .changelings/settings.toml
         2. Talking role constraint validation (no skills or settings allowed)
         3. llm + plugin installation
-        4. Default content (GLOBAL.md, talking/PROMPT.md, thinking/PROMPT.md,
-           thinking/settings.json, skills)
-        5. Symlinks for Claude Code discovery (CLAUDE.md, settings, skills)
-        6. Watcher scripts and chat utilities
-        7. Event log directory structure (events/<source>/events.jsonl)
-        8. LLM tool scripts for conversation context
-        9. Memory directory symlink into Claude project
+        4. Default content (GLOBAL.md, role prompts, role .claude/ config)
+        5. Symlinks for active role (.claude -> <role>/.claude, CLAUDE.md, CLAUDE.local.md)
+        6. Readiness hooks (written to .claude/settings.local.json via the symlink)
+        7. Watcher scripts and chat utilities
+        8. Event log directory structure (events/<source>/events.jsonl)
+        9. LLM tool scripts for conversation context
+        10. Per-role memory directory setup and sync hooks
         """
         super().provision(host, options, mng_ctx)
 
         config = self._get_zygote_config()
+        active_role = config.active_role
 
         # Load settings from .changelings/settings.toml (falls back to defaults)
         settings = load_settings_from_host(host, self.work_dir, config.changelings_dir_name)
@@ -167,14 +203,13 @@ class ClaudeZygoteAgent(ClaudeAgent):
             install_llm_toolchain(host, provisioning)
 
         provision_default_content(host, self.work_dir, provisioning)
-        create_changeling_symlinks(host, self.work_dir, provisioning)
+        create_changeling_symlinks(host, self.work_dir, active_role, provisioning)
 
         # Re-configure readiness hooks AFTER symlinks are created.
-        # create_changeling_symlinks replaces .claude/settings.local.json
-        # with a symlink to thinking/settings.json (via ln -sf), which
-        # destroys the hooks that ClaudeAgent.provision() wrote there.
-        # Re-running _configure_readiness_hooks writes the hooks through
-        # the symlink into thinking/settings.json.
+        # create_changeling_symlinks replaces the .claude directory symlink,
+        # so .claude/settings.local.json now resolves to
+        # <active_role>/.claude/settings.local.json. Re-running ensures
+        # the hooks are written to the correct location.
         self._configure_readiness_hooks(host)
 
         provision_changeling_scripts(host, provisioning)
@@ -190,7 +225,9 @@ class ClaudeZygoteAgent(ClaudeAgent):
             chat_model = settings.chat.model or "claude-opus-4.6"
             create_daily_conversation(host, agent_state_dir, provisioning, chat_model)
 
-        link_memory_directory(host, self.work_dir, provisioning)
+        work_dir_abs = resolve_work_dir_abs(host, self.work_dir, provisioning)
+        setup_memory_directory(host, self.work_dir, active_role, work_dir_abs, provisioning)
+        self._configure_memory_sync_hooks(host, work_dir_abs, active_role)
 
 
 def inject_changeling_windows(params: dict[str, Any]) -> None:
