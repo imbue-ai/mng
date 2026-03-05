@@ -1313,6 +1313,16 @@ def test_create_changeling_symlinks_skips_when_target_does_not_exist() -> None:
     assert not any("ln -sfn" in c for c in host.executed_commands)
 
 
+def test_create_changeling_symlinks_removes_existing_real_dir() -> None:
+    """Verify that a real .claude/ directory is removed before creating the symlink."""
+    host = StubHost()
+    create_changeling_symlinks(cast(Any, host), Path("/test/work"), "thinking", _DEFAULT_PROVISIONING)
+
+    # Should have a command that checks for and removes real directories
+    rm_cmds = [c for c in host.executed_commands if "rm -rf" in c and ".claude" in c]
+    assert len(rm_cmds) >= 1
+
+
 def test_create_changeling_symlinks_raises_on_symlink_failure() -> None:
     """Verify RuntimeError when symlink creation fails."""
     host = StubHost(

@@ -411,7 +411,20 @@ def _create_dir_symlink_if_target_exists(
         label="mkdir",
     )
 
-    cmd = f"ln -sfn {shlex.quote(str(target_path))} {shlex.quote(str(link_path))}"
+    # Remove any existing real directory at link_path. ln -sfn on a real
+    # directory creates the symlink INSIDE rather than replacing it. The
+    # guard "[ -d X ] && [ ! -L X ]" only matches real directories, not
+    # existing symlinks (which ln -sfn handles correctly).
+    quoted_link = shlex.quote(str(link_path))
+    _execute_with_timing(
+        host,
+        f"[ -d {quoted_link} ] && [ ! -L {quoted_link} ] && rm -rf {quoted_link} || true",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="rm existing dir",
+    )
+
+    cmd = f"ln -sfn {shlex.quote(str(target_path))} {quoted_link}"
     with log_span("Creating directory symlink: {} -> {}", link_path, target_path):
         result = _execute_with_timing(
             host,

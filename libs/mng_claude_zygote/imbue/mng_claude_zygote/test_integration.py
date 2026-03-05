@@ -278,6 +278,40 @@ def test_provisioning_creates_symlinks(
 
 
 @pytest.mark.timeout(30)
+def test_symlink_replaces_existing_real_claude_dir(
+    temp_git_repo: Path,
+    local_shell_host: LocalShellHost,
+) -> None:
+    """Verify that create_changeling_symlinks replaces a real .claude/ directory.
+
+    This tests the critical interaction where super().provision() creates .claude/
+    as a real directory (via _configure_readiness_hooks), and create_changeling_symlinks
+    must replace it with a symlink to the active role's .claude/ directory.
+    """
+    # Set up the role's .claude directory
+    (temp_git_repo / "GLOBAL.md").write_text("# Global")
+    thinking_dir = temp_git_repo / "thinking"
+    thinking_dir.mkdir()
+    (thinking_dir / "PROMPT.md").write_text("# Thinking")
+    claude_dir = thinking_dir / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text('{"test": true}')
+
+    # Simulate what super().provision() does: create .claude/ as a real directory
+    real_claude = temp_git_repo / ".claude"
+    real_claude.mkdir()
+    (real_claude / "settings.local.json").write_text("{}")
+
+    create_changeling_symlinks(cast(Any, local_shell_host), temp_git_repo, "thinking", _DEFAULT_PROVISIONING)
+
+    # .claude should now be a symlink, not a real directory
+    assert real_claude.is_symlink(), ".claude should be a symlink after create_changeling_symlinks"
+    assert real_claude.resolve() == claude_dir.resolve()
+    # settings.json should be accessible through the symlink
+    assert (real_claude / "settings.json").read_text() == '{"test": true}'
+
+
+@pytest.mark.timeout(30)
 @pytest.mark.rsync
 def test_provisioning_syncs_memory_directory(
     temp_git_repo: Path,
