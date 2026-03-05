@@ -36,7 +36,6 @@ from imbue.imbue_common.frozen_model import FrozenModel
 from imbue.imbue_common.logging import log_span
 from imbue.imbue_common.model_update import to_update
 from imbue.imbue_common.pure import pure
-from imbue.mng.agents.base_agent import LONG_MESSAGE_THRESHOLD
 from imbue.mng.config.agent_config_registry import resolve_agent_type
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
@@ -50,6 +49,7 @@ from imbue.mng.errors import MngError
 from imbue.mng.errors import NoCommandDefinedError
 from imbue.mng.errors import UserInputError
 from imbue.mng.hosts.common import LOCAL_CONNECTOR_NAME
+from imbue.mng.hosts.tmux import LONG_MESSAGE_THRESHOLD
 from imbue.mng.hosts.common import add_safe_directory_on_remote
 from imbue.mng.hosts.offline_host import BaseHost
 from imbue.mng.interfaces.agent import AgentInterface

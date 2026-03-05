@@ -20,6 +20,7 @@ from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import HostConnectionError
 from imbue.mng.errors import SendMessageError
 from imbue.mng.hosts.common import determine_lifecycle_state
+from imbue.mng.hosts.tmux import LONG_MESSAGE_THRESHOLD
 from imbue.mng.hosts.tmux import capture_tmux_pane_content
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.data_types import FileTransferSpec
@@ -37,10 +38,6 @@ from imbue.mng.utils.polling import poll_until
 _SEND_MESSAGE_TIMEOUT_SECONDS: Final[float] = 10.0
 _TUI_READY_TIMEOUT_SECONDS: Final[float] = 10.0
 _CAPTURE_PANE_TIMEOUT_SECONDS: Final[float] = 5.0
-
-# Messages at or above this length use load-buffer/paste-buffer instead of send-keys
-# to avoid tmux "command too long" errors.
-LONG_MESSAGE_THRESHOLD: Final[int] = 1024
 
 # Default timeout for signal-based synchronization
 # Note that this does need to be fairly long, since it can take a little while for the machine to respond if you're unlucky
