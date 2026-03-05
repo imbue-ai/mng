@@ -10,7 +10,7 @@ from typing import Any
 from loguru import logger
 from pydantic import Field
 from tenacity import retry
-from tenacity import retry_if_exception_type
+from tenacity import retry_if_exception
 from tenacity import stop_after_attempt
 from tenacity import wait_exponential
 
@@ -489,8 +489,16 @@ def _build_agent_details_from_offline_ref(
     )
 
 
+def _is_retryable_connection_error(exception: BaseException) -> bool:
+    """Return True for transient connection errors that should be retried.
+
+    HostAuthenticationError is NOT retried since auth failures are permanent.
+    """
+    return isinstance(exception, HostConnectionError) and not isinstance(exception, HostAuthenticationError)
+
+
 @retry(
-    retry=retry_if_exception_type(HostConnectionError),
+    retry=retry_if_exception(_is_retryable_connection_error),
     stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=1, min=1, max=10),
     reraise=True,
