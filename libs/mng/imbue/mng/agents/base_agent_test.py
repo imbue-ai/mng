@@ -19,10 +19,10 @@ from imbue.mng.interfaces.host import DEFAULT_AGENT_READY_TIMEOUT_SECONDS
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentLifecycleState
-from imbue.mng.primitives import HostId
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import Permission
 from imbue.mng.providers.local.instance import LocalProviderInstance
@@ -1071,9 +1071,11 @@ def test_send_tmux_literal_keys_long_message_raises_on_load_buffer_failure(
     temp_mng_ctx: MngContext,
 ) -> None:
     """load-buffer failure should raise SendMessageError."""
-    stub = _StubHost(command_results=[
-        CommandResult(success=False, stdout="", stderr="load failed"),
-    ])
+    stub = _StubHost(
+        command_results=[
+            CommandResult(success=False, stdout="", stderr="load failed"),
+        ]
+    )
     agent = _create_agent_with_stub_host(temp_mng_ctx, stub)
 
     with pytest.raises(SendMessageError, match="load-buffer failed"):
@@ -1084,10 +1086,12 @@ def test_send_tmux_literal_keys_long_message_raises_on_paste_buffer_failure(
     temp_mng_ctx: MngContext,
 ) -> None:
     """paste-buffer failure should raise SendMessageError."""
-    stub = _StubHost(command_results=[
-        CommandResult(success=True, stdout="", stderr=""),
-        CommandResult(success=False, stdout="", stderr="paste failed"),
-    ])
+    stub = _StubHost(
+        command_results=[
+            CommandResult(success=True, stdout="", stderr=""),
+            CommandResult(success=False, stdout="", stderr="paste failed"),
+        ]
+    )
     agent = _create_agent_with_stub_host(temp_mng_ctx, stub)
 
     with pytest.raises(SendMessageError, match="paste-buffer failed"):
@@ -1098,9 +1102,11 @@ def test_send_tmux_literal_keys_short_message_raises_on_send_keys_failure(
     temp_mng_ctx: MngContext,
 ) -> None:
     """send-keys failure should raise SendMessageError."""
-    stub = _StubHost(command_results=[
-        CommandResult(success=False, stdout="", stderr="command too long"),
-    ])
+    stub = _StubHost(
+        command_results=[
+            CommandResult(success=False, stdout="", stderr="command too long"),
+        ]
+    )
     agent = _create_agent_with_stub_host(temp_mng_ctx, stub)
 
     with pytest.raises(SendMessageError, match="send-keys failed"):

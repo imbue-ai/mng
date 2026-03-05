@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import importlib.resources
+import json
 import shlex
 import time
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Final
+from uuid import uuid4
 
 import pluggy
 from loguru import logger
@@ -499,15 +503,16 @@ def create_event_log_directories(
     """Create the event log directory structure.
 
     Creates directories for each event source:
-    - events/conversations/     conversation lifecycle events
-    - events/messages/          conversation messages
-    - events/scheduled/         scheduled trigger events
-    - events/mng_agents/        agent state transitions
-    - events/stop/              agent stop events
-    - events/monitor/           (future) monitor agent events
-    - events/claude_transcript/ inner monologue (written by Claude background tasks)
-    - events/common_transcript/ agent-agnostic transcript (written by transcript watcher)
-    - events/servers/           server registration records
+    - events/conversations/      conversation lifecycle events
+    - events/messages/           conversation messages
+    - events/scheduled/          scheduled trigger events
+    - events/mng_agents/         agent state transitions
+    - events/stop/               agent stop events
+    - events/monitor/            (future) monitor agent events
+    - events/delivery_failures/  event delivery failure notifications
+    - events/claude_transcript/  inner monologue (written by Claude background tasks)
+    - events/common_transcript/  agent-agnostic transcript (written by transcript watcher)
+    - events/servers/            server registration records
     """
     for source in (
         "conversations",
@@ -516,6 +521,7 @@ def create_event_log_directories(
         "mng_agents",
         "stop",
         "monitor",
+        "delivery_failures",
         "claude_transcript",
         "common_transcript",
         "servers",
@@ -528,6 +534,178 @@ def create_event_log_directories(
             warn_threshold=settings.fs_warn_threshold_seconds,
             label=f"mkdir events/{source}",
         )
+
+
+def configure_llm_user_path(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Set LLM_USER_PATH so each agent gets its own llm database.
+
+    Creates ``<agent_state_dir>/llm_data/`` and appends
+    ``LLM_USER_PATH=<path>`` to the agent's environment file so that
+    all processes on this agent (chat.sh, conversation_watcher, llm commands)
+    use a unique llm data directory.
+
+    The env var is written to the agent environment file rather than the
+    host-level env, so multiple agents on the same host each get their
+    own llm database.
+    """
+    llm_data_dir = agent_state_dir / "llm_data"
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(llm_data_dir))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="mkdir llm_data",
+    )
+    # Write to the agent's env file (sourced by shell processes via
+    # build_source_env_shell_commands; the file is <agent_state_dir>/env)
+    env_file = agent_state_dir / "env"
+    env_line = f"LLM_USER_PATH={llm_data_dir}\n"
+    with log_span("Setting LLM_USER_PATH={}", llm_data_dir):
+        host.execute_command(
+            f"echo {shlex.quote(env_line.rstrip())} >> {shlex.quote(str(env_file))}",
+            timeout_seconds=settings.fs_hard_timeout_seconds,
+        )
+    logger.info("Set LLM_USER_PATH={}", llm_data_dir)
+
+
+def _record_conversation_event(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+    *,
+    cid: str,
+    model: str,
+    tags: dict[str, str] | None = None,
+) -> None:
+    """Append a conversation_created event to events/conversations/events.jsonl."""
+    now = datetime.now(timezone.utc)
+    event: dict[str, object] = {
+        "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z",
+        "type": "conversation_created",
+        "event_id": f"evt-{uuid4().hex}",
+        "source": "conversations",
+        "conversation_id": cid,
+        "model": model,
+    }
+    if tags:
+        event["tags"] = tags
+
+    conversations_dir = agent_state_dir / "events" / "conversations"
+    _execute_with_timing(
+        host,
+        f"mkdir -p {shlex.quote(str(conversations_dir))}",
+        hard_timeout=settings.fs_hard_timeout_seconds,
+        warn_threshold=settings.fs_warn_threshold_seconds,
+        label="mkdir conversations",
+    )
+    events_file = conversations_dir / "events.jsonl"
+    event_line = json.dumps(event, separators=(",", ":"))
+    with log_span("Recording conversation event for {}", cid):
+        host.execute_command(
+            f"echo {shlex.quote(event_line)} >> {shlex.quote(str(events_file))}",
+            timeout_seconds=settings.fs_hard_timeout_seconds,
+        )
+
+
+def _inject_conversation(
+    host: OnlineHostInterface,
+    settings: ProvisioningSettings,
+    *,
+    cid: str,
+    model: str,
+    prompt: str,
+    response: str,
+    label: str,
+) -> bool:
+    """Run ``llm inject`` to seed a conversation. Returns True on success."""
+    inject_cmd = (
+        f"llm inject --cid {shlex.quote(cid)} -m {shlex.quote(model)} "
+        f"--prompt {shlex.quote(prompt)} "
+        f"{shlex.quote(response)}"
+    )
+    result = _execute_with_timing(
+        host,
+        inject_cmd,
+        hard_timeout=settings.install_hard_timeout_seconds,
+        warn_threshold=settings.install_warn_threshold_seconds,
+        label=label,
+    )
+    if not result.success:
+        logger.warning("Failed to create {} conversation via llm inject: {}", label, result.stderr)
+        return False
+    return True
+
+
+def create_system_notifications_conversation(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+) -> None:
+    """Create the system_notifications conversation for delivery failure alerts.
+
+    Uses ``llm inject`` to create a conversation with a known ID, then
+    records a ``conversation_created`` event in
+    ``events/conversations/events.jsonl``. Because this is the first
+    conversation created, ``_send_chat_notification`` can find it by
+    reading the first entry in the conversations event log.
+    """
+    cid = f"system-notifications-{uuid4().hex}"
+    model = "echo"
+
+    if not _inject_conversation(
+        host,
+        settings,
+        cid=cid,
+        model=model,
+        prompt="This channel is for system notifications, warnings, and errors.",
+        response="Confirmed.",
+        label="system_notifications",
+    ):
+        return
+
+    _record_conversation_event(host, agent_state_dir, settings, cid=cid, model=model)
+    logger.info("Created system_notifications conversation: cid={}", cid)
+
+
+def create_daily_conversation(
+    host: OnlineHostInterface,
+    agent_state_dir: Path,
+    settings: ProvisioningSettings,
+    chat_model: str,
+) -> None:
+    """Create a daily conversation tagged with today's date.
+
+    Uses ``llm inject`` to seed the conversation with an empty user prompt
+    and a greeting from the assistant, then records a ``conversation_created``
+    event with ``tags={"daily": "<today>"}`` in the conversations event log.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cid = f"daily-{today}-{uuid4().hex}"
+
+    if not _inject_conversation(
+        host,
+        settings,
+        cid=cid,
+        model=chat_model,
+        prompt="",
+        response="Hi, I'm Elena! How can I help?",
+        label="daily",
+    ):
+        return
+
+    _record_conversation_event(
+        host,
+        agent_state_dir,
+        settings,
+        cid=cid,
+        model=chat_model,
+        tags={"daily": today},
+    )
+    logger.info("Created daily conversation: cid={} date={}", cid, today)
 
 
 def compute_claude_project_dir_name(work_dir_abs: str) -> str:

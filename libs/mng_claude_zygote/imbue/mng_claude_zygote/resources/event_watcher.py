@@ -57,7 +57,7 @@ except ImportError:
 
 _DEFAULT_CEL_FILTER: Final[str] = (
     'source != "claude_transcript" && source != "common_transcript"'
-    ' && source != "conversations"'
+    ' && source != "conversations" && source != "delivery_failures"'
     " && ("
     '!source.startsWith("logs/") || (source.startsWith("logs/") && (level == "ERROR" || level == "WARNING"))'
     ")"
@@ -309,7 +309,7 @@ def _send_message(agent_name: str, message: str) -> bool:
 
 
 def _write_notification_event(events_dir: Path, message: str, level: str = "WARNING") -> None:
-    """Write a notification event to events/monitor/events.jsonl.
+    """Write a notification event to events/delivery_failures/events.jsonl.
 
     These events are visible through the event system and web UI,
     providing user-facing notifications about delivery issues.
@@ -319,13 +319,13 @@ def _write_notification_event(events_dir: Path, message: str, level: str = "WARN
         "timestamp": now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond * 1000:09d}Z",
         "type": "delivery_notification",
         "event_id": f"evt-{uuid4().hex}",
-        "source": "monitor",
+        "source": "delivery_failures",
         "level": level,
         "message": message,
     }
-    monitor_dir = events_dir / "monitor"
-    monitor_dir.mkdir(parents=True, exist_ok=True)
-    events_file = monitor_dir / "events.jsonl"
+    delivery_failures_dir = events_dir / "delivery_failures"
+    delivery_failures_dir.mkdir(parents=True, exist_ok=True)
+    events_file = delivery_failures_dir / "events.jsonl"
     try:
         with events_file.open("a") as f:
             f.write(json.dumps(event, separators=(",", ":")) + "\n")
@@ -333,27 +333,61 @@ def _write_notification_event(events_dir: Path, message: str, level: str = "WARN
         logger.error("Failed to write notification event: {}", exc)
 
 
-_CHAT_NOTIFICATION_CONVERSATION_ID: Final[str] = "mng-system-notifications"
 _CHAT_NOTIFICATION_TIMEOUT_SECONDS: Final[float] = 30.0
 
 
-def _send_chat_notification(message: str) -> bool:
+def _get_system_notifications_cid(events_dir: Path) -> str | None:
+    """Read the first conversation_id from events/conversations/events.jsonl.
+
+    The system_notifications conversation is always created first during
+    provisioning, so its ID is the first entry in the conversations event log.
+
+    Returns None if the file does not exist or contains no valid entries.
+    """
+    conversations_file = events_dir / "conversations" / "events.jsonl"
+    try:
+        if not conversations_file.is_file():
+            return None
+        with conversations_file.open() as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                    cid = event.get("conversation_id")
+                    if cid:
+                        return str(cid)
+                except (json.JSONDecodeError, KeyError):
+                    continue
+    except OSError as exc:
+        logger.warning("Failed to read conversations file for notification CID: {}", exc)
+    return None
+
+
+def _send_chat_notification(events_dir: Path, message: str) -> bool:
     """Send a notification as a chat message via ``llm``.
 
-    Creates (or continues) a conversation with a fixed ID so that all
-    system notifications appear in the same thread. The message is sent
-    as the user prompt; the model response is discarded.
+    Uses the system_notifications conversation (the first conversation
+    created during provisioning) so that all system notifications appear
+    in the same thread. The message is sent as the user prompt; the model
+    response is discarded.
 
     Returns True on success, False if ``llm`` is not available or fails.
     This is best-effort: the caller should not depend on success.
     """
+    cid = _get_system_notifications_cid(events_dir)
+    if cid is None:
+        logger.warning("No system_notifications conversation found, skipping chat notification")
+        return False
+
     try:
         result = subprocess.run(
             [
                 "llm",
                 "chat",
                 "--cid",
-                _CHAT_NOTIFICATION_CONVERSATION_ID,
+                cid,
                 "-m",
                 "echo",
                 message,
@@ -379,11 +413,11 @@ def _notify_user(events_dir: Path, message: str, level: str = "WARNING") -> None
     """Notify the user about a delivery issue.
 
     Uses two mechanisms for reliability:
-    1. Writes a structured event to events/monitor/events.jsonl (always persisted)
+    1. Writes a structured event to events/delivery_failures/events.jsonl (always persisted)
     2. Sends a chat message via ``llm`` (best-effort, visible in chat interface)
     """
     _write_notification_event(events_dir, message, level=level)
-    _send_chat_notification(message)
+    _send_chat_notification(events_dir, message)
 
 
 def _compute_backoff_seconds(consecutive_failures: int) -> float:

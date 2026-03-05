@@ -16,8 +16,11 @@ from imbue.mng.errors import MngError
 from imbue.mng.interfaces.agent import AgentInterface
 from imbue.mng.interfaces.host import CreateAgentOptions
 from imbue.mng.interfaces.host import OnlineHostInterface
+from imbue.mng_claude_zygote.provisioning import configure_llm_user_path
 from imbue.mng_claude_zygote.provisioning import create_changeling_symlinks
+from imbue.mng_claude_zygote.provisioning import create_daily_conversation
 from imbue.mng_claude_zygote.provisioning import create_event_log_directories
+from imbue.mng_claude_zygote.provisioning import create_system_notifications_conversation
 from imbue.mng_claude_zygote.provisioning import install_llm_toolchain
 from imbue.mng_claude_zygote.provisioning import link_memory_directory
 from imbue.mng_claude_zygote.provisioning import provision_changeling_scripts
@@ -179,6 +182,13 @@ class ClaudeZygoteAgent(ClaudeAgent):
 
         agent_state_dir = self._get_agent_dir()
         create_event_log_directories(host, agent_state_dir, provisioning)
+
+        configure_llm_user_path(host, agent_state_dir, provisioning)
+
+        if config.install_llm:
+            create_system_notifications_conversation(host, agent_state_dir, provisioning)
+            chat_model = settings.chat.model or "claude-opus-4-6"
+            create_daily_conversation(host, agent_state_dir, provisioning, chat_model)
 
         link_memory_directory(host, self.work_dir, provisioning)
 

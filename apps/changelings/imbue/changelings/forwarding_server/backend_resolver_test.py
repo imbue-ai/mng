@@ -408,12 +408,14 @@ def test_stream_manager_on_list_stream_output_ignores_non_full_events() -> None:
     """Non-DISCOVERY_FULL events are ignored and do not update the resolver."""
     manager = _make_stream_manager()
     # Use an unrecognized event type so parse_discovery_event_line returns None
-    line = json.dumps({
-        "type": "SOME_OTHER_EVENT",
-        "timestamp": "2026-01-01T00:00:00Z",
-        "event_id": "evt-test-001",
-        "source": "mng/discovery",
-    })
+    line = json.dumps(
+        {
+            "type": "SOME_OTHER_EVENT",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "event_id": "evt-test-001",
+            "source": "mng/discovery",
+        }
+    )
     manager._on_list_stream_output(line, is_stderr=False)
     assert manager.resolver.list_known_agent_ids() == ()
 
@@ -488,42 +490,46 @@ def _make_discovery_full_line(
     agents: list of (agent_id, host_id) tuples.
     hosts: list of host_id strings.
     """
-    return json.dumps({
-        "type": "DISCOVERY_FULL",
-        "timestamp": "2026-01-01T00:00:00Z",
-        "event_id": "evt-test-full-001",
-        "source": "mng/discovery",
-        "agents": [
-            {
-                "host_id": host_id,
-                "agent_id": agent_id,
-                "agent_name": f"agent-{agent_id[-4:]}",
-                "provider_name": "modal",
-                "certified_data": {},
-            }
-            for agent_id, host_id in agents
-        ],
-        "hosts": [
-            {
-                "host_id": host_id,
-                "host_name": f"host-{host_id[-4:]}",
-                "provider_name": "modal",
-            }
-            for host_id in hosts
-        ],
-    })
+    return json.dumps(
+        {
+            "type": "DISCOVERY_FULL",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "event_id": "evt-test-full-001",
+            "source": "mng/discovery",
+            "agents": [
+                {
+                    "host_id": host_id,
+                    "agent_id": agent_id,
+                    "agent_name": f"agent-{agent_id[-4:]}",
+                    "provider_name": "modal",
+                    "certified_data": {},
+                }
+                for agent_id, host_id in agents
+            ],
+            "hosts": [
+                {
+                    "host_id": host_id,
+                    "host_name": f"host-{host_id[-4:]}",
+                    "provider_name": "modal",
+                }
+                for host_id in hosts
+            ],
+        }
+    )
 
 
 def _make_host_ssh_info_line(host_id: str, ssh_data: dict[str, object]) -> str:
     """Build a HOST_SSH_INFO event JSON line."""
-    return json.dumps({
-        "type": "HOST_SSH_INFO",
-        "timestamp": "2026-01-01T00:00:01Z",
-        "event_id": "evt-test-ssh-001",
-        "source": "mng/discovery",
-        "host_id": host_id,
-        "ssh": ssh_data,
-    })
+    return json.dumps(
+        {
+            "type": "HOST_SSH_INFO",
+            "timestamp": "2026-01-01T00:00:01Z",
+            "event_id": "evt-test-ssh-001",
+            "source": "mng/discovery",
+            "host_id": host_id,
+            "ssh": ssh_data,
+        }
+    )
 
 
 def test_stream_manager_full_snapshot_updates_agent_ids() -> None:

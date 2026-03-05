@@ -386,9 +386,7 @@ class BaseAgent(AgentInterface):
                         str(self.name), f"tmux paste-buffer failed: {result.stderr or result.stdout}"
                     )
             finally:
-                self.host.execute_command(
-                    f"tmux delete-buffer -b {quoted_buffer} 2>/dev/null; rm -f {quoted_path}"
-                )
+                self.host.execute_command(f"tmux delete-buffer -b {quoted_buffer} 2>/dev/null; rm -f {quoted_path}")
 
     def _send_message_simple(self, tmux_target: str, message: str) -> None:
         """Send a message directly without waiting for paste confirmation."""
@@ -657,7 +655,7 @@ class BaseAgent(AgentInterface):
     # =========================================================================
 
     def get_env_vars(self) -> dict[str, str]:
-        env_path = self._get_agent_dir() / "environment"
+        env_path = self._get_agent_dir() / "env"
         try:
             content = self.host.read_text_file(env_path)
             return parse_env_file(content)
@@ -667,7 +665,7 @@ class BaseAgent(AgentInterface):
     def set_env_vars(self, env: Mapping[str, str]) -> None:
         lines = [f"{key}={value}" for key, value in env.items()]
         content = "\n".join(lines) + "\n" if lines else ""
-        env_path = self._get_agent_dir() / "environment"
+        env_path = self._get_agent_dir() / "env"
         self.host.write_text_file(env_path, content)
 
     def get_env_var(self, key: str) -> str | None:

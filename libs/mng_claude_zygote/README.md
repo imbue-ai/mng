@@ -33,6 +33,7 @@ Event sources:
 - `events/mng_agents/events.jsonl`: all relevant agent state transitions (eg, when they become blocked, crash, finish, etc). Each event includes the agent_id, the new state, and any relevant metadata about the transition (eg, error message if it crashed)
 - `events/stop/events.jsonl`: for detecting when this agent tried to stop the first time
 - `events/monitor/events.jsonl`: (future) for injecting metacognitive thoughts or reminders from a local monitor agent
+- `events/delivery_failures/events.jsonl`: event delivery failure notifications (written by event_watcher.py when it cannot deliver events to the primary agent)
 - `events/claude_transcript/events.jsonl` - inner monologue transcript (written by Claude background tasks, not this plugin).
 
 Every event is self-describing: you never need to know the filename to understand the event. The file organization is a performance/convenience choice, not a correctness one.

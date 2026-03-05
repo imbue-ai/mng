@@ -30,6 +30,7 @@ from imbue.mng_claude_zygote.resources.event_watcher import _deliver_batch
 from imbue.mng_claude_zygote.resources.event_watcher import _filter_catchup_events
 from imbue.mng_claude_zygote.resources.event_watcher import _format_delivery_message
 from imbue.mng_claude_zygote.resources.event_watcher import _format_time_since_last
+from imbue.mng_claude_zygote.resources.event_watcher import _get_system_notifications_cid
 from imbue.mng_claude_zygote.resources.event_watcher import _load_delivery_state
 from imbue.mng_claude_zygote.resources.event_watcher import _load_watcher_settings
 from imbue.mng_claude_zygote.resources.event_watcher import _save_delivery_state
@@ -500,40 +501,94 @@ def test_write_notification_event_creates_file(tmp_path: Path) -> None:
     events_dir = tmp_path / "events"
     _write_notification_event(events_dir, "Test notification", level="WARNING")
 
-    events_file = events_dir / "monitor" / "events.jsonl"
+    events_file = events_dir / "delivery_failures" / "events.jsonl"
     assert events_file.exists()
 
     lines = events_file.read_text().strip().split("\n")
     assert len(lines) == 1
     event = json.loads(lines[0])
     assert event["type"] == "delivery_notification"
-    assert event["source"] == "monitor"
+    assert event["source"] == "delivery_failures"
     assert event["level"] == "WARNING"
     assert event["message"] == "Test notification"
     assert "event_id" in event
     assert "timestamp" in event
 
 
+# -- _get_system_notifications_cid tests --
+
+
+def test_get_system_notifications_cid_returns_first_cid(tmp_path: Path) -> None:
+    events_dir = tmp_path / "events"
+    conv_dir = events_dir / "conversations"
+    conv_dir.mkdir(parents=True)
+    events_file = conv_dir / "events.jsonl"
+    events_file.write_text(
+        json.dumps({"conversation_id": "sys-notif-123", "type": "conversation_created"})
+        + "\n"
+        + json.dumps({"conversation_id": "other-conv", "type": "conversation_created"})
+        + "\n"
+    )
+    assert _get_system_notifications_cid(events_dir) == "sys-notif-123"
+
+
+def test_get_system_notifications_cid_returns_none_when_no_file(tmp_path: Path) -> None:
+    events_dir = tmp_path / "events"
+    assert _get_system_notifications_cid(events_dir) is None
+
+
+def test_get_system_notifications_cid_returns_none_when_empty_file(tmp_path: Path) -> None:
+    events_dir = tmp_path / "events"
+    conv_dir = events_dir / "conversations"
+    conv_dir.mkdir(parents=True)
+    (conv_dir / "events.jsonl").write_text("\n")
+    assert _get_system_notifications_cid(events_dir) is None
+
+
 # -- _send_chat_notification tests --
 
 
+def _setup_conversations_file(tmp_path: Path, cid: str = "sys-notif-test") -> Path:
+    """Create a conversations events file with one entry and return events_dir."""
+    events_dir = tmp_path / "events"
+    conv_dir = events_dir / "conversations"
+    conv_dir.mkdir(parents=True)
+    events_file = conv_dir / "events.jsonl"
+    events_file.write_text(json.dumps({"conversation_id": cid, "type": "conversation_created"}) + "\n")
+    return events_dir
+
+
 def test_send_chat_notification_returns_true_on_success(
+    tmp_path: Path,
     mock_subprocess_success: EventWatcherSubprocessCapture,
 ) -> None:
     """_send_chat_notification returns True when llm succeeds."""
-    assert _send_chat_notification("test message") is True
+    events_dir = _setup_conversations_file(tmp_path)
+    assert _send_chat_notification(events_dir, "test message") is True
     assert len(mock_subprocess_success.calls) == 1
     cmd = mock_subprocess_success.calls[0][0]
     assert "llm" in cmd
     assert "chat" in cmd
-    assert "mng-system-notifications" in cmd
+    assert "sys-notif-test" in cmd
 
 
 def test_send_chat_notification_returns_false_on_failure(
+    tmp_path: Path,
     mock_subprocess_failure: EventWatcherSubprocessCapture,
 ) -> None:
     """_send_chat_notification returns False when llm fails."""
-    assert _send_chat_notification("test message") is False
+    events_dir = _setup_conversations_file(tmp_path)
+    assert _send_chat_notification(events_dir, "test message") is False
+
+
+def test_send_chat_notification_returns_false_when_no_conversation(
+    tmp_path: Path,
+    mock_subprocess_success: EventWatcherSubprocessCapture,
+) -> None:
+    """_send_chat_notification returns False when no conversations file exists."""
+    events_dir = tmp_path / "events"
+    assert _send_chat_notification(events_dir, "test message") is False
+    assert len(mock_subprocess_success.calls) == 0
 
 
 # -- _compute_backoff_seconds tests --
