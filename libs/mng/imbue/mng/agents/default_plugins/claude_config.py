@@ -386,7 +386,9 @@ def check_claude_dialogs_dismissed(config_path: Path, source_path: Path) -> None
     check_source_directory_trusted(config_path, source_path)
     check_effort_callout_dismissed(config_path)
     check_onboarding_completed(config_path)
-    check_bypass_permissions_accepted(config_path)
+    # Note: bypassPermissionsModeAccepted is NOT checked because Claude Code
+    # periodically resets it to null. The bypass-permissions warning is handled
+    # by skipDangerousModePermissionPrompt in settings.json instead.
 
 
 def ensure_claude_dialogs_dismissed(config_path: Path, source_path: Path) -> None:
@@ -399,7 +401,8 @@ def ensure_claude_dialogs_dismissed(config_path: Path, source_path: Path) -> Non
     add_claude_trust_for_path(config_path, source_path)
     dismiss_effort_callout(config_path)
     complete_onboarding(config_path)
-    accept_bypass_permissions(config_path)
+    # bypassPermissionsModeAccepted: not set here (Claude Code resets it).
+    # skipDangerousModePermissionPrompt in settings.json handles this instead.
 
 
 def find_project_config(projects: Mapping[str, Any], path: Path) -> dict[str, Any] | None:
