@@ -5,6 +5,7 @@ from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 from typing import assert_never
 from typing import cast
 
@@ -575,8 +576,13 @@ def create(ctx: click.Context, **kwargs) -> None:
 
     resolved_opts = opts.model_copy_update(*overrides) if overrides else opts
 
+    # Collect plugin-registered CLI params so they can be merged into plugin_data
+    plugin_cli_params: dict[str, Any] = {
+        k: v for k, v in ctx.meta.get("plugin_cli_params", {}).items() if v is not None
+    }
+
     # Setup (validation, editor session, source resolution, etc.)
-    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config)
+    setup = _setup_create(mng_ctx, output_opts, resolved_opts, logging_config, plugin_cli_params)
 
     # Create agent
     result = _create_agent(mng_ctx, output_opts, resolved_opts, setup)
@@ -602,6 +608,9 @@ class _CreateSetup(FrozenModel):
     source_location: HostLocation = Field(description="Resolved source location")
     project_name: str = Field(description="Project name for agent labels")
     host_lifecycle: HostLifecycleOptions = Field(description="Host lifecycle options")
+    plugin_cli_params: dict[str, Any] = Field(
+        default_factory=dict, description="Plugin-registered CLI params to merge into plugin_data"
+    )
 
 
 def _setup_create(
@@ -609,6 +618,7 @@ def _setup_create(
     output_opts: OutputOptions,
     opts: CreateCliOptions,
     logging_config: LoggingConfig,
+    plugin_cli_params: dict[str, Any] | None = None,
 ) -> _CreateSetup:
     """Validate options, resolve messages, start editor session, resolve source location."""
     # Validate that both --message and --message-file are not provided
@@ -686,6 +696,7 @@ def _setup_create(
         source_location=source_location,
         project_name=project_name,
         host_lifecycle=host_lifecycle,
+        plugin_cli_params=plugin_cli_params or {},
     )
 
 
@@ -712,6 +723,13 @@ def _create_agent(
         source_location=setup.source_location,
         mng_ctx=mng_ctx,
     )
+
+    # Merge plugin-registered CLI params into plugin_data so plugin hooks can access them
+    if setup.plugin_cli_params:
+        merged = {**agent_opts.plugin_data, **setup.plugin_cli_params}
+        agent_opts = agent_opts.model_copy_update(
+            to_update(agent_opts.field_ref().plugin_data, merged),
+        )
 
     # parse the connection options
     connection_opts = ConnectionOptions(
@@ -1433,6 +1451,12 @@ def _parse_agent_opts(
         # Automatically use the "generic" agent type when --agent-cmd is provided
         resolved_agent_type = "generic"
 
+    # Pass the source work_dir so agent plugins (e.g. ClaudeAgent) can transfer session state.
+    # This is set when cloning from an existing agent (--source-agent).
+    # For --adopt-session, the plugin's on_before_create hook sets source_work_dir.
+    is_session_transfer = opts.source_agent is not None
+    parsed_source_work_dir = source_location.path if is_session_transfer else None
+
     agent_opts = CreateAgentOptions(
         agent_id=AgentId(opts.agent_id) if opts.agent_id else None,
         agent_type=AgentTypeName(resolved_agent_type) if resolved_agent_type else None,
@@ -1453,6 +1477,7 @@ def _parse_agent_opts(
         permissions=permissions,
         label_options=label_options,
         provisioning=provisioning,
+        source_work_dir=parsed_source_work_dir,
     )
     return agent_opts
 
@@ -1716,6 +1741,8 @@ the working directory is copied to the remote host.""",
         ("Create without connecting", "mng create my-agent --no-connect"),
         ("Add extra tmux windows", 'mng create my-agent -c server="npm run dev"'),
         ("Reuse existing agent or create if not found", "mng create my-agent --reuse"),
+        ("Adopt the most recent Claude session from the current directory", "mng create my-agent --adopt-session"),
+        ("Adopt a specific Claude session by ID", "mng create my-agent --adopt-session <session-id>"),
     ),
     see_also=(
         ("connect", "Connect to an existing agent"),

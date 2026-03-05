@@ -3,6 +3,8 @@
 import pluggy
 from click.testing import CliRunner
 
+from imbue.mng.cli.migrate import _user_specified_no_connect
+from imbue.mng.cli.migrate import _user_specified_quiet
 from imbue.mng.cli.migrate import migrate
 from imbue.mng.main import cli
 
@@ -38,31 +40,77 @@ def test_migrate_requires_source_agent(
     assert "SOURCE_AGENT" in result.output
 
 
-def test_migrate_rejects_from_agent_option(
+def test_migrate_rejects_nonexistent_source_agent(
     cli_runner: CliRunner,
     plugin_manager: pluggy.PluginManager,
 ) -> None:
-    """Migrate should reject --from-agent in remaining args."""
+    """Migrate should error when the source agent does not exist."""
     result = cli_runner.invoke(
         migrate,
-        ["source-agent", "--from-agent", "other-agent"],
+        ["nonexistent-agent-849271"],
         obj=plugin_manager,
         catch_exceptions=True,
     )
 
     assert result.exit_code != 0
-    assert "--from-agent" in result.output
+    assert "not found" in result.output
 
 
-def test_migrate_nonexistent_source_agent(
-    cli_runner: CliRunner,
-    plugin_manager: pluggy.PluginManager,
-) -> None:
-    """Test that migrate with nonexistent source agent fails."""
-    result = cli_runner.invoke(
-        migrate,
-        ["nonexistent-source-agent-99812"],
-        obj=plugin_manager,
-        catch_exceptions=True,
+# --- _user_specified_quiet tests ---
+
+
+def test_user_specified_quiet_detects_long_flag() -> None:
+    assert _user_specified_quiet(["--quiet"], ["mng", "migrate", "a", "--quiet"]) is True
+
+
+def test_user_specified_quiet_detects_short_flag() -> None:
+    assert _user_specified_quiet(["-q"], ["mng", "migrate", "a", "-q"]) is True
+
+
+def test_user_specified_quiet_false_when_absent() -> None:
+    assert _user_specified_quiet(["--no-connect"], ["mng", "migrate", "a", "--no-connect"]) is False
+
+
+def test_user_specified_quiet_ignores_after_dd() -> None:
+    """--quiet after -- should not be detected as a user option."""
+    assert (
+        _user_specified_quiet(
+            ["--quiet"],
+            ["mng", "migrate", "a", "--", "--quiet"],
+        )
+        is False
     )
-    assert result.exit_code != 0
+
+
+# --- _user_specified_no_connect tests ---
+
+
+def test_user_specified_no_connect_detects_flag() -> None:
+    assert (
+        _user_specified_no_connect(
+            ["--no-connect"],
+            ["mng", "migrate", "a", "--no-connect"],
+        )
+        is True
+    )
+
+
+def test_user_specified_no_connect_false_when_absent() -> None:
+    assert (
+        _user_specified_no_connect(
+            ["--in", "docker"],
+            ["mng", "migrate", "a", "--in", "docker"],
+        )
+        is False
+    )
+
+
+def test_user_specified_no_connect_ignores_after_dd() -> None:
+    """--no-connect after -- should not be detected as a create option."""
+    assert (
+        _user_specified_no_connect(
+            ["--no-connect"],
+            ["mng", "migrate", "a", "--", "--no-connect"],
+        )
+        is False
+    )

@@ -5,10 +5,12 @@ import pluggy
 import pytest
 from click.testing import CliRunner
 
-from imbue.mng.cli.clone import _args_before_dd_count
 from imbue.mng.cli.clone import _build_create_args
 from imbue.mng.cli.clone import _reject_source_agent_options
+from imbue.mng.cli.clone import args_before_dd_count
 from imbue.mng.cli.clone import clone
+from imbue.mng.cli.clone import extract_name_from_args
+from imbue.mng.cli.clone import has_name_in_remaining_args
 from imbue.mng.main import cli
 
 
@@ -148,17 +150,61 @@ def test_build_create_args_with_double_dash_and_empty_remaining() -> None:
     assert result == ["--from-agent", "my-agent", "--"]
 
 
-# --- _args_before_dd_count tests ---
+def test_build_create_args_does_not_inject_name_by_default() -> None:
+    """Without preserve_name, --name is not injected even when no name is given."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--in", "docker"],
+        original_argv=["mng", "clone", "my-agent", "--in", "docker"],
+    )
+    assert "--name" not in result
+
+
+def test_build_create_args_preserves_name_when_requested() -> None:
+    """With preserve_name=True, --name is injected when no name is given."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--in", "docker"],
+        original_argv=["mng", "migrate", "my-agent", "--in", "docker"],
+        preserve_name=True,
+    )
+    assert result == ["--from-agent", "my-agent", "--name", "my-agent", "--in", "docker"]
+
+
+def test_build_create_args_preserve_name_skips_when_positional_given() -> None:
+    """With preserve_name=True, --name is not injected when a positional name is provided."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["new-name", "--in", "modal"],
+        original_argv=["mng", "migrate", "my-agent", "new-name", "--in", "modal"],
+        preserve_name=True,
+    )
+    assert result == ["--from-agent", "my-agent", "new-name", "--in", "modal"]
+    assert "--name" not in result
+
+
+def test_build_create_args_preserve_name_skips_when_name_flag_given() -> None:
+    """With preserve_name=True, --name is not injected when --name is already provided."""
+    result = _build_create_args(
+        source_agent="my-agent",
+        remaining=["--name", "custom-name", "--in", "modal"],
+        original_argv=["mng", "migrate", "my-agent", "--name", "custom-name", "--in", "modal"],
+        preserve_name=True,
+    )
+    assert result == ["--from-agent", "my-agent", "--name", "custom-name", "--in", "modal"]
+
+
+# --- args_before_dd_count tests ---
 
 
 def test_args_before_dd_count_no_dd() -> None:
     """Returns None when -- is not in original_argv."""
-    assert _args_before_dd_count(["--in", "docker"], ["mng", "clone", "a", "--in", "docker"]) is None
+    assert args_before_dd_count(["--in", "docker"], ["mng", "clone", "a", "--in", "docker"]) is None
 
 
 def test_args_before_dd_count_with_dd() -> None:
     """Returns count of args before -- boundary."""
-    count = _args_before_dd_count(
+    count = args_before_dd_count(
         ["--in", "docker", "--model", "opus"],
         ["mng", "clone", "a", "--in", "docker", "--", "--model", "opus"],
     )
@@ -167,7 +213,7 @@ def test_args_before_dd_count_with_dd() -> None:
 
 def test_args_before_dd_count_trailing_dd() -> None:
     """Returns full length when -- has nothing after it."""
-    count = _args_before_dd_count(
+    count = args_before_dd_count(
         ["--in", "docker"],
         ["mng", "clone", "a", "--in", "docker", "--"],
     )
@@ -189,3 +235,74 @@ def test_reject_source_agent_options_rejects_from_agent_before_dd() -> None:
     ctx = click.Context(clone, info_name="clone")
     with pytest.raises(click.UsageError, match="--from-agent"):
         _reject_source_agent_options(["--from-agent", "x", "--model", "opus"], ctx, before_dd=2)
+
+
+# --- has_name_in_remaining_args tests ---
+
+
+def test_has_name_detects_positional_name() -> None:
+    """A leading non-option string is treated as a positional name."""
+    assert has_name_in_remaining_args(["new-agent", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_name_flag() -> None:
+    """The --name flag indicates a name is provided."""
+    assert has_name_in_remaining_args(["--name", "custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_short_name_flag() -> None:
+    """The -n flag indicates a name is provided."""
+    assert has_name_in_remaining_args(["-n", "custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_detects_name_equals_form() -> None:
+    """The --name=value form indicates a name is provided."""
+    assert has_name_in_remaining_args(["--name=custom", "--in", "docker"], before_dd_count=None) is True
+
+
+def test_has_name_returns_false_when_only_options() -> None:
+    """All args starting with - means no positional name."""
+    assert has_name_in_remaining_args(["--in", "docker"], before_dd_count=None) is False
+
+
+def test_has_name_returns_false_for_empty_remaining() -> None:
+    """Empty remaining means no name."""
+    assert has_name_in_remaining_args([], before_dd_count=None) is False
+
+
+def test_has_name_ignores_positional_after_dd() -> None:
+    """A positional arg that appears only after -- is not a name."""
+    assert has_name_in_remaining_args(["--in", "docker", "some-arg"], before_dd_count=2) is False
+
+
+# --- extract_name_from_args tests ---
+
+
+def test_extract_name_from_positional() -> None:
+    """A leading non-option string is extracted as the name."""
+    assert extract_name_from_args(["new-agent", "--in", "docker"], before_dd_count=None) == "new-agent"
+
+
+def test_extract_name_from_name_flag() -> None:
+    """The --name flag value is extracted."""
+    assert extract_name_from_args(["--name", "custom", "--in", "docker"], before_dd_count=None) == "custom"
+
+
+def test_extract_name_from_name_equals() -> None:
+    """The --name=value form is extracted."""
+    assert extract_name_from_args(["--name=custom", "--in", "docker"], before_dd_count=None) == "custom"
+
+
+def test_extract_name_from_short_flag() -> None:
+    """The -n flag value is extracted."""
+    assert extract_name_from_args(["-n", "custom", "--in", "docker"], before_dd_count=None) == "custom"
+
+
+def test_extract_name_returns_none_when_absent() -> None:
+    """Returns None when no name is found."""
+    assert extract_name_from_args(["--in", "docker"], before_dd_count=None) is None
+
+
+def test_extract_name_respects_dd_boundary() -> None:
+    """Names after -- are not extracted."""
+    assert extract_name_from_args(["--in", "docker", "some-arg"], before_dd_count=2) is None

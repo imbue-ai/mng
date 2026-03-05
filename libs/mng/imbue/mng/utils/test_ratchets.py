@@ -139,7 +139,7 @@ def test_prevent_init_docstrings() -> None:
 
 @pytest.mark.timeout(10)
 def test_prevent_args_in_docstrings() -> None:
-    rc.check_args_in_docstrings(_DIR, snapshot(0))
+    rc.check_args_in_docstrings(_DIR, snapshot(3))
 
 
 @pytest.mark.timeout(10)

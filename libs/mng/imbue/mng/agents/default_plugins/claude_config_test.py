@@ -12,6 +12,7 @@ from imbue.mng.agents.default_plugins.claude_config import check_claude_dialogs_
 from imbue.mng.agents.default_plugins.claude_config import check_effort_callout_dismissed
 from imbue.mng.agents.default_plugins.claude_config import check_source_directory_trusted
 from imbue.mng.agents.default_plugins.claude_config import dismiss_effort_callout
+from imbue.mng.agents.default_plugins.claude_config import encode_claude_project_dir_name
 from imbue.mng.agents.default_plugins.claude_config import ensure_claude_dialogs_dismissed
 from imbue.mng.agents.default_plugins.claude_config import extend_claude_trust_to_worktree
 from imbue.mng.agents.default_plugins.claude_config import find_project_config
@@ -526,6 +527,27 @@ def test_remove_claude_trust_returns_false_when_empty_config(tmp_path: Path) -> 
     result = remove_claude_trust_for_path(config_file, worktree_path)
 
     assert result is False
+
+
+# Tests for encode_claude_project_dir_name
+
+
+def test_encode_claude_project_dir_name_replaces_slashes() -> None:
+    """encode_claude_project_dir_name should replace / with -."""
+    result = encode_claude_project_dir_name(Path("/Users/test/project"))
+    assert result == "-Users-test-project"
+
+
+def test_encode_claude_project_dir_name_replaces_dots() -> None:
+    """encode_claude_project_dir_name should replace . with -."""
+    result = encode_claude_project_dir_name(Path("/Users/test/.hidden/project"))
+    assert result == "-Users-test--hidden-project"
+
+
+def test_encode_claude_project_dir_name_known_pair() -> None:
+    """encode_claude_project_dir_name should match Claude Code's encoding for a known path."""
+    result = encode_claude_project_dir_name(Path("/Users/ev/claude-dockerfile/mng"))
+    assert result == "-Users-ev-claude-dockerfile-mng"
 
 
 # Tests for check_effort_callout_dismissed / dismiss_effort_callout

@@ -10,10 +10,64 @@ from imbue.mng.cli.help_formatter import add_pager_help_option
 
 
 @pure
+def has_name_in_remaining_args(
+    remaining: list[str],
+    before_dd_count: int | None,
+) -> bool:
+    """Detect whether *remaining* already contains a name for the new agent.
+
+    A name is present when any of these conditions hold (looking only at args
+    before the ``--`` separator):
+
+    * The ``--name`` or ``-n`` flag appears.
+    * The first element is a positional argument (does not start with ``-``),
+      which the ``create`` command would consume as ``positional_name``.
+    """
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    for arg in check:
+        if arg in ("--name", "-n") or arg.startswith(("--name=", "-n=")):
+            return True
+
+    if check and not check[0].startswith("-"):
+        return True
+
+    return False
+
+
+@pure
+def extract_name_from_args(
+    remaining: list[str],
+    before_dd_count: int | None,
+) -> str | None:
+    """Extract the agent name from *remaining* args (before ``--``).
+
+    Returns the name if found via ``--name``/``-n`` flag or as a leading
+    positional argument, otherwise ``None``.
+    """
+    check = remaining if before_dd_count is None else remaining[:before_dd_count]
+
+    for i, arg in enumerate(check):
+        if arg in ("--name", "-n") and i + 1 < len(check):
+            return check[i + 1]
+        if arg.startswith("--name="):
+            return arg.split("=", 1)[1]
+        if arg.startswith("-n="):
+            return arg.split("=", 1)[1]
+
+    if check and not check[0].startswith("-"):
+        return check[0]
+
+    return None
+
+
+@pure
 def _build_create_args(
     source_agent: str,
     remaining: list[str],
     original_argv: list[str],
+    *,
+    preserve_name: bool = False,
 ) -> list[str]:
     """Build the argument list for the create command, re-inserting ``--`` if needed.
 
@@ -22,8 +76,20 @@ def _build_create_args(
     *original_argv* (typically ``sys.argv``) to detect whether the user
     supplied ``--`` and, if so, re-insert it at the correct position so that
     downstream commands (e.g. ``create``) see it.
+
+    When *preserve_name* is True and no explicit agent name is present in
+    *remaining*, the source agent's name is forwarded via ``--name``.  This
+    is used by ``migrate`` (where the source is stopped first, freeing the
+    tmux session name).  ``clone`` leaves *preserve_name* as False so the
+    clone gets an auto-generated name, avoiding tmux session name collisions
+    with the still-running source.
     """
     prefix = ["--from-agent", source_agent]
+    if preserve_name:
+        before_dd_count = args_before_dd_count(remaining, original_argv)
+        has_name = has_name_in_remaining_args(remaining, before_dd_count)
+        if not has_name:
+            prefix = prefix + ["--name", source_agent]
 
     if "--" not in original_argv:
         return prefix + remaining
@@ -40,7 +106,7 @@ def _build_create_args(
     return prefix + remaining + ["--"]
 
 
-def _args_before_dd_count(remaining: list[str], original_argv: list[str]) -> int | None:
+def args_before_dd_count(remaining: list[str], original_argv: list[str]) -> int | None:
     """Return the number of items in *remaining* that came before ``--``.
 
     Returns ``None`` when ``--`` was not present in *original_argv*.
@@ -61,11 +127,16 @@ def parse_source_and_invoke_create(
     args: tuple[str, ...],
     command_name: str,
     original_argv: list[str] | None = None,
+    *,
+    preserve_name: bool = False,
 ) -> str:
     """Validate args, reject conflicting options, and delegate to the create command.
 
     Returns the source agent name so callers (e.g. migrate) can use it for
     follow-up steps.
+
+    When *preserve_name* is True, the source agent's name is forwarded to the
+    create command (unless the user already specified a name).
 
     *original_argv* defaults to ``sys.argv`` when ``None``.  Passing an
     explicit value allows tests (where ``sys.argv`` is not updated by Click's
@@ -80,10 +151,10 @@ def parse_source_and_invoke_create(
     if original_argv is None:
         original_argv = sys.argv
 
-    before_dd = _args_before_dd_count(remaining, original_argv)
+    before_dd = args_before_dd_count(remaining, original_argv)
     _reject_source_agent_options(remaining, ctx, before_dd)
 
-    create_args = _build_create_args(source_agent, remaining, original_argv)
+    create_args = _build_create_args(source_agent, remaining, original_argv, preserve_name=preserve_name)
 
     create_ctx = create_cmd.make_context(command_name, create_args, parent=ctx)
     with create_ctx:

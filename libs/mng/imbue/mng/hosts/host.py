@@ -1120,7 +1120,7 @@ class Host(BaseHost, OnlineHostInterface):
         exclude_path = Path(".git") / "info" / "exclude"
         try:
             content = source_host.read_file(source_path / exclude_path)
-        except FileNotFoundError:
+        except (FileNotFoundError, NotADirectoryError):
             logger.trace("No .git/info/exclude in source, skipping")
             return
 
@@ -1806,13 +1806,14 @@ class Host(BaseHost, OnlineHostInterface):
                 raise AgentNotFoundOnHostError(agent.id, self.id)
             return updated_agent
 
-    def destroy_agent(self, agent: AgentInterface) -> None:
+    def destroy_agent(self, agent: AgentInterface, *, skip_stop: bool = False) -> None:
         """Destroy an agent and clean up its resources."""
         with log_span("Destroying agent", agent_id=str(agent.id), agent_name=str(agent.name)):
             try:
                 agent.on_destroy(self)
             finally:
-                self.stop_agents([agent.id])
+                if not skip_stop:
+                    self.stop_agents([agent.id])
                 state_dir = self.host_dir / "agents" / str(agent.id)
                 self._remove_directory(state_dir)
 

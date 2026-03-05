@@ -439,8 +439,13 @@ class OnlineHostInterface(HostInterface, ABC):
         ...
 
     @abstractmethod
-    def destroy_agent(self, agent: AgentInterface) -> None:
-        """Remove an agent and all its associated state from this host."""
+    def destroy_agent(self, agent: AgentInterface, *, skip_stop: bool = False) -> None:
+        """Remove an agent and all its associated state from this host.
+
+        When *skip_stop* is True the agent's processes and tmux session are
+        not stopped before removal.  Use this when the caller has already
+        stopped the agent or when the agent's tmux session no longer exists.
+        """
         ...
 
     @abstractmethod
@@ -771,6 +776,16 @@ class CreateAgentOptions(FrozenModel):
     provisioning: AgentProvisioningOptions = Field(
         default_factory=AgentProvisioningOptions,
         description="Simple provisioning options",
+    )
+    plugin_data: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Opaque dict for plugins to pass data through the creation pipeline. "
+        "Keys are namespaced by plugin (e.g. 'adopt_session' for ClaudeAgent).",
+    )
+    source_work_dir: Path | None = Field(
+        default=None,
+        description="Source work_dir path for transferring Claude session data "
+        "(set when cloning via --from-agent or adopting via --adopt-session)",
     )
 
 
