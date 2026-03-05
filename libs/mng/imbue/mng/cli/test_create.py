@@ -440,10 +440,18 @@ def test_no_await_ready_creates_agent_in_background(
         )
 
         # Wait for the command to actually start running in the session.
-        # The background thread may still be sending keys after the session is created.
+        # The pane shows "run.sh" (the wrapper script), so we also verify via ps
+        # that the sleep process is actually running.
         def command_is_running() -> bool:
             pane_content = capture_tmux_pane_contents(session_name)
-            return "sleep" in pane_content
+            if "run.sh" not in pane_content:
+                return False
+            ps_result = subprocess.run(
+                ["ps", "-eo", "args="],
+                capture_output=True,
+                text=True,
+            )
+            return "sleep 817364" in ps_result.stdout
 
         wait_for(
             command_is_running,

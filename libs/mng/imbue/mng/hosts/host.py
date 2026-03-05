@@ -1969,7 +1969,7 @@ class Host(BaseHost, OnlineHostInterface):
                     combined_command = _build_start_agent_shell_command(
                         agent=agent,
                         session_name=session_name,
-                        command='bash "$MNG_AGENT_STATE_DIR/run.sh"',
+                        command=f"bash {shlex.quote(str(run_script_path))}",
                         additional_commands=additional_commands,
                         env_shell_cmd=self._build_env_shell_command(agent),
                         tmux_config_path=tmux_config_path,
