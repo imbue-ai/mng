@@ -357,13 +357,14 @@ def _prompt_user_for_onboarding_completion() -> bool:
 
 
 def _prompt_user_for_bypass_permissions() -> bool:
-    """Prompt the user to accept the Claude Code bypass permissions prompt."""
+    """Prompt the user to dismiss the Claude Code dangerous-mode safety warning."""
     logger.info(
-        "\nClaude Code's bypass permissions prompt has not been accepted yet.\n"
-        "mng needs to mark this as accepted in ~/.claude.json so that Claude Code\n"
-        "can start without the prompt interfering with automated input.\n",
+        "\nClaude Code shows a one-time safety warning when running in dangerous mode\n"
+        "(permissions bypass). mng needs to dismiss this warning in ~/.claude.json\n"
+        "so that it doesn't interfere with automated input.\n"
+        "This does NOT change your permissions settings -- it only skips the warning.\n",
     )
-    return click.confirm("Would you like to update ~/.claude.json to accept this?", default=True)
+    return click.confirm("Would you like to update ~/.claude.json to dismiss this warning?", default=True)
 
 
 def _claude_json_has_primary_api_key() -> bool:

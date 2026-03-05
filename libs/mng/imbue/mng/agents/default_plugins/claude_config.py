@@ -59,13 +59,13 @@ class ClaudeOnboardingNotCompletedError(ConfigError):
 
 
 class ClaudeBypassPermissionsNotAcceptedError(ConfigError):
-    """The bypass permissions prompt has not been accepted."""
+    """The dangerous-mode safety warning has not been dismissed."""
 
     def __init__(self) -> None:
         super().__init__(
-            "Claude Code's bypass permissions prompt has not been accepted in ~/.claude.json. "
+            "Claude Code's dangerous-mode safety warning has not been dismissed in ~/.claude.json. "
             "Run `mng create` interactively (without --no-connect) to be prompted, "
-            "or run Claude Code manually and accept the prompt."
+            "or run Claude Code manually and dismiss the warning."
         )
 
 
