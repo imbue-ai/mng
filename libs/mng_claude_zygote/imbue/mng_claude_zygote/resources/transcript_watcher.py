@@ -2,7 +2,7 @@
 """Transcript watcher for changeling agents.
 
 Converts raw Claude Code transcript events from
-events/claude_transcript/events.jsonl into a common, agent-agnostic
+logs/claude_transcript/events.jsonl into a common, agent-agnostic
 format at events/common_transcript/events.jsonl.
 
 The common format focuses on semantically important messages (user input,
