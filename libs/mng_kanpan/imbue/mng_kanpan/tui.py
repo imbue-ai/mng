@@ -979,7 +979,7 @@ def _build_agent_row(
 ) -> _SelectableRow:
     """Build a columnar urwid widget for a single agent row.
 
-    Muted agents are rendered entirely in gray. Mark indicators (D/P) replace
+    Muted agents are rendered entirely in gray. Mark indicators (d/p) replace
     the leading spaces in the name column.
     """
     raw_markup: dict[str, str | tuple[Hashable, str] | list[str | tuple[Hashable, str]]] = {
