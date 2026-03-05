@@ -10,7 +10,6 @@ from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.data_types import StoredMessage
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
-from imbue.slack_exporter.primitives import SlackMessageTimestamp
 
 logger = logging.getLogger(__name__)
 
@@ -55,20 +54,19 @@ def load_existing_state(
             channel_id_by_name[msg.channel_name] = msg.channel_id
 
             existing = state_by_channel_id.get(msg.channel_id)
-            if existing is None or existing.latest_message_timestamp is None:
+            is_newer = (
+                existing is None
+                or existing.latest_message_timestamp is None
+                or msg.timestamp > existing.latest_message_timestamp
+            )
+            if is_newer:
                 state_by_channel_id[msg.channel_id] = ChannelExportState(
                     channel_id=msg.channel_id,
                     channel_name=msg.channel_name,
                     latest_message_timestamp=msg.timestamp,
                 )
-            elif msg.timestamp > existing.latest_message_timestamp:
-                state_by_channel_id[msg.channel_id] = ChannelExportState(
-                    channel_id=msg.channel_id,
-                    channel_name=msg.channel_name,
-                    latest_message_timestamp=msg.timestamp,
-                )
-            else:
-                pass
+        else:
+            logger.debug("Skipping unknown event kind '%s' on line %d", kind, line_count)
 
     logger.info(
         "Loaded %d lines (%d messages, %d channel info records) from %s",
@@ -91,12 +89,3 @@ def append_records(output_path: Path, records: Sequence[StoredMessage | StoredCh
             f.write(record.model_dump_json() + "\n")
 
     logger.info("Appended %d records to %s", len(records), output_path)
-
-
-def _find_latest_timestamp(
-    messages: Sequence[StoredMessage],
-) -> SlackMessageTimestamp | None:
-    """Find the latest message timestamp from a sequence of stored messages."""
-    if not messages:
-        return None
-    return max(msg.timestamp for msg in messages)

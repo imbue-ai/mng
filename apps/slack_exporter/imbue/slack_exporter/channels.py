@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime
 from datetime import timezone
-from typing import Any
 
 from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.errors import ChannelNotFoundError
 from imbue.slack_exporter.latchkey import call_slack_api
+from imbue.slack_exporter.latchkey import extract_next_cursor
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 
@@ -38,7 +38,7 @@ def fetch_channel_list() -> list[StoredChannelInfo]:
             )
             all_channels.append(channel_info)
 
-        next_cursor = _extract_next_cursor(data)
+        next_cursor = extract_next_cursor(data)
         if not next_cursor:
             break
         cursor = next_cursor
@@ -67,14 +67,3 @@ def resolve_channel_id(
         return cached_id
 
     raise ChannelNotFoundError(channel_name)
-
-
-def _extract_next_cursor(data: dict[str, Any]) -> str | None:
-    """Extract the pagination cursor from a Slack API response, if present."""
-    response_metadata = data.get("response_metadata")
-    if not isinstance(response_metadata, dict):
-        return None
-    next_cursor = response_metadata.get("next_cursor", "")
-    if not next_cursor:
-        return None
-    return next_cursor

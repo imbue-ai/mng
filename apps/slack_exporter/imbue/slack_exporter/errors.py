@@ -28,4 +28,4 @@ class ChannelNotFoundError(SlackExporterError, KeyError):
 
     def __init__(self, channel_name: str) -> None:
         self.channel_name = channel_name
-        super().__init__(f"Channel not found: #{channel_name}")
+        super().__init__(f"Channel not found: {channel_name}")

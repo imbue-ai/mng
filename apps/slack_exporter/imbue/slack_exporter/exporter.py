@@ -1,7 +1,6 @@
 import logging
 from datetime import datetime
 from datetime import timezone
-from typing import Any
 
 from imbue.slack_exporter.channels import fetch_channel_list
 from imbue.slack_exporter.channels import resolve_channel_id
@@ -11,6 +10,7 @@ from imbue.slack_exporter.data_types import ExporterSettings
 from imbue.slack_exporter.data_types import StoredChannelInfo
 from imbue.slack_exporter.data_types import StoredMessage
 from imbue.slack_exporter.latchkey import call_slack_api
+from imbue.slack_exporter.latchkey import extract_next_cursor
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
@@ -56,7 +56,7 @@ def _export_single_channel(
         channel_info_records,
         cached_channel_id_by_name,
     )
-    logger.info("Exporting #%s (ID: %s)", channel_config.name, channel_id)
+    logger.info("Exporting channel %s (ID: %s)", channel_config.name, channel_id)
 
     existing_state = state_by_channel_id.get(channel_id)
 
@@ -68,7 +68,7 @@ def _export_single_channel(
     if existing_state and existing_state.latest_message_timestamp:
         oldest_ts = existing_state.latest_message_timestamp
         logger.info(
-            "  Resuming from timestamp %s for #%s",
+            "  Resuming from timestamp %s for channel %s",
             oldest_ts,
             channel_config.name,
         )
@@ -83,9 +83,9 @@ def _export_single_channel(
 
     if all_new_messages:
         append_records(settings.output_path, all_new_messages)
-        logger.info("  Saved %d new messages from #%s", len(all_new_messages), channel_config.name)
+        logger.info("  Saved %d new messages from channel %s", len(all_new_messages), channel_config.name)
     else:
-        logger.info("  No new messages in #%s", channel_config.name)
+        logger.info("  No new messages in channel %s", channel_config.name)
 
 
 def _fetch_all_messages_for_channel(
@@ -128,7 +128,7 @@ def _fetch_all_messages_for_channel(
         if not data.get("has_more", False):
             break
 
-        next_cursor = _extract_response_cursor(data)
+        next_cursor = extract_next_cursor(data)
         if not next_cursor:
             break
         cursor = next_cursor
@@ -139,14 +139,3 @@ def _fetch_all_messages_for_channel(
 def _datetime_to_slack_timestamp(dt: datetime) -> SlackMessageTimestamp:
     """Convert a datetime to a Slack-style timestamp string."""
     return SlackMessageTimestamp(f"{dt.timestamp():.6f}")
-
-
-def _extract_response_cursor(data: dict[str, Any]) -> str | None:
-    """Extract the pagination cursor from a Slack API response."""
-    response_metadata = data.get("response_metadata")
-    if not isinstance(response_metadata, dict):
-        return None
-    next_cursor = response_metadata.get("next_cursor", "")
-    if not next_cursor:
-        return None
-    return next_cursor

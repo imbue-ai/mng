@@ -74,3 +74,14 @@ def call_slack_api(
         raise SlackApiError(method=method, error=data.get("error", "unknown"))
 
     return data
+
+
+def extract_next_cursor(data: dict[str, Any]) -> str | None:
+    """Extract the pagination cursor from a Slack API response, if present."""
+    response_metadata = data.get("response_metadata")
+    if not isinstance(response_metadata, dict):
+        return None
+    next_cursor = response_metadata.get("next_cursor", "")
+    if not next_cursor:
+        return None
+    return next_cursor
