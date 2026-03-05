@@ -172,8 +172,10 @@ class _KanpanState(MutableModel):
     commands: dict[str, CustomCommand] = {}
     # Monotonic timestamp of the last completed refresh (for cooldown logic)
     last_refresh_time: float = 0.0
-    # Whether a deferred refresh alarm is already pending
-    deferred_refresh_pending: bool = False
+    # Handle for the pending deferred refresh alarm (None if no alarm is pending)
+    deferred_refresh_alarm: Any = None
+    # Monotonic time the deferred refresh is scheduled to fire
+    deferred_refresh_fire_at: float = 0.0
     # Cooldown durations (loaded from plugin config)
     auto_refresh_cooldown_seconds: float = 60.0
     manual_refresh_cooldown_seconds: float = 5.0
@@ -572,25 +574,38 @@ def _request_refresh(loop: MainLoop, state: _KanpanState, cooldown_seconds: floa
     """Request a refresh, subject to a cooldown period.
 
     If enough time has passed since the last refresh, starts immediately.
-    Otherwise, schedules a single deferred refresh for when the cooldown expires.
-    Multiple calls during the cooldown window will not queue additional refreshes.
+    Otherwise, schedules a deferred refresh for when the cooldown expires.
+    If a deferred refresh is already pending but the new request would fire
+    sooner (e.g. manual refresh with a shorter cooldown), the old alarm is
+    replaced.
     """
     if state.refresh_future is not None:
         return
     elapsed = time.monotonic() - state.last_refresh_time
     remaining = cooldown_seconds - elapsed
     if remaining <= 0:
+        _cancel_deferred_refresh(loop, state)
         _start_refresh(loop, state)
         return
-    if state.deferred_refresh_pending:
-        return
-    state.deferred_refresh_pending = True
-    loop.set_alarm_in(remaining, _on_deferred_refresh, state)
+    fire_at = time.monotonic() + remaining
+    if state.deferred_refresh_alarm is not None:
+        if state.deferred_refresh_fire_at <= fire_at:
+            return
+        _cancel_deferred_refresh(loop, state)
+    state.deferred_refresh_fire_at = fire_at
+    state.deferred_refresh_alarm = loop.set_alarm_in(remaining, _on_deferred_refresh, state)
+
+
+def _cancel_deferred_refresh(loop: MainLoop, state: _KanpanState) -> None:
+    """Cancel any pending deferred refresh alarm."""
+    if state.deferred_refresh_alarm is not None:
+        loop.remove_alarm(state.deferred_refresh_alarm)
+        state.deferred_refresh_alarm = None
 
 
 def _on_deferred_refresh(loop: MainLoop, state: _KanpanState) -> None:
     """Alarm callback for a deferred (cooldown-delayed) refresh."""
-    state.deferred_refresh_pending = False
+    state.deferred_refresh_alarm = None
     if state.refresh_future is None:
         _start_refresh(loop, state)
 
