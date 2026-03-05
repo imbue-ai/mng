@@ -8,7 +8,7 @@
 #      $MNG_AGENT_STATE_DIR/active file)
 #   2. Transcript streaming: launches stream_transcript.sh which watches
 #      all session JSONL files and streams new lines to
-#      $MNG_AGENT_STATE_DIR/events/claude_transcript/events.jsonl
+#      $MNG_AGENT_STATE_DIR/logs/claude_transcript/events.jsonl
 #
 # Usage: claude_background_tasks.sh <tmux_session_name>
 #
@@ -51,7 +51,7 @@ source "$MNG_HOST_DIR/commands/mng_log.sh"
 STREAM_SCRIPT="$MNG_HOST_DIR/commands/stream_transcript.sh"
 _STREAM_PID=""
 if [ -x "$STREAM_SCRIPT" ]; then
-    "$STREAM_SCRIPT" &
+    bash "$STREAM_SCRIPT" &
     _STREAM_PID=$!
     log_info "Started transcript streaming (PID: $_STREAM_PID)"
 fi
@@ -79,7 +79,7 @@ while tmux has-session -t "$SESSION_NAME" 2>/dev/null; do
     if [ -n "$_STREAM_PID" ] && ! kill -0 "$_STREAM_PID" 2>/dev/null; then
         log_warn "Transcript streaming process died, restarting"
         if [ -x "$STREAM_SCRIPT" ]; then
-            "$STREAM_SCRIPT" &
+            bash "$STREAM_SCRIPT" &
             _STREAM_PID=$!
             log_info "Restarted transcript streaming (PID: $_STREAM_PID)"
         fi

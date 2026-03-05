@@ -27,6 +27,7 @@ _DEFAULT_OPTS = MessageCliOptions(
     message_content=None,
     on_error="continue",
     start=False,
+    provider=(),
     output_format="human",
     quiet=False,
     verbose=0,
@@ -52,6 +53,7 @@ def test_message_cli_options_has_expected_fields() -> None:
         message_content="Hello",
         on_error="continue",
         start=False,
+        provider=(),
         output_format="human",
         quiet=False,
         verbose=0,
@@ -71,7 +73,7 @@ def test_message_cli_options_has_expected_fields() -> None:
 
 def test_get_message_content_returns_option_when_provided() -> None:
     """Test that _get_message_content returns the option value when provided."""
-    result = _get_message_content("Hello World", click.Context(click.Command("test")))
+    result = _get_message_content("Hello World", click.Context(click.Command("test")), is_interactive=False)
     assert result == "Hello World"
 
 

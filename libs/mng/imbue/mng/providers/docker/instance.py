@@ -43,6 +43,7 @@ from imbue.mng.interfaces.host import HostInterface
 from imbue.mng.interfaces.volume import HostVolume
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
+from imbue.mng.primitives import DiscoveredHost
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostState
@@ -57,6 +58,8 @@ from imbue.mng.providers.docker.host_store import DockerHostStore
 from imbue.mng.providers.docker.host_store import HostRecord
 from imbue.mng.providers.docker.volume import CONTAINER_ENTRYPOINT_CMD
 from imbue.mng.providers.docker.volume import DockerVolume
+from imbue.mng.providers.docker.volume import LABEL_PREFIX
+from imbue.mng.providers.docker.volume import LABEL_PROVIDER
 from imbue.mng.providers.docker.volume import STATE_VOLUME_MOUNT_PATH
 from imbue.mng.providers.docker.volume import ensure_state_container
 from imbue.mng.providers.docker.volume import state_volume_name
@@ -97,11 +100,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
 # Derived from REQUIRED_HOST_PACKAGES so the two stay in sync.
 DEFAULT_DOCKERFILE_CONTENTS: Final[str] = _build_default_dockerfile()
 
-# Docker label prefix
-LABEL_PREFIX: Final[str] = "com.imbue.mng."
+# Docker label keys (LABEL_PREFIX and LABEL_PROVIDER are imported from volume.py)
 LABEL_HOST_ID: Final[str] = f"{LABEL_PREFIX}host-id"
 LABEL_HOST_NAME: Final[str] = f"{LABEL_PREFIX}host-name"
-LABEL_PROVIDER: Final[str] = f"{LABEL_PREFIX}provider"
 LABEL_TAGS: Final[str] = f"{LABEL_PREFIX}tags"
 
 # Path where the state volume is mounted inside host containers (when host volume is enabled).
@@ -212,7 +213,7 @@ class DockerProviderInstance(BaseProviderInstance):
         """Get the state volume backed by the singleton state container."""
         user_id = str(self.mng_ctx.get_profile_user_id())
         prefix = self.mng_ctx.config.prefix
-        state_container = ensure_state_container(self._docker_client, prefix, user_id)
+        state_container = ensure_state_container(self._docker_client, prefix, user_id, provider_name=str(self.name))
         return DockerVolume(container=state_container)
 
     @cached_property
@@ -1191,12 +1192,12 @@ kill -TERM 1
 
         raise HostNotFoundError(host)
 
-    def list_hosts(
+    def discover_hosts(
         self,
         cg: ConcurrencyGroup,
         include_destroyed: bool = False,
-    ) -> list[HostInterface]:
-        """List all Docker container hosts."""
+    ) -> list[DiscoveredHost]:
+        """Discover all Docker container hosts."""
         hosts: list[HostInterface] = []
         processed_host_ids: set[HostId] = set()
 
@@ -1264,7 +1265,7 @@ kill -TERM 1
         for h in hosts:
             self._host_by_id_cache[h.id] = h
 
-        return hosts
+        return [DiscoveredHost(host_id=h.id, host_name=h.get_name(), provider_name=self.name) for h in hosts]
 
     def get_host_resources(self, host: HostInterface) -> HostResources:
         """Get resource information for a Docker container.

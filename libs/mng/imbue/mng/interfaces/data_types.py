@@ -32,6 +32,7 @@ from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostState
 from imbue.mng.primitives import IdleMode
 from imbue.mng.primitives import ProviderInstanceName
+from imbue.mng.primitives import SSHInfo
 from imbue.mng.primitives import SnapshotId
 from imbue.mng.primitives import SnapshotName
 from imbue.mng.primitives import VolumeId
@@ -409,18 +410,8 @@ class BuildCacheInfo(FrozenModel):
     created_at: datetime = Field(description="When the cache entry was created")
 
 
-class SSHInfo(FrozenModel):
-    """SSH connection information for a remote host."""
-
-    user: str = Field(description="SSH username")
-    host: str = Field(description="SSH hostname")
-    port: int = Field(description="SSH port")
-    key_path: Path = Field(description="Path to SSH private key")
-    command: str = Field(description="Full SSH command to connect")
-
-
-class HostInfo(FrozenModel):
-    """Information about a host/machine."""
+class HostDetails(FrozenModel):
+    """Full host information collected by connecting to the host."""
 
     id: HostId = Field(description="Host ID")
     name: str = Field(description="Host name")
@@ -451,8 +442,8 @@ class HostInfo(FrozenModel):
     )
 
 
-class AgentInfo(FrozenModel):
-    """Complete information about an agent for listing purposes.
+class AgentDetails(FrozenModel):
+    """Full agent information collected by connecting to the host.
 
     This combines certified and reported data from the agent with host information.
     """
@@ -481,7 +472,7 @@ class AgentInfo(FrozenModel):
 
     labels: dict[str, str] = Field(default_factory=dict, description="Agent labels (key-value pairs)")
 
-    host: HostInfo = Field(description="Host information")
+    host: HostDetails = Field(description="Host information")
 
     plugin: dict[str, Any] = Field(default_factory=dict, description="Plugin-specific fields")
 

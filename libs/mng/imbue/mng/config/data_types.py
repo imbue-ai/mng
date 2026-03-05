@@ -41,6 +41,7 @@ _DEFAULT_DESTROYED_HOST_PERSISTED_SECONDS: Final[float] = 60.0 * 60.0 * 24.0 * 7
 # === Helper Functions ===
 
 T = TypeVar("T")
+PluginConfigT = TypeVar("PluginConfigT", bound="PluginConfig")
 
 
 @pure
@@ -422,6 +423,11 @@ class MngConfig(FrozenModel):
         default=False,
         description="Allow attaching to tmux sessions from within an existing tmux session by unsetting $TMUX",
     )
+    headless: bool = Field(
+        default=False,
+        description="When true, disables all interactive behavior (prompts, TUI, editor). "
+        "Equivalent to passing --headless on the CLI. Can also be set via MNG_HEADLESS env var.",
+    )
     is_error_reporting_enabled: bool = Field(
         default=True,
         description="Whether to prompt users to report unexpected errors as GitHub issues when running interactively",
@@ -554,6 +560,11 @@ class MngConfig(FrozenModel):
         if override.is_nested_tmux_allowed is not None:
             merged_is_nested_tmux_allowed = override.is_nested_tmux_allowed
 
+        # Merge headless (scalar - override wins if not None)
+        merged_headless = self.headless
+        if override.headless is not None:
+            merged_headless = override.headless
+
         # Merge is_error_reporting_enabled (scalar - override wins if not None)
         merged_is_error_reporting_enabled = self.is_error_reporting_enabled
         if override.is_error_reporting_enabled is not None:
@@ -590,6 +601,7 @@ class MngConfig(FrozenModel):
             connect_command=merged_connect_command,
             logging=merged_logging,
             is_nested_tmux_allowed=merged_is_nested_tmux_allowed,
+            headless=merged_headless,
             is_error_reporting_enabled=merged_is_error_reporting_enabled,
             is_allowed_in_pytest=is_allowed_in_pytest,
             default_destroyed_host_persisted_seconds=default_destroyed_host_persisted_seconds,
@@ -627,6 +639,17 @@ class MngContext(FrozenModel):
         default_factory=lambda: ConcurrencyGroup(name="default"),
         description="Top-level concurrency group for managing spawned processes",
     )
+
+    def get_plugin_config(self, name: str, config_type: type[PluginConfigT]) -> PluginConfigT:
+        """Get a plugin's typed config, falling back to defaults if absent."""
+        config = self.config.plugins.get(PluginName(name))
+        if config is None:
+            return config_type()
+        if not isinstance(config, config_type):
+            raise ConfigParseError(
+                f"Plugin '{name}' config has type {type(config).__name__}, expected {config_type.__name__}"
+            )
+        return config
 
     def get_profile_user_id(self) -> UserId:
         return get_or_create_user_id(self.profile_dir)

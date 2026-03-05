@@ -29,9 +29,9 @@ from imbue.mng.interfaces.data_types import SnapshotInfo
 from imbue.mng.primitives import ActivitySource
 from imbue.mng.primitives import AgentId
 from imbue.mng.primitives import AgentName
-from imbue.mng.primitives import AgentReference
 from imbue.mng.primitives import AgentTypeName
 from imbue.mng.primitives import CommandString
+from imbue.mng.primitives import DiscoveredAgent
 from imbue.mng.primitives import HostId
 from imbue.mng.primitives import HostName
 from imbue.mng.primitives import HostNameStyle
@@ -136,8 +136,8 @@ class HostInterface(MutableModel, ABC):
     # =========================================================================
 
     @abstractmethod
-    def get_agent_references(self) -> list[AgentReference]:
-        """Return a list of all agent references for this host."""
+    def discover_agents(self) -> list[DiscoveredAgent]:
+        """Return lightweight data for all agents on this host."""
         ...
 
     # =========================================================================
@@ -348,7 +348,7 @@ class OnlineHostInterface(HostInterface, ABC):
     # =========================================================================
 
     @abstractmethod
-    def _get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
+    def get_ssh_connection_info(self) -> tuple[str, str, int, Path] | None:
         """Get SSH connection info for this host if it's remote.
 
         Returns (user, hostname, port, private_key_path) if remote, None if local.

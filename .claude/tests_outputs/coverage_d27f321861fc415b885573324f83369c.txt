@@ -1,0 +1,93 @@
+Name                                                           Stmts   Miss   Cover   Missing
+---------------------------------------------------------------------------------------------
+libs/mngr/imbue/mngr/api/gc.py                                   309    157  49.19%   105-106, 117-118, 147, 152-154, 169-172, 194, 200-239, 258-298, 317-356, 369-411, 424-476, 486, 498-501, 508-510, 531, 551-558, 584, 614, 622, 628, 652-661
+libs/mngr/imbue/mngr/cli/push.py                                 107     43  59.81%   136-257
+libs/mngr/imbue/mngr/cli/message.py                              121     48  60.33%   123-127, 132-201, 210-218, 223, 232, 241-246
+libs/mngr/imbue/mngr/api/list.py                                 308    121  60.71%   225-231, 260-268, 336-370, 389-537, 553-570, 590, 606, 646-660, 675-679, 684-689
+libs/mngr/imbue/mngr/cli/start.py                                135     53  60.74%   56-64, 71-94, 222-280
+libs/mngr/imbue/mngr/api/message.py                              120     45  62.50%   77-81, 87-98, 111-118, 131, 147-158, 184, 187, 196-202
+libs/mngr/imbue/mngr/cli/pair.py                                 107     38  64.49%   51-59, 66-71, 173, 186-237
+libs/mngr/imbue/mngr/cli/pull.py                                 153     53  65.36%   192-346
+libs/mngr/imbue/mngr/cli/stop.py                                 118     32  72.88%   55-63, 188, 209-245
+libs/mngr/imbue/mngr/hosts/host.py                              1043    276  73.54%   130-132, 143-145, 213, 215, 231-266, 280-310, 351-353, 367-382, 411-418, 426-429, 435-436, 443-448, 473, 475-478, 518-519, 536-539, 588, 606-607, 615, 629-635, 639-640, 715, 719, 735, 755, 759, 763-764, 768, 772, 841-843, 877, 913-914, 924-925, 957, 961-965, 971-976, 991-992, 995, 1002, 1020, 1036-1054, 1060-1062, 1076-1077, 1080-1084, 1101-1105, 1108, 1137-1148, 1160-1170, 1224-1291, 1296-1297, 1311, 1316, 1330, 1472, 1586-1589, 1615-1636, 1656-1660, 1711, 1801-1802, 1853, 1873, 1923, 1954, 1961-1962, 1967-1968, 1975-1976, 1986, 2014-2018, 2021, 2032-2041, 2216
+libs/mngr/imbue/mngr/cli/ask.py                                  186     48  74.19%   207, 217, 223, 230-297, 349-351, 390-391, 418-419, 456-461
+libs/mngr/imbue/mngr/cli/config.py                               384     93  75.78%   65, 70, 75, 84, 129, 148, 151, 224, 251-253, 289, 291, 294-299, 307, 342-343, 358-360, 379, 390, 392, 430-432, 470, 479, 522-523, 539-540, 564, 572, 612-616, 621-675, 682, 735-737, 756-766, 780-781, 796, 804, 824, 834-835
+libs/mngr/imbue/mngr/main.py                                     133     31  76.69%   62, 66-93, 124-131, 149, 157
+libs/imbue_common/imbue/imbue_common/pytest_utils.py               9      2  77.78%   17-18
+libs/mngr/imbue/mngr/cli/migrate.py                              114     25  78.07%   91-93, 108-129, 183, 200-208, 214-217
+libs/mngr/imbue/mngr/agents/default_plugins/claude_agent.py      340     72  78.82%   88-91, 96-99, 104-110, 233, 245-266, 419-420, 471, 490-491, 529, 535-545, 557-562, 566-602, 700-721
+libs/mngr/imbue/mngr/cli/create.py                               688    140  79.65%   109, 121, 524, 528, 534-535, 547-550, 571-572, 574, 640-674, 717, 763, 766, 778, 790, 829, 854-879, 947, 992-993, 1033, 1041-1062, 1083, 1087, 1113-1114, 1118-1119, 1136-1140, 1157-1158, 1166, 1168, 1170, 1172, 1179, 1187, 1195, 1203, 1208, 1279-1288, 1358-1368, 1372-1413, 1445-1456, 1487, 1510-1511, 1516-1520, 1526, 1531, 1533
+libs/mngr/imbue/mngr/utils/cel_utils.py                           51     10  80.39%   32-33, 40-41, 80-82, 89-91
+libs/mngr/imbue/mngr/cli/destroy.py                              241     47  80.50%   242, 245, 279-283, 289-290, 294-301, 329, 340, 353-379, 402-403, 408, 422-423, 427, 429, 435-436, 452, 454, 495-501
+libs/mngr/imbue/mngr/cli/output_helpers.py                        79     15  81.01%   159-189
+libs/mngr/imbue/mngr/utils/editor.py                             151     28  81.46%   44, 143-158, 167, 173, 187-190, 212, 241-248, 270-273
+libs/mngr/imbue/mngr/agents/base_agent.py                        382     68  82.20%   72, 93-94, 140-144, 174-175, 181-182, 201, 220-222, 323, 367, 374, 379, 397-421, 438, 446, 456, 465-470, 481-486, 493-495, 503-511, 515-520, 528-533, 583, 679-680, 683-684, 691, 693-694, 732-733
+libs/mngr/imbue/mngr/api/providers.py                             82     14  82.93%   24-29, 45-46, 131-132, 137-138, 147-148
+libs/mngr/imbue/mngr/utils/logging.py                            218     35  83.94%   86, 147-155, 217-219, 226-229, 262, 267, 271-273, 281, 289, 294, 349-350, 352-355, 381-390, 406, 426-427, 440-441, 446, 470-486, 506-508
+libs/mngr/imbue/mngr/cli/gc.py                                   232     37  84.05%   168-171, 200-210, 214-222, 253, 255, 257, 259, 261, 278, 280, 282, 284, 286, 332, 335-336, 343-353, 466, 469-472
+libs/mngr/imbue/mngr/cli/connect.py                              224     35  84.38%   216, 235-318, 326, 444, 454-463
+libs/mngr/imbue/mngr/api/sync.py                                 335     49  85.37%   185-186, 204-205, 211-212, 233, 247, 258, 261, 266, 300-303, 331-334, 426, 455, 479-487, 518, 535-536, 547, 553, 577, 584-585, 592-593, 600, 612, 703-704, 715-716, 748-754, 768-769, 835, 838
+libs/mngr/imbue/mngr/cli/agent_utils.py                           77     11  85.71%   136-142, 152-157
+libs/mngr/imbue/mngr/api/pair.py                                 155     17  89.03%   101, 103, 106, 126, 153-155, 172, 175, 199, 218-223, 329, 331, 335, 391
+libs/mngr/imbue/mngr/utils/git_utils.py                          121     13  89.26%   102-103, 118, 170-171, 174, 185-186, 209-211, 214-215
+libs/mngr/imbue/mngr/cli/list.py                                 403     43  89.33%   192-194, 220-230, 321-329, 346, 362, 391-393, 404-408, 583-584, 595, 603, 616, 632-633, 638-639, 648, 716, 757-758, 769, 771, 837-838
+libs/mngr/imbue/mngr/hosts/offline_host.py                       114     12  89.47%   190-200, 238, 242, 246, 250, 261-262
+libs/mngr/imbue/mngr/utils/interactive_subprocess.py              10      1  90.00%   26
+libs/mngr/imbue/mngr/cli/help_formatter.py                       196     18  90.82%   82-84, 126, 142, 152-154, 327, 360-374, 412
+libs/mngr/imbue/mngr/api/find.py                                 242     21  91.32%   234, 433-448, 474-480
+libs/mngr/imbue/mngr/errors.py                                   146     12  91.78%   75-87, 131-133, 140-142
+libs/imbue_common/imbue/imbue_common/ratchet_testing/core.py     137     11  91.97%   59, 143-144, 153-154, 170-171, 180, 287, 311-313
+libs/mngr/imbue/mngr/providers/ssh/instance.py                   108      8  92.59%   63, 90, 157, 286-293
+libs/mngr/imbue/mngr/config/loader.py                            263     18  93.16%   108-109, 121-123, 139, 147, 161, 189-190, 273, 282, 344, 348-351, 557, 569
+libs/mngr/imbue/mngr/primitives.py                               195     13  93.33%   322, 330, 335-338, 343-349, 354
+libs/mngr/imbue/mngr/cli/rename.py                               103      6  94.17%   67, 79-80, 111, 167-168
+libs/mngr/imbue/mngr/cli/common_opts.py                          180     10  94.44%   149-151, 217, 219, 221, 270, 317-318, 327, 337
+libs/mngr/imbue/mngr/utils/polling.py                             22      1  95.45%   29
+libs/mngr/imbue/mngr/interfaces/data_types.py                    183      8  95.63%   140, 157-159, 162, 429-431
+libs/mngr_opencode/imbue/mngr_opencode/plugin.py                  23      1  95.65%   34
+libs/mngr/imbue/mngr/hosts/common.py                              32      1  96.88%   83
+libs/mngr/imbue/mngr/interfaces/provider_instance.py              33      1  96.97%   283
+libs/mngr/imbue/mngr/agents/default_plugins/claude_config.py     169      5  97.04%   204, 301, 410-412
+libs/mngr/imbue/mngr/cli/issue_reporting.py                      104      3  97.12%   141-142, 145
+libs/mngr/imbue/mngr/api/connect.py                               73      2  97.26%   163-164
+libs/mngr/imbue/mngr/interfaces/agent.py                          39      1  97.44%   157
+libs/mngr/imbue/mngr/providers/local/backend.py                   40      1  97.50%   53
+libs/mngr/imbue/mngr/providers/local/instance.py                 168      4  97.62%   56, 232, 416-417
+libs/mngr/imbue/mngr/providers/ssh/backend.py                     46      1  97.83%   85
+libs/mngr/imbue/mngr/providers/registry.py                        63      1  98.41%   145
+libs/mngr/imbue/mngr/config/data_types.py                        263      4  98.48%   349, 635, 683, 688
+libs/mngr/imbue/mngr/agents/agent_registry.py                     82      1  98.78%   147
+libs/imbue_common/imbue/imbue_common/enums.py                      5      0 100.00%
+libs/imbue_common/imbue/imbue_common/errors.py                     1      0 100.00%
+libs/imbue_common/imbue/imbue_common/frozen_model.py              12      0 100.00%
+libs/imbue_common/imbue/imbue_common/ids.py                       46      0 100.00%
+libs/imbue_common/imbue/imbue_common/logging.py                   55      0 100.00%
+libs/imbue_common/imbue/imbue_common/model_update.py              24      0 100.00%
+libs/imbue_common/imbue/imbue_common/mutable_model.py             12      0 100.00%
+libs/imbue_common/imbue/imbue_common/primitives.py                54      0 100.00%
+libs/imbue_common/imbue/imbue_common/pure.py                       5      0 100.00%
+libs/mngr/imbue/mngr/__init__.py                                   2      0 100.00%
+libs/mngr/imbue/mngr/agents/default_plugins/codex_agent.py        11      0 100.00%
+libs/mngr/imbue/mngr/api/create.py                                73      0 100.00%
+libs/mngr/imbue/mngr/api/data_types.py                            93      0 100.00%
+libs/mngr/imbue/mngr/api/pull.py                                  14      0 100.00%
+libs/mngr/imbue/mngr/api/push.py                                  14      0 100.00%
+libs/mngr/imbue/mngr/cli/clone.py                                 69      0 100.00%
+libs/mngr/imbue/mngr/cli/data_types.py                            21      0 100.00%
+libs/mngr/imbue/mngr/cli/watch_mode.py                            20      0 100.00%
+libs/mngr/imbue/mngr/config/plugin_registry.py                    12      0 100.00%
+libs/mngr/imbue/mngr/interfaces/host.py                          127      0 100.00%
+libs/mngr/imbue/mngr/interfaces/provider_backend.py                9      0 100.00%
+libs/mngr/imbue/mngr/plugins/hookspecs.py                         35      0 100.00%
+libs/mngr/imbue/mngr/providers/base_provider.py                   17      0 100.00%
+libs/mngr/imbue/mngr/providers/docker/config.py                    6      0 100.00%
+libs/mngr/imbue/mngr/providers/local/config.py                     7      0 100.00%
+libs/mngr/imbue/mngr/providers/ssh/config.py                      14      0 100.00%
+libs/mngr/imbue/mngr/providers/ssh_host_setup.py                  61      0 100.00%
+libs/mngr/imbue/mngr/utils/env_utils.py                            7      0 100.00%
+libs/mngr/imbue/mngr/utils/name_generator.py                      45      0 100.00%
+libs/mngr/imbue/mngr/utils/rsync_utils.py                         19      0 100.00%
+---------------------------------------------------------------------------------------------
+TOTAL                                                          11050   1864  83.13%
+
+17 empty files skipped.
