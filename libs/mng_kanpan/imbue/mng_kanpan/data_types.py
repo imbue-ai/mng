@@ -38,6 +38,13 @@ class BoardSection(UpperCaseStrEnum):
     MUTED = auto()
 
 
+class PendingMark(UpperCaseStrEnum):
+    """A pending operation mark on an agent, like Emacs dired flags."""
+
+    DELETE = auto()
+    PUSH = auto()
+
+
 class PrInfo(FrozenModel):
     """GitHub pull request information associated with an agent."""
 

@@ -1,3 +1,6 @@
+from pathlib import Path
+from typing import Any
+
 from urwid.widget.attr_map import AttrMap
 from urwid.widget.columns import Columns
 from urwid.widget.text import Text
@@ -6,10 +9,109 @@ from imbue.mng.primitives import AgentLifecycleState
 from imbue.mng.primitives import AgentName
 from imbue.mng.primitives import ProviderInstanceName
 from imbue.mng_kanpan.data_types import AgentBoardEntry
+from imbue.mng_kanpan.data_types import BoardSection
 from imbue.mng_kanpan.data_types import BoardSnapshot
+from imbue.mng_kanpan.data_types import CheckStatus
+from imbue.mng_kanpan.data_types import PendingMark
+from imbue.mng_kanpan.data_types import PrInfo
+from imbue.mng_kanpan.data_types import PrState
 from imbue.mng_kanpan.testing import make_pr_info
+from imbue.mng_kanpan.tui import _KanpanState
+from imbue.mng_kanpan.tui import _advance_focus
 from imbue.mng_kanpan.tui import _build_board_widgets
 from imbue.mng_kanpan.tui import _carry_forward_pr_data
+from imbue.mng_kanpan.tui import _classify_entry
+from imbue.mng_kanpan.tui import _get_name_cell_markup
+from imbue.mng_kanpan.tui import _is_safe_to_delete
+from imbue.mng_kanpan.tui import _toggle_mark
+from imbue.mng_kanpan.tui import _unmark_all
+from imbue.mng_kanpan.tui import _unmark_focused
+
+
+class _Stub:
+    """A permissive stub that accepts any attribute access or method call."""
+
+    def __getattr__(self, name: str) -> "_Stub":
+        return _Stub()
+
+    def __call__(self, *args: Any, **kwargs: Any) -> "_Stub":
+        return _Stub()
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        pass
+
+
+def _stub() -> Any:
+    """Return an opaque stub for fields that aren't exercised by tests."""
+    return _Stub()
+
+
+# --- Helpers ---
+
+
+def _make_entry(
+    name: str = "agent-1",
+    state: AgentLifecycleState = AgentLifecycleState.RUNNING,
+    pr_state: PrState | None = None,
+    work_dir: Path | None = None,
+    is_muted: bool = False,
+) -> AgentBoardEntry:
+    """Create an AgentBoardEntry for testing."""
+    pr = None
+    if pr_state is not None:
+        pr = PrInfo(
+            number=1,
+            title="test",
+            state=pr_state,
+            url="https://github.com/org/repo/pull/1",
+            head_branch="mng/test",
+            check_status=CheckStatus.PASSING,
+            is_draft=False,
+        )
+    return AgentBoardEntry(
+        name=AgentName(name),
+        state=state,
+        provider_name=ProviderInstanceName("local"),
+        work_dir=work_dir,
+        pr=pr,
+        is_muted=is_muted,
+    )
+
+
+def _make_state(entries: tuple[AgentBoardEntry, ...] = ()) -> _KanpanState:
+    """Create a minimal _KanpanState for testing pure functions."""
+    snapshot = BoardSnapshot(entries=entries, fetch_time_seconds=0.1) if entries else None
+    frame = _stub()
+    footer_left_text = _stub()
+    footer_left_attr = _stub()
+    footer_right = _stub()
+    # Use model_construct to bypass MngContext validation (we don't need a real one)
+    state = _KanpanState.model_construct(
+        mng_ctx=_stub(),
+        frame=frame,
+        footer_left_text=footer_left_text,
+        footer_left_attr=footer_left_attr,
+        footer_right=footer_right,
+        snapshot=snapshot,
+        spinner_index=0,
+        marks={},
+        pending_confirm_deletes=(),
+        executing=False,
+        execute_status="",
+        index_to_entry={},
+        list_walker=None,
+        focused_agent_name=None,
+        steady_footer_text="  Loading...",
+        commands={},
+        loop=None,
+        refresh_future=None,
+        executor=None,
+    )
+    if snapshot is not None:
+        walker, state.index_to_entry = _build_board_widgets(snapshot)
+        state.list_walker = walker
+        frame.body = _stub()
+    return state
 
 
 def _text_from_widget(widget: Text) -> str:
@@ -42,6 +144,212 @@ def _extract_text(walker: list[object]) -> list[str]:
 
 def _text_contains(texts: list[str], substring: str) -> bool:
     return any(substring in t for t in texts)
+
+
+# --- _classify_entry ---
+
+
+def test_classify_entry_no_pr() -> None:
+    entry = _make_entry()
+    assert _classify_entry(entry) == BoardSection.STILL_COOKING
+
+
+def test_classify_entry_merged_pr() -> None:
+    entry = _make_entry(pr_state=PrState.MERGED)
+    assert _classify_entry(entry) == BoardSection.PR_MERGED
+
+
+def test_classify_entry_closed_pr() -> None:
+    entry = _make_entry(pr_state=PrState.CLOSED)
+    assert _classify_entry(entry) == BoardSection.PR_CLOSED
+
+
+def test_classify_entry_open_pr() -> None:
+    entry = _make_entry(pr_state=PrState.OPEN)
+    assert _classify_entry(entry) == BoardSection.PR_BEING_REVIEWED
+
+
+def test_classify_entry_muted_overrides_pr_state() -> None:
+    entry = _make_entry(pr_state=PrState.OPEN, is_muted=True)
+    assert _classify_entry(entry) == BoardSection.MUTED
+
+
+# --- _is_safe_to_delete ---
+
+
+def test_is_safe_to_delete_merged_pr() -> None:
+    entry = _make_entry(pr_state=PrState.MERGED)
+    assert _is_safe_to_delete(entry) is True
+
+
+def test_is_safe_to_delete_open_pr() -> None:
+    entry = _make_entry(pr_state=PrState.OPEN)
+    assert _is_safe_to_delete(entry) is False
+
+
+def test_is_safe_to_delete_no_pr() -> None:
+    entry = _make_entry()
+    assert _is_safe_to_delete(entry) is False
+
+
+# --- _get_name_cell_markup with marks ---
+
+
+def test_name_cell_markup_no_mark() -> None:
+    entry = _make_entry()
+    result = _get_name_cell_markup(entry)
+    assert isinstance(result, str)
+    assert result.startswith("  agent-1")
+
+
+def test_name_cell_markup_delete_mark() -> None:
+    entry = _make_entry()
+    result = _get_name_cell_markup(entry, mark=PendingMark.DELETE)
+    assert isinstance(result, list)
+    assert result[0] == ("mark_delete", "D")
+    assert "agent-1" in result[1]
+
+
+def test_name_cell_markup_push_mark() -> None:
+    entry = _make_entry(work_dir=Path("/tmp/work"))
+    result = _get_name_cell_markup(entry, mark=PendingMark.PUSH)
+    assert isinstance(result, list)
+    assert result[0] == ("mark_push", "P")
+
+
+# --- _toggle_mark ---
+
+
+def test_toggle_mark_adds_mark() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    # Focus the first selectable entry
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    _toggle_mark(state, PendingMark.DELETE)
+    assert state.marks == {AgentName("agent-1"): PendingMark.DELETE}
+
+
+def test_toggle_mark_removes_same_mark() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    state.marks[AgentName("agent-1")] = PendingMark.DELETE
+    _toggle_mark(state, PendingMark.DELETE)
+    assert AgentName("agent-1") not in state.marks
+
+
+def test_toggle_mark_replaces_different_mark() -> None:
+    entry = _make_entry(work_dir=Path("/tmp/work"))
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    state.marks[AgentName("agent-1")] = PendingMark.DELETE
+    _toggle_mark(state, PendingMark.PUSH)
+    assert state.marks[AgentName("agent-1")] == PendingMark.PUSH
+
+
+def test_toggle_push_mark_rejected_without_work_dir() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    _toggle_mark(state, PendingMark.PUSH)
+    assert AgentName("agent-1") not in state.marks
+
+
+# --- _unmark_focused ---
+
+
+def test_unmark_focused_removes_mark() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+    state.marks[AgentName("agent-1")] = PendingMark.DELETE
+
+    _unmark_focused(state)
+    assert AgentName("agent-1") not in state.marks
+
+
+def test_unmark_focused_noop_without_mark() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    _unmark_focused(state)
+    assert state.marks == {}
+
+
+# --- _unmark_all ---
+
+
+def test_unmark_all_clears_all_marks() -> None:
+    e1 = _make_entry(name="agent-1")
+    e2 = _make_entry(name="agent-2")
+    state = _make_state(entries=(e1, e2))
+    state.marks[AgentName("agent-1")] = PendingMark.DELETE
+    state.marks[AgentName("agent-2")] = PendingMark.PUSH
+
+    _unmark_all(state)
+    assert state.marks == {}
+
+
+def test_unmark_all_noop_when_empty() -> None:
+    state = _make_state(entries=(_make_entry(),))
+    _unmark_all(state)
+    assert state.marks == {}
+
+
+# --- _advance_focus ---
+
+
+def test_advance_focus_moves_to_next_agent() -> None:
+    e1 = _make_entry(name="agent-1")
+    e2 = _make_entry(name="agent-2")
+    state = _make_state(entries=(e1, e2))
+
+    sorted_indices = sorted(state.index_to_entry.keys())
+    state.list_walker.set_focus(sorted_indices[0])
+
+    _advance_focus(state)
+
+    _, new_focus = state.list_walker.get_focus()
+    assert new_focus == sorted_indices[1]
+
+
+def test_advance_focus_stays_at_last_agent() -> None:
+    entry = _make_entry()
+    state = _make_state(entries=(entry,))
+    first_idx = min(state.index_to_entry.keys())
+    state.list_walker.set_focus(first_idx)
+
+    _advance_focus(state)
+
+    _, new_focus = state.list_walker.get_focus()
+    assert new_focus == first_idx
+
+
+# --- _build_board_widgets with marks ---
+
+
+def test_build_board_widgets_shows_mark_indicator() -> None:
+    entry = _make_entry()
+    snapshot = BoardSnapshot(entries=(entry,), fetch_time_seconds=0.1)
+    marks = {AgentName("agent-1"): PendingMark.DELETE}
+
+    walker, index_to_entry = _build_board_widgets(snapshot, marks)
+
+    agent_idx = min(index_to_entry.keys())
+    texts = _extract_text([walker[agent_idx]])
+    assert len(texts) == 1
+    assert texts[0].startswith("D")
 
 
 # === _carry_forward_pr_data ===
