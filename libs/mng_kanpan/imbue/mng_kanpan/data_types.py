@@ -71,6 +71,7 @@ class BoardSnapshot(FrozenModel):
 
     entries: tuple[AgentBoardEntry, ...] = Field(description="All agent board entries")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during fetch")
+    prs_loaded: bool = Field(default=True, description="Whether PR data was successfully fetched from GitHub")
     fetch_time_seconds: float = Field(description="Time taken to fetch data")
 
 
@@ -79,6 +80,7 @@ class RemoteData(FrozenModel):
 
     pr_by_branch: dict[str, PrInfo] = Field(description="Mapping from branch name to the most relevant PR")
     repo_path: str | None = Field(default=None, description="GitHub owner/repo path (e.g. 'owner/repo')")
+    prs_loaded: bool = Field(default=True, description="Whether PR data was successfully fetched")
     errors: tuple[str, ...] = Field(default=(), description="Errors encountered during remote fetch")
 
 

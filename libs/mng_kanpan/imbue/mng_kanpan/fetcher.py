@@ -66,6 +66,7 @@ def fetch_local_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     return BoardSnapshot(
         entries=tuple(entries),
         errors=tuple(errors),
+        prs_loaded=False,
         fetch_time_seconds=elapsed,
     )
 
@@ -81,6 +82,7 @@ def fetch_remote_data(mng_ctx: MngContext, agents: list[AgentDetails]) -> Remote
     gh_cwd = _find_git_cwd(agents)
 
     pr_result = fetch_all_prs(cg, cwd=gh_cwd)
+    prs_loaded = pr_result.error is None
     if pr_result.error is not None:
         errors.append(pr_result.error)
     pr_by_branch = _build_pr_branch_index(pr_result.prs)
@@ -90,6 +92,7 @@ def fetch_remote_data(mng_ctx: MngContext, agents: list[AgentDetails]) -> Remote
     return RemoteData(
         pr_by_branch=pr_by_branch,
         repo_path=repo_path,
+        prs_loaded=prs_loaded,
         errors=tuple(errors),
     )
 
@@ -105,7 +108,7 @@ def enrich_snapshot_with_remote_data(snapshot: BoardSnapshot, remote: RemoteData
         pr = remote.pr_by_branch.get(entry.branch) if entry.branch else None
         create_pr_url = (
             _build_create_pr_url(remote.repo_path, entry.branch)
-            if remote.repo_path and entry.branch and pr is None
+            if remote.prs_loaded and remote.repo_path and entry.branch and pr is None
             else None
         )
         enriched_entry = entry.model_copy_update(
@@ -117,6 +120,7 @@ def enrich_snapshot_with_remote_data(snapshot: BoardSnapshot, remote: RemoteData
     return BoardSnapshot(
         entries=tuple(enriched_entries),
         errors=(*snapshot.errors, *remote.errors),
+        prs_loaded=remote.prs_loaded,
         fetch_time_seconds=snapshot.fetch_time_seconds,
     )
 
@@ -148,7 +152,9 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
         commits_ahead = _get_commits_ahead(local_work_dir, cg) if local_work_dir is not None else None
         pr = remote.pr_by_branch.get(branch) if branch else None
         create_pr_url = (
-            _build_create_pr_url(remote.repo_path, branch) if remote.repo_path and branch and pr is None else None
+            _build_create_pr_url(remote.repo_path, branch)
+            if remote.prs_loaded and remote.repo_path and branch and pr is None
+            else None
         )
         entries.append(
             AgentBoardEntry(
@@ -168,6 +174,7 @@ def fetch_board_snapshot(mng_ctx: MngContext) -> BoardSnapshot:
     return BoardSnapshot(
         entries=tuple(entries),
         errors=(*tuple(errors), *remote.errors),
+        prs_loaded=remote.prs_loaded,
         fetch_time_seconds=elapsed,
     )
 
