@@ -23,6 +23,9 @@ from imbue.imbue_common.mutable_model import MutableModel
 from imbue.imbue_common.pure import pure
 from imbue.mng.api.discover import discover_all_hosts_and_agents
 from imbue.mng.api.discover import warn_on_duplicate_host_names
+from imbue.mng.api.discovery_events import emit_host_ssh_info
+from imbue.mng.api.discovery_events import extract_agents_and_hosts_from_full_listing
+from imbue.mng.api.discovery_events import write_full_discovery_snapshot
 from imbue.mng.api.providers import get_all_provider_instances
 from imbue.mng.config.data_types import MngContext
 from imbue.mng.errors import AgentNotFoundOnHostError
@@ -201,7 +204,37 @@ def list_agents(
         if on_error:
             on_error(error_info)
 
+    _maybe_write_full_discovery_snapshot(mng_ctx, result, provider_names, include_filters, exclude_filters)
     return result
+
+
+def _maybe_write_full_discovery_snapshot(
+    mng_ctx: MngContext,
+    result: ListResult,
+    provider_names: tuple[str, ...] | None,
+    include_filters: tuple[str, ...],
+    exclude_filters: tuple[str, ...],
+) -> None:
+    """Write a full discovery snapshot when this listing represents all known agents.
+
+    A snapshot is written only when the listing is complete and error-free:
+    - All providers were queried (no provider_names filter)
+    - No CEL filters were applied (the result contains every agent)
+    - No errors occurred during listing (otherwise we may be missing agents)
+    """
+    is_full_listing = provider_names is None and not include_filters and not exclude_filters
+    if not is_full_listing:
+        return
+    if result.errors:
+        logger.trace("Skipping full discovery snapshot: {} error(s) during listing", len(result.errors))
+        return
+    try:
+        discovered_agents, discovered_hosts, host_ssh_infos = extract_agents_and_hosts_from_full_listing(result.agents)
+        write_full_discovery_snapshot(mng_ctx.config, discovered_agents, discovered_hosts)
+        for host_id, ssh_info in host_ssh_infos:
+            emit_host_ssh_info(mng_ctx.config, host_id, ssh_info)
+    except (MngError, OSError) as e:
+        logger.warning("Failed to write full discovery snapshot: {}", e)
 
 
 def _list_agents_batch(
