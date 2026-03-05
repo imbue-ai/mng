@@ -5,6 +5,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
+from urwid.widget.attr_map import AttrMap
+from urwid.widget.text import Text
+
 from imbue.mng.interfaces.data_types import AgentDetails
 from imbue.mng.interfaces.data_types import HostDetails
 from imbue.mng.primitives import AgentId
@@ -25,6 +28,8 @@ from imbue.mng_kanpan.fetcher import _pr_priority
 from imbue.mng_kanpan.fetcher import _resolve_agent_branch
 from imbue.mng_kanpan.fetcher import fetch_board_snapshot
 from imbue.mng_kanpan.github import FetchPrsResult
+from imbue.mng_kanpan.tui import _KanpanState
+from imbue.mng_kanpan.tui import _build_board_widgets
 from imbue.mng_kanpan.tui import _carry_forward_pr_data
 
 
@@ -333,3 +338,94 @@ def test_carry_forward_pr_data_handles_new_agents() -> None:
 
     result = _carry_forward_pr_data(old, new)
     assert result.entries[0].pr is None
+
+
+# === _build_board_widgets: first-load PR failure ===
+
+
+def _make_minimal_state(snapshot: BoardSnapshot | None) -> _KanpanState:
+    """Create a minimal _KanpanState with a snapshot for widget-building tests."""
+    return _KanpanState.model_construct(
+        mng_ctx=MagicMock(),
+        snapshot=snapshot,
+        frame=MagicMock(),
+        footer_left_text=MagicMock(),
+        footer_left_attr=MagicMock(),
+        footer_right=MagicMock(),
+        index_to_entry={},
+    )
+
+
+def _extract_text(walker: list[object]) -> list[str]:
+    """Extract plain text from all Text widgets in a walker."""
+    texts: list[str] = []
+    for widget in walker:
+        inner = widget._original_widget if isinstance(widget, AttrMap) else widget
+        if not isinstance(inner, Text):
+            continue
+        raw = inner.text
+        if isinstance(raw, str):
+            texts.append(raw)
+        else:
+            parts = []
+            for seg in raw:
+                if isinstance(seg, tuple):
+                    parts.append(str(seg[1]))
+                else:
+                    parts.append(str(seg))
+            texts.append("".join(parts))
+    return texts
+
+
+def test_first_load_pr_failure_shows_prs_not_loaded() -> None:
+    """When the first load fails to fetch PRs, the heading should say 'PRs not loaded'
+    and no create-PR links should appear."""
+    entry = AgentBoardEntry(
+        name=AgentName("agent-1"),
+        state=AgentLifecycleState.RUNNING,
+        provider_name=ProviderInstanceName("modal"),
+        branch="mng/agent-1",
+        pr=None,
+        create_pr_url=None,
+    )
+    snapshot = BoardSnapshot(
+        entries=(entry,),
+        errors=("gh pr list failed: auth required",),
+        prs_loaded=False,
+        fetch_time_seconds=1.0,
+    )
+    state = _make_minimal_state(snapshot)
+    walker = _build_board_widgets(state)
+
+    texts = _extract_text(list(walker))
+    # Section heading should indicate PRs weren't loaded
+    assert any("PRs not loaded" in t for t in texts), f"Expected 'PRs not loaded' in {texts}"
+    # Should NOT show "no PR yet"
+    assert not any("no PR yet" in t for t in texts), f"Unexpected 'no PR yet' in {texts}"
+    # Should NOT show create PR links
+    assert not any("create PR" in t for t in texts), f"Unexpected 'create PR' in {texts}"
+    # Error should appear at the bottom
+    assert any("gh pr list failed" in t for t in texts), f"Expected error in {texts}"
+
+
+def test_first_load_pr_success_shows_normal_heading() -> None:
+    """When PRs load successfully, agents without PRs show normal 'no PR yet' heading."""
+    entry = AgentBoardEntry(
+        name=AgentName("agent-1"),
+        state=AgentLifecycleState.RUNNING,
+        provider_name=ProviderInstanceName("modal"),
+        branch="mng/agent-1",
+        pr=None,
+        create_pr_url="https://github.com/org/repo/compare/mng/agent-1?expand=1",
+    )
+    snapshot = BoardSnapshot(
+        entries=(entry,),
+        prs_loaded=True,
+        fetch_time_seconds=1.0,
+    )
+    state = _make_minimal_state(snapshot)
+    walker = _build_board_widgets(state)
+
+    texts = _extract_text(list(walker))
+    assert any("no PR yet" in t for t in texts), f"Expected 'no PR yet' in {texts}"
+    assert not any("PRs not loaded" in t for t in texts), f"Unexpected 'PRs not loaded' in {texts}"
