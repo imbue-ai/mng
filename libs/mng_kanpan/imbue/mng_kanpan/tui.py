@@ -343,8 +343,7 @@ def _finish_delete(loop: MainLoop, state: _KanpanState) -> None:
         state.deleting_agent_name = None
 
     # Trigger a refresh to update the board (subject to auto cooldown)
-    if state.loop is not None:
-        _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
+    _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
 
 
 def _run_git_push(work_dir: str) -> subprocess.CompletedProcess[str]:
@@ -414,8 +413,7 @@ def _finish_push(loop: MainLoop, state: _KanpanState) -> None:
         state.pushing_agent_name = None
 
     # Trigger a refresh to update the board (subject to auto cooldown)
-    if state.loop is not None:
-        _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
+    _request_refresh(loop, state, state.auto_refresh_cooldown_seconds)
 
 
 def _update_snapshot_mute(state: _KanpanState, agent_name: AgentName, is_muted: bool) -> None:
