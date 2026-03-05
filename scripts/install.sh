@@ -202,11 +202,18 @@ fi
 info "Installing mng..."
 uv tool install mng
 
+UV_TOOL_BIN="$(uv tool dir --bin)"
+MNG_BIN="${UV_TOOL_BIN}/mng"
+
 if ! command -v mng &>/dev/null; then
     warn "mng was installed but is not on PATH."
-    warn "You may need to add ~/.local/bin to your PATH:"
-    printf '  export PATH="$HOME/.local/bin:$PATH"\n'
+    warn "You may need to add ${UV_TOOL_BIN} to your PATH:"
+    printf '  export PATH="%s:$PATH"\n' "$UV_TOOL_BIN"
 fi
+
+# ── Plugin install wizard ─────────────────────────────────────────────────────
+
+"$MNG_BIN" plugin install-wizard || warn "Plugin install wizard failed. You can run 'mng plugin install-wizard' later."
 
 # ── Shell completion ───────────────────────────────────────────────────────────
 
