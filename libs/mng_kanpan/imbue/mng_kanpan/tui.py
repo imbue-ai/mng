@@ -751,36 +751,35 @@ def _build_agent_row(entry: AgentBoardEntry, section: BoardSection, widths: dict
     """
     is_muted = section == BoardSection.MUTED
 
-    name_str = f"  {entry.name}"
-    state_str = str(entry.state)
-    git_str = _get_push_cell_text(entry)
-    pr_str = _get_pr_cell_text(entry)
-    link_str = _get_link_cell_text(entry)
-
+    # Build cell markup -- muted forces all cells to gray
     if is_muted:
-        ci_str = _get_check_cell_text(entry)
-        cols: list[tuple[int, Text] | Text] = [
-            (widths["name"], Text(("muted", name_str))),
-            (widths["state"], Text(("muted", state_str))),
-            (widths["git"], Text(("muted", git_str))),
-            (widths["pr"], Text(("muted", pr_str))),
-            (widths["ci"], Text(("muted", ci_str))),
-            Text(("muted", link_str)),
-        ]
-        return _SelectableRow(cols, dividechars=_COL_DIVIDER_CHARS)
+        cell_markup: dict[str, str | tuple[Hashable, str]] = {
+            "name": ("muted", f"  {entry.name}"),
+            "state": ("muted", str(entry.state)),
+            "git": ("muted", _get_push_cell_text(entry)),
+            "pr": ("muted", _get_pr_cell_text(entry)),
+            "ci": ("muted", _get_check_cell_text(entry)),
+            "link": ("muted", _get_link_cell_text(entry)),
+        }
+    else:
+        state_str = str(entry.state)
+        state_attr = _get_state_attr(entry)
+        cell_markup = {
+            "name": f"  {entry.name}",
+            "state": (state_attr, state_str) if state_attr else state_str,
+            "git": _get_push_cell_text(entry),
+            "pr": _get_pr_cell_text(entry),
+            "ci": _get_check_cell_markup(entry),
+            "link": _get_link_cell_text(entry),
+        }
 
-    state_attr = _get_state_attr(entry)
-    state_markup: str | tuple[Hashable, str] = (state_attr, state_str) if state_attr else state_str
-    ci_markup = _get_check_cell_markup(entry)
-
-    cols = [
-        (widths["name"], Text(name_str)),
-        (widths["state"], Text(state_markup)),
-        (widths["git"], Text(git_str)),
-        (widths["pr"], Text(pr_str)),
-        (widths["ci"], Text(ci_markup)),
-        Text(link_str),
-    ]
+    cols: list[tuple[int, Text] | Text] = []
+    for col in _BOARD_COLUMNS:
+        widget = Text(cell_markup[col])
+        if col == "link":
+            cols.append(widget)
+        else:
+            cols.append((widths[col], widget))
     return _SelectableRow(cols, dividechars=_COL_DIVIDER_CHARS)
 
 
