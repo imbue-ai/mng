@@ -5,6 +5,7 @@ from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
 from imbue.slack_exporter.primitives import SlackUserId
+from imbue.slack_exporter.store import StreamType
 from imbue.slack_exporter.store import load_existing_channels
 from imbue.slack_exporter.store import load_existing_message_state
 from imbue.slack_exporter.store import load_existing_user_ids
@@ -23,7 +24,7 @@ def test_load_existing_channels_returns_empty_when_missing(temp_output_dir: Path
 
 def test_load_existing_channels_loads_from_created_stream(temp_output_dir: Path) -> None:
     event = make_channel_event("C123", "general")
-    save_channel_events(temp_output_dir, "created", [event])
+    save_channel_events(temp_output_dir, StreamType.CREATED, [event])
 
     result = load_existing_channels(temp_output_dir)
     assert len(result) == 1
@@ -33,8 +34,8 @@ def test_load_existing_channels_loads_from_created_stream(temp_output_dir: Path)
 def test_load_existing_channels_updated_overrides_created(temp_output_dir: Path) -> None:
     created = make_channel_event("C123", "general")
     updated = make_channel_event("C123", "general-renamed")
-    save_channel_events(temp_output_dir, "created", [created])
-    save_channel_events(temp_output_dir, "updated", [updated])
+    save_channel_events(temp_output_dir, StreamType.CREATED, [created])
+    save_channel_events(temp_output_dir, StreamType.UPDATED, [updated])
 
     result = load_existing_channels(temp_output_dir)
     assert result[SlackChannelId("C123")].channel_name == SlackChannelName("general-renamed")
@@ -49,7 +50,7 @@ def test_load_existing_message_state_returns_empty_when_missing(temp_output_dir:
 def test_load_existing_message_state_tracks_latest_timestamp(temp_output_dir: Path) -> None:
     msg1 = make_message_event(ts="1700000000.000001")
     msg2 = make_message_event(ts="1700000000.000009")
-    save_message_events(temp_output_dir, "created", [msg1, msg2])
+    save_message_events(temp_output_dir, StreamType.CREATED, [msg1, msg2])
 
     state, keys = load_existing_message_state(temp_output_dir)
 
@@ -64,13 +65,13 @@ def test_load_existing_user_ids_returns_empty_when_missing(temp_output_dir: Path
 
 
 def test_load_existing_user_ids_returns_from_created_stream(temp_output_dir: Path) -> None:
-    save_user_events(temp_output_dir, "created", [make_user_event("U111"), make_user_event("U222")])
+    save_user_events(temp_output_dir, StreamType.CREATED, [make_user_event("U111"), make_user_event("U222")])
     result = load_existing_user_ids(temp_output_dir)
     assert result == {SlackUserId("U111"), SlackUserId("U222")}
 
 
 def test_save_channel_events_creates_directory_structure(temp_output_dir: Path) -> None:
-    save_channel_events(temp_output_dir, "created", [make_channel_event()])
+    save_channel_events(temp_output_dir, StreamType.CREATED, [make_channel_event()])
     expected_path = temp_output_dir / "channels" / "created" / "events.jsonl"
     assert expected_path.exists()
     parsed = json.loads(expected_path.read_text().strip())
@@ -81,25 +82,25 @@ def test_save_channel_events_creates_directory_structure(temp_output_dir: Path) 
 
 
 def test_save_message_events_creates_directory_structure(temp_output_dir: Path) -> None:
-    save_message_events(temp_output_dir, "created", [make_message_event()])
+    save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event()])
     expected_path = temp_output_dir / "messages" / "created" / "events.jsonl"
     assert expected_path.exists()
 
 
 def test_save_user_events_creates_directory_structure(temp_output_dir: Path) -> None:
-    save_user_events(temp_output_dir, "created", [make_user_event()])
+    save_user_events(temp_output_dir, StreamType.CREATED, [make_user_event()])
     expected_path = temp_output_dir / "users" / "created" / "events.jsonl"
     assert expected_path.exists()
 
 
 def test_save_appends_to_existing(temp_output_dir: Path) -> None:
-    save_message_events(temp_output_dir, "created", [make_message_event(ts="1700000000.000001")])
-    save_message_events(temp_output_dir, "created", [make_message_event(ts="1700000000.000002")])
+    save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event(ts="1700000000.000001")])
+    save_message_events(temp_output_dir, StreamType.CREATED, [make_message_event(ts="1700000000.000002")])
 
     lines = (temp_output_dir / "messages" / "created" / "events.jsonl").read_text().strip().splitlines()
     assert len(lines) == 2
 
 
 def test_save_does_nothing_for_empty_list(temp_output_dir: Path) -> None:
-    save_message_events(temp_output_dir, "created", [])
+    save_message_events(temp_output_dir, StreamType.CREATED, [])
     assert not (temp_output_dir / "messages" / "created" / "events.jsonl").exists()

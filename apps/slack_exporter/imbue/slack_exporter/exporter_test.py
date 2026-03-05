@@ -12,6 +12,7 @@ from imbue.slack_exporter.exporter import run_export
 from imbue.slack_exporter.primitives import SlackChannelId
 from imbue.slack_exporter.primitives import SlackChannelName
 from imbue.slack_exporter.primitives import SlackMessageTimestamp
+from imbue.slack_exporter.store import StreamType
 from imbue.slack_exporter.store import save_message_events
 from imbue.slack_exporter.testing import make_fake_api_caller
 from imbue.slack_exporter.testing import make_message_event
@@ -237,7 +238,7 @@ def test_run_export_changed_channels_go_to_updated_stream(temp_output_dir: Path)
 
 def test_run_export_incremental_resumes_from_latest(temp_output_dir: Path) -> None:
     existing_msg = make_message_event(ts="1700000000.000001")
-    save_message_events(temp_output_dir, "created", [existing_msg])
+    save_message_events(temp_output_dir, StreamType.CREATED, [existing_msg])
 
     captured_params: list[dict[str, str] | None] = []
 

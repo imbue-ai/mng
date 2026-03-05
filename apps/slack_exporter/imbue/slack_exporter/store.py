@@ -1,6 +1,7 @@
 import json
 import logging
 from collections.abc import Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,22 @@ from imbue.slack_exporter.primitives import SlackUserId
 logger = logging.getLogger(__name__)
 
 
-def _events_path(output_dir: Path, data_type: str, stream: str) -> Path:
+class DataType(StrEnum):
+    """The category of Slack data being stored. Values are lowercase directory names."""
+
+    CHANNELS = "channels"
+    MESSAGES = "messages"
+    USERS = "users"
+
+
+class StreamType(StrEnum):
+    """The event stream within a data type. Values are lowercase directory names."""
+
+    CREATED = "created"
+    UPDATED = "updated"
+
+
+def _events_path(output_dir: Path, data_type: DataType, stream: StreamType) -> Path:
     return output_dir / data_type / stream / "events.jsonl"
 
 
@@ -54,8 +70,8 @@ def load_existing_channels(
     channel_by_id: dict[SlackChannelId, ChannelEvent] = {}
 
     # Load created first, then updated (updated overrides)
-    for stream in ("created", "updated"):
-        for record in _load_jsonl_records(_events_path(output_dir, "channels", stream)):
+    for stream in StreamType:
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.CHANNELS, stream)):
             event = ChannelEvent.model_validate(record)
             channel_by_id[event.channel_id] = event
 
@@ -70,8 +86,8 @@ def load_existing_message_state(
     state_by_channel_id: dict[SlackChannelId, ChannelExportState] = {}
     known_message_keys: set[tuple[SlackChannelId, SlackMessageTimestamp]] = set()
 
-    for stream in ("created", "updated"):
-        for record in _load_jsonl_records(_events_path(output_dir, "messages", stream)):
+    for stream in StreamType:
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.MESSAGES, stream)):
             event = MessageEvent.model_validate(record)
             known_message_keys.add((event.channel_id, event.message_ts))
 
@@ -95,21 +111,21 @@ def load_existing_message_state(
 def load_existing_user_ids(output_dir: Path) -> set[SlackUserId]:
     """Load the set of user IDs from both created and updated streams."""
     user_ids: set[SlackUserId] = set()
-    for stream in ("created", "updated"):
-        for record in _load_jsonl_records(_events_path(output_dir, "users", stream)):
+    for stream in StreamType:
+        for record in _load_jsonl_records(_events_path(output_dir, DataType.USERS, stream)):
             event = UserEvent.model_validate(record)
             user_ids.add(event.user_id)
     logger.info("Loaded %d known users from store", len(user_ids))
     return user_ids
 
 
-def save_channel_events(output_dir: Path, stream: str, events: Sequence[ChannelEvent]) -> None:
-    _append_events(_events_path(output_dir, "channels", stream), events)
+def save_channel_events(output_dir: Path, stream: StreamType, events: Sequence[ChannelEvent]) -> None:
+    _append_events(_events_path(output_dir, DataType.CHANNELS, stream), events)
 
 
-def save_message_events(output_dir: Path, stream: str, events: Sequence[MessageEvent]) -> None:
-    _append_events(_events_path(output_dir, "messages", stream), events)
+def save_message_events(output_dir: Path, stream: StreamType, events: Sequence[MessageEvent]) -> None:
+    _append_events(_events_path(output_dir, DataType.MESSAGES, stream), events)
 
 
-def save_user_events(output_dir: Path, stream: str, events: Sequence[UserEvent]) -> None:
-    _append_events(_events_path(output_dir, "users", stream), events)
+def save_user_events(output_dir: Path, stream: StreamType, events: Sequence[UserEvent]) -> None:
+    _append_events(_events_path(output_dir, DataType.USERS, stream), events)
