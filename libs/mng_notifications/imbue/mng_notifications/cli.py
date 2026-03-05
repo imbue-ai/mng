@@ -112,10 +112,10 @@ configure the plugin in settings.toml:
     [plugins.notifications]
     terminal_app = "iTerm"
 
-Or use a custom command (MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN is set in the environment):
+Or use a custom command (MNG_AGENT_NAME is set in the environment):
 
     [plugins.notifications]
-    custom_terminal_command = "my-terminal -e mng connect $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN"
+    custom_terminal_command = "my-terminal -e mng connect $MNG_AGENT_NAME"
 
 Press Ctrl+C to stop watching.""",
     examples=(

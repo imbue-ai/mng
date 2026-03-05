@@ -22,13 +22,13 @@ def test_merge_with_override_terminal_app() -> None:
 
 def test_merge_with_override_custom_command() -> None:
     base = NotificationsPluginConfig(terminal_app="Terminal")
-    override = NotificationsPluginConfig(custom_terminal_command="my-cmd $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN")
+    override = NotificationsPluginConfig(custom_terminal_command="my-cmd $MNG_AGENT_NAME")
 
     merged = base.merge_with(override)
 
     assert isinstance(merged, NotificationsPluginConfig)
     assert merged.terminal_app == "Terminal"
-    assert merged.custom_terminal_command == "my-cmd $MNG_AGENT_NAME_FOR_NOTIFICATIONS_PLUGIN"
+    assert merged.custom_terminal_command == "my-cmd $MNG_AGENT_NAME"
 
 
 def test_merge_with_base_plugin_config_returns_self() -> None:
