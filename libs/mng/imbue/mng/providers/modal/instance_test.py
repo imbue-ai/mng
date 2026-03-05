@@ -193,6 +193,8 @@ def _make_modal_provider_with_mocks(
         host_dir=Path("/mng"),
         mng_ctx=mng_ctx,
         config=config,
+        modal_app_name=app_name,
+        modal_environment_name=mock_environment_name,
         modal_app=modal_app,
     )
     return instance
@@ -1015,6 +1017,8 @@ def make_modal_provider_with_config_defaults(
         host_dir=Path("/mng"),
         mng_ctx=mng_ctx,
         config=config,
+        modal_app_name=app_name,
+        modal_environment_name=mock_environment_name,
         modal_app=modal_app,
     )
     return instance
@@ -1380,6 +1384,8 @@ def _make_modal_provider_without_host_volume(
         host_dir=Path("/mng"),
         mng_ctx=mng_ctx,
         config=config,
+        modal_app_name=app_name,
+        modal_environment_name=mock_environment_name,
         modal_app=modal_app,
     )
 
